@@ -1,0 +1,562 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "http_admin_ui_disabled": {
+        "type": "boolean",
+        "title": "Cleartext HTTP Admin UI Disabled",
+        "description": "True when the cleartext HTTP management web UI is disabled ('no ip http server'; if web mgmt is required, only 'ip http secure-server' behind an 'ip http access-class' ACL). False (insecure) means a cleartext, unauthenticated, possibly internet-reachable admin web UI is enabled — the entry point of the CVE-2023-20198 -> CVE-2023-20273 implant chain.",
+        "default": false
+      },
+      "telnet_disabled_ssh_only": {
+        "type": "boolean",
+        "title": "Telnet Disabled, SSH-Only Transport",
+        "description": "True when remote management on vty lines accepts only SSH and Telnet is disabled ('transport input ssh'). False (insecure) means Telnet is permitted ('transport input telnet/all' or a permissive default) so credentials traverse the network in cleartext for on-path/internet capture.",
+        "default": false
+      },
+      "ssh_v2_only_enforced": {
+        "type": "boolean",
+        "title": "SSH Version 2 Only Enforced",
+        "description": "True when only SSH protocol version 2 is permitted ('ip ssh version 2'). False (insecure) means SSHv1 is allowed or the version is unpinned (SSHv1 fallback), exposing known cryptographic weaknesses enabling downgrade/credential interception. Modeled as an interpreted boolean to avoid the '1'-substring trap in 'version 2'.",
+        "default": false
+      },
+      "vty_access_class_restricted": {
+        "type": "boolean",
+        "title": "VTY Access-Class Restriction Applied",
+        "description": "True when vty lines bind an 'access-class <acl> in' (or Management Plane Protection) scoping remote admin (SSH/HTTPS/SNMP/NETCONF) to authorized management subnets. False (insecure) means vty lines have no access-class and the control surface is reachable from any source — the dominant initial-access vector for routers.",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet-Reachable",
+        "description": "True when the device's management/control interfaces (SSH, HTTPS web UI, SNMP, NETCONF) are not reachable from the public internet or untrusted networks — out-of-band or ACL/segmentation isolated. False (insecure) means an admin interface is internet-exposed, the precondition that turned CVE-2023-20198 into mass exploitation. Canonical cross-component workspace attribute.",
+        "default": false
+      },
+      "snmpv3_auth_priv_required": {
+        "type": "boolean",
+        "title": "SNMPv3 Auth+Priv Required",
+        "description": "True when SNMP management is restricted to SNMPv3 with auth+priv (USM) and no SNMP v1/v2c community strings remain in use. False (insecure) means cleartext v1/v2c communities are still in service.",
+        "default": false
+      },
+      "snmp_default_communities_removed": {
+        "type": "boolean",
+        "title": "SNMP Default Communities Removed",
+        "description": "True when well-known default community strings (RO 'public', RW 'private', and other shipped defaults) have been removed. False (insecure) means defaults like 'snmp-server community public/private' remain.",
+        "default": false
+      },
+      "snmp_write_community_disabled_or_acl_bound": {
+        "type": "boolean",
+        "title": "SNMP Write Access Eliminated or ACL-Bound",
+        "description": "True when SNMP read-write access is eliminated (no RW community) or, where retained, strictly ACL-bound to authorized management hosts. False (insecure) means an unrestricted 'snmp-server community <x> RW' exists, permitting remote configuration modification.",
+        "default": false
+      },
+      "snmp_access_acl_restricted": {
+        "type": "boolean",
+        "title": "SNMP Access ACL-Restricted",
+        "description": "True when SNMP access (any retained community or SNMPv3 access) is restricted by an access-list scoped to authorized management subnets. False (insecure) means SNMP is reachable from any/untrusted source. Secondary trigger to the SNMPv3/community controls."
+      },
+      "centralized_aaa_enabled": {
+        "type": "boolean",
+        "title": "Centralized AAA Enabled",
+        "description": "True when centralized AAA governs admin authentication, authorization, and accounting ('aaa new-model' bound to TACACS+/RADIUS with local fallback only). False (insecure) means access falls back to shared local/line passwords with no per-admin accountability or command accounting.",
+        "default": false
+      },
+      "strong_password_hashing_enabled": {
+        "type": "boolean",
+        "title": "Strong Password Hashing Enabled",
+        "description": "True when privileged and local credentials use strong, non-reversible hashing ('enable secret' and 'username x secret' Type 8/9) rather than reversible Type 7/0. False (insecure) means secrets sit in the running-config in recoverable form.",
+        "default": false
+      },
+      "service_password_encryption_enabled": {
+        "type": "boolean",
+        "title": "Service Password-Encryption Enabled",
+        "description": "True when 'service password-encryption' obfuscates otherwise-plaintext passwords in the running-config. False (insecure) means credentials sit fully cleartext. This is only Type-7 reversible obfuscation — a secondary defense-in-depth trigger behind strong_password_hashing_enabled."
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed or Changed",
+        "description": "True when default/factory and reused administrative accounts and passwords have been removed or changed to strong unique credentials. False (insecure) means default/reused passwords permit trivial credential-based initial access. Canonical reuse attribute.",
+        "default": false
+      },
+      "shared_admin_accounts": {
+        "type": "boolean",
+        "title": "Shared Admin Accounts In Use",
+        "description": "True (insecure) when administrators share common (line/enable/local) accounts rather than per-admin identities, destroying accountability and amplifying credential reuse. Canonical reuse attribute whose secure state is false — fires with is_true on the insecure (shared) state."
+      },
+      "bgp_session_authentication_enabled": {
+        "type": "boolean",
+        "title": "BGP Session Authentication Enabled",
+        "description": "True when every eBGP/iBGP neighbor session is cryptographically authenticated via TCP-MD5 ('neighbor <ip> password <key>') or, preferably, TCP-AO key-chain. False (insecure) lets an adversary spoof a BGP peer or hijack an unauthenticated TCP session to inject/hijack routes.",
+        "default": false
+      },
+      "igp_neighbor_authentication_enabled": {
+        "type": "boolean",
+        "title": "IGP Neighbor Authentication Enabled",
+        "description": "True when IGP adjacencies (OSPF/EIGRP) require cryptographic neighbor authentication (OSPF message-digest keys, EIGRP md5 key-chains) on adjacency-forming interfaces. False (insecure) lets a rogue on-link device form an adjacency and inject or blackhole routes.",
+        "default": false
+      },
+      "bgp_rpki_origin_validation_enabled": {
+        "type": "boolean",
+        "title": "BGP RPKI Origin Validation Enabled",
+        "description": "True when the router validates BGP route origin against RPKI ROAs (RTR session configured, invalid-origin routes dropped/depreferenced). False (insecure) means the router accepts mis-originated/hijacked prefixes regardless of ROA, enabling prefix hijack and traffic rerouting.",
+        "default": false
+      },
+      "proxy_arp_disabled_on_edge": {
+        "type": "boolean",
+        "title": "Proxy ARP Disabled on Edge Interfaces",
+        "description": "True when Proxy ARP is disabled ('no ip proxy-arp') on untrusted/edge interfaces. False (insecure) lets the router answer ARP for off-subnet hosts — an on-path adversary-in-the-middle interception primitive.",
+        "default": false
+      },
+      "icmp_redirects_disabled": {
+        "type": "boolean",
+        "title": "ICMP Redirects Disabled on Edge",
+        "description": "True when ICMP redirects are not sent ('no ip redirects') on untrusted/edge interfaces. False (insecure) lets redirects be abused to steer transit traffic through an attacker-chosen next hop for on-path interception.",
+        "default": false
+      },
+      "interface_acls_enforce_segmentation": {
+        "type": "boolean",
+        "title": "Interface ACLs Enforce Segmentation",
+        "description": "True when interface/transit ACLs actually enforce the trust-boundary segmentation the router is meant to separate (no permit-any gaps between straddled segments). False (insecure) means ACL gaps let traffic cross boundaries the router should isolate.",
+        "default": false
+      },
+      "unauthorized_tunnel_interfaces_blocked": {
+        "type": "boolean",
+        "title": "Unauthorized Tunnel Interfaces Blocked",
+        "description": "True when only authorized, change-controlled tunnel interfaces exist and creation of new GRE/IPsec/other tunnels is prevented or alerted. False (insecure) lets an attacker who controls the router stand up a rogue tunnel to bridge segments and proxy traffic (T1599 boundary bridging).",
+        "default": false
+      },
+      "firmware_integrity_verified": {
+        "type": "boolean",
+        "title": "Firmware Integrity Verified",
+        "description": "True when the running IOS/IOS-XE image's authenticity has been verified ('verify' / 'show software authenticity file' report digital-signature and embedded-hash success against the Cisco-signed image). False means verification failed or was never performed, so a tampered/unsigned image may be running undetected.",
+        "default": false
+      },
+      "secure_boot_image_verification_enabled": {
+        "type": "boolean",
+        "title": "Secure Boot Image Verification Enabled",
+        "description": "True when the hardware Trust Anchor / Secure Boot root of trust is enforcing — ROMMON and the IOS-XE image are signature-verified at every boot and the device halts on failure. False means the device will boot a tampered/implanted image without a hardware-anchored integrity check.",
+        "default": false
+      },
+      "signed_images_only_enforced": {
+        "type": "boolean",
+        "title": "Signed-Images-Only Policy Enforced",
+        "description": "True when device policy permits loading only Cisco-signed images, rejecting unsigned or modified firmware at install/boot time. False means an attacker who can stage an image can install an unsigned/bootkit image. Secondary trigger behind firmware_integrity_verified / secure_boot."
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known-Exploited RCE CVE Present",
+        "description": "True (insecure) when the router runs an EoL/unpatched IOS or IOS-XE train affected by a CISA-KEV / known-exploited router CVE (e.g. CVE-2023-20198 + CVE-2023-20273 Web UI implant chain, or CVE-2018-0171 Smart Install). Secure (patched) is false; this exposure fires on true. Canonical reuse attribute.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "True when this internet-/edge-facing router runs a vendor-supported release with all applicable KEV-listed CVEs patched within the BOD-22-01 remediation SLA. False (insecure) means an out-of-SLA edge appliance is left exposed to a known-exploited router CVE. Canonical reuse attribute.",
+        "default": false
+      },
+      "smart_install_disabled": {
+        "type": "boolean",
+        "title": "Cisco Smart Install Disabled",
+        "description": "True when the Cisco Smart Install client (vstack, TCP/4786) is disabled ('no vstack', port not listening). False (insecure) means Smart Install is operational — CVE-2018-0171 (CVSS 9.8, CISA KEV) permits unauthenticated RCE / config exfiltration and a single packet can force a reload (availability DoS). Enabled by default on many devices.",
+        "default": false
+      },
+      "legacy_services_disabled": {
+        "type": "boolean",
+        "title": "Legacy/Insecure Services Disabled",
+        "description": "True when the router's legacy/insecure services are all disabled ('no service tcp/udp-small-servers', 'no ip finger', 'no ip bootp server', 'no mop enabled', 'no service pad', 'no ip source-route', 'no cdp run' on untrusted edges). False (insecure) means any of these widen the attack surface and leak topology."
+      },
+      "control_plane_policing_enabled": {
+        "type": "boolean",
+        "title": "Control Plane Policing (CoPP) Enabled",
+        "description": "True when a CoPP policy is attached and active — a policy-map applied via 'service-policy input' under 'control-plane' rate-limiting/filtering traffic punted to the route-processor CPU. False (insecure) means punted-traffic storms exhaust route-processor CPU and drop legitimate routing/management (T1498/T1499).",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "True when effective DDoS / volumetric-and-protocol-flood protection covers this component (here, control-plane flood mitigation such as CoPP, hardware control-plane protection, or upstream scrubbing). False (insecure) means the route processor is exposed to denial-of-service flooding (T1498/T1499). AND-grouped with control_plane_policing_enabled. Canonical reuse attribute.",
+        "default": false
+      },
+      "management_plane_protection_enabled": {
+        "type": "boolean",
+        "title": "Management Plane Protection (MPP) Enabled",
+        "description": "True when MPP is configured ('control-plane host management-interface ... allow ssh https snmp') restricting which interfaces accept punted management traffic, bounding management-protocol volume reaching the route-processor CPU. False (insecure) means management-plane punted traffic is unbounded and can contribute to CPU exhaustion (T1498/T1499)."
+      },
+      "infrastructure_acl_mgmt_access": {
+        "type": "boolean",
+        "title": "Infrastructure ACL Restricts Management Access",
+        "description": "True when management-plane access (SSH/SNMP/NETCONF) is restricted to authorized management networks via vty 'access-class' / an infrastructure ACL, so untrusted hosts cannot direct floods of management/control traffic at the route processor. False (insecure) means management services are reachable from any/internet. AND-grouped with management_plane_protection_enabled."
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "True when the router ships logs to a remote syslog destination at adequate severity ('logging host <syslog>' with 'logging trap' >= informational, 'service timestamps log datetime'). False (insecure) means logging is local-only/absent, leaving no tamper-resistant, time-correlatable record of attacker activity. Canonical reuse attribute.",
+        "default": false
+      },
+      "config_change_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Config-Change Audit Logging Enabled",
+        "description": "True when configuration-change auditing is enabled and notified to syslog ('archive' with 'log config' and 'notify syslog'). False (insecure) means no config-change archive exists, so an attacker can alter config/routing without producing a change-audit trail.",
+        "default": false
+      },
+      "clocks_synced_to_trusted_time_source": {
+        "type": "boolean",
+        "title": "Clocks Synced to Trusted Time Source",
+        "description": "True when the router's clock is synchronized to a trusted, accurate time source (NTP) so log entries are correlatable across systems. False (insecure) means clocks are unsynced/untrustworthy, enabling timestomping and defeating cross-device forensic correlation. Canonical reuse attribute.",
+        "default": false
+      },
+      "authenticated_ntp_enabled": {
+        "type": "boolean",
+        "title": "Authenticated NTP Enabled",
+        "description": "True when NTP is cryptographically authenticated ('ntp authenticate', 'ntp authentication-key', 'ntp trusted-key', servers bound with 'key'). False (insecure) lets an attacker spoof time to mask activity, break log correlation, or invalidate time-dependent checks.",
+        "default": false
+      }
+    },
+    "required": [
+      "http_admin_ui_disabled",
+      "telnet_disabled_ssh_only",
+      "ssh_v2_only_enforced",
+      "vty_access_class_restricted",
+      "edge_management_interfaces_not_internet_reachable",
+      "snmpv3_auth_priv_required",
+      "snmp_default_communities_removed",
+      "snmp_write_community_disabled_or_acl_bound",
+      "snmp_access_acl_restricted",
+      "centralized_aaa_enabled",
+      "strong_password_hashing_enabled",
+      "service_password_encryption_enabled",
+      "default_accounts_removed_or_changed",
+      "shared_admin_accounts",
+      "bgp_session_authentication_enabled",
+      "igp_neighbor_authentication_enabled",
+      "bgp_rpki_origin_validation_enabled",
+      "proxy_arp_disabled_on_edge",
+      "icmp_redirects_disabled",
+      "interface_acls_enforce_segmentation",
+      "unauthorized_tunnel_interfaces_blocked",
+      "firmware_integrity_verified",
+      "secure_boot_image_verification_enabled",
+      "signed_images_only_enforced",
+      "unpatched_known_rce_cve",
+      "edge_appliance_patched_within_sla",
+      "smart_install_disabled",
+      "legacy_services_disabled",
+      "control_plane_policing_enabled",
+      "ddos_protection_in_place",
+      "management_plane_protection_enabled",
+      "infrastructure_acl_mgmt_access",
+      "logs_stored_on_separate_system",
+      "config_change_audit_logging_enabled",
+      "clocks_synced_to_trusted_time_source",
+      "authenticated_ntp_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_aaa_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_default_communities_removed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmpv3_auth_priv_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_admin_accounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_write_community_disabled_or_acl_bound"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ssh_v2_only_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/telnet_disabled_ssh_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/strong_password_hashing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_password_encryption_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http_admin_ui_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/icmp_redirects_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/interface_acls_enforce_segmentation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_arp_disabled_on_edge"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/smart_install_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthorized_tunnel_interfaces_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vty_access_class_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/infrastructure_acl_mgmt_access"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/legacy_services_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_access_acl_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/firmware_integrity_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_boot_image_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signed_images_only_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_policing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_plane_protection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authenticated_ntp_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/clocks_synced_to_trusted_time_source"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_change_audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Routing Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bgp_rpki_origin_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bgp_session_authentication_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/igp_neighbor_authentication_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

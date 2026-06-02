@@ -1,0 +1,9 @@
+{
+  "id": "a6406f69-a0ec-48c9-a9dd-27b3c03bbda8",
+  "name": "User Credentials",
+  "classType": "data",
+  "type": "data",
+  "description": "User credentials — also called passwords, secrets, private keys, password hashes, API keys, or login secrets — the secrets that authenticate principals. Theft yields direct impersonation and account takeover. The place to look for credentials, passwords/hashes, secret keys, login secrets, or the data that proves who a principal is.",
+  "category": "Sensitive Information",
+  "status": "draft"
+}

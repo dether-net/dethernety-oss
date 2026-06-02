@@ -1,0 +1,243 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "network_access_control_802_1x_enforced": {
+        "type": "boolean",
+        "title": "802.1X Port/Identity Admission Enforced",
+        "description": "Port-based 802.1X device+identity authentication to RADIUS before the port forwards production traffic (closed/auth-fail = no access). Secure true.",
+        "default": false
+      },
+      "managed_device_enrollment_enforced": {
+        "type": "boolean",
+        "title": "Managed-Device Enrollment Enforced",
+        "description": "Admission tied to device identity (machine cert / approved-to-connect inventory). Secure true.",
+        "default": false
+      },
+      "rogue_unmanaged_device_detection_enabled": {
+        "type": "boolean",
+        "title": "Rogue/Unmanaged Device Detection Enabled",
+        "description": "NAC detects and denies rogue / unmanaged / MAC-spoofing devices. Secure true.",
+        "default": false
+      },
+      "client_posture_check_enabled": {
+        "type": "boolean",
+        "title": "Client Posture Check Gates Admission",
+        "description": "NAC verifies device posture (patch / EDR / disk-encryption / host-firewall) before production access; non-compliant routed to remediation. Secure true.",
+        "default": false
+      },
+      "third_party_devices_meet_same_posture_bar": {
+        "type": "boolean",
+        "title": "Third-Party Devices Meet Same Posture Bar",
+        "description": "Contractor / BYOD devices held to the same posture bar, with no relaxed bypass. Secure true.",
+        "default": false
+      },
+      "dynamic_segment_assignment_by_identity_enabled": {
+        "type": "boolean",
+        "title": "Identity-Based Dynamic Segment Assignment Enabled",
+        "description": "RADIUS/NAC dynamically assigns VLAN/SGT scoped to identity+device (not a flat VLAN); confines the host to its least-privilege segment. Secure true.",
+        "default": false
+      },
+      "user_segment_isolated_from_production_tiers": {
+        "type": "boolean",
+        "title": "User Segments Isolated From Production Tiers",
+        "description": "Guest / BYOD / IoT and user segments are isolated from production/server tiers (no east-west path). Secure true.",
+        "default": false
+      },
+      "quarantine_remediation_vlan_configured": {
+        "type": "boolean",
+        "title": "Quarantine/Remediation VLAN Configured",
+        "description": "A quarantine/remediation VLAN holds non-compliant or unauthenticated devices away from production. Secure true.",
+        "default": false
+      },
+      "centralized_aaa_enabled": {
+        "type": "boolean",
+        "title": "Centralized AAA Backing Enabled",
+        "description": "Admission backed by centralized RADIUS/802.1X AAA for consistent, revocable policy. Secure true.",
+        "default": false
+      },
+      "nac_admission_events_audit_logged": {
+        "type": "boolean",
+        "title": "NAC Admission Events Audit-Logged",
+        "description": "Admission / denial / quarantine events forwarded to centralized SIEM, time-synced, and retained. Secure true.",
+        "default": false
+      },
+      "non_bypassable_admission_no_alternate_path": {
+        "type": "boolean",
+        "title": "Non-Bypassable Admission — No Alternate Path",
+        "description": "No unmanaged downstream switch or alternate path provides an unauthenticated route into production. Secure true.",
+        "default": false
+      },
+      "mac_auth_bypass_exceptions_eliminated": {
+        "type": "boolean",
+        "title": "MAC-Auth-Bypass Exceptions Eliminated",
+        "description": "No standing MAC-auth-bypass (MAB) exceptions weaken admission. Secure true.",
+        "default": false
+      },
+      "radius_unreachable_fails_closed": {
+        "type": "boolean",
+        "title": "RADIUS-Unreachable Fails Closed",
+        "description": "No fail-open on RADIUS timeout; admission fails closed when AAA is unreachable. Secure true."
+      }
+    },
+    "required": [
+      "network_access_control_802_1x_enforced",
+      "managed_device_enrollment_enforced",
+      "rogue_unmanaged_device_detection_enabled",
+      "client_posture_check_enabled",
+      "third_party_devices_meet_same_posture_bar",
+      "dynamic_segment_assignment_by_identity_enabled",
+      "user_segment_isolated_from_production_tiers",
+      "quarantine_remediation_vlan_configured",
+      "centralized_aaa_enabled",
+      "nac_admission_events_audit_logged",
+      "non_bypassable_admission_no_alternate_path",
+      "mac_auth_bypass_exceptions_eliminated",
+      "radius_unreachable_fails_closed"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_aaa_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mac_auth_bypass_exceptions_eliminated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_access_control_802_1x_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_segment_assignment_by_identity_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/non_bypassable_admission_no_alternate_path"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/quarantine_remediation_vlan_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/user_segment_isolated_from_production_tiers"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/radius_unreachable_fails_closed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nac_admission_events_audit_logged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Asset Inventory",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_device_enrollment_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rogue_unmanaged_device_detection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Device Posture",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_posture_check_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_devices_meet_same_posture_bar"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "segment_boundary_enforced": {
+        "type": "boolean",
+        "title": "Segment Boundary Enforced",
+        "description": "Default-deny PEP (stateful firewall/NACL/SG/NetworkPolicy/mesh authz) drops cross-segment traffic not on explicit allow-list.",
+        "default": false
+      },
+      "vlan_hopping_prevention": {
+        "type": "boolean",
+        "title": "VLAN Hopping Prevention",
+        "description": "Access ports static + DTP disabled + unused native VLAN + BPDU Guard. N/A on cloud-VPC.",
+        "default": false
+      },
+      "east_west_within_segment_restricted": {
+        "type": "boolean",
+        "title": "East-West Within Segment Restricted",
+        "description": "Intra-segment east-west constrained by microsegmentation (host firewalls/NetworkPolicy default-deny/intra-SG isolation/mesh authz) - no flat tier.",
+        "default": false
+      },
+      "inter_segment_traffic_filtered_by_identity": {
+        "type": "boolean",
+        "title": "Inter-Segment Traffic Filtered by Identity",
+        "description": "Inter-segment allow rules scoped by workload identity (SG-to-SG, K8s podSelector, SPIFFE, mTLS), not source CIDR/zone alone.",
+        "default": false
+      },
+      "inter_segment_crossings_logged": {
+        "type": "boolean",
+        "title": "Inter-Segment Crossings Logged",
+        "description": "Every accepted/denied crossing captured in flow logs (VPC Flow Logs/NSG flow logs/mesh access logs) with retention and tamper-resistance.",
+        "default": false
+      },
+      "segmentation_drift_detected": {
+        "type": "boolean",
+        "title": "Segmentation Drift Detected",
+        "description": "Segment ACLs managed as IaC and continuously verified against baseline; out-of-band edits detected, alerted, reconciled.",
+        "default": false
+      },
+      "private_link_for_managed_services": {
+        "type": "boolean",
+        "title": "PrivateLink for Managed Services",
+        "description": "Managed cloud services consumed via PrivateLink/PrivateEndpoint, not public endpoints."
+      },
+      "segment_egress_scoped": {
+        "type": "boolean",
+        "title": "Segment Egress Scoped",
+        "description": "Outbound traffic allow-listed to explicit destinations with default-deny terminator - prevents proxy-pivot via legitimately-allowed crossing hosts.",
+        "default": false
+      }
+    },
+    "required": [
+      "segment_boundary_enforced",
+      "vlan_hopping_prevention",
+      "east_west_within_segment_restricted",
+      "inter_segment_traffic_filtered_by_identity",
+      "inter_segment_crossings_logged",
+      "segmentation_drift_detected",
+      "private_link_for_managed_services",
+      "segment_egress_scoped"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_segment_traffic_filtered_by_identity"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/east_west_within_segment_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/segment_boundary_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segment_egress_scoped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vlan_hopping_prevention"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_link_for_managed_services"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_segment_crossings_logged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segmentation_drift_detected"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

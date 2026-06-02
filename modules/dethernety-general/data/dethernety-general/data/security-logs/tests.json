@@ -1,0 +1,114 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "audit_log_tamper_evident": false,
+      "file_integrity_monitoring_enabled": false,
+      "logs_stored_on_separate_system": false,
+      "centralized_log_aggregation": false,
+      "least_privilege_access_enforced": false,
+      "audit_management_restricted_to_privileged_subset": false,
+      "log_access_monitored": false,
+      "security_events_fully_logged": false,
+      "required_record_fields_complete": false,
+      "clocks_synced_to_trusted_time_source": false,
+      "timestamps_in_utc": false,
+      "time_source_access_restricted": false,
+      "log_retention_days": 0,
+      "log_storage_sized_for_retention": false,
+      "log_flood_overflow_protection": false,
+      "tls_only_transport": false,
+      "encrypted_at_rest": false,
+      "pii_excluded_from_logs": false,
+      "secrets_masked_in_logs": false,
+      "logging_failure_alerting_enabled": false,
+      "log_review_cadence_defined": false
+    },
+    "expectedExposures": [
+      "Logs unencrypted in transit / at rest",
+      "Logs not tamper-evident",
+      "Insufficient security-event coverage",
+      "Logging-pipeline failures undetected",
+      "Logs stored only locally — erased on host compromise",
+      "Sensitive data captured in readable logs",
+      "Unsynchronized clocks defeating correlation",
+      "Over-broad read/modify/delete access to logs",
+      "Short or absent retention destroying evidence"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "audit_log_tamper_evident": true,
+      "file_integrity_monitoring_enabled": true,
+      "logs_stored_on_separate_system": true,
+      "centralized_log_aggregation": true,
+      "least_privilege_access_enforced": true,
+      "audit_management_restricted_to_privileged_subset": true,
+      "log_access_monitored": true,
+      "security_events_fully_logged": true,
+      "required_record_fields_complete": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "timestamps_in_utc": true,
+      "time_source_access_restricted": true,
+      "log_retention_days": 365,
+      "log_storage_sized_for_retention": true,
+      "log_flood_overflow_protection": true,
+      "tls_only_transport": true,
+      "encrypted_at_rest": true,
+      "pii_excluded_from_logs": true,
+      "secrets_masked_in_logs": true,
+      "logging_failure_alerting_enabled": true,
+      "log_review_cadence_defined": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "audit_log_tamper_evident": true,
+      "file_integrity_monitoring_enabled": true,
+      "logs_stored_on_separate_system": true,
+      "centralized_log_aggregation": true,
+      "least_privilege_access_enforced": true,
+      "audit_management_restricted_to_privileged_subset": true,
+      "log_access_monitored": true,
+      "security_events_fully_logged": true,
+      "required_record_fields_complete": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "timestamps_in_utc": true,
+      "time_source_access_restricted": true,
+      "log_retention_days": 0,
+      "log_storage_sized_for_retention": true,
+      "log_flood_overflow_protection": true,
+      "tls_only_transport": true,
+      "encrypted_at_rest": true,
+      "pii_excluded_from_logs": true,
+      "secrets_masked_in_logs": true,
+      "logging_failure_alerting_enabled": true,
+      "log_review_cadence_defined": true
+    },
+    "expectedExposures": [
+      "Short or absent retention destroying evidence"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Logs unencrypted in transit / at rest",
+      "Logs not tamper-evident",
+      "Insufficient security-event coverage",
+      "Logging-pipeline failures undetected",
+      "Logs stored only locally — erased on host compromise",
+      "Sensitive data captured in readable logs",
+      "Unsynchronized clocks defeating correlation",
+      "Over-broad read/modify/delete access to logs",
+      "Short or absent retention destroying evidence"
+    ]
+  }
+]

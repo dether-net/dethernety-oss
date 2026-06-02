@@ -1,0 +1,272 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "centralized_aaa_enabled": {
+        "type": "boolean",
+        "title": "Centralized AAA Enabled",
+        "description": "All identities governed through a central directory/SSO with no unmanaged local accounts. Secure when true.",
+        "default": false
+      },
+      "provisioning_requires_approval": {
+        "type": "boolean",
+        "title": "Provisioning Requires Approval",
+        "description": "Provisioning follows a documented approved joiner/role-change workflow. Secure when true.",
+        "default": false
+      },
+      "offboarding_credential_revocation_enforced": {
+        "type": "boolean",
+        "title": "Offboarding Credential Revocation Enforced",
+        "description": "Access is revoked and accounts disabled promptly on termination or role exit. Secure when true.",
+        "default": false
+      },
+      "dormant_admin_accounts_disabled": {
+        "type": "boolean",
+        "title": "Dormant Admin Accounts Disabled",
+        "description": "Dormant and orphaned accounts are automatically disabled. Secure when true.",
+        "default": false
+      },
+      "dormant_account_disable_window_days": {
+        "type": "integer",
+        "title": "Dormant Account Disable Window (Days)",
+        "description": "Days before a dormant account is disabled; <=45 is secure (NIST AC-2(3))."
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Entitlements are assigned per least privilege. Secure when true.",
+        "default": false
+      },
+      "periodic_privilege_recertification": {
+        "type": "boolean",
+        "title": "Periodic Privilege Recertification",
+        "description": "Entitlements are reviewed on a recertification cadence and unjustified privileges removed. Secure when true.",
+        "default": false
+      },
+      "segregation_of_duties_enforced": {
+        "type": "boolean",
+        "title": "Segregation of Duties Enforced",
+        "description": "Toxic entitlement combinations are blocked at grant or flagged during recertification. Secure when true.",
+        "default": false
+      },
+      "no_shared_privileged_credentials": {
+        "type": "boolean",
+        "title": "No Shared Privileged Credentials",
+        "description": "Admin work uses dedicated individually-attributable accounts with no shared credentials. Secure when true.",
+        "default": false
+      },
+      "mfa_enforced_for_admin": {
+        "type": "boolean",
+        "title": "MFA Enforced for Admin",
+        "description": "MFA is enforced centrally for admin, remote, and external access. Secure when true.",
+        "default": false
+      },
+      "breached_password_screening_enabled": {
+        "type": "boolean",
+        "title": "Breached Password Screening Enabled",
+        "description": "Credential policy screens against breach/common-password lists (NIST 800-63B). Secure when true.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting or Lockout Enabled",
+        "description": "Authentication rate-limiting/lockout protects against brute force and password spraying. Secure when true."
+      },
+      "federation_trust_validated": {
+        "type": "boolean",
+        "title": "Federation Trust Validated",
+        "description": "Federation/SSO trust relationships and assertions are validated by relying parties. Secure when true.",
+        "default": false
+      },
+      "saml_assertion_signature_verified": {
+        "type": "boolean",
+        "title": "SAML Assertion Signature Verified",
+        "description": "SAML/OIDC assertion signatures are verified over the full assertion. Secure when true.",
+        "default": false
+      },
+      "audience_claim_validated": {
+        "type": "boolean",
+        "title": "Audience Claim Validated",
+        "description": "Assertion audience-restriction is validated by every relying party, blocking cross-RP injection. Secure when true.",
+        "default": false
+      },
+      "identity_access_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Identity & Access Audit Logging Enabled",
+        "description": "Account-lifecycle and authN/authZ events are logged centrally with credentials scrubbed. Secure when true.",
+        "default": false
+      },
+      "service_account_inventory_governed": {
+        "type": "boolean",
+        "title": "Service Account Inventory Governed",
+        "description": "Service (non-human) identities are inventoried and governed alongside human accounts. Secure when true."
+      }
+    },
+    "required": [
+      "centralized_aaa_enabled",
+      "provisioning_requires_approval",
+      "offboarding_credential_revocation_enforced",
+      "dormant_admin_accounts_disabled",
+      "dormant_account_disable_window_days",
+      "least_privilege_access_enforced",
+      "periodic_privilege_recertification",
+      "segregation_of_duties_enforced",
+      "no_shared_privileged_credentials",
+      "mfa_enforced_for_admin",
+      "breached_password_screening_enabled",
+      "rate_limiting_or_lockout_enabled",
+      "federation_trust_validated",
+      "saml_assertion_signature_verified",
+      "audience_claim_validated",
+      "identity_access_audit_logging_enabled",
+      "service_account_inventory_governed"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/breached_password_screening_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_aaa_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dormant_admin_accounts_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/federation_trust_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_admin"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/offboarding_credential_revocation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/provisioning_requires_approval"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_assertion_signature_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dormant_account_disable_window_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_account_inventory_governed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/periodic_privilege_recertification"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segregation_of_duties_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_shared_privileged_credentials"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_access_audit_logging_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

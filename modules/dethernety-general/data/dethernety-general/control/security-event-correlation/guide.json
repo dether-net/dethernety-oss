@@ -1,0 +1,786 @@
+[
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether logs from all logging-capable assets are forwarded into one central SIEM/data lake, establishing the correlation substrate so no single source is the only copy.",
+    "security_impact": "Satisfies the countermeasure \"Centralized multi-source log aggregation\" — fires when centralized_log_aggregation is true — providing the cross-source substrate (CIS 8.9 / AU-6(3)) without which multi-step attacks (T1078, T1021) are never linkable. Without it, each source sits in a siloed console and an attacker who clears one source's local log erases the only copy.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the source-onboarding inventory and confirm each in-scope asset class forwards to the central SIEM, meeting CIS 8.9 centralization and 8.2 collection across logging-capable assets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source-onboarding inventory shows each asset class forwarding to the central SIEM (secure) vs. gaps where a class is unmonitored (insecure)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM, enumerate active source types and their last-seen timestamps to confirm live multi-source forwarding into the central platform.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Data Inputs / Source Types — enumerate active source types and last-seen timestamps per source class",
+        "expected_output": "Recent events from every in-scope source class (secure) vs. stale/absent feeds (silent blind spot)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "required_log_source_classes_onboarded",
+    "option_description": "Whether every in-scope logging-capable asset class (host/EDR, network, identity/IdP, cloud, application) is actively forwarding with fresh last-seen timestamps — no silent blind-spot class.",
+    "security_impact": "One of the OR-conditions of \"Centralized multi-source log aggregation\" — fires when required_log_source_classes_onboarded is true. An un-onboarded class (e.g. identity or cloud) is a blind spot through which a multi-step chain (T1078) escapes; the protection is present only when all in-scope classes report fresh ingest.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM > Data Inputs / Source Types, enumerate active source types and last-seen timestamps per source class; compare the onboarded set against the in-scope asset inventory and confirm each class shows recent (non-stale) ingest.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Data Inputs / Source Types — enumerate active source types and last-seen timestamps per source class",
+        "expected_output": "Recent events from every in-scope source class (secure) vs. stale/absent feeds for a class (silent blind spot)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the SIEM source-class set against the authoritative asset inventory to verify no in-scope class (host/EDR, network, identity, cloud, application) is missing.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every in-scope asset class appears in the onboarding inventory with live forwarding (secure) vs. a class present in the asset inventory but absent from ingest (gap)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether the aggregated correlation substrate is stored on infrastructure isolated from the monitored assets, so a source's identity cannot delete its own forwarded records.",
+    "security_impact": "Contextual evidence for \"Centralized multi-source log aggregation\" and load-bearing in the retention/tamper facet. When false, an attacker who compromises a source (T1070) can erase its own copy of the multi-step trail; separate-system storage satisfies AU-9(2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SIEM/log store runs on infrastructure isolated from the monitored sources and that source identities cannot delete forwarded records, satisfying AU-9(2) separate-system storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AU-9(2) separate-system storage satisfied — logs on isolated infrastructure, source identities unable to alter/delete (secure) vs. mutable co-located logs (insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU family — AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the network/hosting topology of the SIEM to verify it is administratively and network-segregated from the asset population whose logs it stores.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM deployed in a separate management/security zone with restricted inbound write-only forwarding (secure) vs. log store reachable and deletable from monitored assets (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cross_source_correlation_enabled",
+    "option_description": "Whether enabled correlation rules stitch events across multiple repositories/source classes (identity, host/EDR, network, cloud) rather than evaluating each source in isolation.",
+    "security_impact": "One of the OR-conditions of \"Cross-source multi-stage correlation into a single incident\" — fires when cross_source_correlation_enabled is true — satisfying AU-6(3) cross-repository correlation. Without it a multi-step chain spanning sources (T1078/T1021/T1071) is never linked.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented correlation searches and confirm at least some join >=2 source repositories, satisfying AU-6(3) 'analyze and correlate audit records across different repositories'.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented correlation searches that join >=2 source repositories (secure) vs. only single-source rules (the gap)",
+        "source": "NIST SP 800-53 Rev 5 AU-6(3) Correlate Audit Record Repositories"
+      },
+      {
+        "type": "gui",
+        "instruction": "In SIEM > Correlation Searches / Analytic Rules, filter to enabled multi-datamodel rules and confirm rules draw from more than one source type.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Correlation Searches / Analytic Rules — filter to enabled multi-datamodel rules",
+        "expected_output": "Enabled rules drawing from multiple source types (secure) vs. single-source, single-event rules only (insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU-6(5) Integrated Analysis of Audit Records"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "multistage_incident_correlation_enabled",
+    "option_description": "Whether at least one enabled multi-datamodel correlation rule exists per major attack chain (lateral movement, C2, credential access) that links sequential stages into a single incident object.",
+    "security_impact": "One of the OR-conditions of \"Cross-source multi-stage correlation into a single incident\" — fires when multistage_incident_correlation_enabled is true. It is the core protection of this control: linking sequential stages (IdP brute-force -> host EDR alert -> lateral movement) into one incident surfaces chains (T1021/T1110) invisible to any single-source rule.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM > Correlation Searches / Analytic Rules, confirm there is at least one enabled rule per major attack chain (lateral movement, C2, credential access) that links sequential stages into one incident/notable object.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Correlation Searches / Analytic Rules — filter to enabled multi-datamodel rules",
+        "expected_output": "At least one enabled rule per major attack chain drawing from multiple source types and producing a single incident (secure) vs. isolated per-stage alerts (insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU-6(5) Integrated Analysis of Audit Records"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify by walking one chain end-to-end (e.g. IdP brute-force then host EDR alert then lateral movement) that the searches emit a single incident object rather than separate alerts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sequential stages collapse into one incident/notable (secure) vs. each stage emitting an isolated, unlinked alert (insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU-6(3) Correlate Audit Record Repositories"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "detection_rules_attack_mapped",
+    "option_description": "Whether every enabled detection/correlation rule is tagged with one or more MITRE ATT&CK technique IDs, so coverage can be quantified per technique rather than assumed.",
+    "security_impact": "One of the OR-conditions of \"ATT&CK-mapped detection coverage with gap measurement\" — fires when detection_rules_attack_mapped is true. Without per-rule technique tags, coverage cannot be measured and undetected techniques stay invisible (enterprise SIEMs miss ~79% of techniques when coverage is unmeasured).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Sample enabled detection rules and confirm each carries one or more ATT&CK technique IDs; verify against the ATT&CK Navigator-style coverage heatmap that mappings exist and untagged rules are the exception.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ATT&CK Navigator-style coverage heatmap exists and each detection maps to technique IDs (secure) vs. rules untagged / no coverage map (insecure)",
+        "source": "ReliaQuest — Measuring Detection Coverage with MITRE ATT&CK"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM rule editor, inspect the technique/annotation field of a representative sample of enabled correlation rules to confirm ATT&CK IDs are populated.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Correlation Searches / Analytic Rules > (rule) > Annotations / MITRE ATT&CK mapping",
+        "expected_output": "Technique IDs populated on enabled rules (secure) vs. blank ATT&CK annotation fields (insecure)",
+        "source": "ReliaQuest — Measuring Detection Coverage with MITRE ATT&CK"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "attack_coverage_measured_and_trended",
+    "option_description": "Whether an ATT&CK Navigator-style coverage heatmap is maintained and trended over time, with zero-coverage techniques tracked to closure.",
+    "security_impact": "One of the OR-conditions of \"ATT&CK-mapped detection coverage with gap measurement\" — fires when attack_coverage_measured_and_trended is true. Turns detection from assumed to quantified; without trending and a tracked gap backlog, blind spots persist undetected.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the coverage heatmap/dashboard for a periodic trend line (e.g. Q1 45% -> Q3 68%) and a tracked backlog of zero-coverage techniques driven to closure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Coverage metric computed against the ATT&CK matrix with a trend line and a gap backlog (secure); coverage never measured / gaps unknown (insecure)",
+        "source": "Help Net Security — Enterprise SIEMs miss 79% of known MITRE ATT&CK techniques"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the coverage assessment follows a repeatable methodology (inventory data sources, iterate each technique, map alerts, classify covered/partial/zero) so the trend is comparable period over period.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented, repeated coverage-measurement method producing comparable period figures (secure) vs. one-off or ad-hoc estimate (insecure)",
+        "source": "ReliaQuest — Measuring Detection Coverage with MITRE ATT&CK"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "attack_technique_coverage_pct",
+    "option_description": "Percentage of in-scope MITRE ATT&CK techniques that have at least one TESTED detection. Read it from the coverage dashboard; the protection is effective at >= 80%.",
+    "security_impact": "One of the conditions of \"ATT&CK-mapped detection coverage with gap measurement\" — the protection is present when attack_technique_coverage_pct >= 80. Below threshold, a meaningful fraction of techniques (e.g. T1071/T1098/T1003) have no tested detection — the documented baseline is ~79% of techniques missed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the measured coverage figure from the ATT&CK heatmap/dashboard and confirm it counts only techniques with a TESTED (not merely authored) detection. The secure threshold is >= 80% of in-scope techniques covered.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A numeric coverage percentage, e.g. 82, computed against the in-scope ATT&CK matrix using tested detections; >= 80 is secure, lower indicates a coverage shortfall",
+        "source": "ReliaQuest — Measuring Detection Coverage with MITRE ATT&CK"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Spot-check that the percentage denominator is the in-scope technique set and that 'tested' means validation/detonation evidence exists, not just an authored rule, so the figure is not inflated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Coverage % traces to a defined in-scope denominator and tested-detection numerator (secure) vs. authored-but-untested rules counted as covered (overstated)",
+        "source": "Help Net Security — Enterprise SIEMs miss 79% of known MITRE ATT&CK techniques"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      80,
+      85,
+      92
+    ]
+  },
+  {
+    "option_name": "ueba_anomaly_analytics_enabled",
+    "option_description": "Whether User and Entity Behavior Analytics (UEBA) is enabled, modeling normal user/entity activity and scoring deviations to catch novel and credential-abuse attacks that static signatures miss.",
+    "security_impact": "One of the OR-conditions of \"Behavioral and UEBA anomaly analytics\" — fires when ueba_anomaly_analytics_enabled is true — providing D3FEND D3-UBA behavioral detection mitigating valid-account abuse and credential access (T1078/T1110/T1003).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM/UEBA > Models / Anomaly Rules, confirm a behavioral analytics module is active and producing anomaly scores against live telemetry (mapping to D3FEND D3-UBA).",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/UEBA > Models / Anomaly Rules — confirm baselining is trained and anomaly detectors active",
+        "expected_output": "Active behavioral models scoring live telemetry, mapping to D3FEND D3-UBA (secure); static signature rules only, no behavioral layer (insecure)",
+        "source": "MITRE D3FEND — User Behavior Analysis (D3-UBA)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the UEBA module is licensed/enabled in production (not a disabled trial) and that its anomaly scores feed downstream correlation/risk scoring rather than sitting in a separate dead-end console.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "UEBA enabled and integrated into the alerting pipeline (secure) vs. present but disabled / disconnected (insecure)",
+        "source": "Exabeam — UEBA primer (risk-based alerting / false-positive reduction)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "entity_baseline_trained",
+    "option_description": "Whether per-user and per-entity behavioral baselines are trained and active, giving the analytics a learned reference rather than a cold/empty model.",
+    "security_impact": "One of the OR-conditions of \"Behavioral and UEBA anomaly analytics\" — fires when entity_baseline_trained is true. A cold-start model produces noise or silence; a trained baseline is what lets anomaly scoring (D3-UBA) reliably flag deviation for credential-abuse detection (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM/UEBA > Models, confirm baselines are trained and active (not cold-start) and that entities have established normal profiles before anomaly scoring is relied upon.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/UEBA > Models / Anomaly Rules — confirm baselining is trained and anomaly detectors active",
+        "expected_output": "Models report a trained/established baseline state with populated per-entity profiles (secure) vs. 'learning'/cold-start or empty profiles (insecure)",
+        "source": "MITRE D3FEND — User Behavior Analysis (D3-UBA)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the baseline has actually completed its initial training window for the in-scope entity population, not just for a pilot subset.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Baselines trained across the in-scope user/entity set (secure) vs. trained only for a pilot group leaving most entities cold (partial)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "baseline_training_window_days",
+    "option_description": "Length in days of the activity window over which the behavioral baseline is trained. Read the configured learning-window value; a window >= 14 days is required for a statistically meaningful profile.",
+    "security_impact": "One of the conditions of \"Behavioral and UEBA anomaly analytics\" — the protection is present when baseline_training_window_days >= 14. Too short a window overfits to a brief sample, producing false anomalies or missing real deviation (D3-UBA reliability).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM/UEBA > Models, read the configured baseline training/learning window length and confirm it is at least 14 days. Research guidance notes a >30-day window as a strong baseline.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/UEBA > Models / Anomaly Rules — confirm baselining is trained (>30-day window) and anomaly detectors active",
+        "expected_output": "A configured window value in days (e.g. 30); >= 14 is the minimum secure threshold, with >30 preferred",
+        "source": "MITRE D3FEND — User Behavior Analysis (D3-UBA)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the configured window reflects elapsed learning time on live data, not merely a setting that was just enabled with no history accumulated yet.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Window set to >= 14 days AND that much live history has accrued (secure) vs. long window configured but only days of data collected (effectively cold)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      14,
+      30,
+      90
+    ]
+  },
+  {
+    "option_name": "impossible_travel_detection_enabled",
+    "option_description": "Whether geolocation-based impossible-travel logon detection is enabled — successive authentications from geographically distant locations within a physically impossible interval are flagged (D3FEND D3-UGLPA).",
+    "security_impact": "One of the OR-conditions of \"Behavioral and UEBA anomaly analytics\" — fires when impossible_travel_detection_enabled is true — providing D3FEND D3-UGLPA geolocation-velocity analysis, surfacing valid-account abuse and credential theft (T1078/T1110).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM/UEBA > Models / Anomaly Rules, confirm a geolocation-velocity / impossible-travel detector is enabled against authentication events (maps to D3FEND D3-UGLPA).",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/UEBA > Models / Anomaly Rules — confirm baselining is trained and anomaly detectors active",
+        "expected_output": "An enabled impossible-travel / geo-velocity rule mapping to D3-UGLPA (secure) vs. no geolocation logon analysis (insecure)",
+        "source": "MITRE D3FEND — User Behavior Analysis (D3-UBA)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the detector receives authentication events enriched with source geolocation and that its alerts route into the notable/incident pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Geo-enriched authn events feeding an active impossible-travel detector wired to alerting (secure) vs. rule present but unfed or disconnected (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "authentication_thresholding_enabled",
+    "option_description": "Whether authentication-event thresholding/anomaly analysis is enabled — abnormal volumes or patterns of authentication events (failed-logon spikes, off-baseline access) are detected (D3FEND D3-ANET).",
+    "security_impact": "One of the OR-conditions of \"Behavioral and UEBA anomaly analytics\" — fires when authentication_thresholding_enabled is true — providing D3FEND D3-ANET authentication-event thresholding, catching brute-force and credential-reuse (T1110/T1078).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM/UEBA > Models / Anomaly Rules, verify detection logic exists for abnormal authentication volumes/patterns (failed-logon spikes, off-baseline access), mapping to D3FEND D3-ANET.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/UEBA > Models / Anomaly Rules — confirm baselining is trained and anomaly detectors active",
+        "expected_output": "An enabled authentication-thresholding detector mapping to D3-ANET (secure) vs. no authn anomaly analysis (insecure)",
+        "source": "MITRE D3FEND — User Behavior Analysis (D3-UBA)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm thresholds are derived from the trained baseline (adaptive) rather than a single static count, so the detector tracks normal authentication volume per entity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Baseline-driven adaptive thresholds (secure) vs. one fixed global threshold or none (weaker/insecure)",
+        "source": "Exabeam — UEBA primer (risk-based alerting / false-positive reduction)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "detection_as_code_version_controlled",
+    "option_description": "Whether correlation/detection content (e.g. Sigma rules) is authored and maintained in version control rather than hand-edited in the SIEM console, giving change history, auditability, and rollback (CM-2/CM-3).",
+    "security_impact": "One of the OR-conditions of \"Detection-as-code rule lifecycle and content currency\" — fires when detection_as_code_version_controlled is true — satisfying CM-2 version-controlled baseline. Hand-edited console rules have no audit trail or rollback, so a bad or removed rule silently loses coverage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm detection content lives in a VCS repository with commit history and that production rules are deployed FROM it rather than hand-edited in-console, satisfying CM-2.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A detection-as-code repo with commit history that is the deployment source of truth (secure) vs. ad-hoc console edits (insecure)",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "command",
+        "instruction": "Validate the rule repository with sigma-cli to confirm rules are real version-controlled Sigma content that converts cleanly to the target backend.",
+        "command": "sigma check ./rules/ && sigma convert -t <backend> ./rules/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sigma-cli validates rule syntax and converts to the target SIEM query language with no errors (secure pipeline gate); validation errors indicate untested rules",
+        "source": "SigmaHQ — Getting Started (sigma-cli)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "detection_content_peer_reviewed",
+    "option_description": "Whether changes to detection content are merged only through peer-reviewed pull requests with required reviewer approval, enforcing the change-control gate (CM-3).",
+    "security_impact": "One of the OR-conditions of \"Detection-as-code rule lifecycle and content currency\" — fires when detection_content_peer_reviewed is true — satisfying CM-3 change-control. Without a review gate, an unreviewed or malicious rule change reaches production unchecked.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the branch-protection / merge policy on the detection-content repo for a required-reviewer approval gate (CM-3 change control with security-impact analysis).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CM-3 change-control with required-reviewer approval satisfied (secure) vs. direct pushes to the production branch allowed (insecure)",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the repo host (e.g. GitHub/GitLab) settings, confirm the protected branch requires at least one approving review and blocks self-merge.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo > Settings > Branches / Branch protection — require pull request reviews before merging",
+        "expected_output": "Required-approvals >= 1 with the production branch protected (secure) vs. no required reviews (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "detection_content_ci_tested",
+    "option_description": "Whether detection content passes automated CI/CD testing — syntax validation, unit tests, and integration tests against sample telemetry — before deployment.",
+    "security_impact": "One of the OR-conditions of \"Detection-as-code rule lifecycle and content currency\" — fires when detection_content_ci_tested is true. CI testing catches broken or non-firing rules pre-release; without it a syntactically valid but non-matching rule silently loses coverage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the CI pipeline runs syntax/unit/integration tests on detection content and gates deployment on those tests passing (the CM change-control test stage).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A detection-as-code repo with a CI test stage that gates deployment (secure) vs. rules deployed with no automated testing (insecure)",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "command",
+        "instruction": "Reproduce the CI gate locally: run sigma check for syntax and sigma convert to confirm rules build against the target backend, mirroring the pipeline's pass condition.",
+        "command": "sigma check ./rules/ && sigma convert -t <backend> ./rules/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sigma-cli validates and converts with no errors (matches the CI pass condition); errors reveal rules that would fail or never fire",
+        "source": "SigmaHQ — Getting Started (sigma-cli)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "detection_content_update_cadence_days",
+    "option_description": "Maximum days between scheduled refreshes of detection content against evolving TTPs (vendor packs, community Sigma, new CVEs). Read the scheduled refresh interval; the protection is present at a cadence <= 90 days.",
+    "security_impact": "One of the conditions of \"Detection-as-code rule lifecycle and content currency\" — the protection is present when detection_content_update_cadence_days <= 90. Stale, frozen rules silently lose coverage as attackers shift TTPs; a long cadence means new techniques (T1071/T1098) go undetected.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine the scheduled refresh interval for detection content (vendor content packs / community Sigma) and confirm it is no greater than 90 days. Compare the applied content-pack/ruleset version against the latest available.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented update cadence in days and the latest content-pack/Sigma-ruleset version applied (secure at <= 90); last update months/years old (insecure)",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "In the detection-content repo or CI schedule, confirm an automated/recurring job pulls upstream content within the stated cadence rather than relying on ad-hoc manual refreshes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A scheduled refresh job with commit/run history at or under the cadence (secure) vs. no recurring update mechanism (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      7,
+      30,
+      90
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Whether all log-producing sources synchronize their clocks to at least two approved/trusted NTP sources, so emitted timestamps share a common, drift-bounded reference.",
+    "security_impact": "One of the OR-conditions of \"Synchronized time for reliable event sequencing\" — fires when clocks_synced_to_trusted_time_source is true — satisfying CIS 8.4 (>=2 synced sources) and AU-8. When false, clock drift mis-orders an attack chain's events and makes cross-source correlation (T1021/T1078) unreliable.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm log sources sync to >= 2 approved/trusted NTP servers with bounded fleet-wide drift, satisfying CIS 8.4 'standardize time synchronization using at least two synchronized time sources' and AU-8.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CIS 8.4 two-source time synchronization and AU-8 timestamp requirements met (secure) vs. clock drift / single or no NTP source (insecure)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      },
+      {
+        "type": "command",
+        "instruction": "On a representative log source, check the clock-sync state and configured NTP sources. (Linux: timedatectl status or chronyc tracking / chronyc sources; Windows: w32tm /query /status.)",
+        "command": "timedatectl status   # or: chronyc tracking / w32tm /query /status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "System clock synchronized: yes, with >= 2 configured NTP sources (secure) vs. 'not synchronized' (insecure)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "timestamps_in_utc",
+    "option_description": "Whether ingested event timestamps from every source are normalized to a single canonical timezone (UTC) at ingest, eliminating mixed-timezone skew.",
+    "security_impact": "One of the OR-conditions of \"Synchronized time for reliable event sequencing\" — fires when timestamps_in_utc is true. Mixed local timezones reaching correlation cause non-deterministic event ordering, breaking multi-stage chain reconstruction (T1021) even when clocks are synced.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the ingest pipeline normalizes all event timestamps to UTC at ingest, with no mixed-local-timezone records reaching correlation (supports AU-8 timestamp consistency).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingest pipeline normalizes timestamps to UTC; no mixed-timezone records (secure) vs. mixed local timezones causing mis-ordering (insecure)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM, inspect indexed event time fields across several source types and confirm the canonical/_time field is stored and displayed in UTC regardless of source locale.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > search a sample across source types — inspect the canonical event-time field / timezone metadata",
+        "expected_output": "Canonical event-time stored in UTC across all source types (secure) vs. per-source local-time values (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "threat_intel_enrichment_enabled",
+    "option_description": "Whether events and entities are enriched at ingest/correlation time with threat intelligence (known-bad IP/domain/file-hash indicators) and asset/identity context.",
+    "security_impact": "One of the OR-conditions of \"Risk-based alerting with threat-intel enrichment\" — fires when threat_intel_enrichment_enabled is true — satisfying AU-6(5) integrated analysis. Without enrichment, known-bad observables and asset criticality never feed the scoring layer, so chains (T1071) are scored blind.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM > Threat Intelligence / Enrichment, confirm active intel feeds and enrichment lookups are bound to correlation searches so known-bad indicators and asset/identity context join events at ingest/search time.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Threat Intelligence / Enrichment — confirm active intel feeds and enrichment lookups bound to correlation searches",
+        "expected_output": "AU-6(5) integrated analysis with external intel satisfied; matches generate/raise notables (secure) vs. raw events with no enrichment (insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU-6(5) Integrated Analysis of Audit Records"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the threat-intel feeds are current (recent update timestamps) and that enrichment runs at ingest/correlation rather than being evaluated rule-by-rule in isolation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Live, recently-updated feeds joined at ingest/correlation (secure) vs. stale feeds or per-rule isolated lookups (weaker/insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU-6(5) Integrated Analysis of Audit Records"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "risk_based_alerting_enabled",
+    "option_description": "Whether the platform assigns risk scores to enriched events/entities and raises an investigative notable only when accumulated risk crosses a threshold, instead of one alert per rule firing.",
+    "security_impact": "One of the OR-conditions of \"Risk-based alerting with threat-intel enrichment\" — fires when risk_based_alerting_enabled is true — satisfying AU-6(5). Risk aggregation surfaces multi-step chains as a single prioritized notable; one-alert-per-rule buries the chain in fatigue.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SIEM > Risk Analysis / Notable Event aggregation, confirm risk modifiers are attached to rules and that a risk-incident threshold governs when a notable fires (per-rule firing suppressed in favor of risk objects).",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Risk Analysis / Notable Event aggregation — confirm risk modifiers attached to rules and a risk-incident threshold",
+        "expected_output": "Risk-based notables aggregate multiple contributing detections per entity above a threshold (secure) vs. raw per-rule alerts (insecure)",
+        "source": "Exabeam — UEBA primer (risk-based alerting / false-positive reduction)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify risk scores accumulate per entity over a window and that the notable threshold is documented and tuned, confirming chains are scored rather than each rule firing independently.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-entity accumulated risk with a documented notable threshold (secure) vs. no risk aggregation / one alert per rule (insecure)",
+        "source": "Exabeam — UEBA primer (risk-based alerting / false-positive reduction)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "alert_tuning_process_enabled",
+    "option_description": "Whether an ongoing alert/false-positive tuning process exists (threshold review, suppression of benign-true patterns, periodic precision review) so the alerting layer stays effective over time.",
+    "security_impact": "One of the OR-conditions of \"Risk-based alerting with threat-intel enrichment\" — fires when alert_tuning_process_enabled is true — satisfying the CIS 8.11 log-review cadence. Without tuning, false-positive noise buries real correlated incidents and analysts stop trusting alerts.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a recurring tuning cadence exists with documented threshold review, suppression governance, and precision metrics — the CIS 8.11 'review logs' loop with analyst feedback retraining models/thresholds.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CIS 8.11 review cadence and a tuning record exist; FP rate tracked and trending down (secure) vs. rules deployed once and never tuned (insecure)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review tuning/suppression change records and confirm suppressions are governed (justified, reviewed, time-bounded) rather than blanket mutes that could hide real detections.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Governed, documented suppressions with justification and review (secure) vs. ad-hoc blanket mutes (insecure)",
+        "source": "Exabeam — UEBA primer (risk-based alerting / false-positive reduction)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "alert_response_sla_enforced",
+    "option_description": "Whether surfaced notable incidents auto-route to the IR queue and are governed by a defined, enforced response-time SLA (IR-4/IR-5), reducing attacker dwell time.",
+    "security_impact": "One of the OR-conditions of \"Alerting SLA, SOAR handoff, and protected evidence retention\" — fires when alert_response_sla_enforced is true — satisfying IR-4/IR-5. Detection without a time-bound response does not reduce dwell time; notables sit unactioned.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm notables are time-bound to an owner with a tracked response SLA and that breaches are measured, satisfying IR-4 incident handling and IR-5 incident monitoring with measured time-to-acknowledge.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IR-4/IR-5 satisfied: notables flow into the IR process with measured time-to-acknowledge against an SLA (secure) vs. orphaned alerts (insecure)",
+        "source": "NIST SP 800-53 Rev 5 IR-4 / IR-5 (Incident Handling and Monitoring)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IR/ticketing queue, review SLA configuration and recent notable tickets for response-time tracking and breach reporting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IR/SOAR queue > SLA policy and ticket metrics — review response-time targets and breach reports",
+        "expected_output": "Defined SLA targets with per-ticket response timers and breach metrics (secure) vs. no SLA / untracked tickets (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "soar_response_handoff_enabled",
+    "option_description": "Whether correlated incidents auto-route into the SOAR / IR ticketing workflow (case creation, orchestration, playbook handoff) instead of remaining console-only alerts.",
+    "security_impact": "One of the OR-conditions of \"Alerting SLA, SOAR handoff, and protected evidence retention\" — fires when soar_response_handoff_enabled is true — satisfying IR-4. It closes the detection-to-response loop; console-only alerts that no one watches leave detections unactioned.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify correlated notables automatically create cases/tickets in the SOAR or IR workflow rather than living only in the SIEM console, satisfying IR-4 incident handling.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IR-4 satisfied: notables flow into the IR/SOAR process automatically (secure) vs. alerts landing in a console no one watches (insecure)",
+        "source": "NIST SP 800-53 Rev 5 IR-4 / IR-5 (Incident Handling and Monitoring)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SOAR/SIEM integration settings, confirm an automated case-creation/playbook handoff is configured and review recent auto-created cases to prove the route is live.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/SOAR > Response Actions / Integrations — confirm auto case creation and playbook handoff are enabled",
+        "expected_output": "Recent SOAR/IR cases auto-created from notables via an enabled integration (secure) vs. no handoff configured (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether the centralized log/SIEM store is integrity-protected via write-once / cryptographic tamper-evidence and access-restricted (AU-9(2)/(3)/(4)).",
+    "security_impact": "One of the OR-conditions of \"Alerting SLA, SOAR handoff, and protected evidence retention\" — fires when audit_log_tamper_evident is true — satisfying AU-9(3) cryptographic integrity and AU-9(4) restricted audit management. Without it, an attacker who reaches the SIEM can silently erase or alter the multi-step trail (T1070).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the log store uses write-once / cryptographic integrity protection and restricts who can alter or delete retained records, satisfying AU-9(2) separate-system, AU-9(3) cryptographic integrity, and AU-9(4) restricted audit management.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AU-9(2)/(3)/(4) satisfied — separate-system, integrity-protected, audit-management-restricted store (secure) vs. mutable, broadly accessible logs (insecure)",
+        "source": "NIST SP 800-53 Rev 5 AU family — AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the log-store / object-store settings, confirm WORM / immutability (e.g. retention lock) is enabled and review the access-control roles permitted to delete or modify retained data.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log store / object store > Retention / Immutability settings and IAM roles — confirm WORM lock on and delete rights restricted",
+        "expected_output": "Immutability/WORM enabled and delete/modify rights limited to a privileged subset (secure) vs. mutable store with broad delete rights (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Number of days correlated events are retained hot/online. Read the configured online/hot retention period; the protection is present at >= 90 days (CIS 8.10).",
+    "security_impact": "One of the conditions of \"Alerting SLA, SOAR handoff, and protected evidence retention\" — the protection is present when log_retention_days >= 90 (CIS 8.10). Short retention means the early stages of a slow, multi-month campaign are gone before correlation/IR reaches them.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured online/hot retention period for correlated events and confirm it is at least 90 days, meeting CIS 8.10 'retain audit logs for a minimum of 90 days' with integrity-protected archival beyond that per SP 800-92.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A configured hot/searchable retention value in days; CIS 8.10 met at >= 90 (secure) vs. sub-week retention (insecure)",
+        "source": "CIS Controls v8 Control 8 (Audit Log Management)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM index/storage policy, read the searchable retention setting per index and confirm correlated-event indexes meet >= 90 days, with longer archival where regulation requires.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Indexes / Storage policy — read searchable retention period per relevant index",
+        "expected_output": "Index retention >= 90 days for correlated-event data (secure) vs. logs rotated/expired in days (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      90,
+      180,
+      365
+    ]
+  }
+]

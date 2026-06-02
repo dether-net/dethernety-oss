@@ -1,0 +1,831 @@
+[
+  {
+    "option_name": "admin_api_public_bind",
+    "option_description": "Interpreted from the gateway's admin_listen directive — true when the privileged Admin API binds a publicly reachable interface (e.g. 0.0.0.0:8001) rather than loopback/private (127.0.0.1:8001 or a firewalled private IP).",
+    "security_impact": "One of the OR-triggers for \"Exposed unauthenticated Admin / management API\" (fires when admin_api_public_bind is_true). A publicly bound Admin API is full control-plane exposure — any reachable caller can create routes, plugins and credentials (T1190; cf. CVE-2020-11710 Docker-Kong default Admin API exposure).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the raw admin_listen value in kong.conf and confirm it binds loopback/private, not 0.0.0.0 on the admin port.",
+        "command": "grep -E '^admin_listen' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "Default '127.0.0.1:8001 ..., 127.0.0.1:8444 http2 ssl ...' (loopback) — a value binding 0.0.0.0 on the admin port is insecure",
+        "source": "Kong — Secure the Admin API"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the Admin API port from a public IP to confirm it is not reachable off-box.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://<gateway-public-ip>:8001/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused / timeout (Admin API not publicly reachable). A 200/401 from a public IP indicates dangerous exposure",
+        "source": "Kong — Secure the Admin API"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "enforce_rbac",
+    "option_description": "Whether Admin API requests require authorization. 'on' (or 'both') forces every Admin API call to present a valid Kong-Admin-Token mapped to an RBAC role; 'off' (OSS default) means any caller reaching the Admin API has unauthenticated control-plane access.",
+    "security_impact": "One of the OR-triggers for \"Exposed unauthenticated Admin / management API\" (fires when enforce_rbac eq 'off'). Without RBAC, a reachable Admin API is unauthenticated control-plane takeover (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read enforce_rbac in kong.conf.",
+        "command": "grep -E '^enforce_rbac' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "enforce_rbac = on (or both). 'off' or absent means RBAC not enforced",
+        "source": "Kong — Start Kong Gateway Securely"
+      },
+      {
+        "type": "command",
+        "instruction": "Call the Admin API without a token header and check the response code.",
+        "command": "curl -i http://127.0.0.1:8001/  # without a token header",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP/1.1 401 Unauthorized (RBAC enforced — Kong-Admin-Token required). A 200 listing endpoints means RBAC is not enforced",
+        "source": "Kong — Start Kong Gateway Securely"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "on",
+      "off",
+      "both"
+    ]
+  },
+  {
+    "option_name": "admin_gui_auth_configured",
+    "option_description": "Interpreted from admin_gui_auth — true when an authentication strategy (basic-auth, ldap-auth-advanced, openid-connect) is configured for the Kong Manager admin GUI; false when admin_gui_auth is unset, leaving the management console reachable without authentication.",
+    "security_impact": "One of the OR-triggers for \"Exposed unauthenticated Admin / management API\" (fires when admin_gui_auth_configured is_false). An unauthenticated Kong Manager GUI is an exposed management dashboard an adversary browses to enumerate and control routes, plugins and credentials (T1538).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read admin_gui_auth in kong.conf — a configured strategy means true, absent means false.",
+        "command": "grep -E '^admin_gui_auth' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "A configured auth strategy (e.g. basic-auth, openid-connect). Unset means the GUI has no authentication",
+        "source": "Kong — Secure the Admin API"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "accepts_alg_none",
+    "option_description": "Interpreted — the gateway accepts a JWT whose header declares the 'none' algorithm (an unsigned token). True means a forged/stripped-signature token is honoured at the edge.",
+    "security_impact": "One of the OR-triggers for \"JWT / OAuth token validation bypass\" (fires when accepts_alg_none is_true). Accepting alg=none lets an attacker mint and impersonate an arbitrary principal's token at the gateway (T1134.003 / T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the jwt plugin config — confirm no instance permits unsigned tokens and per-credential algorithm is pinned.",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=jwt | jq '.data[].config'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "config.claims_to_verify includes 'exp'; per-credential algorithm pinned; no plugin instance permitting unsigned tokens",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a probe request carrying a JWT with header {\"alg\":\"none\"} and a stripped signature.",
+        "command": "Send a request with a JWT header {\"alg\":\"none\"} and a stripped signature",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401 Unauthorized (forged/unsigned token rejected). A 2xx means alg-confusion is exploitable → accepts_alg_none is true",
+        "source": "OWASP JSON Web Token for Java Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "rs256_to_hs256_confusion_possible",
+    "option_description": "Interpreted — the verifier takes the algorithm from the inbound token header rather than from the registered credential, so an attacker can present an HS256 token signed with the public RSA key as the HMAC secret (RS256->HS256 key confusion) and have it accepted. True means the algorithm is not pinned per credential.",
+    "security_impact": "One of the OR-triggers for \"JWT / OAuth token validation bypass\" (fires when rs256_to_hs256_confusion_possible is_true). Header-driven alg selection enables key confusion to forge any principal's token (T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the jwt plugin and registered credentials — confirm the algorithm is pinned per registered credential rather than read from the token header.",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=jwt | jq '.data[].config'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-credential algorithm pinned (RS256/ES256/HS256 as registered); algorithm not derived from the token header",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe with an HS256 token signed using the upstream public RSA key as the HMAC secret.",
+        "command": "Send an HS256 JWT signed with the public RSA key as the HMAC secret",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401 Unauthorized (algorithm pinned, header alg ignored). A 2xx means RS256->HS256 confusion is exploitable → value is true",
+        "source": "OWASP JSON Web Token for Java Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "jwt_signature_verified",
+    "option_description": "Positive-secure attestation — the gateway cryptographically verifies the JWT/OIDC token signature against the credential's pinned key or the IdP JWKS, rather than merely decoding the token. True is the secure state.",
+    "security_impact": "One of the OR-triggers for \"JWT / OAuth token validation bypass\" (fires when jwt_signature_verified is_false). Skipping signature verification lets self-issued or tampered tokens be accepted at the edge (T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the openid-connect plugin's signature-verification flag and the jwt plugin's per-credential key material.",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=openid-connect | jq '.data[].config | {issuer, audience_required, verify_signature}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "verify_signature enabled (signature verified via JWKS); jwt plugin enforces per-credential key material",
+        "source": "OpenID Connect Core 1.0"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a token with a tampered/invalid signature and confirm it is rejected.",
+        "command": "Send a JWT with a modified payload and an invalid signature",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401 Unauthorized (signature checked). A 2xx means signature is not verified → jwt_signature_verified is false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "issuer_claim_validated",
+    "option_description": "Positive-secure attestation — the gateway pins and validates the token 'iss' claim against the trusted IdP discovery/issuer URL. True is the secure state.",
+    "security_impact": "One of the OR-triggers for \"JWT / OAuth token validation bypass\" (fires when issuer_claim_validated is_false). No issuer binding lets tokens from any IdP or self-issued tokens be accepted (T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the openid-connect plugin's issuer setting and confirm it is pinned to the real IdP discovery URL.",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=openid-connect | jq '.data[].config | {issuer, audience_required, verify_signature}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "issuer set to the real IdP discovery URL; audience_required true; signature verification enabled",
+        "source": "OpenID Connect Core 1.0"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audience_claim_validated",
+    "option_description": "Positive-secure attestation — the gateway requires and validates the token 'aud' claim so a token minted for another relying party cannot be replayed against this gateway. True is the secure state.",
+    "security_impact": "One of the OR-triggers for \"JWT / OAuth token validation bypass\" (fires when audience_claim_validated is_false). No audience binding allows cross-relying-party token replay (T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the openid-connect plugin's audience_required flag (or the jwt plugin's claims_to_verify including aud).",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=openid-connect | jq '.data[].config | {issuer, audience_required, verify_signature}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "audience_required true (jwt claims_to_verify includes 'aud'); issuer set; signature verification enabled",
+        "source": "OpenID Connect Core 1.0"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "expiry_claim_validated",
+    "option_description": "Positive-secure attestation — the gateway enforces the token 'exp' claim (and a bounded maximum_expiration) so expired or never-expiring tokens are rejected, preventing indefinite replay. True is the secure state.",
+    "security_impact": "One of the OR-triggers for \"JWT / OAuth token validation bypass\" (fires when expiry_claim_validated is_false). No expiry check allows indefinite token replay (T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the jwt plugin config — confirm claims_to_verify includes 'exp' and a bounded maximum_expiration is set.",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=jwt | jq '.data[].config'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "config.claims_to_verify includes 'exp'; maximum_expiration set to a bounded value",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unauthenticated_route_exposed",
+    "option_description": "Interpreted — true when at least one route proxies to an internal backend without any authentication plugin (key-auth / jwt / oauth2 / openid-connect / mtls-auth) covering it, AND that route is not an explicitly-public endpoint.",
+    "security_impact": "One of the OR-triggers for \"Missing edge authentication on routes\" (fires when unauthenticated_route_exposed is_true). An uncovered route proxies directly to an internal backend, exposing it unauthenticated to the internet — OWASP API2 broken authentication (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "List routes and cross-check each non-public route against auth-plugin route/service bindings.",
+        "command": "curl -s http://127.0.0.1:8001/routes | jq '.data[].name'  &&  curl -s http://127.0.0.1:8001/plugins | jq '.data[] | select(.name|test(\"auth\")) | {route:.route, service:.service}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each non-public route appears under an auth plugin's route/service. A non-public route reaching a backend with no covering auth plugin sets this true",
+        "source": "OWASP API Security Top 10 2023 — API2 Broken Authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "global_auth_plugin_enabled",
+    "option_description": "Interpreted — true when a global (workspace/service-wide) authentication plugin is applied that covers all routes by default. When false, route coverage depends entirely on per-route plugins.",
+    "security_impact": "Part of the AND-group in \"Missing edge authentication on routes\" (the group fires when global_auth_plugin_enabled is_false AND routes_without_auth_plugin_count count_gt 0). With no global auth fallback, any route missing a plugin is exposed (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check for a globally-scoped auth plugin via the Admin API /plugins with no route/service binding.",
+        "command": "curl -s http://127.0.0.1:8001/plugins | jq '.data[] | select(.name|test(\"auth\")) | {route:.route, service:.service}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An auth plugin entry with route=null and service=null (globally scoped) means true; only route/service-bound auth plugins means false",
+        "source": "OWASP API Security Top 10 2023 — API2 Broken Authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "routes_without_auth_plugin_count",
+    "option_description": "Count of non-public routes proxying to a backend that have no covering authentication plugin (per-route or service-level).",
+    "security_impact": "Part of the AND-group in \"Missing edge authentication on routes\" (the group fires when global_auth_plugin_enabled is_false AND routes_without_auth_plugin_count count_gt 0). Any non-zero count of uncovered backend routes is a broken-authentication gap (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Cross-check Kong /routes against /plugins auth bindings and count the uncovered non-public backend routes.",
+        "command": "curl -s http://127.0.0.1:8001/routes | jq '.data[].name'  &&  curl -s http://127.0.0.1:8001/plugins | jq '.data[] | select(.name|test(\"auth\")) | {route:.route, service:.service}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "0 in a hardened deployment (every non-public route covered); any positive integer counts uncovered backend routes",
+        "source": "OWASP API Security Top 10 2023 — API2 Broken Authentication"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      0,
+      2
+    ]
+  },
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Whether the public proxy data plane terminates TLS — i.e. proxy_listen exposes an 'ssl' listener (e.g. 0.0.0.0:8443 http2 ssl) and plaintext :8000 is disabled or redirected.",
+    "security_impact": "One of the OR-triggers for \"Cleartext or weak TLS termination and unverified upstream re-encryption\" (fires when flow_tls_encrypted is_false). A cleartext-only edge listener exposes credentials, tokens and PII to sniffing/MITM (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read proxy_listen in kong.conf and confirm an ssl listener is present and plaintext is disabled or redirected.",
+        "command": "grep -E '^proxy_listen' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "proxy_listen contains an address with the 'ssl' flag (e.g. '0.0.0.0:8443 http2 ssl'); a config exposing only a non-ssl :8000 with no redirect is insecure",
+        "source": "Kong Gateway configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Lowest TLS protocol version the gateway's TLS listeners accept, interpreted from ssl_protocols (kong.conf) or an ssl-enum-ciphers scan. Secure when only TLSv1.2/TLSv1.3 are negotiable.",
+    "security_impact": "One of the OR-triggers for \"Cleartext or weak TLS termination and unverified upstream re-encryption\" (fires when min_tls_version eq 'tls1_0_or_tls1_1_or_sslv3_accepted'). A legacy floor enables downgrade and MITM (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Interpret ssl_protocols (or nginx_http_ssl_protocols) in kong.conf to find the lowest accepted version.",
+        "command": "grep -E '^(ssl_protocols|nginx_http_ssl_protocols)' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "TLSv1.2 TLSv1.3 (default since recent Kong) — absence of TLSv1/TLSv1.1",
+        "source": "Kong Gateway configuration reference"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Scan the TLS listener with ssl-enum-ciphers to confirm only TLSv1.2/1.3 are negotiable.",
+        "command": "nmap --script ssl-enum-ciphers -p 8443 <gateway-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 sections present, all graded A/B; no TLSv1.0/1.1 or F-graded ciphers",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Interpreted boolean — true when the gateway's accepted ssl_protocols include any broken legacy version (TLSv1.0/TLSv1.1/SSLv3).",
+    "security_impact": "One of the OR-triggers for \"Cleartext or weak TLS termination and unverified upstream re-encryption\" (fires when weak_tls_versions_enabled is_true). Negotiable legacy TLS versions enable downgrade/sniffing (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read ssl_protocols in kong.conf — true if any of TLSv1.0/TLSv1.1/SSLv3 is present.",
+        "command": "grep -E '^(ssl_protocols|nginx_http_ssl_protocols)' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "TLSv1.2 TLSv1.3 (no legacy versions). Presence of TLSv1/TLSv1.1/SSLv3 sets this true",
+        "source": "Kong Gateway configuration reference"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm on the wire that no legacy TLS version is negotiable.",
+        "command": "nmap --script ssl-enum-ciphers -p 8443 <gateway-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No TLSv1.0/1.1 or SSLv3 section present; only TLSv1.2/TLSv1.3 negotiable",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "cipher_suites_strong_only",
+    "option_description": "Interpreted boolean — true when ssl_cipher_suite resolves to AEAD/ECDHE-only suites (Mozilla 'modern' or 'intermediate', or 'fips'), false when a weak profile ('old') or a custom list including CBC/RC4/3DES/export ciphers is in effect.",
+    "security_impact": "One of the OR-triggers for \"Cleartext or weak TLS termination and unverified upstream re-encryption\" (fires when cipher_suites_strong_only is_false). Weak ciphers (CBC/RC4/export) expose traffic to sniffing/MITM (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Interpret ssl_cipher_suite (named profile or custom OpenSSL string) in kong.conf.",
+        "command": "grep -E '^ssl_cipher_suite' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "modern | intermediate (default) | fips — NOT 'old' or a weak custom string",
+        "source": "Kong Gateway configuration reference"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh against the TLS listener to confirm only AEAD/ECDHE suites are offered.",
+        "command": "testssl.sh https://<gateway-host>:8443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No weak/CBC/export ciphers; forward secrecy present; no Heartbleed/POODLE/ROBOT findings",
+        "source": "testssl.sh — Testing TLS/SSL encryption anywhere on any port"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "back_end_traffic_reencrypted_after_tls_termination",
+    "option_description": "Whether the gateway-to-backend hop is re-encrypted after TLS is terminated at the edge — i.e. Kong Services use protocol 'https' to upstreams rather than plaintext 'http'.",
+    "security_impact": "One of the OR-triggers for \"Cleartext or weak TLS termination and unverified upstream re-encryption\" (fires when back_end_traffic_reencrypted_after_tls_termination is_false). A cleartext internal hop is open to sniffing/MITM inside the trust zone (T1557 / T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read each Service's protocol via the Admin API /services.",
+        "command": "curl -s http://127.0.0.1:8001/services | jq '.data[] | {name, protocol, tls_verify}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "protocol 'https' for sensitive upstreams; an 'http' protocol indicates a cleartext internal hop → value is false",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the gateway verifies the upstream backend's TLS certificate on the re-encrypted hop (Service.tls_verify=true with ca_certificates pinned).",
+    "security_impact": "One of the OR-triggers for \"Cleartext or weak TLS termination and unverified upstream re-encryption\" (fires when server_certificate_validated is_false). https upstreams without verification let an on-path attacker impersonate the backend despite TLS (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm Service.tls_verify=true with ca_certificates pinned via the Admin API /services.",
+        "command": "curl -s http://127.0.0.1:8001/services | jq '.data[] | {name, protocol, tls_verify}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "tls_verify true for https upstreams; tls_verify false/null with an https protocol means certificate validation is disabled → value is false",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "True when a per-consumer/route rate-limiting (or account-lockout) control is applied at the gateway with bounded second/minute/hour limits — e.g. Kong's rate-limiting / rate-limiting-advanced plugin keyed on consumer/credential.",
+    "security_impact": "One of the OR-triggers for \"Unrestricted resource consumption (DoS)\" (fires when rate_limiting_or_lockout_enabled is_false). No rate-limiting permits unlimited request volume — floods, brute force and enumeration (OWASP API4 / T1499.002).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check the Admin API /plugins for a rate-limiting / rate-limiting-advanced plugin with bounded limits keyed on consumer/credential.",
+        "command": "curl -s http://127.0.0.1:8001/plugins?name=rate-limiting | jq '.data[].config'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bounded limits (e.g. minute/hour set), policy 'redis' or 'cluster' for distributed enforcement; auth routes carry a stricter instance",
+        "source": "OWASP API Security Top 10 2023 — API4 Unrestricted Resource Consumption"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_body_size_capped",
+    "option_description": "True when the maximum proxied request body size is bounded to a value matched to real payload needs (interpreted from Kong's nginx_http_client_max_body_size — e.g. '10m' — or an equivalent request-size-limiting plugin). The default 0 means NO limit.",
+    "security_impact": "One of the OR-triggers for \"Unrestricted resource consumption (DoS)\" (fires when request_body_size_capped is_false). An unbounded body (nginx_http_client_max_body_size=0) enables large-payload memory/bandwidth exhaustion (OWASP API4 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read nginx_http_client_max_body_size in kong.conf (0 = unlimited = insecure).",
+        "command": "grep -E '^nginx_http_client_max_body_size' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "A bounded size such as '10m'. The default 0 disables body-size checking and is insecure for a public edge → value is false",
+        "source": "Kong Gateway configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_size_and_complexity_limits_enforced",
+    "option_description": "True when schema/content validation bounds payload complexity at the edge — array/string size caps, Content-Type enforcement, server-side pagination/record-count caps and request timeouts (e.g. Kong's request-size-limiting and request-validator plugins).",
+    "security_impact": "One of the OR-triggers for \"Unrestricted resource consumption (DoS)\" (fires when request_size_and_complexity_limits_enforced is_false). Arbitrary oversized/complex payloads reaching backends enable cost/resource exhaustion beyond a simple body cap (OWASP API4 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check for request-size-limiting / request-validator plugins enforcing array/string caps, pagination caps and timeouts.",
+        "command": "curl -s http://127.0.0.1:8001/plugins | jq '.data[] | select(.name|test(\"size-limiting|validator\")) | {name, route, service}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "request-size-limiting / request-validator present on routes accepting request bodies",
+        "source": "OWASP ASVS V13 — API and Web Service (5.0)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "True when volumetric/network-layer DoS protection fronts or backs the gateway — upstream WAF/CDN scrubbing, connection-rate limits, and container CPU/memory limits bounding the gateway's own resource use.",
+    "security_impact": "One of the OR-triggers for \"Unrestricted resource consumption (DoS)\" (fires when ddos_protection_in_place is_false). No volumetric defence leaves the gateway and backends exposed to service-exhaustion floods beyond per-consumer rate limits (OWASP API4 / T1499.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an upstream WAF/CDN scrubbing layer, connection-rate limits, and container CPU/memory limits bounding the gateway process. The dossier carries no concrete inspect surface for this attribute — gather deployment evidence (CDN/WAF contract, k8s resource limits, LB connection-rate config).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of an upstream WAF/CDN scrubbing layer AND container CPU/memory limits AND connection-rate limits. Absence of all leaves value false",
+        "source": "OWASP API Security Top 10 2023 — API4 Unrestricted Resource Consumption"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_framing_normalized_front_back",
+    "option_description": "Interpreted — the gateway and the back-end agree on request framing (Content-Length vs Transfer-Encoding); ambiguous CL.TE/TE.CL requests are rejected or normalized so front-end and back-end parse identical message boundaries.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync and missing payload validation\" (fires when request_framing_normalized_front_back is_false). Inconsistent framing enables desync/request smuggling that bypasses edge authorization and poisons caches (T1190; cf. CVE-2019-20372).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send a CL.TE / TE.CL desync probe and observe whether the back-end desyncs.",
+        "command": "Send a CL.TE / TE.CL desync probe (e.g. via PortSwigger HTTP Request Smuggler) and observe whether the back-end desyncs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No desync — ambiguous requests are rejected or normalized consistently front-to-back. A desync means value is false",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn (Kettle 2019)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ambiguous_length_headers_forwarded",
+    "option_description": "Interpreted — requests carrying duplicate/conflicting message-length headers (both Content-Length and Transfer-Encoding, or duplicated values) are forwarded to the upstream unmodified rather than rejected. True is the insecure state.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync and missing payload validation\" (fires when ambiguous_length_headers_forwarded is_true). Forwarding ambiguous length signalling is the root condition for CL.TE/TE.CL smuggling (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send a request with both Content-Length and Transfer-Encoding headers and check whether it reaches the upstream unmodified.",
+        "command": "Send a CL.TE / TE.CL desync probe (e.g. via PortSwigger HTTP Request Smuggler) and observe whether the back-end desyncs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ambiguous-length request rejected or normalized at the edge (secure). If it reaches the upstream unmodified, value is true",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn (Kettle 2019)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "http2_downgrade_strictly_normalized",
+    "option_description": "Interpreted — when the gateway terminates HTTP/2 from clients and proxies to HTTP/1.1 upstreams, the downgrade strictly re-derives length framing and strips client-supplied Transfer-Encoding/Content-Length so an H2.TE/H2.CL desync cannot be smuggled across the protocol boundary.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync and missing payload validation\" (fires when http2_downgrade_strictly_normalized is_false). An unnormalized HTTP/2-to-HTTP/1 downgrade re-introduces smuggling (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe an H2.TE/H2.CL desync against an HTTP/2 listener proxying to HTTP/1.1 upstreams.",
+        "command": "Send an H2.TE / H2.CL desync probe against an HTTP/2 listener proxying to HTTP/1.1 upstreams (e.g. PortSwigger HTTP Request Smuggler)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client-supplied framing headers stripped/re-derived on downgrade (secure). A successful desync means value is false",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn (Kettle 2019)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "content_type_strict_validation",
+    "option_description": "Interpreted — the gateway enforces Content-Type on routes accepting request bodies; a mismatched or missing media type is rejected (HTTP 415) rather than passed to the backend.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync and missing payload validation\" (fires when content_type_strict_validation is_false). No Content-Type enforcement lets malformed/ambiguous payloads reach backends (T1071.001).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send a body with a mismatched/missing Content-Type to a body-accepting route and check the response.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: text/plain' --data '{\"x\":1}' https://<gateway-host>:8443/<json-route>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "415 Unsupported Media Type (request-validator / Content-Type enforcement present). A 2xx forwarded to the backend means value is false",
+        "source": "OWASP ASVS V13 — API and Web Service (5.0)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_payload_schema_validated",
+    "option_description": "Interpreted — a request-validator (JSON schema / body-size) plugin is applied at the edge on routes accepting bodies, so oversized/malformed payloads are rejected before reaching upstreams.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync and missing payload validation\" (fires when request_payload_schema_validated is_false). No payload validation forwards arbitrary malformed bodies to upstreams (OWASP API4 / ASVS V13).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check the Admin API /plugins for a request-validator (JSON schema / body-size) plugin on body-accepting routes.",
+        "command": "curl -s http://127.0.0.1:8001/plugins | jq '.data[] | select(.name|test(\"size-limiting|validator\")) | {name, route, service}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "request-validator present on routes accepting request bodies; absence means value is false",
+        "source": "OWASP ASVS V13 — API and Web Service (5.0)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether Authorization headers, API keys, bearer tokens and PII are masked or excluded from the gateway's access/audit logs and log plugins (custom log_format / file-log/http-log/syslog plugins must not capture credential headers).",
+    "security_impact": "One of the OR-triggers for \"Secrets disclosure in logs or config; client-IP spoofing breaking audit\" (fires when secrets_masked_in_logs is_false). Logging Authorization/apikey headers verbatim leaks credentials into the forensic trail (CWE-532 / T1552).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep the live access log for credential markers and confirm no credential values appear.",
+        "command": "grep -iE 'authorization|apikey|bearer ' <kong-access-log> | head",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No Bearer tokens / apikey values present in log lines. Any verbatim credential means value is false",
+        "source": "MITRE CWE-532 Insertion of Sensitive Information into Log File"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_hardcoded_in_config_or_iac",
+    "option_description": "Whether plaintext upstream credentials or the Kong-Admin-Token are hardcoded in declarative config or images (kong.yml / kong.conf / container images) instead of being referenced from a secret manager (Kong vault references {vault://...}).",
+    "security_impact": "One of the OR-triggers for \"Secrets disclosure in logs or config; client-IP spoofing breaking audit\" (fires when secrets_hardcoded_in_config_or_iac is_true). Hardcoded admin tokens/upstream credentials are unsecured credentials recoverable from the container/API layer (T1552.007).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep kong.yml / kong.conf / image layers for literal credential values vs {vault://...} references.",
+        "command": "grep -riE 'password|token|apikey|secret' /etc/kong/*.yml /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.yml",
+        "navigation": null,
+        "expected_output": "Sensitive values appear as {vault://...} references, not literals. Literal secrets present means value is true",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether edge access/audit logging is enabled and a forensic trail of proxied requests is being produced (proxy_access_log / admin_access_log point to a real log path or syslog target — NOT 'off' — and logs ship off-box to a collector).",
+    "security_impact": "One of the OR-triggers for \"Secrets disclosure in logs or config; client-IP spoofing breaking audit\" (fires when access_audit_trail_enabled is_false). Disabling access logs destroys the forensic trail of edge traffic, masking abuse (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm proxy_access_log / admin_access_log point to a real path or syslog target (not 'off').",
+        "command": "grep -E '^(proxy_access_log|admin_access_log)' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "A real log path or a syslog: target — NOT 'off'. An 'off' value means value is false",
+        "source": "nginx ngx_http_log_module — access logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "upstream_proxy_ips_unscoped",
+    "option_description": "Whether the gateway trusts all upstream proxies for the client IP (trusted_ips = 0.0.0.0/0,::/0 rather than scoped to the real fronting LB/CDN CIDRs).",
+    "security_impact": "One of the OR-triggers for \"Secrets disclosure in logs or config; client-IP spoofing breaking audit\" (fires when upstream_proxy_ips_unscoped is_true). Trusting all upstreams lets clients spoof X-Forwarded-For / X-Real-IP, defeating IP-based rate limits, ACLs and audit accuracy (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read trusted_ips / real_ip_header in kong.conf — true if 0.0.0.0/0,::/0 (unscoped), false if restricted to the fronting LB/CDN CIDRs.",
+        "command": "grep -E '^(trusted_ips|real_ip_header|real_ip_recursive)' /etc/kong/kong.conf",
+        "file_path": "/etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "trusted_ips scoped to the LB/CDN ranges (NOT 0.0.0.0/0). Default 'none' means no XFF is trusted. A 0.0.0.0/0,::/0 value means value is true",
+        "source": "Kong Gateway configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "gateway_image_signature_verified",
+    "option_description": "Whether the gateway container image is cryptographically signature-verified before it is allowed to run (e.g. cosign verify against a trusted key / a ClusterImagePolicy admission gate).",
+    "security_impact": "One of the OR-triggers for \"Unverified gateway image / plugin supply chain\" (fires when gateway_image_signature_verified is_false). An unsigned or tampered gateway image can execute in the edge trust position and intercept all proxied traffic and credentials (T1195.002 / T1204.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a cosign-verify / ClusterImagePolicy admission gate verifies the gateway image signature against a trusted key before run. The dossier carries no concrete inspect surface for this supply-chain attribute (flagged research gap) — gather the admission-policy / signing-pipeline evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signature-verification gate (cosign verify / Sigstore ClusterImagePolicy) is enforced at admission. Absence means value is false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_supply_chain_signed_provenance_verified",
+    "option_description": "Whether the deployed artifact's build provenance is signed and verified (e.g. SLSA provenance / in-toto attestation checked at deploy time) so the running gateway image traces to a trusted, attested build.",
+    "security_impact": "One of the OR-triggers for \"Unverified gateway image / plugin supply chain\" (fires when artifact_supply_chain_signed_provenance_verified is_false). An artifact of unknown or forged origin can be admitted (T1195.001 / T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SLSA provenance / in-toto attestation is checked at deploy time for the gateway artifact. No dossier inspect surface for this supply-chain attribute (flagged research gap) — review the deploy pipeline's attestation-verification step.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deploy pipeline verifies signed SLSA/in-toto provenance for the artifact. Absence means value is false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_references_immutable_digest_pinned",
+    "option_description": "Whether the gateway image and plugin references are pinned to an immutable content digest (sha256@...) rather than a mutable tag (e.g. ':latest').",
+    "security_impact": "One of the OR-triggers for \"Unverified gateway image / plugin supply chain\" (fires when artifact_references_immutable_digest_pinned is_false). A mutable tag lets the resolved artifact silently change to a tampered one between pulls (T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the image and plugin references use sha256@... digests rather than mutable tags like ':latest' (review the deployment manifest / Dockerfile / Helm values). No dossier inspect surface for this supply-chain attribute (flagged research gap).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Image/plugin references pinned to sha256@... digests. A ':latest' or floating tag means value is false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_plugins_version_pinned",
+    "option_description": "Whether third-party / community gateway plugins are pinned to a specific reviewed version (and their integrity verified) rather than floating to the newest available.",
+    "security_impact": "One of the OR-triggers for \"Unverified gateway image / plugin supply chain\" (fires when third_party_plugins_version_pinned is_false). Unpinned plugins let a compromised upstream package execute inside the gateway process (T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm community/third-party plugins are pinned to a specific reviewed version with integrity verification rather than floating (review LuaRocks/plugin manifests and the plugin install step). No dossier inspect surface for this supply-chain attribute (flagged research gap).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each third-party plugin is pinned to a specific reviewed version with integrity check. Floating versions mean value is false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "untrusted_plugins_allowed",
+    "option_description": "Whether plugins outside a vetted allowlist of trusted/maintained sources may be loaded into the gateway (no source allowlist or provenance gate on plugins).",
+    "security_impact": "One of the OR-triggers for \"Unverified gateway image / plugin supply chain\" (fires when untrusted_plugins_allowed is_true). A malicious third-party plugin runs with full access to proxied traffic and credentials at the edge (T1195.001 / T1204.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a source allowlist / provenance gate restricts which plugins may load (review the plugins configuration and any admission/provenance policy). No dossier inspect surface for this supply-chain attribute (flagged research gap).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A source allowlist / provenance gate is enforced on loadable plugins. No such control means value is true",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  }
+]

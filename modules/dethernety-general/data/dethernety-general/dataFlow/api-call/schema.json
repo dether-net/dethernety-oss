@@ -1,0 +1,342 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Flow Carried Over TLS End-to-End",
+        "description": "Attestation: the entire request/response channel for this flow is carried over TLS — no plaintext HTTP, no opportunistic-encryption fallback. Verified on the wire with openssl s_client / curl --proto '=https'. False when any leg of the flow accepts cleartext HTTP, enabling passive sniffing of credentials, tokens, and PII and active response injection by a network attacker.",
+        "default": false
+      },
+      "hsts_enforced": {
+        "type": "boolean",
+        "title": "HSTS Enforced for Browser-Reachable Flows",
+        "description": "Attestation: for browser-reachable flows, the server emits Strict-Transport-Security with max-age >= 31536000 and includeSubDomains, instructing the user agent to refuse plaintext for the host going forward. Verified with `curl -sIk https://<host>/ | grep -i strict-transport-security`. False when the header is absent or carries a short max-age, leaving the flow downgradeable via TLS-strip / sslstrip on the user's first or any uncached visit. Mark not-applicable for pure service-to-service flows.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Protocol Version",
+        "description": "Minimum TLS protocol version negotiated on the flow. TLS 1.0/1.1 and all SSL versions are deprecated; TLS 1.2 is the floor and TLS 1.3 is preferred. The insecure value indicates the server still accepts SSLv3/TLS1.0/TLS1.1, exposing the flow to POODLE/BEAST-class downgrade attacks."
+      },
+      "cipher_suites_strong_only": {
+        "type": "string",
+        "enum": [
+          "aead_with_forward_secrecy_only",
+          "any_legacy_cbc_rc4_3des_null_or_export_suite_accepted"
+        ],
+        "title": "Only Strong AEAD/FS Cipher Suites Accepted",
+        "description": "Whether only strong NIST/Mozilla-approved cipher suites (AEAD with ECDHE/DHE forward secrecy) are negotiated. The insecure value indicates legacy CBC, RC4, 3DES, NULL, EXPORT, or anonymous suites are still accepted, enabling FREAK/LOGJAM/CRIME-style attacks. Modelled as an interpreted enum rather than substring-matching a raw cipher string to avoid the substring polarity trap (a hardened cipher list mentions weak names with '!' exclusion)."
+      },
+      "downgrade_and_renegotiation_protected": {
+        "type": "string",
+        "enum": [
+          "downgrade_sentinel_absent_and_secure_renegotiation_only",
+          "insecure_renegotiation_or_downgrade_observed"
+        ],
+        "title": "TLS Downgrade & Secure Renegotiation Protected",
+        "description": "Whether TLS 1.3 downgrade-protection sentinel is honoured and insecure (RFC 5746-violating) renegotiation is disabled. The insecure value indicates either an observed downgrade sentinel or insecure renegotiation, letting a network attacker weaken or hijack the encrypted session (CVE-2009-3555 / POODLE-class)."
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Client Performs Full Server Certificate Validation",
+        "description": "Attestation that the client on this flow performs full server certificate validation: chain to a trusted root, hostname (SAN) match, expiry and revocation checks. Fires when set to false — e.g. Go InsecureSkipVerify=true, Python requests verify=False, Node rejectUnauthorized:false, or curl -k — which turns TLS into MITM theatre and lets an on-path attacker present an arbitrary certificate.",
+        "default": false
+      },
+      "tls_root_trust_managed": {
+        "type": "boolean",
+        "title": "Trust Store Curated & Pinned",
+        "description": "Attestation that the trust store used to validate the server certificate is curated and pinned to known CAs (or an internal CA for service-to-service mTLS) rather than the default OS bundle accepted with no review. An overly broad or unmanaged trust store widens the AitM surface because any CA in the bundle can mint a cert accepted on this flow.",
+        "default": false
+      },
+      "sender_constrained": {
+        "type": "boolean",
+        "title": "Access Tokens Sender-Constrained (DPoP / mTLS)",
+        "description": "Attestation that access tokens carried on this flow are sender-constrained (proof-of-possession bound to the caller's key) — either DPoP (RFC 9449) or mTLS-bound (RFC 8705). True when the receiver requires a DPoP proof JWT whose jkt thumbprint matches the access token's cnf.jkt claim, OR when the token's cnf.x5t#S256 is bound to a client certificate the caller presents at the TLS layer. False when the flow accepts plain 'Authorization: Bearer <token>' with no possession proof — such tokens are replayable from any host that obtains them (logs, proxies, compromised client) until expiry. Aligned with the canonical workspace concept (replay_binding).",
+        "default": false
+      },
+      "access_token_ttl_minutes": {
+        "type": "integer",
+        "title": "Access Token TTL (Minutes)",
+        "description": "Lifetime (in minutes) of the access token presented on this flow, from issuance to expiry. Long TTLs widen the replay window when a token is exfiltrated: a 60-minute token gives an attacker at most one hour to abuse it, a multi-hour or multi-day token turns a single compromise into long-lived access. RFC 9700 (OAuth 2.0 BCP) recommends short-lived access tokens paired with refresh tokens. Aligned with the canonical workspace concept (session_lifecycle)."
+      },
+      "jwt_signature_verified": {
+        "type": "boolean",
+        "title": "JWT Signature Cryptographically Verified",
+        "description": "Interpreted attestation: on every JWT received on this flow, the receiver cryptographically verifies the signature against the issuer's published key BEFORE trusting any claim. Secure = true (verification performed and required). False fires the exposure: an unverified or skipped-signature token path lets an attacker submit any forged token and be trusted.",
+        "default": false
+      },
+      "accepts_alg_none": {
+        "type": "boolean",
+        "title": "Verifier Accepts alg=none Tokens",
+        "description": "Interpreted attestation: the JWT verifier accepts tokens whose header declares alg='none' (an unsigned token treated as authentic). Secure = false (the 'none' algorithm is explicitly rejected by the verifier's allowlist). True fires the exposure — CVE-2015-9235 class bug, attacker forges arbitrary claims with no signing key.",
+        "default": false
+      },
+      "signature_algorithm_pinned_server_side": {
+        "type": "boolean",
+        "title": "Signing Algorithm Pinned Server-Side",
+        "description": "Interpreted attestation: the verifier passes an explicit, server-side allowlist of acceptable signing algorithms (e.g. RS256/ES256 only) to the JWT library, instead of trusting the algorithm declared in the incoming token's own 'alg' header. Secure = true (algorithm pinned to a hard-coded allowlist). False fires the exposure — algorithm-from-header trust is the precondition for both alg=none and alg-confusion attacks.",
+        "default": false
+      },
+      "rs256_to_hs256_confusion_possible": {
+        "type": "boolean",
+        "title": "RS256→HS256 Key Confusion Possible",
+        "description": "Interpreted attestation: the verifier can be tricked into treating an asymmetric (RS256/ES256) key as an HMAC (HS256) shared secret — i.e. the same key material is reachable for both code paths and the algorithm selection is driven by the token header. Secure = false (key type strictly bound to algorithm; HS256 disabled when RS256 is in use, or asymmetric public keys never passed to HMAC verify). True fires the exposure — CVE-2018-1000531 class bug, attacker signs a forged token with the public key.",
+        "default": false
+      },
+      "transmitted_in_url_or_query": {
+        "type": "boolean",
+        "title": "Secrets Carried in URL Path or Query String",
+        "description": "Attestation: bearer tokens, API keys, session ids, or sensitive PII are carried in the URL path or query string of this flow's requests (instead of in the Authorization header or request body). When true, those values end up in web-server access logs, proxy logs, CDN logs, Referer headers, and browser history — readable and replayable by anyone with log access. Secure baseline: false (sensitive material never appears in URLs).",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked or Omitted from Logs",
+        "description": "Attestation: any access/audit log written for this flow masks or omits secrets (Authorization header values, tokens, API keys, PII). When false, secrets recorded by the gateway/proxy/web-server logging pipeline are recoverable by anyone with log read access — including secrets that leak via URL query strings. Secure baseline: true (logs scrub or redact sensitive fields).",
+        "default": false
+      },
+      "outbound_fetch_destination_allowlisted": {
+        "type": "boolean",
+        "title": "Outbound Destination Constrained by Allowlist",
+        "description": "Attested: the outbound API call's destination URL is constrained to an explicit allowlist (forward proxy, NAT egress rules, or service-mesh egress policy enumerates permitted destinations). When user-influenced input can drive the fetch destination and no allowlist is enforced, the flow is an SSRF primitive — attackers can pivot to internal RFC1918 services or arbitrary external hosts. Secure value: true.",
+        "default": false
+      },
+      "private_and_metadata_targets_blocked": {
+        "type": "boolean",
+        "title": "Private/Link-Local Targets Blocked on Egress",
+        "description": "Attested: the egress path explicitly blocks resolution/connection to private address space (RFC1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback (127.0.0.0/8), link-local (169.254.0.0/16), and other internal ranges — including after DNS rebinding/redirect follow. Without this, an SSRF primitive reaches the internal network even when public allowlisting exists. Secure value: true.",
+        "default": false
+      },
+      "cloud_metadata_endpoint_blocked": {
+        "type": "boolean",
+        "title": "Cloud Metadata Endpoint Unreachable from Flow",
+        "description": "Attested: the cloud instance metadata service endpoint (AWS/GCP/Azure 169.254.169.254, plus IMDSv2 enforcement where applicable) is unreachable from this flow's egress path — either blocked at the egress proxy/NAT or via IMDSv2 hop-limit and token requirement. Reachability of the metadata endpoint from an SSRF primitive yields IAM credential exfiltration (T1552.005). Secure value: true.",
+        "default": false
+      },
+      "scopes_least_privilege": {
+        "type": "boolean",
+        "title": "Access Token Scopes Are Least-Privilege",
+        "description": "Interpreted attestation: the access token presented on this flow carries the narrowest scopes needed for the called operation — no wildcard scopes (e.g. admin/*, *.write), no scopes unrelated to the target. Assessor decodes a representative token (or queries introspection) per RFC 9700 §2.3 and confirms scope claims are bounded to the called operation. Fires when scopes are over-broad.",
+        "default": false
+      },
+      "audience_claim_validated": {
+        "type": "boolean",
+        "title": "Audience (aud) Claim Validated by Receiver",
+        "description": "The receiving service verifies the token's 'aud' (audience) claim matches its own identifier and rejects tokens minted for a different audience. Without aud validation, a token issued for service A is silently accepted by service B (RFC 8725 §3.11, RFC 9700). Canonical workspace attestation for authorization_scope.",
+        "default": false
+      },
+      "least_privilege_authorization_at_crossing": {
+        "type": "boolean",
+        "title": "Least-Privilege Authorization at Boundary Crossing",
+        "description": "Authorization decisions at the boundary crossing this flow traverses grant only the minimum privileges required for the operation (no implicit admin, no shared-superuser identity). Canonical workspace attestation for boundary_authz — a present least-privilege posture is what neutralises an over-scoped/wrong-aud token at the receiver."
+      }
+    },
+    "required": [
+      "flow_tls_encrypted",
+      "hsts_enforced",
+      "min_tls_version",
+      "cipher_suites_strong_only",
+      "downgrade_and_renegotiation_protected",
+      "server_certificate_validated",
+      "tls_root_trust_managed",
+      "sender_constrained",
+      "access_token_ttl_minutes",
+      "jwt_signature_verified",
+      "accepts_alg_none",
+      "signature_algorithm_pinned_server_side",
+      "rs256_to_hs256_confusion_possible",
+      "transmitted_in_url_or_query",
+      "secrets_masked_in_logs",
+      "outbound_fetch_destination_allowlisted",
+      "private_and_metadata_targets_blocked",
+      "cloud_metadata_endpoint_blocked",
+      "scopes_least_privilege",
+      "audience_claim_validated",
+      "least_privilege_authorization_at_crossing"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepts_alg_none"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/jwt_signature_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rs256_to_hs256_confusion_possible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sender_constrained"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_algorithm_pinned_server_side"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/access_token_ttl_minutes"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/scopes_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_authorization_at_crossing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cipher_suites_strong_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/downgrade_and_renegotiation_protected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_root_trust_managed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_metadata_endpoint_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/outbound_fetch_destination_allowlisted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_and_metadata_targets_blocked"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/transmitted_in_url_or_query"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

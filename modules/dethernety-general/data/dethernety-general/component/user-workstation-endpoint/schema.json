@@ -1,0 +1,447 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "office_macro_execution_blocked": {
+        "type": "boolean",
+        "title": "Office Macro Execution Blocked",
+        "description": "Whether Office VBA macros originating from the internet are blocked by policy (macro-block GPO / Defender ASR), so a phishing attachment cannot auto-execute a macro. Secure value: true. Fires when macros are enabled by default and a malicious attachment can run on open.",
+        "default": false
+      },
+      "script_execution_constrained": {
+        "type": "boolean",
+        "title": "Script Execution Constrained",
+        "description": "Whether script/command interpreter execution is constrained (PowerShell Constrained Language mode and AllSigned/RemoteSigned execution policy, signed-only scripts), cutting the phishing-to-execution path via PowerShell/VBA/shell. Secure value: true. Fires when interpreters can run arbitrary unsigned payloads.",
+        "default": false
+      },
+      "application_allowlisting_enforced": {
+        "type": "boolean",
+        "title": "Application Allowlisting Enforced",
+        "description": "Whether application/script allowlisting is enforced (WDAC/AppLocker on Windows; Gatekeeper assessments on macOS) so only approved, signed binaries may execute, blocking unsigned/unknown phishing payloads. Secure value: true. Fires when any downloaded binary may run.",
+        "default": false
+      },
+      "web_dns_content_filtering_enabled": {
+        "type": "boolean",
+        "title": "Web/DNS Content Filtering Enabled",
+        "description": "Whether protective DNS plus web/email content filtering is active on the endpoint to block known-malicious domains and phishing-payload download/callback. Secure value: true. Fires when arbitrary domains are resolvable and no web/email filtering blocks the lure.",
+        "default": false
+      },
+      "behavior_monitoring_enabled": {
+        "type": "boolean",
+        "title": "EDR/AV Behavior Monitoring Enabled",
+        "description": "Whether EDR/AV behavior-based monitoring is active on the endpoint (Get-MpComputerStatus BehaviorMonitorEnabled True) so post-click payload execution and fileless/behavior-only malware are detected and blocked. Secure value: true. Fires when behavior monitoring is off and a payload executes undetected.",
+        "default": false
+      },
+      "edr_av_present": {
+        "type": "boolean",
+        "title": "Endpoint Anti-Malware (EDR/AV) Present",
+        "description": "Endpoint anti-malware (EDR/AV) is installed and its service is running (Get-MpComputerStatus AMServiceEnabled and AntivirusEnabled both True). When false, the core malware-defense control is absent and malware executes unimpeded.",
+        "default": false
+      },
+      "realtime_protection_enabled": {
+        "type": "boolean",
+        "title": "EDR/AV Real-Time Protection Enabled",
+        "description": "Real-time / on-access scanning is active (Get-MpComputerStatus RealTimeProtectionEnabled and OnAccessProtectionEnabled True) so files are inspected on access and boot/logon autostart persistence is observed. When false, files execute without on-access inspection, allowing malware to run and persistence to go unmonitored.",
+        "default": false
+      },
+      "edr_tamper_protection_enabled": {
+        "type": "boolean",
+        "title": "EDR/AV Tamper Protection Enabled",
+        "description": "Tamper protection prevents malware or a local actor from disabling AV/EDR or altering its settings (Get-MpComputerStatus IsTamperProtected True). When false, an Impair-Defenses actor can silently disable the agent.",
+        "default": false
+      },
+      "antivirus_signature_age_days": {
+        "type": "integer",
+        "title": "Anti-Malware Signature Age (days)",
+        "description": "Age in days of the anti-malware signature/definition package (Get-MpComputerStatus AntivirusSignatureAge). Fires when above the freshness threshold (>3 days) because stale signatures miss known threats. Secure endpoints sit at or near 0."
+      },
+      "removable_media_control_enabled": {
+        "type": "boolean",
+        "title": "Removable-Media Device Control Enabled",
+        "description": "Removable-media device control restricts USB mass-storage write/execute via policy. When false, removable media can seed a malware payload (Replication Through Removable Media)."
+      },
+      "os_patch_current": {
+        "type": "boolean",
+        "title": "OS and Client Software Patch-Current",
+        "description": "True when the OS and third-party client software (browser, document readers) have no missing critical/important security updates per the org patch SLA. Secure value is true; the exposure fires when patches are missing (false), leaving known-vulnerable client software exploitable via web or document content.",
+        "default": false
+      },
+      "automatic_updates_enabled": {
+        "type": "boolean",
+        "title": "Automatic Updates Enabled",
+        "description": "True when automatic OS and software updates are enabled so security fixes install without manual intervention within the SLA window. Secure value is true; the exposure fires when auto-update is disabled (false), since the endpoint drifts out of date and remains exploitable.",
+        "default": false
+      },
+      "days_since_last_security_patch": {
+        "type": "integer",
+        "title": "Days Since Last Security Patch",
+        "description": "Number of days since the most recent security patch / cumulative update was installed (latest InstalledOn date via Get-HotFix or the equivalent). A hardened endpoint patches within SLA so this stays small (secure ~0); the exposure fires when it exceeds 30 days, indicating the patch SLA has lapsed."
+      },
+      "credential_guard_enabled": {
+        "type": "boolean",
+        "title": "Credential Guard Enabled",
+        "description": "Windows Defender Credential Guard is running (Win32_DeviceGuard SecurityServicesRunning includes 1), isolating LSASS-derived secrets (NTLM hashes, Kerberos TGTs, cached domain credentials) in a VBS-protected container so they cannot be harvested from LSASS memory. Insecure (false) when off and LSASS secrets are harvestable for reuse.",
+        "default": false
+      },
+      "lsa_protection_enabled": {
+        "type": "boolean",
+        "title": "LSA Protection (RunAsPPL) Enabled",
+        "description": "LSA protection (RunAsPPL — LSASS runs as a Protected Process Light) is enabled, blocking unprivileged/userland tools from opening LSASS to dump credential material. Insecure (false) when LSASS is unprotected and credential-dumping tooling can read secrets directly.",
+        "default": false
+      },
+      "endpoint_runs_as_least_privileged_user": {
+        "type": "boolean",
+        "title": "Endpoint Runs as Least-Privileged User",
+        "description": "Interactive day-to-day user accounts are standard users and the local Administrators group is limited to authorized admin accounts (least privilege, NIST AC-6). Insecure (false) when the everyday user holds local admin rights, granting the elevation needed to access LSASS, the SAM, and cached secrets for credential theft.",
+        "default": false
+      },
+      "phishing_resistant_mfa_enabled": {
+        "type": "boolean",
+        "title": "Phishing-Resistant MFA Enabled",
+        "description": "Device/identity sign-in and resource access enforce phishing-resistant MFA (FIDO2/WebAuthn, Windows Hello for Business, or certificate) rather than password-only or phishable OTP/push. Insecure (false) when password-only/phishable auth is used, so stolen endpoint credentials can be replayed to move laterally."
+      },
+      "endpoint_full_disk_encryption_on": {
+        "type": "boolean",
+        "title": "Full-Disk Encryption On",
+        "description": "Full-disk encryption is on and complete for the system volume (BitLocker: VolumeStatus=FullyEncrypted, ProtectionStatus=On, EncryptionPercentage=100; FileVault: 'FileVault is On.'). Secure value is true; an unencrypted disk or suspended protector leaves local data and cached credentials readable to an offline attacker who physically possesses a lost or stolen device.",
+        "default": false
+      },
+      "tpm_present_and_ready": {
+        "type": "boolean",
+        "title": "TPM Present and Ready",
+        "description": "A TPM is present and ready (TpmPresent=True and TpmReady=True via Get-Tpm, TPM 2.0 expected) to anchor boot/credential integrity and the disk-encryption key. Without a hardware-anchored key protector, the encryption key is more readily extractable offline and boot integrity is not hardware-anchored. Fires when no ready TPM is available.",
+        "default": false
+      },
+      "screen_lock_timeout_minutes": {
+        "type": "integer",
+        "title": "Screen-Lock Inactivity Timeout (minutes)",
+        "description": "Inactivity timeout in minutes after which the device automatically locks and requires a password/biometric to wake. Secure value is a short timeout (<= 15 minutes); a long or absent timeout widens the window during which a lost or unattended device exposes an unlocked, decrypted session. The exposure fires when the timeout exceeds 15 minutes.",
+        "minimum": 0,
+        "maximum": 86400
+      },
+      "remote_wipe_enabled": {
+        "type": "boolean",
+        "title": "Remote Wipe Capability Enabled",
+        "description": "The organization can remotely lock/wipe this endpoint via MDM/UEM (an available, tested Wipe/Retire/Lock action in the MDM console). Secure value is true; without remote-wipe capability a lost or stolen device cannot be remediated, prolonging exposure of local data and cached credentials. Grounded in NIST SP 800-124 Rev. 2."
+      },
+      "secure_boot_enabled": {
+        "type": "boolean",
+        "title": "UEFI Secure Boot Enabled",
+        "description": "UEFI Secure Boot is enabled so only signed bootloaders/firmware run, preventing boot-level persistence and bootkits. Verified via Confirm-SecureBootUEFI (True = enabled/secure; False = supported-but-disabled/insecure). Fires when Secure Boot is disabled, leaving the boot chain open to unsigned/tampered boot components.",
+        "default": false
+      },
+      "managed_device_enrollment_enforced": {
+        "type": "boolean",
+        "title": "Managed Device Enrollment Enforced",
+        "description": "The endpoint is enrolled and compliant in the org MDM/UEM (Intune/Jamf) so policy, patch, and configuration are centrally enforced and remote wipe is possible. True = managed (secure); False = unenrolled/unmanaged/non-compliant (insecure — the device escapes central control).",
+        "default": false
+      },
+      "endpoint_audit_logs_centralised": {
+        "type": "boolean",
+        "title": "Endpoint Logs Forwarded to Central SIEM/EDR",
+        "description": "Endpoint security/EDR alerts and OS security logs are forwarded to a central SIEM/EDR cloud so detections and incident evidence survive a compromised host. True = telemetry shipped centrally (secure); False = logs local-only or forwarding broken (insecure — a compromise goes undetected).",
+        "default": false
+      },
+      "host_firewall_enabled": {
+        "type": "boolean",
+        "title": "Host Firewall Enabled on All Profiles",
+        "description": "The host-based firewall is enabled on ALL profiles (Domain/Private/Public) to limit inbound exposure and lateral movement. True = enabled on every profile (secure); False = any profile disabled (insecure — inbound exposure / lateral-movement surface).",
+        "default": false
+      },
+      "vpn_ztna_posture_gating_enabled": {
+        "type": "boolean",
+        "title": "VPN/ZTNA Posture Gating Enabled",
+        "description": "Off-network access to corporate systems is enforced through VPN/ZTNA with device-compliance/posture gating rather than direct internet exposure. True = VPN/ZTNA required with posture check (secure); False = direct internet exposure / no posture check (insecure — off-network exposure).",
+        "default": false
+      }
+    },
+    "required": [
+      "office_macro_execution_blocked",
+      "script_execution_constrained",
+      "application_allowlisting_enforced",
+      "web_dns_content_filtering_enabled",
+      "behavior_monitoring_enabled",
+      "edr_av_present",
+      "realtime_protection_enabled",
+      "edr_tamper_protection_enabled",
+      "antivirus_signature_age_days",
+      "removable_media_control_enabled",
+      "os_patch_current",
+      "automatic_updates_enabled",
+      "days_since_last_security_patch",
+      "credential_guard_enabled",
+      "lsa_protection_enabled",
+      "endpoint_runs_as_least_privileged_user",
+      "phishing_resistant_mfa_enabled",
+      "endpoint_full_disk_encryption_on",
+      "tpm_present_and_ready",
+      "screen_lock_timeout_minutes",
+      "remote_wipe_enabled",
+      "secure_boot_enabled",
+      "managed_device_enrollment_enforced",
+      "endpoint_audit_logs_centralised",
+      "host_firewall_enabled",
+      "vpn_ztna_posture_gating_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_mfa_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_runs_as_least_privileged_user"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_full_disk_encryption_on"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_guard_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/lsa_protection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_firewall_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_ztna_posture_gating_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/web_dns_content_filtering_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_audit_logs_centralised"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_device_enrollment_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/application_allowlisting_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/office_macro_execution_blocked"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/script_execution_constrained"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/removable_media_control_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_lock_timeout_minutes"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_wipe_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Boot Firmware Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_boot_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tpm_present_and_ready"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Endpoint Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/behavior_monitoring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edr_av_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edr_tamper_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/realtime_protection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/antivirus_signature_age_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Patch Vulnerability",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automatic_updates_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/os_patch_current"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_security_patch"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

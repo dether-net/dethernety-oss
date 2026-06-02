@@ -1,0 +1,242 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "nids_sensor_coverage_at_chokepoints": {
+        "type": "boolean",
+        "title": "NIDS Sensor Coverage at Chokepoints",
+        "description": "Network IDS sensors are deployed at all major ingress/egress and inter-zone chokepoints and are actively analyzing traffic. Secure value: true.",
+        "default": false
+      },
+      "hids_on_critical_hosts": {
+        "type": "boolean",
+        "title": "Host IDS on Critical Hosts",
+        "description": "Host-based IDS sensors run on critical hosts. Secure value: true.",
+        "default": false
+      },
+      "detection_rules_present_and_enabled": {
+        "type": "boolean",
+        "title": "Detection Rules Present and Enabled",
+        "description": "Detection rulesets are loaded with the relevant categories enabled. Secure value: true.",
+        "default": false
+      },
+      "threat_signatures_current": {
+        "type": "boolean",
+        "title": "Threat Signatures Current",
+        "description": "Signature/content feeds are updated automatically and frequently (at least daily). Secure value: true.",
+        "default": false
+      },
+      "behavior_monitoring_enabled": {
+        "type": "boolean",
+        "title": "Behavioral Detection Enabled",
+        "description": "Anomaly/behavioral detection runs alongside signature detection. Secure value: true.",
+        "default": false
+      },
+      "network_flow_logging_enabled": {
+        "type": "boolean",
+        "title": "Network Flow Logging Enabled",
+        "description": "Network flow telemetry (NetFlow/IPFIX) feeds anomaly detection and threat hunting. Secure value: true.",
+        "default": false
+      },
+      "tls_inspection_enabled": {
+        "type": "boolean",
+        "title": "Encrypted-Traffic Visibility (TLS Inspection)",
+        "description": "TLS inspection at a chokepoint, or host-sensor cleartext visibility, closes the encrypted blind spot. Secure value: true.",
+        "default": false
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "IDS alerts and logs are forwarded to a centralized, monitored SIEM. Secure value: true.",
+        "default": false
+      },
+      "monitored_response_function_present": {
+        "type": "boolean",
+        "title": "Monitored Response Function Present",
+        "description": "A monitored SOC/MDR function triages IDS alerts under defined response SLAs. Secure value: true.",
+        "default": false
+      },
+      "clocks_synced_to_trusted_time_source": {
+        "type": "boolean",
+        "title": "Clocks Synced to Trusted Time Source",
+        "description": "Sensor clocks are NTP-synced to a trusted source so multi-sensor timestamps correlate. Secure value: true."
+      },
+      "ids_detection_tuned_and_reviewed": {
+        "type": "boolean",
+        "title": "Detection Tuned and Reviewed",
+        "description": "IDS is tuned per-environment with documented suppression rationale and periodic alert-quality review. Secure value: true.",
+        "default": false
+      },
+      "ids_sensor_hardened_and_patched": {
+        "type": "boolean",
+        "title": "Sensor Hardened and Patched",
+        "description": "The IDPS itself is hardened (restricted management access, patched). Secure value: true.",
+        "default": false
+      },
+      "ids_sensor_fail_mode_defined": {
+        "type": "boolean",
+        "title": "Sensor Fail-Mode Defined",
+        "description": "A deliberate fail-open/fail-closed decision is made for inline deployments. Secure value: true."
+      },
+      "ids_sensor_health_monitored": {
+        "type": "boolean",
+        "title": "Sensor Health Monitored",
+        "description": "Sensor health/heartbeat is monitored so a dead or degraded sensor is noticed. Secure value: true.",
+        "default": false
+      }
+    },
+    "required": [
+      "nids_sensor_coverage_at_chokepoints",
+      "hids_on_critical_hosts",
+      "detection_rules_present_and_enabled",
+      "threat_signatures_current",
+      "behavior_monitoring_enabled",
+      "network_flow_logging_enabled",
+      "tls_inspection_enabled",
+      "centralized_log_aggregation",
+      "monitored_response_function_present",
+      "clocks_synced_to_trusted_time_source",
+      "ids_detection_tuned_and_reviewed",
+      "ids_sensor_hardened_and_patched",
+      "ids_sensor_fail_mode_defined",
+      "ids_sensor_health_monitored"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_inspection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_flow_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nids_sensor_coverage_at_chokepoints"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ids_sensor_health_monitored"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ids_sensor_fail_mode_defined"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/clocks_synced_to_trusted_time_source"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ids_detection_tuned_and_reviewed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ids_sensor_hardened_and_patched"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/monitored_response_function_present"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Detection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/behavior_monitoring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_rules_present_and_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hids_on_critical_hosts"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/threat_signatures_current"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,542 @@
+[
+  {
+    "option_name": "server_side_allowlist_validation",
+    "option_description": "Whether untrusted input is validated server-side against an allow-list (what IS permitted) — syntactic (anchored regex, length, charset) plus semantic (business-range) — at the trust boundary, rather than via a bypassable deny-list or client-side-only checks.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Missing server-side allow-list input validation\" — this is the primary attribute that rule keys on: when server_side_allowlist_validation is true, untrusted input is constrained at the trust boundary, mitigating the A03 injection family (T1190 Exploit Public-Facing Application) as a contributing control behind parameterization and output encoding.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review each input field's validation rule for an allow-list (fixed-set match or anchored regex with bounded length and explicit charset). Confirm deny-list-only or client-side-only validation is not relied upon.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each input field maps to an allow-list rule (fixed set match, or anchored ^...$ regex with min/max length and explicit charset). Deny-list-only filtering or client-side-only validation is INSECURE — JS validation is circumvented by disabling JS or using a proxy.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm validation runs server-side before any processing, as early as data is received, and includes both syntactic and semantic checks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Validation runs server-side before any data is processed, as early as the data is received. Both syntactic (format) and semantic (business-context, e.g. start-date < end-date, value-in-range) checks present.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "validation_is_client_side_only",
+    "option_description": "Whether the only input validation present is in client-side JavaScript (no server-side enforcement) — a security-worthless posture, since client checks are bypassed by disabling JS or using an intercepting proxy.",
+    "security_impact": "An OR-trigger for \"Missing server-side allow-list input validation\" — this is the inverse of the protection: when validation_is_client_side_only is true, no server-side guard exists, leaving the trust boundary undefended against the A03 injection family (T1190). The control is present only when this is false (validation also runs server-side).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether validation logic exists only in front-end JavaScript by checking that the same rules are re-enforced server-side before processing.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Validation runs server-side before any data is processed, as early as the data is received. Both syntactic (format) and semantic (business-context, e.g. start-date < end-date, value-in-range) checks present.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Submit a malformed value via an intercepting proxy (e.g. Burp/ZAP), bypassing the browser, and observe whether the server rejects it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A proxied request carrying values that the client-side JS would reject is still rejected by the server. If the server accepts it, validation was client-side-only and is INSECURE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "denylist_filtering_used",
+    "option_description": "Whether input handling relies on a deny-list/blacklist of bad characters or patterns rather than an allow-list of what is permitted — a bypass-prone approach (encoding, alternate representations, and novel payloads evade fixed deny-lists).",
+    "security_impact": "An OR-trigger for \"Missing server-side allow-list input validation\" — deny-list filtering is the insecure substitute for the allow-list control: when denylist_filtering_used is true, the boundary is bypassable, contributing to the A03 injection family (T1190). The control is satisfied only when validation is allow-list-based, not deny-list-based.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect validation routines to determine whether they reject known-bad patterns (deny-list) versus matching against a permitted set (allow-list).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each input field maps to an allow-list rule (fixed set match, or anchored ^...$ regex with min/max length and explicit charset). Deny-list-only filtering or client-side-only validation is INSECURE — JS validation is circumvented by disabling JS or using a proxy.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "parameterized_queries_used",
+    "option_description": "Whether all database access uses parameterized queries / prepared statements (placeholders bind user input as data) rather than string-concatenated SQL — the primary SQL-injection defense.",
+    "security_impact": "Protection that satisfies the countermeasure for \"SQL / NoSQL / LDAP injection\" — this is the primary attribute that rule keys on: when parameterized_queries_used is true, the interpreter separates code from data, mitigating SQL/NoSQL/LDAP injection (T1190 Exploit Public-Facing Application). The exposure fires when this protection is absent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep the source for SQL built by concatenating user input; confirm queries use placeholders bound separately via prepared statements.",
+        "command": "grep -rnE \"(createStatement|executeQuery\\(.*\\+|String .*query.*=.*\\+|\\\".*SELECT.*\\\" *\\+)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No SQL string built by concatenating user input. Secure code passes a placeholder query (? or named params) to prepareStatement/PreparedStatement and binds values separately. Concatenation into the query string is INSECURE.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dynamic_query_string_concatenation",
+    "option_description": "Whether user input is concatenated into the SQL/query string (\"... WHERE name = \" + input) or escaping is relied on as the primary defense — the canonical SQL-injection root cause.",
+    "security_impact": "An OR-trigger for \"SQL / NoSQL / LDAP injection\" — this is the insecure inverse of parameterization: when dynamic_query_string_concatenation is true, attacker input alters query structure, contributing to SQL/NoSQL/LDAP injection (T1190). The injection exposure fires when this is true; the control is present only when it is false.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep the source for concatenation of user input into query strings; any match indicates dynamic query-string concatenation.",
+        "command": "grep -rnE \"(createStatement|executeQuery\\(.*\\+|String .*query.*=.*\\+|\\\".*SELECT.*\\\" *\\+)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No SQL string built by concatenating user input. Secure code passes a placeholder query (? or named params) to prepareStatement/PreparedStatement and binds values separately. Concatenation into the query string is INSECURE.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_db_account",
+    "option_description": "Whether the database account used by the application runs at least privilege (no DBA/admin rights, only the required SELECT/INSERT/UPDATE) — bounding the blast radius if SQL injection succeeds.",
+    "security_impact": "Protection that contributes to the countermeasure for \"SQL / NoSQL / LDAP injection\" — when least_privilege_db_account is true, a successful injection has a limited blast radius; it is a defense-in-depth attribute behind parameterized_queries_used for the same exposure (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the database grants for the application's service account to confirm it lacks DBA/admin rights and holds only the privileges the app requires.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DB account used by the app has least privilege (no DBA/admin, only required SELECT/INSERT/UPDATE), limiting blast radius if SQLi succeeds.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "contextual_output_encoding_applied",
+    "option_description": "Whether all untrusted data rendered into a response is encoded for its exact output context (HTML body, attribute, JS, CSS, URL) — typically via framework auto-escaping, with escape-hatches avoided — the primary XSS defense.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Cross-site scripting (reflected / stored / DOM)\" — this is the primary attribute that rule keys on: when contextual_output_encoding_applied is true, untrusted data cannot break out of its render context into script (CWE-79, T1059.007). The XSS exposure fires when this protection is absent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for unsafe DOM sinks and framework escape-hatches; confirm untrusted data instead flows through context-matched encoding or a safe sink.",
+        "command": "grep -rnE \"(innerHTML|outerHTML|dangerouslySetInnerHTML|bypassSecurityTrust|document\\.write|eval\\(|insertAdjacentHTML)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Untrusted data flows through context-matched encoding or a safe sink (.textContent, createTextNode). Unsafe sinks (innerHTML/outerHTML/eval) with untrusted data are INSECURE unless wrapped in DOMPurify.sanitize().",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm rich/user-authored HTML is sanitised with DOMPurify before rendering rather than hand-encoded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rich/user-authored HTML is sanitised with DOMPurify before rendering, not hand-encoded.",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unsafe_html_sinks_used",
+    "option_description": "Whether untrusted data reaches unsafe sinks (innerHTML, outerHTML, document.write, eval, dangerouslySetInnerHTML, bypassSecurityTrustAs*) without sanitisation — the DOM-XSS root cause.",
+    "security_impact": "An OR-trigger for \"Cross-site scripting (reflected / stored / DOM)\" — this is the insecure inverse of contextual encoding: when unsafe_html_sinks_used is true (and data is not DOMPurify-sanitised), script can be injected into the victim browser (CWE-79, T1059.007). The XSS exposure fires when this is true; the control is present only when safe sinks/sanitisation are used.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for unsafe HTML/JS sinks; any match on untrusted data not wrapped in DOMPurify.sanitize() indicates an unsafe sink.",
+        "command": "grep -rnE \"(innerHTML|outerHTML|dangerouslySetInnerHTML|bypassSecurityTrust|document\\.write|eval\\(|insertAdjacentHTML)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Untrusted data flows through context-matched encoding or a safe sink (.textContent, createTextNode). Unsafe sinks (innerHTML/outerHTML/eval) with untrusted data are INSECURE unless wrapped in DOMPurify.sanitize().",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "content_security_policy_enforced",
+    "option_description": "Whether a per-application Content-Security-Policy response header is set, restricting script sources / inline script as XSS defense-in-depth — layered behind output encoding, never the sole defense.",
+    "security_impact": "Protection that contributes to the countermeasure for \"Cross-site scripting (reflected / stored / DOM)\" — when content_security_policy_enforced is true, a tuned CSP provides defense-in-depth that limits script execution even if encoding is bypassed (CWE-79, T1059.007). It is a layered control behind contextual_output_encoding_applied for the same exposure.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Request the application and inspect response headers for a scoped Content-Security-Policy.",
+        "command": "curl -sI https://<app> | grep -i content-security-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Content-Security-Policy header is returned and scoped to the app. CSP is defense-in-depth — its absence is a gap; relying on it alone is INSECURE.",
+        "source": "OWASP Secure Headers Project (CSP for XSS defense-in-depth)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "user_input_in_shell_command_string",
+    "option_description": "Whether user input is concatenated into a single shell command string (system(), shell=True, Runtime.exec with one string, escapeshellcmd as the guard) — the OS command-injection root cause.",
+    "security_impact": "An OR-trigger for \"OS command injection\" — this is the insecure inverse of safe process invocation: when user_input_in_shell_command_string is true, attacker input executes arbitrary OS commands (CWE-78, T1059 Command and Scripting Interpreter). The command-injection exposure fires when this is true; the control is present only when it is false.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for shell-string process invocation; any match passing user input indicates input reaching a shell string.",
+        "command": "grep -rnE \"(system\\(|exec\\(|popen\\(|shell=True|Runtime\\.getRuntime\\(\\)\\.exec|ProcessBuilder\\(\\\".* .*\\\"\\))\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No user input reaches a shell string. Secure: native library call, or argument-array spawn with each arg a separate element. Single concatenated command string or shell=True with user data is INSECURE.",
+        "source": "OWASP OS Command Injection Defense Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "os_commands_avoided_or_arg_array_used",
+    "option_description": "Whether OS-level operations use built-in library functions, or — when a process must spawn — argument-array invocation (separate args, no shell), an allow-listed command, validated args, and the -- option-terminator — the OS command-injection defense.",
+    "security_impact": "Protection that satisfies the countermeasure for \"OS command injection\" — when os_commands_avoided_or_arg_array_used is true, user data never becomes part of a shell string, mitigating OS command injection (CWE-78, T1059). The exposure fires when this protection is absent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for process-spawn calls and confirm they use native library functions or argument-array form with each arg a separate element rather than a concatenated command string.",
+        "command": "grep -rnE \"(system\\(|exec\\(|popen\\(|shell=True|Runtime\\.getRuntime\\(\\)\\.exec|ProcessBuilder\\(\\\".* .*\\\"\\))\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No user input reaches a shell string. Secure: native library call, or argument-array spawn with each arg a separate element. Single concatenated command string or shell=True with user data is INSECURE.",
+        "source": "OWASP OS Command Injection Defense Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "native_deserialization_of_untrusted_data",
+    "option_description": "Whether the application natively/binary-deserializes untrusted data (Java ObjectInputStream.readObject/XMLDecoder, Python pickle.load/yaml.load, PHP unserialize, .NET BinaryFormatter or TypeNameHandling != None) — the insecure-deserialization RCE root cause.",
+    "security_impact": "An OR-trigger for \"Insecure deserialization of untrusted data\" — this is the insecure inverse of the deserialization control: when native_deserialization_of_untrusted_data is true, gadget chains can reach remote code execution (T1190 Exploit Public-Facing Application). The exposure fires when this is true; the control is present only when pure-data formats or signed/allow-listed deserialization are used.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for native deserialization sinks; any match on attacker-controlled data indicates native deserialization of untrusted data.",
+        "command": "grep -rnE \"(ObjectInputStream|readObject\\(|XMLDecoder|pickle\\.loads?|yaml\\.load\\(|unserialize\\(|BinaryFormatter|TypeNameHandling)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No native deserialization of untrusted data. Secure: JSON/XML parsing, yaml.safe_load, TypeNameHandling.None, ObjectInputStream with resolveClass allow-list. Any of the listed sinks on attacker-controlled data is INSECURE.",
+        "source": "OWASP Deserialization Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "deserialization_class_allowlist_or_signed_payloads",
+    "option_description": "Whether, where native serialization is unavoidable, deserialization is constrained by a class allow-list (resolveClass / serialization filter) and/or serialized blobs are signed (HMAC) and verified before deserialization, with hardcoded types.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Insecure deserialization of untrusted data\" — when deserialization_class_allowlist_or_signed_payloads is true, gadget chains and tampered blobs are rejected before deserialization, mitigating deserialization RCE (T1190). It is the present-protection complement to native_deserialization_of_untrusted_data for that exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm that where native serialization is required, the blob is signed (HMAC/digital signature) and verified before deserialization and that class types are hardcoded, not user-controlled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Where native serialization is required, the blob is signed (HMAC/digital signature) and the signature is verified before deserialization; class types are hardcoded, not user-controlled.",
+        "source": "OWASP Deserialization Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "xml_external_entities_disabled",
+    "option_description": "Whether XML parsers disable DTDs / external entities (ideally DOCTYPE entirely): Java disallow-doctype-decl=true + FEATURE_SECURE_PROCESSING, .NET DtdProcessing.Prohibit / XmlResolver=null, Python defusedxml — preventing XXE file disclosure/SSRF.",
+    "security_impact": "Protection that satisfies the countermeasure for \"XXE and entity-expansion DoS\" — this is the primary attribute that rule keys on: when xml_external_entities_disabled is true, the parser will not resolve external entities, mitigating XXE file disclosure/SSRF (T1190). The exposure fires when this protection is absent — many parsers (notably Java JAXP) enable XXE by default.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for XML parser hardening directives; confirm parsers fed untrusted XML explicitly disable DOCTYPE/external entities.",
+        "command": "grep -rnE \"(disallow-doctype-decl|FEATURE_SECURE_PROCESSING|DtdProcessing|setExpandEntityReferences|defusedxml|external-general-entities|external-parameter-entities)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Parser explicitly disables DOCTYPE/external entities (Java setFeature disallow-doctype-decl=true; .NET DtdProcessing.Prohibit; defusedxml in Python). Absence of hardening on a parser fed untrusted XML is INSECURE — many parsers enable XXE by default.",
+        "source": "OWASP XML External Entity Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "entity_expansion_limits_enforced",
+    "option_description": "Whether XML parsing enforces entity-expansion limits (and ideally disallows DOCTYPE) — preventing billion-laughs / nested entity-expansion denial of service.",
+    "security_impact": "Protection that satisfies the countermeasure for \"XXE and entity-expansion DoS\" — when entity_expansion_limits_enforced is true, nested entity expansion cannot exhaust memory/CPU, mitigating the billion-laughs DoS facet of that exposure (T1499 Endpoint Denial of Service). It is the DoS-facet complement to xml_external_entities_disabled for the same exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the XML parser disallows DOCTYPE or enforces secure-processing / entity-expansion limits (e.g. defusedxml in Python, FEATURE_SECURE_PROCESSING in Java) on untrusted XML.",
+        "command": "grep -rnE \"(disallow-doctype-decl|FEATURE_SECURE_PROCESSING|DtdProcessing|setExpandEntityReferences|defusedxml|external-general-entities|external-parameter-entities)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Parser explicitly disables DOCTYPE/external entities (Java setFeature disallow-doctype-decl=true; .NET DtdProcessing.Prohibit; defusedxml in Python). Absence of hardening on a parser fed untrusted XML is INSECURE — many parsers enable XXE by default.",
+        "source": "OWASP XML External Entity Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "file_paths_canonicalized_and_contained",
+    "option_description": "Whether user-controlled file paths/names are canonicalised and confined to an allow-listed base directory (server-defined paths, random/UUID names) — preventing path traversal / local file inclusion.",
+    "security_impact": "Protection that satisfies the path-traversal facet of the countermeasure for \"Path traversal and SSRF from un-allow-listed destinations\" — when file_paths_canonicalized_and_contained is true, ../ traversal cannot escape the intended base directory (CWE-73, T1083 File and Directory Discovery). That exposure's path-traversal trigger fires when this protection is absent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm file paths are server-defined and that user text is never used as a path component without canonicalisation plus a base-directory containment check.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File paths are server-defined; user text is never used as a path component without canonicalisation + base-directory containment check. Direct use of user filename in a path is INSECURE (maps to CWE-73).",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "outbound_fetch_destination_allowlisted",
+    "option_description": "Whether server-side outbound requests built from user-supplied URLs/hosts are constrained by an allow-list of permitted schemes/hosts/ports, with HTTP redirects disabled or re-validated — preventing SSRF.",
+    "security_impact": "Protection that satisfies the SSRF facet of the countermeasure for \"Path traversal and SSRF from un-allow-listed destinations\" — this is the primary SSRF attribute that rule keys on: when outbound_fetch_destination_allowlisted is true, the server only fetches trusted destinations, mitigating SSRF (T1090 Proxy). That exposure's SSRF trigger fires when raw user URLs are fetched (this protection absent).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review outbound-fetch code to confirm the target host is validated against an allow-list of trusted hosts/schemes and that redirects are disabled or re-validated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound-fetch code validates the target host against an allow-list and rejects private/link-local/metadata ranges (169.254.169.254 included); redirects disabled or re-validated. Fetching a raw user URL is INSECURE.",
+        "source": "OWASP Server Side Request Forgery Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "private_and_metadata_targets_blocked",
+    "option_description": "Whether private (10/8, 172.16/12, 192.168/16, 127/8, ::1), link-local, and cloud-metadata (169.254.169.254, metadata.amazonaws.com) targets are rejected for outbound fetches, with network-layer egress restrictions as defense-in-depth.",
+    "security_impact": "Protection that satisfies the SSRF facet of the countermeasure for \"Path traversal and SSRF from un-allow-listed destinations\" — when private_and_metadata_targets_blocked is true, an attacker cannot pivot an outbound fetch to internal services or cloud metadata (T1090 Proxy). It is the internal-range complement to outbound_fetch_destination_allowlisted for that exposure's SSRF facet.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm outbound-fetch code rejects private/link-local/metadata ranges (including 169.254.169.254) and parses IPs with a vetted library.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound-fetch code validates the target host against an allow-list and rejects private/link-local/metadata ranges (169.254.169.254 included); redirects disabled or re-validated. Fetching a raw user URL is INSECURE.",
+        "source": "OWASP Server Side Request Forgery Prevention Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm network-layer egress restrictions (firewall/segmentation) limit outbound traffic to legitimate destinations as defense-in-depth, independent of the app-layer allow-list.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Network-layer egress restrictions (firewall/segmentation) limit outbound traffic to legitimate destinations as defense-in-depth, independent of the app-layer allow-list.",
+        "source": "OWASP Server Side Request Forgery Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "upload_extension_allowlist_and_magic_byte_validation",
+    "option_description": "Whether uploaded files are validated by an extension allow-list AND file-signature/magic-byte inspection of actual content (not trusting the client Content-Type) — a primary defense against web-shell upload.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Unrestricted file upload (web shell)\" — this is the primary attribute that rule keys on: when upload_extension_allowlist_and_magic_byte_validation is true, disguised executables (.jpg.php, content-type spoofing) are rejected, mitigating web-shell upload (T1505.003 Server Software Component: Web Shell). The exposure fires when this protection is absent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep the upload handler and confirm it checks an extension allow-list AND validates file signature/magic bytes from actual content, ignoring/validating the client Content-Type.",
+        "command": "grep -rnE \"(getOriginalFilename|getContentType\\(\\)|MultipartFile|UUID\\.randomUUID|magic|signature|FileTypeDetector)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Upload handler checks an extension allow-list AND file signature/magic bytes, ignores/validates client Content-Type, renames to a random name (UUID), and writes outside the webroot to a non-executable dir. Trusting client Content-Type or using the user filename is INSECURE.",
+        "source": "OWASP File Upload Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "uploads_stored_nonexecutable_outside_webroot",
+    "option_description": "Whether uploaded files are stored outside the webroot in a non-executable directory — so an uploaded file cannot be requested and executed as code.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Unrestricted file upload (web shell)\" — when uploads_stored_nonexecutable_outside_webroot is true, even an uploaded executable cannot be served and run, mitigating web-shell execution (T1505.003). It is the storage-location complement to upload_extension_allowlist_and_magic_byte_validation for that exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the upload handler writes files outside the webroot to a non-executable directory rather than into an executable webroot path.",
+        "command": "grep -rnE \"(getOriginalFilename|getContentType\\(\\)|MultipartFile|UUID\\.randomUUID|magic|signature|FileTypeDetector)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Upload handler checks an extension allow-list AND file signature/magic bytes, ignores/validates client Content-Type, renames to a random name (UUID), and writes outside the webroot to a non-executable dir. Trusting client Content-Type or using the user filename is INSECURE.",
+        "source": "OWASP File Upload Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "uploads_randomly_renamed",
+    "option_description": "Whether uploaded files are renamed to a random/server-defined name (e.g. UUID) rather than retaining the user-supplied filename — defeating filename-based path/extension tricks and overwrite attacks.",
+    "security_impact": "Protection that contributes to the countermeasure for \"Unrestricted file upload (web shell)\" — when uploads_randomly_renamed is true, the user-supplied filename never drives storage path or extension, mitigating filename-based web-shell tricks (T1505.003). It is a defense-in-depth attribute behind upload_extension_allowlist_and_magic_byte_validation for that exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the upload handler renames files to a random name (e.g. UUID) and never uses the user-supplied filename as the stored name or path.",
+        "command": "grep -rnE \"(getOriginalFilename|getContentType\\(\\)|MultipartFile|UUID\\.randomUUID|magic|signature|FileTypeDetector)\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Upload handler checks an extension allow-list AND file signature/magic bytes, ignores/validates client Content-Type, renames to a random name (UUID), and writes outside the webroot to a non-executable dir. Trusting client Content-Type or using the user filename is INSECURE.",
+        "source": "OWASP File Upload Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_size_and_complexity_limits_enforced",
+    "option_description": "Whether maximum request/field/upload sizes are enforced before processing and ZIP target path/level/estimated-unzip-size are validated pre-extraction — preventing oversized-payload DoS and decompression bombs.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Oversized/complex-payload DoS and mass assignment\" — this is the primary attribute that rule keys on: when request_size_and_complexity_limits_enforced is true, unbounded bodies/fields/uploads and decompression bombs cannot exhaust resources, mitigating the DoS facet (T1499 Endpoint Denial of Service). That exposure's DoS trigger fires when this protection is absent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a maximum file/request size is enforced before processing and that ZIP entries are validated for target path, compression level, and estimated unzip size before extraction.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A maximum file/request size is enforced before processing; ZIP entries validated for target path, compression level and estimated unzip size before extraction.",
+        "source": "OWASP File Upload Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "redos_safe_regexes",
+    "option_description": "Whether validation regexes are anchored (^...$), use bounded length quantifiers (e.g. {1,25}), and avoid catastrophic-backtracking wildcards (. / \\S over user input) — mitigating ReDoS.",
+    "security_impact": "Protection that satisfies the countermeasure for \"Oversized/complex-payload DoS and mass assignment\" — when redos_safe_regexes is true, catastrophic-backtracking cannot exhaust CPU, mitigating the ReDoS facet of that exposure (T1499 Endpoint Denial of Service). It is the regex-complexity complement to request_size_and_complexity_limits_enforced for the DoS facet.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review validation regexes to confirm they are anchored, use bounded length quantifiers, and avoid 'any character' wildcards like . or \\S that enable catastrophic backtracking.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Validation regexes are anchored (^...$), use bounded length quantifiers (e.g. {1,25}) and avoid 'any character' wildcards like . or \\S, mitigating ReDoS.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bindable_field_allowlist_enforced",
+    "option_description": "Whether request-to-object binding is restricted to an allow-list of bindable fields (Spring setAllowedFields, Rails strong params, .NET [Bind]) or routed through a DTO/view-model that omits sensitive fields — preventing mass assignment / over-posting.",
+    "security_impact": "Protection that satisfies the mass-assignment facet of the countermeasure for \"Oversized/complex-payload DoS and mass assignment\" — when bindable_field_allowlist_enforced is true, attackers cannot over-post sensitive fields (e.g. &isAdmin=true) for privilege escalation (T1190 Exploit Public-Facing Application). That exposure's mass-assignment trigger fires when request params auto-bind to a domain entity with no allow-list.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep controllers for a bindable-field allow-list or DTO binding; confirm request params are not auto-bound straight onto domain entities with sensitive fields.",
+        "command": "grep -rnE \"(setAllowedFields|@InitBinder|attr_accessible|permit\\(|\\$fillable|\\[Bind\\()\" src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Controllers either bind to a DTO (sensitive fields absent) or declare an allow-list of bindable fields. Binding request params straight onto a domain entity with no allow-list is INSECURE — enables privilege-escalation over-posting.",
+        "source": "OWASP Mass Assignment Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "name": "dethernety-general",
+  "version": "1.0.0",
+  "displayName": "Dethernety General",
+  "description": "General-purpose threat modeling classes.",
+  "tags": [],
+  "dependencies": [],
+  "restarts": ["dethernety.service"]
+}

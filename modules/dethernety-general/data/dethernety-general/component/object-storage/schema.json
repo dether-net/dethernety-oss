@@ -1,0 +1,531 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "block_public_access_enabled": {
+        "type": "boolean",
+        "title": "Block Public Access Enforced",
+        "description": "True when the account-/bucket-level public-access override is fully in force: AWS S3 all four Block Public Access flags (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets) = true; GCS publicAccessPrevention = enforced; Azure allowBlobPublicAccess = false. The assessor interprets the per-cloud override into this single boolean. Secure value is true; this exposure fires when it is false (any flag off / PAP not enforced / Azure public access allowed), meaning ACLs or policies can grant the bucket public access. THE primary defence against the canonical accidental-public-bucket breach.",
+        "default": false
+      },
+      "public_bucket_acl_disabled": {
+        "type": "boolean",
+        "title": "Public Bucket/Object ACL Disabled",
+        "description": "True when no public ACL grant is effective on the bucket/objects: no AWS S3 ACL grant to AllUsers/AuthenticatedUsers (and ObjectOwnership=BucketOwnerEnforced so ACLs are disabled), no GCS allUsers/allAuthenticatedUsers ACL, no Azure public container ACL. Secure value is true; fires when false, i.e. a public-read/-write ACL grant makes the bucket world-accessible.",
+        "default": false
+      },
+      "bucket_policy_no_wildcard_principal": {
+        "type": "boolean",
+        "title": "Bucket Policy Has No Wildcard Principal",
+        "description": "True when the bucket/resource policy grants no anonymous access via a wildcard principal: no Principal:\"*\" (or Action:\"*\") statement lacking a limiting condition (e.g. aws:SourceVpce/aws:SourceArn/aws:PrincipalOrgID), i.e. AWS get-bucket-policy-status PolicyStatus.IsPublic = false. The assessor interprets the policy document into this boolean. Secure value is true; fires when false, i.e. an effectively-public bucket policy grants anyone access.",
+        "default": false
+      },
+      "anonymous_access_disabled": {
+        "type": "boolean",
+        "title": "Anonymous Access Disabled",
+        "description": "True when no unauthenticated/anonymous access path is configured on the bucket or prefix: MinIO `mc anonymous` permission is none (not download/upload/public), and no equivalent anonymous grant on other clouds. Secure value is true; fires when false, i.e. anonymous download/upload is enabled and data is reachable without credentials.",
+        "default": false
+      },
+      "public_object_listing_disabled": {
+        "type": "boolean",
+        "title": "Public Object Listing Disabled",
+        "description": "True when unauthenticated object enumeration/listing is not permitted (no public ListBucket / s3:ListBucket to a wildcard principal, no anonymous list permission). Secure value is true; fires when false, i.e. anonymous callers can enumerate the bucket contents — the discovery step that turns a public bucket into a full exfiltration of every object."
+      },
+      "acls_disabled_bucket_owner_enforced": {
+        "type": "boolean",
+        "title": "ACLs Disabled (Bucket-Owner-Enforced)",
+        "description": "True when ACLs are disabled so IAM/bucket policy is the single access-control plane — AWS S3 ObjectOwnership=BucketOwnerEnforced, GCS uniformBucketLevelAccess=enabled, or the equivalent on the platform (this guarantees no object is public if the bucket is not, removing the independent object-ACL public-grant path). False when ACLs remain active (ObjectOwnership=ObjectWriter/BucketOwnerPreferred, or GCS fine-grained ACLs), leaving ACL-based public/over-broad grant paths open. Verified via aws s3api get-bucket-ownership-controls / gcloud storage buckets describe per dossier.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Canonical workspace attribute: true when access to the object store follows least privilege — identities are granted only the specific actions and specific bucket/object ARNs they need, with no broad admin grants (no MinIO consoleAdmin/readwrite-on-all attached to app identities, no AWS managed AdministratorAccess on app roles). False when broad/admin grants are handed to routine app identities, enabling lateral data access and privilege escalation. Assessor interprets the attached IAM/PBAC policy documents per the dossier (mc admin policy info / IAM policy review).",
+        "default": false
+      },
+      "iam_policy_no_wildcard_actions": {
+        "type": "boolean",
+        "title": "IAM Policy Has No Wildcard Actions",
+        "description": "True when no IAM/bucket/PBAC policy attached to app identities uses a wildcard Action (s3:*) on a wildcard Resource (arn:aws:s3:::*) — i.e. actions and resources are explicitly enumerated. False when a wildcard Action s3:* on Resource arn:aws:s3:::* (or equivalent broad MinIO PBAC grant) is present, which is the privilege-escalation / mass-exfil path. Interpreted from the policy JSON rather than substring-matched, so the trigger is polarity-safe (fires on the insecure wildcard, silent on a scoped policy).",
+        "default": false
+      },
+      "presigned_url_short_expiry_enforced": {
+        "type": "boolean",
+        "title": "Presigned URL Short Expiry Enforced",
+        "description": "True when presigned-URL generation enforces a short, bounded expiry (minutes/hours, not multi-day/multi-year) — code/config calling generate_presigned_url / mc share uses a small ExpiresIn. False when URLs are minted with long-lived expiry, turning a single signed URL into a durable public download/exfil channel. Assessed via process audit of the signing code/config per the dossier presigned_url entry."
+      },
+      "presigned_url_scope_limited": {
+        "type": "boolean",
+        "title": "Presigned URL Scope Limited",
+        "description": "True when presigned URLs are narrowly scoped — single object, single HTTP method, and generated by a least-privileged signer identity. False when the signer holds broad credentials or URLs are over-scoped, so a leaked URL exposes more than one intended object/operation. Assessed via process audit of the signer identity and generate_presigned_url / mc share scope per the dossier presigned_url entry."
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted At Rest",
+        "description": "Canonical cross-component attestation that stored objects are encrypted at rest. Secure value is true; an object store with no server-side encryption (legacy S3 bucket with no default SSE, MinIO without KMS/KES, GCS/Azure with no encryption) is false and exposes plaintext data on disk/snapshot/backup-media theft. Fires (insecure) when false.",
+        "default": false
+      },
+      "default_sse_enabled": {
+        "type": "boolean",
+        "title": "Default Server-Side Encryption Enabled",
+        "description": "Whether server-side encryption is enabled by default for the bucket/account so every newly written object is encrypted without per-request opt-in. Maps to AWS S3 default_encryption (ServerSideEncryptionConfiguration present — SSEAlgorithm AES256 or aws:kms), MinIO bucket auto-encryption (mc encrypt info), GCS/Azure account encryption. Secure value is true; false means objects can land unencrypted or rely on caller-supplied SSE-C. Fires (insecure) when false.",
+        "default": false
+      },
+      "customer_managed_key_used": {
+        "type": "boolean",
+        "title": "Customer-Managed Key Used",
+        "description": "Whether sensitive data is encrypted with a customer-managed key (SSE-KMS with a CMK / GCS CMEK / Azure CMK) rather than provider-default keys, giving key-policy control, rotation governance, and CloudTrail key-usage auditing. Maps to AWS S3 default_encryption SSEAlgorithm=aws:kms with KMSMasterKeyID, MinIO MINIO_KMS_KES_*. Secure value is true where data sensitivity requires it; false where a CMK is required but absent. Fires (insecure) when false."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport Enforced",
+        "description": "Interpreted boolean (secure=true): in-transit encryption is enforced so the object-store endpoint accepts ONLY TLS/HTTPS requests. True when Azure supportsHttpsTrafficOnly=true (Secure transfer required), MinIO is served over HTTPS with certs present and plain HTTP is redirected/blocked, or the S3 bucket policy otherwise guarantees TLS-only access. Fires (is_false) when plaintext HTTP is accepted at the bucket/account endpoint, exposing S3-API traffic and credentials to sniffing/MITM.",
+        "default": false
+      },
+      "insecure_transport_denied": {
+        "type": "boolean",
+        "title": "Insecure Transport Explicitly Denied",
+        "description": "Interpreted boolean (secure=true): an explicit deny is in place for non-TLS access — the S3 bucket policy contains a Deny statement on Condition Bool aws:SecureTransport=false (verifiable via AWS Config rule s3-bucket-ssl-requests-only), or the equivalent platform control rejects cleartext requests. Fires (is_false) when no such deny exists, so HTTP requests to the bucket endpoint are accepted in cleartext.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted boolean (secure=false): deprecated TLS protocol versions (TLS 1.0 / TLS 1.1) are still negotiable on the storage endpoint — e.g. no s3:TlsVersion >= 1.2 floor, Azure minimumTlsVersion below TLS1_2, or MinIO permitting legacy protocols. Fires (is_true) when weak TLS is allowed, leaving in-transit traffic downgradeable/sniffable even when HTTPS is nominally on."
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "TLS1_0",
+          "TLS1_1",
+          "TLS1_2",
+          "TLS1_3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Canonical minimum TLS protocol version the object-store endpoint will negotiate (Azure minimumTlsVersion, S3 s3:TlsVersion floor, MinIO negotiated minimum). Secure floor is TLS1_2 or TLS1_3. Fires when the floor is TLS1_0 or TLS1_1, permitting downgrade to deprecated, sniffable protocols."
+      },
+      "object_versioning_enabled": {
+        "type": "boolean",
+        "title": "Object Versioning Enabled",
+        "description": "Interpreted secure-polarity boolean: TRUE when object versioning is enabled on the bucket/container so prior versions are preserved for recovery from overwrite or delete (S3 get-bucket-versioning Status=Enabled; GCS object versioning; Azure blob versioning). FALSE when versioning is suspended or absent, leaving overwritten/deleted objects irrecoverable. The exposure fires on FALSE.",
+        "default": false
+      },
+      "object_lock_worm_enabled": {
+        "type": "boolean",
+        "title": "Object Lock / WORM Immutability Enabled",
+        "description": "Interpreted secure-polarity boolean: TRUE when WORM immutability is in force with a retention rule (S3 Object Lock ObjectLockEnabled=Enabled, COMPLIANCE mode preferred; GCS bucket retention/lock; Azure immutable blob policy) so objects cannot be deleted or overwritten for the retention period — even by a compromised credential or root. FALSE when no Object Lock/WORM retention is configured (objects mutable/deletable). The exposure fires on FALSE.",
+        "default": false
+      },
+      "mfa_delete_enabled": {
+        "type": "boolean",
+        "title": "MFA-Delete Enabled",
+        "description": "Interpreted secure-polarity boolean: TRUE when MFA-Delete is enabled (S3 get-bucket-versioning MFADelete=Enabled) so permanently deleting object versions or suspending versioning requires an MFA token, raising the bar for a single stolen credential. FALSE when MFA-Delete is Disabled/absent (or the platform equivalent step-up control is missing). The exposure fires on FALSE."
+      },
+      "backup_or_replication_configured": {
+        "type": "boolean",
+        "title": "Backup or Replication Configured",
+        "description": "Interpreted secure-polarity boolean: TRUE when an independent recovery copy exists — cross-region/cross-account replication or a separate backup target with its own versioning/retention (S3 CRR to a versioned destination, GCS replication/transfer, Azure object replication) — so mass-destruction in the primary store does not destroy the only copy. FALSE when no backup or replication recovery path is configured. The exposure fires on FALSE."
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed or Changed",
+        "description": "True when all default/shipped storage credentials have been removed or changed to strong unique values — specifically the MinIO root account is no longer the historical default minioadmin/minioadmin and no other default/bootstrap account remains with its shipped password. False (default creds still in place) fires this exposure: anyone knowing the well-known default owns the all-powerful root account. Verify via env | grep -i MINIO_ROOT_ (values must be strong unique secrets, not literal defaults). Canonical reusable attribute.",
+        "default": false
+      },
+      "root_credentials_not_used_for_routine_access": {
+        "type": "boolean",
+        "title": "Root Credentials Not Used for Routine Access",
+        "description": "True when the all-powerful root/superuser identity (MinIO root user, AWS account root) is NOT used for routine application or operator access — apps and operators authenticate with scoped, least-privilege identities instead. False (root used for day-to-day app access) fires this exposure: routine use of root maximises blast radius and spreads the most powerful credential across clients and logs. Assessor verifies application/service identities are PBAC/IAM-scoped, not the root account.",
+        "default": false
+      },
+      "access_keys_rotated_regularly": {
+        "type": "boolean",
+        "title": "Access Keys Rotated Regularly",
+        "description": "True when static long-lived access keys (S3/MinIO access-key+secret pairs) are rotated on a defined schedule, or short-lived/role-derived credentials are used instead of static keys. False (static keys never rotated, no expiry) fires this exposure: an unrotated long-lived key that leaks stays valid indefinitely. Assessor verifies a rotation policy/automation exists or that ephemeral role/STS credentials replace static keys.",
+        "default": false
+      },
+      "credentials_not_embedded_in_code_or_env": {
+        "type": "boolean",
+        "title": "Credentials Not Embedded in Code or Env",
+        "description": "True when storage credentials (root password, access-key/secret pairs) are sourced from a secret manager and are NOT embedded in client source code, container images, or plaintext env/docker-compose files. False (creds in plaintext env/compose or hard-coded in client code) fires this exposure: such secrets leak via VCS, image layers, CI logs, and unauthenticated info-disclosure bugs (e.g. MinIO CVE-2023-28432 dumps env vars including MINIO_ROOT_USER/PASSWORD). Assessor verifies secrets come from a secret store, not literals in code/compose/env.",
+        "default": false
+      },
+      "object_level_data_event_logging_enabled": {
+        "type": "boolean",
+        "title": "Object-Level Data-Event Logging Enabled",
+        "description": "True when object-level read/write access is logged to an audit trail: S3 server access logging (LoggingEnabled.TargetBucket set) AND/OR a CloudTrail trail capturing S3 data events (GetObject/PutObject/DeleteObject) for the bucket, GCS data-access audit logs, Azure Storage logging, or a MinIO audit webhook (audit_webhook enable=on) shipping per-request events. False (no access logging, no data-event trail, no audit webhook) means bulk object reads / exfiltration over the storage API are invisible — the exposure fires. Secure value is true.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "True when audit/access logs are shipped to a separate, tamper-resistant system (a dedicated logging account/bucket, SIEM, or external collector) rather than only into the same account/cluster an attacker who reaches the store could also reach and delete. False means logs co-reside with the asset and a compromised credential can disable or wipe them, leaving exfiltration undetected. Secure value is true."
+      },
+      "exfiltration_anomaly_detection_enabled": {
+        "type": "boolean",
+        "title": "Exfiltration Anomaly Detection Enabled",
+        "description": "True when anomalous bulk-read / exfiltration behaviour over the storage API is actively detected and alerted (e.g. AWS GuardDuty S3 protection, CloudWatch/SIEM alerts on abnormal GetObject volume, GCS/Azure threat detection, or SIEM rules over the MinIO audit stream). False means even where logs exist, no detection turns a bulk-exfil event into a timely alert. Secure value is true."
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE/Info-Disclosure CVE Present",
+        "description": "Interpreted boolean: the deployed object-storage build carries a known, publicly-exploitable CVE (e.g. MinIO CVE-2023-28432 unauthenticated Bootstrap-API info disclosure leaking MINIO_ROOT_USER/MINIO_ROOT_PASSWORD, chainable with CVE-2023-28434 to admin takeover) for which a fix exists but has not been applied. Secure state is FALSE (no unpatched known RCE/info-disclosure CVE); this exposure fires when TRUE. Assessor confirms the running version against the vendor advisory / CVE fixed-version.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Patched Within SLA",
+        "description": "Interpreted boolean: security patches / version upgrades for the object-storage service are applied within the organisation's patch SLA, so newly-disclosed CVEs do not linger on the deployed build. Secure state is TRUE; this exposure fires when FALSE (patch backlog leaves known vulnerabilities exploitable). Assessor verifies patch cadence and current version against latest fixed release."
+      },
+      "private_endpoint_only": {
+        "type": "boolean",
+        "title": "Private Endpoint Only",
+        "description": "Interpreted boolean: the object-storage data/API surface is reachable only via a private/VPC endpoint (e.g. S3 aws:SourceVpce/aws:SourceVpc condition, GCS/Azure private endpoint, MinIO bound to a private network) with no public-internet ingress path. Secure state is TRUE; this exposure fires when FALSE (bucket/endpoint reachable from any internet source), which widens the exploit surface for the unpatched CVE and the data-exfil path. Derived from the dossier 's3 vpc_endpoint / network exposure (private access)' surface.",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control-Plane API Not Publicly Exposed",
+        "description": "Interpreted boolean: the storage control-plane / admin API (e.g. MinIO admin & Bootstrap APIs, console) is NOT reachable from the public internet. Secure state is TRUE; this exposure fires when FALSE — a publicly-exposed control-plane API is exactly what makes the unauthenticated CVE-2023-28432 Bootstrap-API info disclosure remotely exploitable. Assessor confirms the admin/console endpoints are network-restricted.",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Management Interfaces Not Internet-Reachable",
+        "description": "Interpreted boolean: management/operator interfaces fronting the object store (web console, management ports) are not reachable from the public internet. Secure state is TRUE; this exposure fires when FALSE. Reduces the attack surface available to chain the info-disclosure CVE into admin takeover (CVE-2023-28434)."
+      },
+      "data_residency_region_pinned": {
+        "type": "boolean",
+        "title": "Data Residency Region Pinned",
+        "description": "Interpreted boolean: stored objects (and any cross-region replication targets) are pinned to an approved Region / sovereignty boundary, so regulated PII/backups stay within permitted jurisdiction. Secure state is TRUE; this exposure fires when FALSE (data resident in or replicated to a non-approved Region — residency/sovereignty drift). Derived from the dossier 's3 cross_region_replication (CRR) / region pinning (data residency)' surface (get-bucket-location / get-bucket-replication).",
+        "default": false
+      }
+    },
+    "required": [
+      "block_public_access_enabled",
+      "public_bucket_acl_disabled",
+      "bucket_policy_no_wildcard_principal",
+      "anonymous_access_disabled",
+      "public_object_listing_disabled",
+      "acls_disabled_bucket_owner_enforced",
+      "least_privilege_access_enforced",
+      "iam_policy_no_wildcard_actions",
+      "presigned_url_short_expiry_enforced",
+      "presigned_url_scope_limited",
+      "encrypted_at_rest",
+      "default_sse_enabled",
+      "customer_managed_key_used",
+      "tls_only_transport",
+      "insecure_transport_denied",
+      "weak_tls_versions_enabled",
+      "min_tls_version",
+      "object_versioning_enabled",
+      "object_lock_worm_enabled",
+      "mfa_delete_enabled",
+      "backup_or_replication_configured",
+      "default_accounts_removed_or_changed",
+      "root_credentials_not_used_for_routine_access",
+      "access_keys_rotated_regularly",
+      "credentials_not_embedded_in_code_or_env",
+      "object_level_data_event_logging_enabled",
+      "logs_stored_on_separate_system",
+      "exfiltration_anomaly_detection_enabled",
+      "unpatched_known_rce_cve",
+      "edge_appliance_patched_within_sla",
+      "private_endpoint_only",
+      "control_plane_api_not_publicly_exposed",
+      "edge_management_interfaces_not_internet_reachable",
+      "data_residency_region_pinned"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_access_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/root_credentials_not_used_for_routine_access"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/acls_disabled_bucket_owner_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bucket_policy_no_wildcard_principal"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/iam_policy_no_wildcard_actions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/public_bucket_acl_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/presigned_url_scope_limited"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/presigned_url_short_expiry_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/public_object_listing_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_sse_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/insecure_transport_denied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/customer_managed_key_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_residency_region_pinned"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_keys_rotated_regularly"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credentials_not_embedded_in_code_or_env"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/block_public_access_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_endpoint_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/object_lock_worm_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/object_versioning_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_or_replication_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_delete_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/object_level_data_event_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/exfiltration_anomaly_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "a4297611-55b0-41c6-9c56-3a3b707707ed",
+  "name": "Web Server",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A web server — also called an HTTP server, Nginx/Apache/IIS, web front end, or static/edge server — an internet-facing process that terminates client connections and serves static content or reverse-proxies to application logic. The primary inbound attack surface. The place to look for the web server, HTTP front end, Nginx/Apache, or the process serving web content and fronting the app tier.",
+  "category": "Application Processing",
+  "status": "draft"
+}

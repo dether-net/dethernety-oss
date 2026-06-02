@@ -1,0 +1,551 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "wildcard_iam_policy_used": {
+        "type": "boolean",
+        "title": "Wildcard / Admin IAM Policy Used",
+        "description": "Interpreted attestation: at least one consuming identity/role holds a wildcard or full-admin IAM policy (Action:'*' on Resource:'*', or an admin-equivalent managed policy) granting broad access to the cloud service, rather than per-action/per-resource scoping. True is the insecure state: once any such credential is leaked or assumed, an attacker inherits broad valid-account access to the service.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Shared-vocabulary attestation: the consuming identities/roles are scoped to the minimum actions and resources required to use the cloud service — each policy enumerates specific actions and specific resource ARNs, with no wildcard '*:*' / admin-equivalent grant (CIS IAM.1; AWS Well-Architected Shared Responsibility). True is the secure state; false (least privilege NOT enforced) is the exposure this vector detects.",
+        "default": false
+      },
+      "federated_short_lived_credentials_used": {
+        "type": "boolean",
+        "title": "Federated Short-Lived Credentials Used",
+        "description": "Attested true when access to the managed cloud service is obtained via federation / short-lived workload-identity credentials (OIDC workload-identity federation, IAM role assumption, IRSA) that exchange an external token for short-lived cloud credentials with no long-lived keys stored — the secure consumption pattern (CIS IAM.4; GCP Workload Identity Federation). Fires the exposure when FALSE — access relies on something other than short-lived federation, widening the credential-theft window.",
+        "default": false
+      },
+      "long_lived_static_keys_used": {
+        "type": "boolean",
+        "title": "Long-Lived Static Keys Used",
+        "description": "Attested true when long-lived static access keys — IAM-user access keys not on a short rotation, or a root-user access key — are in use to reach the managed cloud service rather than short-lived federated credentials (CIS IAM.3 / IAM.4). Fires the exposure when TRUE: a leaked static key enables persistent valid-account abuse (T1078.004) with no built-in expiry.",
+        "default": false
+      },
+      "config_object_storage_not_publicly_accessible": {
+        "type": "boolean",
+        "title": "Object Storage Not Publicly Accessible",
+        "description": "Object storage consumed from the managed cloud service has block-public-access fully enforced (e.g. S3 BlockPublicAcls/IgnorePublicAcls/BlockPublicPolicy/RestrictPublicBuckets all true, CIS S3.1/S3.8). False means the bucket is publicly accessible at its default/misconfigured setting, letting attackers read or exfiltrate stored data directly.",
+        "default": false
+      },
+      "cloud_objects_not_anonymously_public": {
+        "type": "boolean",
+        "title": "Cloud Objects Not Anonymously Public",
+        "description": "Stored cloud objects are not exposed to anonymous/AllUsers principals via object ACLs or resource policies. False means objects are world-readable anonymously — the top critical cloud misconfiguration enabling direct unauthenticated data read.",
+        "default": false
+      },
+      "data_store_publicly_routable": {
+        "type": "boolean",
+        "title": "Data Store Publicly Routable",
+        "description": "The consumed managed data store (e.g. RDS/managed DB) is reachable from the public internet — PubliclyAccessible=true (CIS RDS.2) or otherwise assigned a routable public endpoint. True fires the exposure: the data store is directly reachable by attackers off the provider backbone.",
+        "default": false
+      },
+      "ingress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Ingress Default-Deny Enforced",
+        "description": "Network ingress to the service's admin/data ports follows default-deny: no security group or firewall rule allows 0.0.0.0/0 or ::/0 to sensitive ports (CIS EC2.53/EC2.54). False means a wide-open ingress rule exposes the resource to the entire internet.",
+        "default": false
+      },
+      "private_link_for_managed_services": {
+        "type": "boolean",
+        "title": "Private Link for Managed Services",
+        "description": "Attestation: traffic to the consumed managed cloud service traverses private connectivity (PrivateLink / Private Service Connect / a service-specific private endpoint) and stays on the provider backbone rather than the public internet. False (service reached over a public internet endpoint) fires this exposure: the consumer-to-service channel crosses the public internet, enlarging the interception/AiTM surface.",
+        "default": false
+      },
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Flow TLS Encrypted",
+        "description": "Attestation: all connections to the managed service enforce TLS (TLS 1.2+) so the channel carrying data and credentials is encrypted in transit; object stores deny non-TLS requests (e.g. bucket policy denies aws:SecureTransport=false, CIS S3.5). False (plaintext / TLS not enforced) fires this exposure: data and credentials on the consumer-to-service channel are exposed to interception.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Attestation: the consumer validates the managed service's TLS server certificate (chain and hostname) on every connection rather than disabling verification. False (certificate validation skipped) fires this exposure: an adversary-in-the-middle can present a substituted certificate and decrypt/relay the consumer-to-service traffic, defeating TLS even when nominally enabled.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted at Rest",
+        "description": "Attested true when data stored in the consumed managed cloud service is encrypted at rest (e.g. StorageEncrypted=true on managed DBs, KMS/EBS/EFS at-rest encryption — CIS RDS.3 / EC2.7 / EFS.1). False (the firing/insecure state) means data sits unencrypted at rest, fully exposed to anyone reading the underlying storage.",
+        "default": false
+      },
+      "keys_managed_in_hsm_or_kms": {
+        "type": "boolean",
+        "title": "Keys Managed in HSM or KMS",
+        "description": "Attested true when at-rest encryption uses a customer-managed key held in an HSM-backed KMS (CMEK/BYOK) so key custody stays with the org. False (firing/insecure) means reliance on a provider-default key with no customer key custody, so the org cannot control rotation, revocation, or cryptographic deletion of its data (AWS WA SEC08-BP01).",
+        "default": false
+      },
+      "key_rotation_enabled": {
+        "type": "boolean",
+        "title": "Key Rotation Enabled",
+        "description": "Attested true when automatic rotation is enabled on the customer-managed key protecting the data (CIS KMS.4) and any residual IAM-user access keys are rotated within the CIS IAM.3 window. False (firing/insecure) means a static, never-rotated key whose long-term compromise window is unbounded."
+      },
+      "envelope_encryption_kek_dek_split": {
+        "type": "boolean",
+        "title": "Envelope Encryption KEK/DEK Split",
+        "description": "Attested true when the service uses envelope encryption with a key-encryption-key / data-encryption-key split (the KEK in KMS/HSM wraps per-object DEKs), so revoking or rotating the KEK invalidates data access and enables cryptographic deletion. False (firing/insecure) means data keys are not separated from the master key, weakening revocation and crypto-shredding guarantees."
+      },
+      "secrets_hardcoded_in_config_or_iac": {
+        "type": "boolean",
+        "title": "Secrets Hardcoded in Config or IaC",
+        "description": "Whether credentials/keys for the managed cloud service are embedded directly in source, container images, application config, or IaC (Terraform/CloudFormation/manifests) rather than resolved at runtime from a secret manager. True is the insecure state: hardcoded secrets are discoverable by anyone with repo/image/state-file access and are a primary credential-harvesting target.",
+        "default": false
+      },
+      "cloud_metadata_endpoint_blocked": {
+        "type": "boolean",
+        "title": "Cloud Metadata Endpoint Blocked",
+        "description": "Whether the cloud instance-metadata service endpoint (169.254.169.254 / link-local IMDS) is blocked or otherwise unreachable from application workload contexts (e.g. IMDSv1 disabled in favor of session-token IMDSv2, hop limit set, or the link-local address firewalled at pod/container egress). False is the insecure state: a reachable metadata endpoint lets an SSRF-capable request retrieve the workload's attached role credentials and pivot to the managed service (MITRE T1552.005).",
+        "default": false
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Attestation: an access audit trail is enabled for the managed cloud service so that access to and data flow through the service is recorded and reviewable (CIS CloudTrail.1/.4). When false, access and exfiltration over the trusted service go unrecorded and undetectable.",
+        "default": false
+      },
+      "control_plane_api_logging_enabled": {
+        "type": "boolean",
+        "title": "Control-Plane API Logging Enabled",
+        "description": "Attestation: control-plane (management-event) API logging is enabled for the service — a multi-region trail capturing read+write management events with log-file validation (CIS CloudTrail.1/.4). When false, administrative actions against the service (policy changes, key access, credential use) are not captured, so anomalous control-plane activity is undetectable.",
+        "default": false
+      },
+      "object_level_data_event_logging_enabled": {
+        "type": "boolean",
+        "title": "Object-Level Data-Event Logging Enabled",
+        "description": "Attestation: object-level / data-event logging is enabled so individual read/write data operations against the stored data are recorded (CIS S3.22/S3.23). When false, bulk object reads and exfiltration of stored data leave no data-plane trace, defeating volume-based anomaly detection.",
+        "default": false
+      },
+      "network_flow_logging_enabled": {
+        "type": "boolean",
+        "title": "Network Flow Logging Enabled",
+        "description": "Attestation: network flow logging covers the VPCs/subnets that reach the service endpoint (non-empty VPC Flow Logs, TrafficType ALL — CIS EC2.6). When false, data routed out through the legitimate cloud service under cover of existing firewall rules and TLS produces no network-flow record, hiding the egress.",
+        "default": false
+      },
+      "perimeter_crossings_logged_and_centralized": {
+        "type": "boolean",
+        "title": "Perimeter Crossings Logged and Centralized",
+        "description": "Attestation (shared workspace vocabulary): traffic crossing the trust perimeter to/from the external cloud service is logged and the records are forwarded to a central collection point. When false, egress over the trusted service is neither captured at the crossing nor visible to centralized correlation, so cross-boundary exfiltration goes unnoticed."
+      },
+      "bulk_export_monitored_and_alerted": {
+        "type": "boolean",
+        "title": "Bulk Export Monitored and Alerted",
+        "description": "Attestation (shared workspace vocabulary): bulk or anomalous data export over the service is monitored and raises alerts. When false, large-volume or abnormal access used to exfiltrate stolen data through the trusted service triggers no detection, even where raw logs exist."
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "Attestation (shared workspace vocabulary): the access/audit logs are stored on a separate system from the monitored service so an adversary with access to the service cannot disable, tamper with, or delete the evidence of their access. When false, logs are co-located and can be cleared along with the intrusion (T1562.008)."
+      },
+      "residency_confined_to_approved_regions": {
+        "type": "boolean",
+        "title": "Residency Confined to Approved Regions",
+        "description": "Attested true when the managed cloud service is configured to store and process data only in approved provider region(s), with no silent cross-region replication or movement to unapproved regions (region restrictions / governance guardrails enforce confinement). Fires the residency-violation exposure when false (data is, or may be, stored/replicated outside approved regions).",
+        "default": false
+      },
+      "governed_transfer_safeguards": {
+        "type": "boolean",
+        "title": "Governed Transfer Safeguards",
+        "description": "Attested true when a lawful cross-border transfer mechanism (EU Standard Contractual Clauses / Data Privacy Framework adherence, or equivalent) is in place wherever data crosses jurisdictional boundaries, satisfying GDPR transfer obligations. Fires the exposure when false (cross-border processing occurs without a governing transfer safeguard).",
+        "default": false
+      },
+      "storage_destinations_documented": {
+        "type": "boolean",
+        "title": "Storage Destinations Documented",
+        "description": "Attested true when every region and storage/processing destination the service actually uses for the org's data is enumerated and documented (so silent replication or backup to undocumented locations is detectable and reviewable). Fires the exposure when false (storage destinations are unknown/undocumented, allowing data to land in unapproved regions unnoticed)."
+      },
+      "dpa_and_subprocessors_reviewed": {
+        "type": "boolean",
+        "title": "DPA and Sub-processors Reviewed",
+        "description": "Attested true when an executed data-processing agreement / addendum (DPA, with SCCs / DPF adherence) governs the provider's processing of customer data AND the provider's published sub-processor list has been reviewed for the regions and services consumed. Fires the exposure when false (no DPA in force, or sub-processors unreviewed — unaccountable third-party processing).",
+        "default": false
+      },
+      "multi_region_or_az_deployed": {
+        "type": "boolean",
+        "title": "Multi-Region or AZ Deployed",
+        "description": "Attestation: the consumer's use of the managed dependency is deployed across multiple availability zones and/or regions so a single-AZ/region failure or provider maintenance does not take the consumer down (e.g. RDS MultiAZ=true per CIS RDS.5/RDS.15). False = single-AZ/region, exposing the consumer to inherited outages. Fires when false.",
+        "default": false
+      },
+      "failover_plan_tested": {
+        "type": "boolean",
+        "title": "Failover Plan Tested",
+        "description": "Attestation: a documented failover / graceful-degradation plan exists for the managed dependency AND has been tested (not just written). False = no plan or untested. Fires when false.",
+        "default": false
+      },
+      "dependency_sla_defined": {
+        "type": "boolean",
+        "title": "Dependency SLA Defined",
+        "description": "Attestation: the dependency's availability SLA (and its provider maintenance-window behaviour) is understood and documented, so resilience targets are derived from it rather than assumed. False = SLA unknown. Fires when false."
+      },
+      "retry_with_backoff_configured": {
+        "type": "boolean",
+        "title": "Retry with Backoff Configured",
+        "description": "Attestation: client calls to the managed dependency use retries with backoff (and ideally circuit-breaking) so transient degradation or throttling is absorbed rather than cascading into a consumer outage. False = naive single-shot calls. Fires when false."
+      },
+      "vendor_security_attestations_reviewed": {
+        "type": "boolean",
+        "title": "Vendor Security Attestations Reviewed",
+        "description": "Attested true when the provider's independent security/compliance attestations (SOC 2, ISO 27001/27017, CSA STAR) have been obtained, reviewed, and kept current before and during reliance on the managed cloud service, with any gaps tracked. False when no vendor attestation has been reviewed and the provider's posture is simply assumed adequate. Fires on the insecure (false) value.",
+        "default": false
+      },
+      "shared_responsibility_boundary_documented": {
+        "type": "boolean",
+        "title": "Shared-Responsibility Boundary Documented",
+        "description": "Attested true when the split of who secures/patches what is documented for this specific service tier (IaaS vs managed/abstracted) as an explicit responsibility matrix, so the security-OF-the-cloud (provider) vs security-IN-the-cloud (customer) boundary is unambiguous. False when responsibility is assumed to be 'all the provider' and no boundary is recorded. Fires on the insecure (false) value.",
+        "default": false
+      },
+      "customer_side_duties_owned": {
+        "type": "boolean",
+        "title": "Customer-Side Duties Owned",
+        "description": "Attested true when the customer-side duties implied by the shared-responsibility boundary are actually assigned and exercised: IAM permission assignment, data encryption choices, security-group/firewall configuration, and — for single-tenant managed services — reviewing/applying provider updates within SLA maintenance windows (CIS RDS.13). False when those duties are unowned because the provider is assumed to secure everything. Fires on the insecure (false) value.",
+        "default": false
+      }
+    },
+    "required": [
+      "wildcard_iam_policy_used",
+      "least_privilege_access_enforced",
+      "federated_short_lived_credentials_used",
+      "long_lived_static_keys_used",
+      "config_object_storage_not_publicly_accessible",
+      "cloud_objects_not_anonymously_public",
+      "data_store_publicly_routable",
+      "ingress_default_deny_enforced",
+      "private_link_for_managed_services",
+      "flow_tls_encrypted",
+      "server_certificate_validated",
+      "encrypted_at_rest",
+      "keys_managed_in_hsm_or_kms",
+      "key_rotation_enabled",
+      "envelope_encryption_kek_dek_split",
+      "secrets_hardcoded_in_config_or_iac",
+      "cloud_metadata_endpoint_blocked",
+      "access_audit_trail_enabled",
+      "control_plane_api_logging_enabled",
+      "object_level_data_event_logging_enabled",
+      "network_flow_logging_enabled",
+      "perimeter_crossings_logged_and_centralized",
+      "bulk_export_monitored_and_alerted",
+      "logs_stored_on_separate_system",
+      "residency_confined_to_approved_regions",
+      "governed_transfer_safeguards",
+      "storage_destinations_documented",
+      "dpa_and_subprocessors_reviewed",
+      "multi_region_or_az_deployed",
+      "failover_plan_tested",
+      "dependency_sla_defined",
+      "retry_with_backoff_configured",
+      "vendor_security_attestations_reviewed",
+      "shared_responsibility_boundary_documented",
+      "customer_side_duties_owned"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/federated_short_lived_credentials_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/wildcard_iam_policy_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_managed_in_hsm_or_kms"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/envelope_encryption_kek_dek_split"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dpa_and_subprocessors_reviewed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/governed_transfer_safeguards"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/residency_confined_to_approved_regions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_destinations_documented"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_metadata_endpoint_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/long_lived_static_keys_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_hardcoded_in_config_or_iac"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_store_publicly_routable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ingress_default_deny_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_link_for_managed_services"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/customer_side_duties_owned"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_responsibility_boundary_documented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vendor_security_attestations_reviewed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/failover_plan_tested"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/multi_region_or_az_deployed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_sla_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/retry_with_backoff_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_flow_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/object_level_data_event_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_export_monitored_and_alerted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/perimeter_crossings_logged_and_centralized"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_objects_not_anonymously_public"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_object_storage_not_publicly_accessible"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

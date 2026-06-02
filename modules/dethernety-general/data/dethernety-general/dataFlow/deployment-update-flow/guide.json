@@ -1,0 +1,452 @@
+[
+  {
+    "option_name": "artifact_supply_chain_signed_provenance_verified",
+    "option_description": "Attests that the deploying environment cryptographically verifies a SLSA provenance attestation (or equivalent signed in-toto attestation) on every artifact before admission, with the signature chained to a pinned builder identity, OIDC issuer, and expected source repo/ref — never admitting an artifact pulled by tag alone.",
+    "security_impact": "Triggers exposure \"Unsigned/unverified artifact admitted (SLSA bypass)\" — this attribute is the sole OR-condition, firing when artifact_supply_chain_signed_provenance_verified is false (T1195.002 Compromise Software Supply Chain). Without verified provenance the deploy channel will accept a tampered or substituted image as legitimate.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run cosign verify-attestation against a representative production image, pinning the expected builder workflow identity and OIDC issuer; success with a SLSA provenance predicate that matches the expected source repo/ref proves the verification path is wired correctly.",
+        "command": "cosign verify-attestation --type slsaprovenance --certificate-identity-regexp '<expected-builder-workflow>' --certificate-oidc-issuer https://token.actions.githubusercontent.com <image-ref>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verification passes AND predicate buildType / builder.id / externalParameters.sourceRepo / sourceRef match policy (secure). Failure or 'no matching attestations' = insecure.",
+        "source": "SLSA v1.0 Verifying Artifacts spec; Sigstore cosign verify-attestation reference"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the cluster admission policies (Sigstore policy-controller ClusterImagePolicy or Kyverno verifyImages) for a SLSA provenance verification step pinned to issuer/identity and source repo; audit-only or absent policy means provenance is never enforced.",
+        "command": "kubectl get clusterimagepolicy -o yaml",
+        "file_path": "ClusterImagePolicy / Kyverno ClusterPolicy verifyImages block",
+        "navigation": null,
+        "expected_output": "A policy exists requiring --type slsaprovenance with predicateType https://slsa.dev/provenance/v1 and pinned issuer/identity in enforce mode (secure); no policy or audit-only mode (insecure).",
+        "source": "Sigstore policy-controller overview; Kyverno verifyImages sigstore docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "commits_signed",
+    "option_description": "Attestation that every commit on the deploy ref is cryptographically signed (GPG, SSH, S/MIME, or keyless Sigstore/gitsign) and the signature is verifiable against an authorised identity.",
+    "security_impact": "One of the OR-conditions for exposure \"Unsigned commits reach deploy branch\" — fires when commits_signed is false (T1195.002 Compromise Software Supply Chain). Unsigned commits ride the channel into prod as unattributable changes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run git log with signature display on the deploy ref over a meaningful window (e.g. last 20 commits) and confirm every commit shows a valid signature from an authorised key.",
+        "command": "git log --show-signature -n 20 <deploy-ref>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All recent commits show 'Good signature' from a known signer (secure); any 'no signature' / 'unknown signature' line (insecure).",
+        "source": "GitHub Docs — About commit signature verification; Sigstore Gitsign docs"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On developer workstations confirm git is configured to sign by default and uses a recognised key format — proves the team's tooling produces signatures rather than relying on ad-hoc per-commit flags.",
+        "command": "git config --get commit.gpgsign && git config --get gpg.format",
+        "file_path": "~/.gitconfig (user-scope) or repo .git/config",
+        "navigation": null,
+        "expected_output": "commit.gpgsign=true; gpg.format=ssh or x509 (secure). Unset (insecure).",
+        "source": "GitHub Docs — Signing commits / Telling Git about your signing key; Sigstore Gitsign docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "required_signatures_enforced_on_deploy_ref",
+    "option_description": "Attestation that the repository ruleset / branch protection on the deploy ref enforces the required_signatures rule so unsigned commits are rejected at push time rather than relying on contributor discipline.",
+    "security_impact": "One of the OR-conditions for exposure \"Unsigned commits reach deploy branch\" — fires when required_signatures_enforced_on_deploy_ref is false (T1195.002). Even if developers sign by convention, without the platform rule a single unsigned push lands on prod.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the GitHub Rules API for the deploy ref and filter for a required_signatures rule entry — its presence is what enforces the policy server-side.",
+        "command": "gh api repos/:owner/:repo/rules/branches/main | jq '.[] | select(.type==\"required_signatures\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON object describing a required_signatures rule (secure); empty output / no match (insecure).",
+        "source": "GitHub Docs — Available rules for rulesets; About commit signature verification"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the repository's Rulesets / Branch protection settings in the GitHub UI for the deploy ref and visually confirm 'Require signed commits' is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo → Settings → Rules → Rulesets → <deploy-ref ruleset> → Branch rules → 'Require signed commits' checked",
+        "expected_output": "'Require signed commits' is enabled and the ruleset is in Active enforcement (secure); rule absent or in Evaluate-only mode (insecure).",
+        "source": "GitHub Docs — Available rules for rulesets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cicd_pipeline_identity_per_environment_no_long_lived_keys",
+    "option_description": "Attestation that the CI/CD pipeline authenticates to each target environment with a distinct, short-lived, federated workload identity (e.g. GitHub Actions OIDC pinned by sub/audience to repo:<owner>/<repo>:environment:<env>, federated to per-environment cloud roles) rather than a single long-lived static cloud credential shared across all environments.",
+    "security_impact": "Sole OR-condition for exposure \"Shared long-lived CI key compromises all environments\" — fires when cicd_pipeline_identity_per_environment_no_long_lived_keys is false (T1078 Valid Accounts). A leaked shared key collapses blast-radius to one token across every environment.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inventory CI environments and workflows: confirm separate GitHub environments exist with environment-scoped secrets/roles and that deploy workflows declare permissions.id-token: write plus an environment: <name> on the deploy job.",
+        "command": "gh api repos/:owner/:repo/environments && grep -r 'permissions:\\s*id-token: write' .github/workflows/",
+        "file_path": ".github/workflows/*.yml + GitHub environments API response",
+        "navigation": null,
+        "expected_output": "Separate environments with environment-scoped roles AND id-token: write on the deploy job (secure). A single org-wide long-lived cloud key in repo secrets (insecure).",
+        "source": "GitHub Docs — Configuring OpenID Connect in Cloud providers; Google Cloud Workload Identity Federation with deployment pipelines"
+      },
+      {
+        "type": "command",
+        "instruction": "Dump the cloud trust policy attached to each deploy role and confirm the sub/audience claim pins to repo:<owner>/<repo>:environment:<env> for the specific environment — wildcard subs are the smoking gun for a shared identity.",
+        "command": "aws iam get-role --role-name <deploy-role> --query 'AssumeRolePolicyDocument' (or: gcloud iam workload-identity-pools providers describe <provider> --location=global --workload-identity-pool=<pool>)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trust policy pins sub/aud to repo:<owner>/<repo>:environment:<env> per environment (secure). Wildcard sub or any-repo trust (insecure).",
+        "source": "Google Cloud — Workload Identity Federation with deployment pipelines; GitHub Docs OIDC"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deploy_ref_protected_branch_only",
+    "option_description": "Attests that the deploy workflow / environment is gated so it can only fire from a protected branch (or protected tag) — i.e. GitHub environment deployment_branch_policy.protected_branches=true, or an equivalent ref restriction in the CI platform.",
+    "security_impact": "One of the OR-conditions for exposure \"Deploy triggered from unprotected branch / fork\" — fires when deploy_ref_protected_branch_only is false (T1195.002, T1078). A push to any branch or a fork PR could otherwise drive the deploy flow.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the environment's deployment-branch-policies and confirm protected_branches=true (or a tightly scoped custom allow-list of refs).",
+        "command": "gh api repos/:owner/:repo/environments/<prod>/deployment-branch-policies",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "deployment_branch_policy.protected_branches=true (secure); custom_branch_policies allowing any ref or no policy at all (insecure).",
+        "source": "GitHub Docs — Deployments and environments (environment protection rules)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the prod-equivalent environment in the GitHub UI and visually confirm the Deployment branches setting is set to 'Protected branches only' (or a narrowly scoped pattern).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo → Settings → Environments → <prod> → Deployment branches and tags → 'Protected branches only'",
+        "expected_output": "'Protected branches only' is selected (secure); 'No restriction' (insecure).",
+        "source": "GitHub Docs — Deployments and environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deploy_required_reviewers_configured",
+    "option_description": "Attests that the deployment environment (e.g. prod) has required human reviewers configured as an environment protection rule, so a deploy cannot proceed without explicit approval — even from a protected branch.",
+    "security_impact": "One of the OR-conditions for exposure \"Deploy triggered from unprotected branch / fork\" — fires when deploy_required_reviewers_configured is false (T1195.002, T1078). Without it the channel runs unattended on every qualifying push.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Pull the environment object via the GitHub API and inspect protection_rules for a required_reviewers entry with non-empty reviewers — and verify reviewers are not just the deploying actor.",
+        "command": "gh api repos/:owner/:repo/environments/<prod> | jq '.protection_rules'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A required_reviewers protection rule listing one or more humans/teams (secure); no required_reviewers entry or self-approval allowed (insecure).",
+        "source": "GitHub Docs — Deployments and environments (environment protection rules)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the environment in the GitHub UI and confirm the 'Required reviewers' protection rule is enabled with at least one reviewer who is not the deploying actor.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo → Settings → Environments → <prod> → Required reviewers",
+        "expected_output": "'Required reviewers' enabled with named reviewers (secure); disabled (insecure).",
+        "source": "GitHub Docs — Deployments and environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_injected_at_runtime_not_baked_in",
+    "option_description": "Attests that secrets traversing the deployment channel are injected into the running workload at deploy/start time from an external secret store (Vault Agent, Secrets-Store CSI, External Secrets Operator) — never embedded in the image, ConfigMap, Dockerfile, or build artifact carried by the flow.",
+    "security_impact": "One of the OR-conditions for exposure \"Secrets baked into artifact instead of runtime-injected\" — fires when secrets_injected_at_runtime_not_baked_in is false (T1552.001 Unsecured Credentials: Credentials in Files). Baked secrets propagate to every environment and every image puller.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan the production image's layer history and run a secret-scanner over the image to detect credentials embedded at build time.",
+        "command": "docker history --no-trunc <image> | grep -iE 'PASSWORD|TOKEN|SECRET|KEY=' ; trivy image --scanners secret <image>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches and trivy reports no secret findings (secure); any hit (insecure).",
+        "source": "Sigstore/Chainguard image-hygiene guidance; CIS Docker / Kubernetes Benchmark"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect a representative production pod spec for Vault sidecar annotations, Secrets-Store CSI volumes, or ExternalSecret references — the canonical runtime-injection markers.",
+        "command": "kubectl get pod <p> -o yaml | grep -E 'secretProviderClass|vault.hashicorp.com/agent-inject|external-secrets'",
+        "file_path": "Pod spec annotations / volumes",
+        "navigation": null,
+        "expected_output": "Secrets-Store CSI volume, Vault sidecar inject annotation, or ExternalSecret reference present (secure); env values hard-coded or pulled from a baked ConfigMap (insecure).",
+        "source": "HashiCorp Vault Kubernetes sidecar tutorial; Secrets-Store CSI driver docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secret_scanning_enabled",
+    "option_description": "Attests that the deploy pipeline runs a blocking secret scanner (gitleaks, trufflehog, trivy --scanners secret, detect-secrets) on the artifact AND on rendered Helm/Kustomize manifests before applying — catching credentials that slipped past commit-time hooks.",
+    "security_impact": "One of the OR-conditions for exposure \"Secrets baked into artifact instead of runtime-injected\" — fires when secret_scanning_enabled is false (T1552.001). Without a deploy-time scan, leaked credentials slip through the channel undetected.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep CI workflow definitions for a blocking secret-scanner step (gitleaks, trufflehog, trivy --scanners secret, detect-secrets) running on the artifact and on rendered manifests.",
+        "command": "grep -rE 'gitleaks|trufflehog|trivy.*secret|detect-secrets' .github/workflows/ .gitlab-ci.yml",
+        "file_path": "CI workflow definitions (.github/workflows/, .gitlab-ci.yml, etc.)",
+        "navigation": null,
+        "expected_output": "A blocking step running gitleaks / trufflehog / trivy --scanners secret on the artifact and Helm/Kustomize render output (secure); no scan or warn-only continue-on-error step (insecure).",
+        "source": "NIST SP 800-218 SSDF PW.7 (Review and analyze code); GitHub Advanced Security secret-scanning docs"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Pull the last N successful pipeline runs that landed on prod and confirm the secret-scan step actually executed and exited zero with a clean report — a step that exists in YAML but is skipped doesn't enforce anything.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent runs show the secret-scan job executed with a clean exit and the next job ran only on its success (secure); job skipped or step is informational only (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Attestation that the deployment channel (registry pull, kube-apiserver call, GitOps webhook) is carried over TLS 1.2+ end-to-end with no cleartext fallback.",
+    "security_impact": "One of the OR-conditions for exposure \"Cleartext or downgraded TLS on registry/apiserver channel\" — fires when flow_tls_encrypted is false (T1557 Adversary-in-the-Middle). Cleartext on the deploy flow opens classic AiTM artifact substitution.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe each hop the deploy flow traverses (registry, kube-apiserver, GitOps webhook) with openssl s_client forced to TLS 1.2 and inspect the negotiated protocol, cert chain, and SAN.",
+        "command": "openssl s_client -connect <registry-or-apiserver>:443 -tls1_2 -showcerts </dev/null | openssl x509 -noout -dates -subject -issuer",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.2/1.3 handshake; cert chain trusted; SAN matches host (secure). Handshake fails / SSLv3/TLS1.0 negotiated / cleartext port reachable (insecure).",
+        "source": "NIST SP 800-52r2 (TLS Implementation); Mozilla Server-Side TLS guidance"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh against each deploy-flow hop with HIGH severity filter to catch downgrade and weak-cipher findings beyond what s_client surfaces.",
+        "command": "testssl.sh --severity HIGH <registry-or-apiserver>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No HIGH severity findings; modern cipher suites only (secure); HIGH findings such as cleartext fallback or TLS 1.0/1.1 acceptance (insecure).",
+        "source": "Mozilla Server-Side TLS guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Attestation that the deploying client strictly validates the server certificate (trusted CA chain, SAN match, no self-signed acceptance) on every connection in the deploy flow.",
+    "security_impact": "One of the OR-conditions for exposure \"Cleartext or downgraded TLS on registry/apiserver channel\" — fires when server_certificate_validated is false (T1557 Adversary-in-the-Middle). Accepting self-signed/unvalidated TLS lets an on-path attacker terminate the channel and substitute the artifact or deploy verb.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubeconfig and any deploy-client config (helm, argocd CLI, docker/containerd registry config) for --insecure-skip-tls-verify, insecureSkipVerify: true, or insecure-registries entries that bypass validation.",
+        "command": "grep -rE 'insecure-skip-tls-verify|insecureSkipVerify|insecure-registries' ~/.kube/ /etc/containerd/ /etc/docker/ ./argocd/",
+        "file_path": "~/.kube/config, /etc/containerd/config.toml, /etc/docker/daemon.json, argocd Application CRs",
+        "navigation": null,
+        "expected_output": "No matches (secure); any 'true' / non-empty insecure-registries entry on a deploy-flow client (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a deploy-runner-equivalent host probe each hop with a known-bad (self-signed) cert in front to confirm the client refuses to connect — a positive test that validation is on.",
+        "command": "openssl s_client -connect <registry-or-apiserver>:443 -CAfile /etc/ssl/certs/ca-certificates.crt -verify_return_error </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify return code: 0 (ok) and SAN matches host (secure); 'verify error' or self-signed accepted in the client config (insecure).",
+        "source": "NIST SP 800-52r2 (TLS Implementation); Mozilla Server-Side TLS guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_references_immutable_digest_pinned",
+    "option_description": "Attestation that every manifest crossing this deployment flow references its artifact by immutable digest (sha256:...) rather than a mutable tag (:latest, :prod, :stable).",
+    "security_impact": "Sole OR-condition for exposure \"Mutable tag swap after verification (no digest pinning)\" — fires when artifact_references_immutable_digest_pinned is false (T1036 Masquerading, T1195.002). A registry can repoint the tag post-verification so restarting pods pull a substituted image — what policy verified is no longer what runs.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate every running container's image reference across all namespaces and filter out anything that lacks an @sha256: digest — non-empty output names every offending manifest.",
+        "command": "kubectl get pods -A -o jsonpath='{range .items[*]}{.spec.containers[*].image}{\"\\n\"}{end}' | grep -v '@sha256:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output: all images digest-pinned (secure). Any image without @sha256:... (insecure).",
+        "source": "SLSA v1.0 Verifying Artifacts — 'compare artifact digest to provenance statement subject' presumes digest pinning"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep rendered Helm/Kustomize output and the GitOps manifest repo for image: references that end in a tag rather than a digest — the source-of-truth view of what the flow actually applies.",
+        "command": "grep -rE '^\\s*image:\\s*[^@]+$' rendered-manifests/",
+        "file_path": "Rendered Helm/Kustomize output / GitOps manifest repo",
+        "navigation": null,
+        "expected_output": "No matches (secure); any tag-only image: line (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Attests that deploy events crossing this flow are streamed to a central, out-of-account audit log/SIEM, so post-incident attribution does not depend on logs the deploying identity can edit.",
+    "security_impact": "One of the OR-conditions for exposure \"No central audit of deploy events\" — fires when centralized_log_aggregation is false (T1562.008 Impair Defenses: Disable or Modify Cloud Logs, T1070 Indicator Removal). Without central aggregation, deploy events never reach a tamper-evident store.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for Kubernetes/cloud deploy events (create deployments, UpdateService, image-pull events) over the last 7 days and confirm ingestion includes actor identity and artifact digest.",
+        "command": "Check SIEM ingestion: query for cloudtrail/CloudAudit/Kubernetes audit events with verb=create resource=deployments OR eventName=UpdateService over last 7d",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deploy events present, retained per policy, with actor identity and artifact digest visible (secure). Missing source, audit pipeline disabled, or events absent (insecure).",
+        "source": "Kubernetes audit logs SIEM integration practice (Exabeam/LogRhythm guidance); Wiz 'What is SIEM' cloud-native logging"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kube-apiserver audit policy to confirm deploy-relevant verbs are logged at RequestResponse granularity rather than Metadata-only.",
+        "command": "kubectl get --raw /api/v1/namespaces/kube-system/configmaps/audit-policy -o yaml",
+        "file_path": "Kubernetes API server --audit-policy-file",
+        "navigation": null,
+        "expected_output": "Policy logs RequestResponse for deployments.apps, rollouts, jobs (secure); audit policy absent or Metadata-only on deploy verbs (insecure).",
+        "source": "Kubernetes documentation on audit logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Attests that the audit log destination is tamper-evident — write-once / append-only / cryptographically chained — and hosted in an account the deploying identity cannot edit or delete from.",
+    "security_impact": "One of the OR-conditions for exposure \"No central audit of deploy events\" — fires when audit_log_tamper_evident is false (T1562.008, T1070). Without WORM/cross-account isolation, a cluster-admin or compromised deploy identity can erase its tracks even when forwarding is on.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the log destination's storage configuration (S3 Object Lock retention, Loki immutable backend, Splunk frozen-bucket policy) and the IAM model that owns it — confirm the deploying account holds no delete or retention-override rights.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WORM/append-only storage (e.g. S3 Object Lock in Compliance mode) in an account separated from the deploying identity's blast radius (secure); deploying account can delete or shorten retention (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS-backed audit destinations, inspect the S3 bucket's Object Lock configuration directly to confirm a retention mode is set.",
+        "command": "aws s3api get-object-lock-configuration --bucket <audit-log-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockConfiguration with ObjectLockEnabled=Enabled and a default retention rule (secure); 'Object Lock configuration does not exist' (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "drift_detection_enabled",
+    "option_description": "Attests that the deployment flow runs continuous reconciliation (GitOps controller such as Argo CD selfHeal / Flux, or scheduled terraform plan -detailed-exitcode wired to alerts) against a declared source-of-truth, so any out-of-band change to running config is detected and alerted.",
+    "security_impact": "One of the OR-conditions for exposure \"Out-of-band drift in running config undetected\" — fires when drift_detection_enabled is false (T1098.006 Account Manipulation: Additional Container Cluster Roles, T1562 Impair Defenses). Without reconciliation, direct kubectl/console changes go unnoticed.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search the GitOps configuration tree for selfHeal / automated sync policies — the marker that the controller is actively reverting drift rather than just rendering.",
+        "command": "grep -r 'selfHeal\\|automated' argocd-applications/",
+        "file_path": "Argo CD Application spec.syncPolicy",
+        "navigation": null,
+        "expected_output": "syncPolicy.automated.selfHeal=true OR drift alerts wired to SIEM (secure); manual sync only with no monitoring (insecure).",
+        "source": "Configuration drift detection / SIEM correlation guidance (CoreView, Entro)"
+      },
+      {
+        "type": "command",
+        "instruction": "List Argo CD apps (or Flux Kustomizations) and confirm the controller is healthy and its sync policy is automated; a controller in degraded/manual state is not detecting drift.",
+        "command": "argocd app list -o wide   # or: flux get kustomizations",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Apps listed with SYNC POLICY = Auto and HEALTH = Healthy (secure); SYNC POLICY = Manual or controller not installed (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "running_config_matches_baseline",
+    "option_description": "Attests that, at assessment time, the running configuration of the target environment is in sync with the declared source-of-truth baseline (argocd app diff / flux diff / terraform plan reports no differences).",
+    "security_impact": "One of the OR-conditions for exposure \"Out-of-band drift in running config undetected\" — fires when running_config_matches_baseline is false (T1098.006, T1562). Even with reconciliation configured, drift currently present means it is not being evicted in practice.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run the reconciler's diff at assessment time against the production app/stack and confirm no differences — the point-in-time check that drift is not currently persisting.",
+        "command": "argocd app diff <app> --refresh   # or: flux diff kustomization <name>   # or: terraform plan -detailed-exitcode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exit code 0 / 'no differences' (secure, in sync). Non-zero diff = drift currently present (insecure).",
+        "source": "Argo CD / Flux docs (industry pattern referenced in Microsoft 365 and CoreView drift-management guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the last 7 days of reconciler alerts / drift notifications for unresolved entries on the production app — open drift findings are running-config-vs-baseline divergence by definition.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No open drift alerts on the prod app (secure); one or more unresolved drift entries (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

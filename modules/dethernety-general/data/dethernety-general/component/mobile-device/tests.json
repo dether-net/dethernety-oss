@@ -1,0 +1,119 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "hardware_backed_credential_storage_used": false,
+      "tokens_in_plaintext_device_storage": true,
+      "encrypted_at_rest": false,
+      "tls_only_transport": false,
+      "cleartext_http_permitted": true,
+      "certificate_pinning_enabled": false,
+      "server_certificate_validated": false,
+      "root_jailbreak_detection_enabled": false,
+      "server_verified_app_integrity_attestation": false,
+      "secrets_hardcoded_in_config_or_iac": true,
+      "access_token_ttl_minutes": 0,
+      "sender_constrained": false,
+      "refresh_token_rotation_enabled": false,
+      "server_side_revocation_supported": false,
+      "excluded_from_device_backup": false,
+      "screen_capture_protection_enabled": false,
+      "sensitive_clipboard_hygiene": false,
+      "secrets_masked_in_logs": false,
+      "deep_link_origin_validated": false,
+      "deep_link_url_scheme_validation": "unvalidated_deep_links",
+      "server_side_allowlist_validation": false,
+      "client_asserted_state_trusted_serverside": true,
+      "biometric_local_auth_gates_secrets": false,
+      "keys_bound_to_user_authentication": false
+    },
+    "expectedExposures": [
+      "Cleartext transport / no certificate pinning",
+      "App repackaging & hardcoded-secret extraction",
+      "No jailbreak/root detection or app-integrity attestation",
+      "Sensitive data leakage via backups, logs, clipboard, screen capture",
+      "Malicious deep link & untrusted client-supplied data",
+      "Insecure local credential/token storage",
+      "Missing local-auth (biometric) gating of secrets"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "hardware_backed_credential_storage_used": true,
+      "tokens_in_plaintext_device_storage": false,
+      "encrypted_at_rest": true,
+      "tls_only_transport": true,
+      "cleartext_http_permitted": false,
+      "certificate_pinning_enabled": true,
+      "server_certificate_validated": true,
+      "root_jailbreak_detection_enabled": true,
+      "server_verified_app_integrity_attestation": true,
+      "secrets_hardcoded_in_config_or_iac": false,
+      "access_token_ttl_minutes": 0,
+      "sender_constrained": true,
+      "refresh_token_rotation_enabled": true,
+      "server_side_revocation_supported": true,
+      "excluded_from_device_backup": true,
+      "screen_capture_protection_enabled": true,
+      "sensitive_clipboard_hygiene": true,
+      "secrets_masked_in_logs": true,
+      "deep_link_origin_validated": true,
+      "deep_link_url_scheme_validation": "validated_authorized",
+      "server_side_allowlist_validation": true,
+      "client_asserted_state_trusted_serverside": false,
+      "biometric_local_auth_gates_secrets": true,
+      "keys_bound_to_user_authentication": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "hardware_backed_credential_storage_used": true,
+      "tokens_in_plaintext_device_storage": false,
+      "encrypted_at_rest": true,
+      "tls_only_transport": true,
+      "cleartext_http_permitted": false,
+      "certificate_pinning_enabled": true,
+      "server_certificate_validated": true,
+      "root_jailbreak_detection_enabled": true,
+      "server_verified_app_integrity_attestation": true,
+      "secrets_hardcoded_in_config_or_iac": false,
+      "access_token_ttl_minutes": 0,
+      "sender_constrained": true,
+      "refresh_token_rotation_enabled": true,
+      "server_side_revocation_supported": true,
+      "excluded_from_device_backup": true,
+      "screen_capture_protection_enabled": true,
+      "sensitive_clipboard_hygiene": true,
+      "secrets_masked_in_logs": true,
+      "deep_link_origin_validated": true,
+      "deep_link_url_scheme_validation": "unvalidated_deep_links",
+      "server_side_allowlist_validation": true,
+      "client_asserted_state_trusted_serverside": false,
+      "biometric_local_auth_gates_secrets": true,
+      "keys_bound_to_user_authentication": true
+    },
+    "expectedExposures": [
+      "Malicious deep link & untrusted client-supplied data"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Cleartext transport / no certificate pinning",
+      "App repackaging & hardcoded-secret extraction",
+      "No jailbreak/root detection or app-integrity attestation",
+      "Sensitive data leakage via backups, logs, clipboard, screen capture",
+      "Malicious deep link & untrusted client-supplied data",
+      "Insecure local credential/token storage",
+      "Missing local-auth (biometric) gating of secrets"
+    ]
+  }
+]

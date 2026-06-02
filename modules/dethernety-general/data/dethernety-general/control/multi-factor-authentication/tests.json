@@ -1,0 +1,92 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "mfa_enforced_for_admin": false,
+      "mfa_enforced_for_vpn_login": false,
+      "mfa_enforced_for_externally_exposed_apps": false,
+      "phishing_resistant_authenticator_required": "sms_otp_or_push",
+      "phishing_resistant_mfa_enabled": false,
+      "weak_sms_voice_mfa_disabled": false,
+      "mfa_fail_closed": false,
+      "legacy_auth_protocols_disabled": false,
+      "conditional_access_exclusions_minimized": false,
+      "push_number_matching_enabled": false,
+      "push_request_rate_limiting_enabled": false,
+      "step_up_reauth_for_sensitive_actions": false,
+      "mfa_session_lifetime_bounded": false,
+      "session_idle_timeout_minutes": 86400,
+      "secure_mfa_enrollment_and_recovery": false,
+      "mfa_authentication_events_audited": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "mfa_enforced_for_admin": true,
+      "mfa_enforced_for_vpn_login": true,
+      "mfa_enforced_for_externally_exposed_apps": true,
+      "phishing_resistant_authenticator_required": "fido2_or_piv",
+      "phishing_resistant_mfa_enabled": true,
+      "weak_sms_voice_mfa_disabled": true,
+      "mfa_fail_closed": true,
+      "legacy_auth_protocols_disabled": true,
+      "conditional_access_exclusions_minimized": true,
+      "push_number_matching_enabled": true,
+      "push_request_rate_limiting_enabled": true,
+      "step_up_reauth_for_sensitive_actions": true,
+      "mfa_session_lifetime_bounded": true,
+      "session_idle_timeout_minutes": 0,
+      "secure_mfa_enrollment_and_recovery": true,
+      "mfa_authentication_events_audited": true
+    },
+    "expectedCountermeasures": [
+      "Weak phishable factors disabled / demoted",
+      "MFA enforced on all high-risk access",
+      "Phishing-resistant authenticator required for high-value access",
+      "No MFA bypass — fail-closed, legacy auth blocked, exclusions minimized",
+      "Secure enrollment, recovery, and MFA event auditing",
+      "Anti-MFA-fatigue — number-matching and push rate-limiting",
+      "Step-up re-auth and bounded MFA session lifetime"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "mfa_enforced_for_admin": true,
+      "mfa_enforced_for_vpn_login": true,
+      "mfa_enforced_for_externally_exposed_apps": true,
+      "phishing_resistant_authenticator_required": "sms_otp_or_push",
+      "phishing_resistant_mfa_enabled": true,
+      "weak_sms_voice_mfa_disabled": true,
+      "mfa_fail_closed": true,
+      "legacy_auth_protocols_disabled": true,
+      "conditional_access_exclusions_minimized": true,
+      "push_number_matching_enabled": true,
+      "push_request_rate_limiting_enabled": true,
+      "step_up_reauth_for_sensitive_actions": true,
+      "mfa_session_lifetime_bounded": true,
+      "session_idle_timeout_minutes": 0,
+      "secure_mfa_enrollment_and_recovery": true,
+      "mfa_authentication_events_audited": true
+    },
+    "expectedCountermeasures": [
+      "Weak phishable factors disabled / demoted",
+      "MFA enforced on all high-risk access",
+      "No MFA bypass — fail-closed, legacy auth blocked, exclusions minimized",
+      "Secure enrollment, recovery, and MFA event auditing",
+      "Anti-MFA-fatigue — number-matching and push rate-limiting",
+      "Step-up re-auth and bounded MFA session lifetime"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

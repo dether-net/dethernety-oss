@@ -1,0 +1,9 @@
+{
+  "id": "6cb507eb-5fbe-4be7-9981-efc489c82d8a",
+  "name": "Log Retention Policy",
+  "classType": "control",
+  "type": "Log Retention Policy",
+  "description": "Log retention policy — also called audit-log retention, log archival, retention period, or evidence preservation — a control defining how long audit and security logs are preserved to support investigation and meet compliance. The place to look for log retention, how long logs/audit trails are kept, archival period, or the policy preserving security event records.",
+  "category": "Policies & Procedures",
+  "status": "draft"
+}

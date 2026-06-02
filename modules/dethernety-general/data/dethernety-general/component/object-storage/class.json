@@ -1,0 +1,9 @@
+{
+  "id": "1fdf7a21-5978-4c93-adf8-058cf2b0e540",
+  "name": "Object Storage",
+  "classType": "component",
+  "type": "STORE",
+  "description": "Object storage — also called a bucket, blob storage, S3, GCS, Azure Blob, or unstructured store — a key-addressed store for files, blobs, backups, and media. Accessed over HTTP APIs and a common home for large unstructured data. The place to look for object storage, an S3/GCS/Azure bucket, blob store, or where backups, media, and unstructured files are kept.",
+  "category": "Data Persistence",
+  "status": "draft"
+}

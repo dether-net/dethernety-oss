@@ -1,0 +1,433 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known-Exploited CVE Present",
+        "description": "TRUE when the running firmware/build is affected by an unpatched CISA KEV-listed CVE for this platform (FortiOS CVE-2024-21762, PAN-OS CVE-2024-3400, Ivanti CVE-2023-46805/CVE-2024-21887, Citrix Bleed CVE-2023-4966). Covers both the auth-bypass/RCE chain and the memory-disclosure session-token-leak primitive. The assessor cross-checks the running build against vendor advisories and the CISA KEV catalog. SECURE value is false (a supported image patched for all applicable KEV CVEs); the exposure fires when true.",
+        "default": false
+      },
+      "firmware_end_of_support": {
+        "type": "boolean",
+        "title": "Firmware End-of-Support",
+        "description": "TRUE when the appliance runs an end-of-support / end-of-life firmware image that no longer receives security fixes — meaning newly disclosed KEV CVEs will never be patched on this build. SECURE value is false (a vendor-supported image); the exposure fires when true.",
+        "default": false
+      },
+      "days_since_last_firmware_update": {
+        "type": "integer",
+        "title": "Days Since Last Firmware Update",
+        "description": "Number of days since the gateway firmware was last updated. Internet-facing VPN appliances are mass-exploited shortly after disclosure, so a stale patch cadence is itself an exposure proxy. SECURE state is a small value (recently patched); the exposure fires when the value exceeds the 90-day patch-currency threshold."
+      },
+      "session_idle_timeout_minutes": {
+        "type": "integer",
+        "title": "Session Idle Timeout (minutes)",
+        "description": "Idle timeout (minutes) for an established authenticated VPN/admin session before it is terminated. A long or absent idle timeout widens the window in which a stolen session token (e.g. Citrix Bleed CVE-2023-4966) can be replayed. Fires when above a tight bound (>15 min). Grounded in FortiGate SSL-VPN 'set idle-timeout' / 'set admintimeout'; secure value is short (~5 min).",
+        "minimum": 0,
+        "maximum": 86400
+      },
+      "max_session_lifetime_hours": {
+        "type": "integer",
+        "title": "Max Session Lifetime (hours)",
+        "description": "Maximum absolute lifetime (hours) of an authenticated session/token regardless of activity. Long-lived or never-expiring sessions let a hijacked token persist indefinitely after the leak, even post-patch. Fires when above a bounded maximum (>24h). Grounded in SSL-VPN 'set auth-timeout'; secure value is a bounded re-authentication interval.",
+        "minimum": 0
+      },
+      "session_monitoring_enabled": {
+        "type": "boolean",
+        "title": "Active Session Monitoring Enabled",
+        "description": "Whether active VPN sessions are monitored for anomalous source/geo/parallel use and exported to SIEM so a hijacked session can be detected and revoked. Fires when monitoring is absent (is_false). SECURE value is true."
+      },
+      "concurrent_session_limit_enforced": {
+        "type": "boolean",
+        "title": "Concurrent Session Limit Enforced",
+        "description": "Whether a per-user concurrent-session cap is enforced, constraining a hijacked-token attacker logging in parallel with the legitimate user and aiding detection of anomalous duplicate sessions. Fires when no cap is enforced (is_false). SECURE value is true."
+      },
+      "mfa_enforced_for_vpn_login": {
+        "type": "boolean",
+        "title": "MFA Enforced for VPN Login",
+        "description": "TRUE when multi-factor (ideally phishing-resistant) authentication is enforced for ALL remote-access VPN logins with no exception groups. SECURE value true. Fires (insecure) when login is single-factor/password-only or MFA is optional/bypassable, so stolen, sprayed, or stuffed credentials alone grant External Remote Services access. Per CISA Phishing-Resistant MFA / NIST SP 800-63B AAL2+.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Brute-Force Lockout / Login Throttling Enabled",
+        "description": "TRUE when account lockout / login throttling (non-zero lockout threshold + duration, bounded SSH grace time) is configured on the public VPN portal and admin interface. SECURE value true. Fires (insecure) when there is no lockout / unlimited attempts, allowing unblunted password spraying and credential stuffing against the public-facing login. Derived from admin-lockout-threshold/duration (FortiGate) or vendor equivalent."
+      },
+      "failed_auth_alerting_enabled": {
+        "type": "boolean",
+        "title": "Failed-Auth Alerting Enabled",
+        "description": "TRUE when authentication events (including failures) are forwarded to a central SIEM/syslog with failed-auth burst alerting and anomalous-session-source alerting enabled. SECURE value true. Fires (insecure) when logging is disabled/local-only or no failed-auth alerting exists, so credential spraying and post-exploit reverse-tunneling go unnoticed."
+      },
+      "vpn_auth_source": {
+        "type": "string",
+        "enum": [
+          "central_idp_radius_saml",
+          "ldap_directory",
+          "certificate_ca",
+          "local_appliance_accounts"
+        ],
+        "title": "VPN Authentication Source",
+        "description": "Which identity store the VPN authenticates against. Secure values bind to a central IdP / directory / certificate CA enabling central MFA, deprovisioning and audit. Fires (insecure) on local_appliance_accounts, which permits shared/local accounts that bypass central MFA and lifecycle controls and are a leading valid-account abuse path. Derived from the authentication-backend integration."
+      },
+      "vpn_ikev1_aggressive_mode_disabled": {
+        "type": "boolean",
+        "title": "IKEv1 Aggressive Mode Disabled",
+        "description": "Attests that IKEv1 aggressive mode is disabled (IKEv2-only preferred, per NSA/CISA and NIST SP 800-77r1). IKEv1 aggressive mode transmits the PSK hash in a way that exposes it to offline cracking. SECURE value is true; the exposure fires when aggressive mode is still enabled (false). Assessor interprets the real config key for IKE version/mode (FortiGate phase1 ike-version / Cisco crypto ikev1 with aggressive mode).",
+        "default": false
+      },
+      "vpn_cipher_suites_strong_only": {
+        "type": "boolean",
+        "title": "Strong VPN Cipher Suites Only",
+        "description": "Attests that weak encryption/integrity algorithms (DES, 3DES, MD5, SHA1) are removed from the accepted phase1/phase2 (and SSL-VPN) proposals in favour of AES-GCM/AES-256 and SHA-256+. Modelled as an interpreted boolean rather than a substring match on the raw cipher list. SECURE value is true; the exposure fires when weak ciphers remain accepted (false).",
+        "default": false
+      },
+      "perfect_forward_secrecy_enabled": {
+        "type": "boolean",
+        "title": "Perfect Forward Secrecy Enabled",
+        "description": "Attests that Perfect Forward Secrecy (PFS) is enabled on the IPsec phase2, so a compromised long-term key cannot decrypt past/future sessions (NIST SP 800-77r1). SECURE value is true; the exposure fires when PFS is disabled (false).",
+        "default": false
+      },
+      "strong_dh_group_enforced": {
+        "type": "boolean",
+        "title": "Strong Diffie-Hellman Group Enforced",
+        "description": "Attests that only strong Diffie-Hellman groups are accepted (DH group 14+/2048-bit or ECP group 19/20/21) and the weak groups 1/2/5 (768/1024/1536-bit) are not offered. Modelled as an interpreted boolean to keep polarity safe. SECURE value is true; the exposure fires when a weak DH group is still enforceable/offered (false).",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Workspace-canonical minimum TLS version accepted on the SSL-VPN portal (GlobalProtect / FortiGate SSL-VPN / AnyConnect WebVPN / NetScaler Gateway). Secure value is 'tls1_2_or_higher' (prefer TLS 1.3); the exposure fires when SSLv3/TLS1.0/TLS1.1 are still accepted ('tls1_0_or_tls1_1_or_sslv3_accepted'), enabling protocol downgrade and on-path interception (NIST SP 800-52r2)."
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Policy Enforced",
+        "description": "Whether the VPN gateway enforces a per-user/per-group least-privilege access policy that restricts which internal services and subnets an admitted session may reach (granular dst/service-scoped firewall rules from the VPN zone into the trust zone, mapped to each group's actual need). SECURE value true: each admitted identity reaches only the internal resources it requires. When false, any admitted session can reach the whole internal network, enabling lateral movement (NIST SP 800-46r2).",
+        "default": false
+      },
+      "permit_any_from_vpn_pool": {
+        "type": "boolean",
+        "title": "Permit-Any Rule from VPN Pool",
+        "description": "Whether a broad 'permit any-any' firewall rule exists from the VPN pool/SSL-VPN interface into internal trust zones, granting every admitted session flat reachability of the internal network. INSECURE value true: a permit-any rule collapses the segmentation the gateway is meant to enforce. Modelled as an interpreted boolean (secure value false, non-firing).",
+        "default": false
+      },
+      "vpn_pool_to_trust_segmentation_enforced": {
+        "type": "boolean",
+        "title": "VPN-Pool-to-Trust Segmentation Enforced",
+        "description": "Supporting context: whether network segmentation (VLAN/zone separation, internal microsegmentation, or a downstream segmentation firewall) constrains traffic originating from the VPN pool so that even a broadly-permitted session cannot freely pivot across the trusted zone. Defense-in-depth evidence alongside the per-user access policy; not itself the primary trigger."
+      },
+      "management_ui_internet_exposed": {
+        "type": "boolean",
+        "title": "Management Interface Internet-Exposed",
+        "description": "TRUE when the web/CLI admin interface (HTTPS/SSH) is reachable from the internet/WAN (e.g. allowaccess includes https/ssh on the external interface, admin bound to 0.0.0.0). Internet-exposed admin panels are the primary entry point for appliance RCE/auth-bypass CVEs (Ivanti, Citrix, Fortinet, PAN-OS). SECURE state is false (admin bound to a management network, WAN admin disabled); fires when true.",
+        "default": false
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Credentials Changed",
+        "description": "TRUE when the factory default admin password has been rotated and no vendor backdoor/maintenance accounts use shipped defaults. Default vendor credentials remain a top remote-access compromise path against the public-facing login. SECURE value true; fires (exposure) when false — defaults still valid.",
+        "default": false
+      },
+      "admin_access_ip_restricted": {
+        "type": "boolean",
+        "title": "Admin Access IP-Restricted",
+        "description": "TRUE when administrative access is restricted to trusted source IPs/CIDRs (e.g. FortiGate trustedhost, management ACL) rather than reachable from any source. Fires (exposure) when false — admin login served to arbitrary internet sources, enabling brute-force/default-credential attacks."
+      },
+      "auth_events_logged": {
+        "type": "boolean",
+        "title": "Connection & Auth Events Logged",
+        "description": "Interpreted from the VPN gateway's logging configuration: VPN connect/disconnect and authentication events — both success and failure — are recorded. SECURE value is true (events logged); the exposure fires when false, meaning credential abuse and anomalous sessions leave no record.",
+        "default": false
+      },
+      "external_siem_forwarding_enabled": {
+        "type": "boolean",
+        "title": "Logs Forwarded to SIEM",
+        "description": "Interpreted from the gateway's remote-syslog/log-forwarding configuration: connection and authentication logs are exported off-box to a central SIEM/syslog target (not local-only). SECURE value is true (forwarded); fires when false, because a compromised gateway can impair its own local logging to evade detection (ATT&CK T1562.008) when records never leave the device.",
+        "default": false
+      },
+      "client_posture_check_enabled": {
+        "type": "boolean",
+        "title": "Client Posture Check Enabled",
+        "description": "Whether endpoint health/posture evaluation (AV present, OS patch level, disk encryption — e.g. a Host Information Profile / host-check policy) is configured and runs before VPN tunnel admission. SECURE value is true; the exposure fires when posture checking is absent so any device with valid credentials is admitted into the trusted zone (NIST SP 800-46 Rev. 2).",
+        "default": false
+      },
+      "vpn_ztna_posture_gating_enabled": {
+        "type": "boolean",
+        "title": "Device-Compliance Gating Enforced",
+        "description": "Whether the posture/compliance result is actually ENFORCED at admission — non-compliant or unmanaged devices are denied or quarantined rather than the check being advisory/log-only. SECURE value is true; fires when gating is not enforced, so an unmanaged or compromised personal host reaches the internal network.",
+        "default": false
+      },
+      "managed_certificate_required_for_admission": {
+        "type": "boolean",
+        "title": "Managed Certificate Required for Admission",
+        "description": "Whether a managed/enterprise device certificate is required as part of admission, distinguishing corporate-managed endpoints from arbitrary personal hosts presenting only user credentials. SECURE value is true; fires when no managed-certificate requirement exists, allowing any credentialed device in."
+      }
+    },
+    "required": [
+      "unpatched_known_rce_cve",
+      "firmware_end_of_support",
+      "days_since_last_firmware_update",
+      "session_idle_timeout_minutes",
+      "max_session_lifetime_hours",
+      "session_monitoring_enabled",
+      "concurrent_session_limit_enforced",
+      "mfa_enforced_for_vpn_login",
+      "rate_limiting_or_lockout_enabled",
+      "failed_auth_alerting_enabled",
+      "vpn_auth_source",
+      "vpn_ikev1_aggressive_mode_disabled",
+      "vpn_cipher_suites_strong_only",
+      "perfect_forward_secrecy_enabled",
+      "strong_dh_group_enforced",
+      "min_tls_version",
+      "least_privilege_access_enforced",
+      "permit_any_from_vpn_pool",
+      "management_ui_internet_exposed",
+      "default_accounts_removed_or_changed",
+      "admin_access_ip_restricted",
+      "auth_events_logged",
+      "external_siem_forwarding_enabled",
+      "client_posture_check_enabled",
+      "vpn_ztna_posture_gating_enabled",
+      "managed_certificate_required_for_admission"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_session_lifetime_hours"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_vpn_login"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_idle_timeout_minutes"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/concurrent_session_limit_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_auth_source"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/perfect_forward_secrecy_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/strong_dh_group_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_cipher_suites_strong_only"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_ikev1_aggressive_mode_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_ui_internet_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permit_any_from_vpn_pool"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_access_ip_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_pool_to_trust_segmentation_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/firmware_end_of_support"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_firmware_update"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auth_events_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_siem_forwarding_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/failed_auth_alerting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Device Posture",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_posture_check_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_ztna_posture_gating_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_certificate_required_for_admission"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

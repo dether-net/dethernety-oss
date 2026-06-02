@@ -1,0 +1,9 @@
+{
+  "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+  "name": "Database Query",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "A database query — also called SQL traffic, a query/result-set exchange, ORM call, or DB read/write — traffic between application processes and persistent stores carrying queries and the data they return. The path for data retrieval and the channel for injection and bulk egress. The place to look for database traffic, SQL queries, ORM/DB calls, or the read/write flow between the app and its data store.",
+  "category": "Data Traffic",
+  "status": "draft"
+}

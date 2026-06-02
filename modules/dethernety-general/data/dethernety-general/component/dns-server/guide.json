@@ -1,0 +1,567 @@
+[
+  {
+    "option_name": "dnssec_validation",
+    "option_description": "BIND 9 'dnssec-validation' option in named.conf.options — whether the resolver cryptographically validates DNSSEC signatures on answers. 'auto'/'yes' validate signatures; 'no' accepts unchecked (potentially forged) records into the cache.",
+    "security_impact": "Triggers \"Cache poisoning / spoofed-answer injection\" — it is one of that exposure's OR-conditions, firing when dnssec_validation == \"no\" (signatures unchecked, so a remote off-path attacker can inject forged domain->IP records). Validation is the primary cache-poisoning defense for signed zones (D3FEND-adjacent integrity control, ATT&CK T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the dnssec-validation directive in named.conf.options.",
+        "command": "grep -i 'dnssec-validation' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "dnssec-validation auto; (or yes) = secure; dnssec-validation no; or absent in a non-default build = insecure",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm validation is actually active by querying a deliberately broken-signature name.",
+        "command": "dig +dnssec @<resolver> dnssec-failed.org",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A validating resolver returns SERVFAIL (no AD/answer) for a deliberately broken-signature name; an answer with the 'ad' flag for a valid signed name confirms validation is active",
+        "source": "ISC BIND Best Practices - Recursive"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "auto",
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "option_name": "named_below_cve_fix_line",
+    "option_description": "Interpreted boolean: true when the running BIND 9 (named) build is BELOW the relevant ISC fix line for an active advisory — cache poisoning CVE-2025-40778 (fixed 9.18.41 / 9.20.15 / 9.21.14) plus resource-exhaustion DoS CVEs (CVE-2024-12705 / CVE-2025-8677 / CVE-2024-11187). The security state is a semantic version comparison, not a substring match.",
+    "security_impact": "An OR-trigger of BOTH \"Cache poisoning / spoofed-answer injection\" and \"Unpatched named — remotely-exploitable poisoning & DoS CVEs\" — each fires when named_below_cve_fix_line is_true. A below-fix-line build is overly lenient in accepting answer records (poisoning, ATT&CK T1190) and exposed to remotely-triggerable DoS (T1499.004).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Obtain the running BIND version and compare against the ISC fixed-version line for active advisories.",
+        "command": "named -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reports the running BIND version; compare against the ISC fixed-version line for active advisories (>=9.18.41 / 9.20.15 / 9.21.14 clears CVE-2025-40778). A build below the fix line = true (exposed).",
+        "source": "ISC / Help Net Security — CVE-2025-40778 BIND 9 cache poisoning advisory"
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-check the build the live daemon reports against the advisory fix line via the control channel.",
+        "command": "rndc status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status output includes the running server version/role; confirm it matches the named -v build before judging it below the fix line",
+        "source": "BIND 9 rndc manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "named_patched_within_sla",
+    "option_description": "Cross-component patch-cadence facet: the named process is running a release on or after the relevant ISC security-advisory fix line AND that release landed within the organisation's patch-SLA window. Secure value is true (patched within SLA); the exposure fires when false (out-of-SLA build).",
+    "security_impact": "An OR-trigger of \"Unpatched named — remotely-exploitable poisoning & DoS CVEs\", firing when named_patched_within_sla is_false (an out-of-SLA build is exposed to the modeled cache-poisoning CVE-2025-40778 and the DoS CVEs — ATT&CK T1190 / T1499.004). Patch level is the supply-chain control floor.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Obtain the running BIND release, confirm it is on or after the ISC fix line.",
+        "command": "named -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reports the running BIND version; >=9.18.41 / 9.20.15 / 9.21.14 clears CVE-2025-40778. Below the fix line = false (out of SLA).",
+        "source": "ISC / Help Net Security — CVE-2025-40778 BIND 9 cache poisoning advisory"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the operations team that the patched build landed within the documented patch-SLA window for the relevant advisory (the version being current is necessary but not sufficient — SLA cadence is the attestation).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Change/patch records show the on-or-after-fix-line release was deployed within the org's SLA window for the advisory = true; a gap or no record = false (out of SLA)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "open_recursion_enabled",
+    "option_description": "Interpreted from BIND 'recursion' in named.conf.options: true when the server performs recursive resolution (recursion yes;). An authoritative-only server should have recursion no; (false). True alone is not the exposure but is the precondition for open-resolver reflection abuse.",
+    "security_impact": "Participates in \"Open recursive resolver — amplification & reflection DDoS\" — it is the is_true side of two of that exposure's OR-condition-groups (open_recursion_enabled AND recursion_acl_unrestricted; and open_recursion_enabled AND NOT ddos_protection_in_place). Recursion offered to untrusted clients makes the server a reflector for amplification DDoS (ATT&CK T1498.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the recursion (and allow-recursion) directives in named.conf.options.",
+        "command": "grep -iE 'recursion|allow-recursion' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "recursion no; (authoritative) or recursion yes; with allow-recursion { trusted; }; = secure; recursion yes; with no allow-recursion = open resolver (insecure)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "command",
+        "instruction": "From an off-network/untrusted source IP, ask the server to recursively resolve an external name.",
+        "command": "dig @<server> google.com +short  (from an off-network/untrusted source IP)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An untrusted client should receive REFUSED or no recursive answer; receiving a recursively-resolved answer for an external name confirms open recursion (true)",
+        "source": "ISC BIND Best Practices - Recursive"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "recursion_acl_unrestricted",
+    "option_description": "Interpreted from BIND 'allow-recursion' in named.conf.options: true when recursion is offered to untrusted clients — allow-recursion { any; } or no allow-recursion clause while recursion yes;. A trusted ACL like { 10.0.0.0/8; localnets; } is secure (false).",
+    "security_impact": "An OR-trigger of \"Open recursive resolver — amplification & reflection DDoS\" — it is the is_true side of the group (open_recursion_enabled AND recursion_acl_unrestricted). When true, any spoofed-source client can drive recursive queries, turning the resolver into a reflector for amplification/reflection DDoS (ATT&CK T1498.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the allow-recursion address-match list in named.conf.options and judge whether it scopes recursion to trusted networks.",
+        "command": "grep -i 'allow-recursion' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "allow-recursion { <trusted-acl>; }; = secure (false); allow-recursion { any; }; or missing while recursion yes; = unrestricted (true)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "command",
+        "instruction": "Probe recursion from an untrusted source IP to prove the ACL actually denies it.",
+        "command": "dig @<server> google.com +short  (from an off-network/untrusted source IP)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "REFUSED / no recursive answer from an untrusted source = ACL restricts (false); a resolved external answer = ACL effectively unrestricted (true)",
+        "source": "ISC BIND Best Practices - Recursive"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Shared-vocabulary attestation: true when effective volumetric/reflection DDoS mitigation exists for this DNS service (BIND Response Rate Limiting rate-limit{} block, upstream BCP38 anti-spoofing ingress filtering, or a scrubbing/anycast tier). False means an open resolver has no rate or volume control.",
+    "security_impact": "An OR-trigger of \"Open recursive resolver — amplification & reflection DDoS\" — it is the is_false side of the group (open_recursion_enabled AND NOT ddos_protection_in_place). When false on a recursive server, spoofed-source small queries yield large responses flooding a third-party victim unchecked (ATT&CK T1498.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check named.conf.options for a Response Rate Limiting block as one form of in-place mitigation.",
+        "command": "grep -A5 -i 'rate-limit' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "a rate-limit { responses-per-second N; ... }; block present = one mitigation in place; no rate-limit block on an internet-facing server = a gap",
+        "source": "ISC KB aa-00994 — Using Response Rate Limiting (RRL)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with network/operations whether upstream anti-spoofing (BCP38 ingress filtering) or a scrubbing/anycast tier protects this DNS service, since mitigation may be off-box rather than in named.conf.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented RRL, BCP38 ingress filtering, or scrubbing/anycast covering the service = true; no volumetric/reflection control attested = false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "response_rate_limiting_enabled",
+    "option_description": "Interpreted from the BIND 'rate-limit { responses-per-second N; ... }' block in named.conf.options (ISC RRL): true when a rate-limit block caps identical responses per client-prefix per second. False (no rate-limit block) leaves response volume unbounded.",
+    "security_impact": "An OR-trigger of \"Open recursive resolver — amplification & reflection DDoS\" — it is the is_false side of the group (NOT response_rate_limiting_enabled AND NOT minimal_responses_enabled). When false, the server is an unmitigated reflector for DNS amplification (ATT&CK T1498.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check named.conf.options for a rate-limit{} block and read its responses-per-second / window / slip knobs.",
+        "command": "grep -A5 -i 'rate-limit' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "a rate-limit { responses-per-second 5; window 15; slip 2; }; block present = secure (true); no rate-limit block on an internet-facing authoritative server = insecure (false)",
+        "source": "ISC KB aa-00994 — Using Response Rate Limiting (RRL)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimal_responses_enabled",
+    "option_description": "Interpreted from BIND 'minimal-responses' in named.conf.options: true when minimal-responses yes; (or no-auth-recursive) trims unnecessary Additional/Authority records, shrinking response size and thus amplification factor. False (minimal-responses no;) on a public server yields larger responses.",
+    "security_impact": "An OR-trigger of \"Open recursive resolver — amplification & reflection DDoS\" — it is the is_false side of the group (NOT response_rate_limiting_enabled AND NOT minimal_responses_enabled). When false, larger responses increase amplification gain when the server is abused as a reflector (ATT&CK T1498.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the minimal-responses directive in named.conf.options.",
+        "command": "grep -i 'minimal-responses' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "minimal-responses yes; = secure-leaning (true); no; on a public server = larger amplification surface (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "zone_transfer_unrestricted",
+    "option_description": "Interpreted from allow-transfer in named.conf.local / named.conf.options. True when zone transfers (AXFR/IXFR) are open to any client (allow-transfer { any; }) or the directive is absent on an authoritative zone. False (secure) when allow-transfer is { none; } or scoped to an explicit secondary-IP/key ACL.",
+    "security_impact": "An OR-trigger of \"Unrestricted zone transfer (AXFR) reconnaissance\", firing when zone_transfer_unrestricted is_true — anyone can pull the full zone and enumerate the internal namespace (hostnames, internal IPs) for targeting (ATT&CK T1590.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the allow-transfer directive across named.conf.options and named.conf.local.",
+        "command": "grep -i 'allow-transfer' /etc/bind/named.conf.options /etc/bind/named.conf.local",
+        "file_path": "/etc/bind/named.conf.local",
+        "navigation": null,
+        "expected_output": "allow-transfer { none; }; or allow-transfer { key transfer-key; }; = secure (false); allow-transfer { any; }; or absent = insecure (true)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt an AXFR from an unauthorized source to prove transfers are refused.",
+        "command": "dig @<server> <zone> AXFR",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should return 'Transfer failed' / REFUSED from an unauthorized source (false); a full zone dump confirms unrestricted AXFR (true)",
+        "source": "ISC BIND Best Practices - Authoritative"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tsig_authenticated_transfers",
+    "option_description": "Interpreted: whether AXFR/IXFR zone transfers are authenticated with a TSIG HMAC shared secret (a key clause referenced from allow-transfer, e.g. allow-transfer { key transfer-key; }; backed by key \"...\" { algorithm hmac-sha256; secret ...; };). True (secure) when a TSIG key gates transfers; false when gated only by spoofable source-IP ACLs or not authenticated.",
+    "security_impact": "An OR-trigger of TWO exposures: \"Unrestricted zone transfer (AXFR) reconnaissance\" (fires when tsig_authenticated_transfers is_false) and \"Weak transfer/NOTIFY secret — IP-only spoofable trust\" (is_false side of the group tsig_authenticated_transfers AND transfers_gated_by_ip_only). When false, an attacker can spoof a secondary's source IP to pull the zone (ATT&CK T1590.002 / T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Look for a TSIG key clause and its reference from allow-transfer / server stanzas in named.conf and named.conf.local.",
+        "command": "grep -iE 'key |algorithm hmac|also-notify' /etc/bind/named.conf /etc/bind/named.conf.local",
+        "file_path": "/etc/bind/named.conf.local",
+        "navigation": null,
+        "expected_output": "a key \"...\" { algorithm hmac-sha256; secret ...; }; referenced by allow-transfer/server = secure (true); transfers gated only by raw IP ACLs = weaker (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual) / rndc manual"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Cross-check the allow-transfer directive to confirm it references a key clause rather than a bare IP list.",
+        "command": "grep -i 'allow-transfer' /etc/bind/named.conf.options /etc/bind/named.conf.local",
+        "file_path": "/etc/bind/named.conf.local",
+        "navigation": null,
+        "expected_output": "allow-transfer { key transfer-key; }; = TSIG-gated (true); allow-transfer { <ip>; }; with no key = IP-only (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "transfers_gated_by_ip_only",
+    "option_description": "Interpreted: whether primary->secondary zone transfers are permitted solely on the basis of a raw source-IP address-match list (allow-transfer { <secondary-ip>; };) with no TSIG key requirement, so an attacker who can spoof a known secondary's source address can pull the zone. True when trust rests on IP alone.",
+    "security_impact": "An OR-trigger of \"Weak transfer/NOTIFY secret — IP-only spoofable trust\" — it is the is_true side of the group (NOT tsig_authenticated_transfers AND transfers_gated_by_ip_only). Combined with absent TSIG, this is the spoofable-trust exposure (ATT&CK T1590.002 / T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect allow-transfer / server stanzas in named.conf.local to see whether transfer trust rests on a raw IP address-match list with no key requirement.",
+        "command": "grep -iE 'allow-transfer|server |key ' /etc/bind/named.conf.local",
+        "file_path": "/etc/bind/named.conf.local",
+        "navigation": null,
+        "expected_output": "allow-transfer { <secondary-ip>; }; with no key clause = IP-only trust (true); a key clause gating the transfer = false",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tsig_authenticated_notify",
+    "option_description": "Interpreted: whether NOTIFY/also-notify messaging between primary and secondaries is authenticated with a TSIG HMAC key (referenced from the server stanza covering the also-notify targets), so a spoofed NOTIFY cannot inject a forged zone-change/serial-bump signal. True when NOTIFY carries TSIG; false when gated only by source IP or unauthenticated.",
+    "security_impact": "An OR-trigger of \"Weak transfer/NOTIFY secret — IP-only spoofable trust\", firing when tsig_authenticated_notify is_false (its own single-condition group). When false, a spoofed NOTIFY can inject a forged zone-change/serial-bump signal (ATT&CK T1590.002 / T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read also-notify / server / key clauses in named.conf.local to confirm NOTIFY targets are covered by a TSIG key.",
+        "command": "grep -iE 'key |algorithm hmac|also-notify' /etc/bind/named.conf /etc/bind/named.conf.local",
+        "file_path": "/etc/bind/named.conf.local",
+        "navigation": null,
+        "expected_output": "a server/key clause carrying TSIG over the also-notify targets = secure (true); also-notify gated only by source IP or unauthenticated = insecure (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual) / rndc manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dns_query_logging_enabled",
+    "option_description": "Whether the DNS server maintains a query audit trail (BIND 'querylog yes;' or a logging{} channel for the 'queries' category, per named.conf). Off by default for performance (~10x overhead). When false, high-entropy/high-volume subdomain lookups used for tunneling/C2 leave no record.",
+    "security_impact": "An OR-trigger of \"DNS tunneling / exfiltration over DNS undetected\", firing when dns_query_logging_enabled is_false (its own single-condition group). The query audit trail is the primary detection surface for exfiltration over DNS (ATT&CK T1071.004 / T1048).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check named.conf / named.conf.options for querylog or a logging channel covering the 'queries' category.",
+        "command": "grep -iE 'querylog|category queries' /etc/bind/named.conf /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf",
+        "navigation": null,
+        "expected_output": "querylog yes; or a logging{} channel for the 'queries' category = audit enabled (true); neither present = no query audit trail (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm query logging is live via the control channel.",
+        "command": "rndc status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rndc status reports 'query logging is ON' = enabled (true); 'OFF' = disabled (false)",
+        "source": "BIND 9 rndc manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Shared workspace attestation: an audit trail of access/resolution events is captured for this component. When false there is no record from which DNS tunneling or exfiltration patterns could be reconstructed.",
+    "security_impact": "An OR-trigger of \"DNS tunneling / exfiltration over DNS undetected\", firing when access_audit_trail_enabled is_false (its own single-condition group). Without a durable access/resolution audit trail, encoded-data lookups go undetected (ATT&CK T1071.004 / T1048).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a logging channel persists resolution/access events durably (file or syslog channel referenced for the relevant categories in named.conf).",
+        "command": "grep -A6 -iE 'logging|channel|category' /etc/bind/named.conf",
+        "file_path": "/etc/bind/named.conf",
+        "navigation": null,
+        "expected_output": "a logging{} channel writing access/resolution categories to a durable destination = true; no audit channel configured = false",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify with operations that the captured trail is retained durably (not rotated away immediately) and is available for incident reconstruction.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention policy and stored events evidence a durable access/resolution audit trail = true; gaps or no retention = false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Shared workspace attestation: query/audit logs are shipped off-box to a separate system. When false, logs live only on the resolver (tamper-prone, not centrally analyzed) so high-volume/high-entropy tunneling is never correlated.",
+    "security_impact": "An OR-trigger of \"DNS tunneling / exfiltration over DNS undetected\", firing when logs_stored_on_separate_system is_false (its own single-condition group). Off-box shipping is what enables the anomaly analysis that detects tunneling (ATT&CK T1071.004 / T1048).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check whether a logging channel forwards to syslog/remote rather than only a local file.",
+        "command": "grep -A6 -iE 'logging|channel|syslog' /etc/bind/named.conf",
+        "file_path": "/etc/bind/named.conf",
+        "navigation": null,
+        "expected_output": "a channel directing logs to syslog/remote aggregation = shipped off-box (true); only local file{} channels = on-box only (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the SIEM/log-aggregation team that DNS query/audit logs arrive at the central analysis system.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DNS logs visible in the central aggregation/analysis platform = true; logs found only on the resolver host = false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Shared workspace attestation: security-relevant events are fully captured (not sampled/truncated). When false, the partial record leaves gaps an adversary can exfiltrate through, leaving DNS C2/tunneling unobserved.",
+    "security_impact": "An OR-trigger of \"DNS tunneling / exfiltration over DNS undetected\", firing when security_events_fully_logged is_false (its own single-condition group). Sampling/truncation leaves detection gaps for DNS C2/tunneling (ATT&CK T1071.004 / T1048).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify logging channels are not throttled/severity-filtered in a way that drops security-relevant query/abuse events (check severity and any rate/size limits on the channels).",
+        "command": "grep -A6 -iE 'channel|severity|category' /etc/bind/named.conf",
+        "file_path": "/etc/bind/named.conf",
+        "navigation": null,
+        "expected_output": "channels capture the relevant categories at a severity that retains security-relevant events without sampling = true; severity filtering or truncation that drops them = false",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect a sample of stored DNS logs for continuity and completeness over a known busy window to confirm events are not being sampled or truncated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Continuous, complete event records across the window = fully logged (true); gaps, sampling markers, or truncated entries = false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rndc_bound_to_loopback_only",
+    "option_description": "Interpreted boolean: true only when the BIND controls{} block binds the rndc administrative channel to a loopback/trusted address (e.g. inet 127.0.0.1 allow { localhost; }). False when the control channel is bound to a non-loopback / routable address.",
+    "security_impact": "An OR-trigger of \"Exposed / unauthenticated rndc control channel\", firing when rndc_bound_to_loopback_only is_false (its own single-condition group). An internet-reachable rndc channel permits remote nameserver takeover — reconfigure recursion, dump/flush cache, stop the service (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the controls{}/inet stanza in named.conf to see which address the rndc channel binds to.",
+        "command": "grep -A4 -i 'controls' /etc/bind/named.conf",
+        "file_path": "/etc/bind/named.conf",
+        "navigation": null,
+        "expected_output": "controls { inet 127.0.0.1 allow { localhost; } keys { \"rndc-key\"; }; }; = loopback-only (true); inet on a non-loopback/routable address = exposed (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual) / rndc manual"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the control channel responds and is reachable only as intended.",
+        "command": "rndc status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authenticated status returned over loopback = control channel working; reachability from a routable address indicates non-loopback binding (false)",
+        "source": "BIND 9 rndc manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rndc_key_configured",
+    "option_description": "Interpreted boolean: true only when the rndc control channel requires an HMAC shared-secret key — the controls{} inet stanza carries a keys{ \"rndc-key\"; } clause backed by a key { algorithm hmac-sha256; secret ...; } definition. False when no keys clause gates the channel (unauthenticated control).",
+    "security_impact": "An OR-trigger of \"Exposed / unauthenticated rndc control channel\", firing when rndc_key_configured is_false (its own single-condition group). An unauthenticated rndc channel lets any client that can reach it issue administrative commands (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the keys{} clause of the controls{} block and the matching key definition in named.conf.",
+        "command": "grep -A4 -i 'controls' /etc/bind/named.conf",
+        "file_path": "/etc/bind/named.conf",
+        "navigation": null,
+        "expected_output": "controls { inet ... keys { \"rndc-key\"; }; }; with a matching key { algorithm hmac-sha256; secret ...; } = key-gated (true); no keys clause = unauthenticated (false)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual) / rndc manual"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the channel actually demands the shared key — rndc fails without a valid key when authentication is enforced.",
+        "command": "rndc status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authenticated status with the shared key = enforced (true); the channel responding to administrative commands without a key confirms unauthenticated control (false)",
+        "source": "BIND 9 rndc manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "version_string_disclosed",
+    "option_description": "Interpreted from the BIND 'version' directive in named.conf.options. True when no 'version none;' (or non-informative string) is set, so the version.bind CHAOS TXT query returns the precise named build. Secure when 'version none;'/'version \"\";' is present.",
+    "security_impact": "An OR-trigger of \"Version disclosure & over-exposed listener\", firing when version_string_disclosed is_true (its own single-condition group). A disclosed version.bind string lets an attacker match the server against known CVEs (ATT&CK T1592).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the version directive in named.conf.options.",
+        "command": "grep -i 'version' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "version none; or version \"\"; = secure (false); no version directive = real version leaked (true)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "command",
+        "instruction": "Query the version.bind CHAOS TXT record to confirm what the server actually discloses.",
+        "command": "dig @<server> version.bind CHAOS TXT +short",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty / refused / generic = secure (false); a precise version like \"9.18.x\" = version disclosure (true)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "listener_bound_to_any",
+    "option_description": "Interpreted from the BIND 'listen-on'/'listen-on-v6' directives in named.conf.options. True when named binds to all interfaces ('listen-on { any; }') on a server meant to be internal-only. Secure when the listen-on list is an explicit interface set scoped to intended networks.",
+    "security_impact": "An OR-trigger of \"Version disclosure & over-exposed listener\", firing when listener_bound_to_any is_true (its own single-condition group). Binding to all interfaces on an internal-only server widens the reachable attack surface beyond intended networks (ATT&CK T1592).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the listen-on / listen-on-v6 directives in named.conf.options.",
+        "command": "grep -iE 'listen-on' /etc/bind/named.conf.options",
+        "file_path": "/etc/bind/named.conf.options",
+        "navigation": null,
+        "expected_output": "listen-on { <specific-ifaces>; }; = secure (false); listen-on { any; }; on an internal resolver = over-exposed (true)",
+        "source": "BIND 9 Configuration Reference (Administrator Reference Manual)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the DNS port from outside the intended network to confirm whether the listener answers on interfaces it should not.",
+        "command": "dig @<public-address-of-server> version.bind CHAOS TXT +short",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No response on interfaces the server should not serve = scoped (false); a response from an unintended public interface = bound to any (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

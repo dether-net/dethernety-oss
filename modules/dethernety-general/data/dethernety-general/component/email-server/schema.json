@@ -1,0 +1,534 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "spf_policy": {
+        "type": "string",
+        "enum": [
+          "hardfail",
+          "softfail",
+          "none"
+        ],
+        "title": "SPF Policy Posture",
+        "description": "Effective enforcement posture of the domain's SPF (RFC 7208) 'all' qualifier: 'hardfail' (-all, only listed hosts may send — secure), 'softfail' (~all, advisory only), or 'none' (?all/+all or no SPF record — anyone may spoof). A 'softfail'/'none' posture gives receivers no basis to reject unauthorized senders, enabling domain spoofing in the From envelope path."
+      },
+      "dkim_signing_enabled": {
+        "type": "boolean",
+        "title": "DKIM Signing Enabled",
+        "description": "Whether the MTA cryptographically signs all outbound mail with DKIM (RFC 6376) and publishes a valid public key at <selector>._domainkey.<domain>. False when mail is unsigned or no DKIM record is published — receivers then have no cryptographic origin/integrity proof, removing one of the two bases DMARC aligns against and enabling domain forgery.",
+        "default": false
+      },
+      "dmarc_policy": {
+        "type": "string",
+        "enum": [
+          "reject",
+          "quarantine",
+          "none"
+        ],
+        "title": "DMARC Policy",
+        "description": "DMARC (RFC 7489) policy published at _dmarc.<domain>: 'reject' (p=reject, full enforcement — secure end-state), 'quarantine' (partial), or 'none' (p=none monitor-only, or no _dmarc record). p=none binds SPF+DKIM with alignment but instructs receivers to take no action on failure, so spoofed mail is delivered unimpeded."
+      },
+      "opportunistic_tls_only": {
+        "type": "boolean",
+        "title": "Opportunistic TLS Only (No Downgrade Resistance)",
+        "description": "Interpreted: SMTP transport relies on opportunistic STARTTLS only (e.g. Postfix smtp/smtpd_tls_security_level = 'may') with no downgrade-resistant enforcement layer. True when TLS is best-effort and an on-path attacker can strip STARTTLS to silently downgrade to cleartext. Secure value is false (a downgrade-resistant mechanism is in force).",
+        "default": false
+      },
+      "mta_sts_enforce_mode": {
+        "type": "boolean",
+        "title": "MTA-STS Enforce Mode",
+        "description": "Interpreted from MTA-STS (RFC 8461): true when the domain publishes mta_sts_policy_mode = enforce (matching _mta-sts.<domain> TXT 'v=STSv1; id=...' plus an HTTPS policy file with 'mode: enforce', mx and max_age), so sending MTAs MUST use validated TLS and refuse to deliver on STARTTLS-strip / cert-failure / MX-mismatch. False on 'testing'/'none'/absent — STARTTLS stripping succeeds silently.",
+        "default": false
+      },
+      "dane_outbound_enabled": {
+        "type": "boolean",
+        "title": "DANE Outbound TLS Enabled",
+        "description": "Interpreted from DANE for SMTP (RFC 7672): true when outbound TLS is DANE-validated (Postfix smtp_tls_security_level = dane with smtp_dns_support_level = dnssec, TLSA records present), the DNSSEC-backed alternative to MTA-STS for downgrade-resistant outbound transport. False when DANE is not in force.",
+        "default": false
+      },
+      "smtpd_tls_security_level": {
+        "type": "string",
+        "enum": [
+          "none",
+          "may",
+          "encrypt",
+          "dane",
+          "verify",
+          "secure"
+        ],
+        "title": "Inbound STARTTLS Posture",
+        "description": "Postfix inbound STARTTLS posture (smtpd_tls_security_level). 'none'/unset advertises no STARTTLS and accepts cleartext inbound mail — the maximal downgrade exposure (no encryption to strip). Secure on a public MX is 'may' (opportunistic, RFC-mandated) or 'encrypt' for internal/relay hosts; the 'none' value is the firing/insecure case."
+      },
+      "smtp_tls_security_level": {
+        "type": "string",
+        "enum": [
+          "none",
+          "may",
+          "encrypt",
+          "dane",
+          "verify",
+          "secure"
+        ],
+        "title": "Outbound (Client) TLS Posture",
+        "description": "Postfix outbound (client) TLS posture when relaying to other MTAs (smtp_tls_security_level). 'none' always relays in cleartext, exposing forwarded mail to passive interception and trivial downgrade. Secure is 'dane' (with smtp_dns_support_level=dnssec) or verify/secure for known partners, at minimum 'may'; the 'none' value is the firing/insecure case."
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted from Postfix smtpd_tls_mandatory_protocols / smtpd_tls_protocols: true when the negotiated TLS protocol set permits SSLv2/SSLv3/TLSv1.0/TLSv1.1 (downgrade-prone, weak-cipher) versions below TLSv1.2. An on-path attacker can force negotiation down to a weak protocol. Secure is false (only >=TLSv1.2 permitted)."
+      },
+      "relay_restrictions_enforced": {
+        "type": "boolean",
+        "title": "Relay Restrictions Enforced",
+        "description": "Interpreted boolean: true iff the MTA's relay-control policy denies relay to arbitrary destinations from untrusted clients — i.e. smtpd_relay_restrictions ends with reject_unauth_destination (after permit_mynetworks/permit_sasl_authenticated). False (missing reject_unauth_destination, or a permissive recipient policy that accepts relay from any client) is an open relay. Per Postfix SMTPD_ACCESS_README.",
+        "default": false
+      },
+      "mynetworks_overly_broad": {
+        "type": "boolean",
+        "title": "mynetworks Trust Scope Overly Broad",
+        "description": "Interpreted boolean: true iff the mynetworks trust scope (IP ranges allowed to relay without authentication) includes overly broad or public address space (e.g. 0.0.0.0/0, or mynetworks_style=class covering non-local nets) rather than only loopback and specific internal CIDRs. True makes the MTA an effective open relay for those nets. Per Postfix SMTPD_ACCESS_README / postconf(5).",
+        "default": false
+      },
+      "smtp_auth_allowed_without_tls": {
+        "type": "boolean",
+        "title": "SMTP AUTH Allowed Without TLS",
+        "description": "Interpreted assessment: the MTA offers SMTP AUTH (SASL) on cleartext, pre-STARTTLS connections — true when SASL auth is enabled (smtpd_sasl_auth_enable=yes) AND AUTH is NOT restricted to TLS sessions (smtpd_tls_auth_only=no), so mailbox credentials traverse the wire in the clear. True is the insecure/firing state.",
+        "default": false
+      },
+      "content_filtering_enabled": {
+        "type": "boolean",
+        "title": "Inbound Content Filtering Enabled",
+        "description": "Whether an inbound anti-spam/anti-phishing content_filter or smtpd_milters pipeline (e.g. rspamd/SpamAssassin) scans every received message. Interpreted boolean over the Postfix content_filter / smtpd_milters / non_smtpd_milters keys: true when a milter or content_filter is configured, false when those keys are empty so phishing/spam is delivered unimpeded. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "attachment_malware_scanning": {
+        "type": "boolean",
+        "title": "Attachment Malware Scanning",
+        "description": "Whether inbound mail attachments are malware-scanned and dangerous attachment types are blocked (e.g. ClamAV / attachment-type policy wired into the milter or content_filter pipeline). Interpreted boolean: true when attachment scanning/blocking is active in the pipeline, false when attachments pass through unscanned. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "link_detonation": {
+        "type": "boolean",
+        "title": "Link Detonation / URL Protection",
+        "description": "Whether inbound message URLs are rewritten and/or detonated/sandboxed (time-of-click protection or URL reputation in the milter/content_filter pipeline). Interpreted boolean: true when link rewriting/detonation is active, false when malicious links reach users directly. Insecure (false) fires this exposure as a secondary trigger."
+      },
+      "dlp_egress_controls_enabled": {
+        "type": "boolean",
+        "title": "Egress DLP Controls Enabled",
+        "description": "Whether outbound content inspection / DLP scanning is enforced on egress mail (an outbound content_filter/DLP milter inspecting message bodies and attachments for sensitive-data egress). False (no outbound inspection) fires this data-exfiltration exposure: bulk attachment egress and hidden-BCC exfil pass undetected.",
+        "default": false
+      },
+      "external_auto_forward_blocked": {
+        "type": "boolean",
+        "title": "External Auto-Forwarding Blocked",
+        "description": "Whether automatic forwarding of mail to external (off-domain) recipients is restricted/blocked by policy. False permits silent auto-forwarding rules to ship a mailbox's mail to an attacker-controlled external address (MITRE T1114.003 Email Forwarding Rule) with no user interaction — a classic low-and-slow exfiltration channel. False fires the exposure.",
+        "default": false
+      },
+      "bulk_export_monitored_and_alerted": {
+        "type": "boolean",
+        "title": "Bulk Export Monitored and Alerted",
+        "description": "Whether high-volume / bulk outbound mail (large or repeated attachment egress, abnormal recipient fan-out) is monitored with alerting so automated exfiltration is surfaced. False means bulk attachment egress (MITRE T1020 Automated Exfiltration) leaves no signal — a secondary trigger for undetected mail-borne exfiltration."
+      },
+      "vrfy_expn_enabled": {
+        "type": "boolean",
+        "title": "VRFY/EXPN Commands Enabled",
+        "description": "Interpreted: true when the MTA answers SMTP VRFY/EXPN commands (Postfix disable_vrfy_command = no, the default), letting an attacker enumerate valid mailboxes for spear-phishing. Secure state is VRFY/EXPN rejected (disable_vrfy_command = yes), so this reads false on a hardened config.",
+        "default": false
+      },
+      "version_banner_disclosed": {
+        "type": "boolean",
+        "title": "Version Banner Disclosed",
+        "description": "Interpreted: true when the SMTP greeting banner (Postfix smtpd_banner) leaks the MTA software name/version (e.g. 'Postfix' or an Exim version string), fingerprinting the MTA to steer CVE targeting. Secure state is a banner carrying only $myhostname ESMTP with no product/version, so this reads false on a hardened config.",
+        "default": false
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "Interpreted boolean: the running MTA build is on a branch/version known to carry a critical unauthenticated RCE CVE (e.g. Exim 4.87-4.91 for CVE-2019-10149, or the pre-fix branches for the 2023 SMTP-service CVE-2023-42115, CVSS 9.8). Derived from the running version (postconf mail_version / exim -bV) by matching against affected-version ranges. True when the deployed MTA is on an exploitable unpatched branch — directly fireable for full host compromise.",
+        "default": false
+      },
+      "mta_patched_within_sla": {
+        "type": "boolean",
+        "title": "MTA Patched Within SLA",
+        "description": "Patch-hygiene attestation: the MTA software is kept on a current patched release within the organisation's patch SLA (Postfix latest stable; Exim >= the fixed branch for the 2023 SMTP CVEs and post-4.92 for CVE-2019-10149). True when patching is current. Used as the AND-pair secondary trigger: an out-of-SLA MTA that is also internet-facing is directly exploitable.",
+        "default": false
+      },
+      "mta_internet_facing": {
+        "type": "boolean",
+        "title": "MTA Internet-Facing",
+        "description": "Whether the MTA accepts SMTP connections from the public internet (a published MX on port 25 / reachable submission ports), as opposed to an internal-only relay. True magnifies an unpatched-branch exposure into direct, unauthenticated remote exploitability — the qualifier that turns a stale patch level into an actively exploitable RCE surface."
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting or Lockout Enabled",
+        "description": "Attestation: connection/message rate limiting is configured and active on the MTA (Postfix anvil via smtpd_client_*_rate_limit / connection_count_limit, or an equivalent throttle). When false, unbounded connection and message rates leave the MTA open to connection floods and spam-burst abuse. Fires (insecure) when rate limiting is NOT enabled.",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Attestation: a DoS/DDoS protection layer (network/edge rate limiting, SYN/connection flood mitigation, anti-backscatter controls) fronts or is configured on the MTA's network exposure. Fires (insecure) when no DoS protection is in place, leaving mail availability at the mercy of connection floods and amplification.",
+        "default": false
+      },
+      "smtpd_client_connection_rate_limit": {
+        "type": "integer",
+        "title": "Per-Client Connection Rate Limit",
+        "description": "Postfix smtpd_client_connection_rate_limit — max new connections a single client may make per anvil time unit. A value of 0 means UNLIMITED (insecure), exposing the MTA to per-client connection flooding. Fires when set to 0."
+      },
+      "smtpd_client_message_rate_limit": {
+        "type": "integer",
+        "title": "Per-Client Message Rate Limit",
+        "description": "Postfix smtpd_client_message_rate_limit — max messages a single client may deliver per anvil time unit. A value of 0 means UNLIMITED (insecure), enabling spam-burst abuse and backscatter amplification. Fires when set to 0."
+      },
+      "smtpd_client_connection_count_limit": {
+        "type": "integer",
+        "title": "Per-Client Simultaneous Connection Limit",
+        "description": "Postfix smtpd_client_connection_count_limit — max simultaneous connections from a single client. A value of 0 means UNLIMITED (insecure), allowing a single source to exhaust connection slots and deny mail availability. Fires when set to 0."
+      },
+      "mail_logging_enabled": {
+        "type": "boolean",
+        "title": "Mail Logging Enabled",
+        "description": "Whether the MTA records mail-transaction and SASL-authentication events to maillog/journald (Postfix maillog: client connection, SASL AUTH, delivery/relay lines). False (logging disabled/not populated) means there is no audit trail to detect or investigate phishing, open-relay abuse, credential compromise, or exfiltration after the fact.",
+        "default": false
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Whether security-relevant events (authentication attempts, relay/delivery decisions, TLS negotiation outcomes, rejections) are captured in full rather than partially. False means key forensic events are missing from the record even when basic logging is on.",
+        "default": false
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Whether an access/authentication audit trail is enabled and retained per policy for the component. False means SASL-AUTH and access events are not retained, so credential-compromise and abuse cannot be investigated retrospectively.",
+        "default": false
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "Whether mail logs are shipped to a central SIEM/log-aggregation pipeline for correlation and alerting. False means logs stay local only, with no cross-host correlation and no real-time detection of phishing campaigns, open-relay abuse, or exfiltration."
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "Whether logs are written to a separate/append-only system out of reach of a host compromise. False means an attacker who compromises the MTA can tamper with or delete the only copy of the audit trail, destroying forensic evidence."
+      }
+    },
+    "required": [
+      "spf_policy",
+      "dkim_signing_enabled",
+      "dmarc_policy",
+      "opportunistic_tls_only",
+      "mta_sts_enforce_mode",
+      "dane_outbound_enabled",
+      "smtpd_tls_security_level",
+      "smtp_tls_security_level",
+      "weak_tls_versions_enabled",
+      "relay_restrictions_enforced",
+      "mynetworks_overly_broad",
+      "smtp_auth_allowed_without_tls",
+      "content_filtering_enabled",
+      "attachment_malware_scanning",
+      "link_detonation",
+      "dlp_egress_controls_enabled",
+      "external_auto_forward_blocked",
+      "bulk_export_monitored_and_alerted",
+      "vrfy_expn_enabled",
+      "version_banner_disclosed",
+      "unpatched_known_rce_cve",
+      "mta_patched_within_sla",
+      "mta_internet_facing",
+      "rate_limiting_or_lockout_enabled",
+      "ddos_protection_in_place",
+      "smtpd_client_connection_rate_limit",
+      "smtpd_client_message_rate_limit",
+      "smtpd_client_connection_count_limit",
+      "mail_logging_enabled",
+      "security_events_fully_logged",
+      "access_audit_trail_enabled",
+      "centralized_log_aggregation",
+      "logs_stored_on_separate_system"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dkim_signing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dmarc_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smtp_auth_allowed_without_tls"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/spf_policy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mynetworks_overly_broad"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/relay_restrictions_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dane_outbound_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mta_sts_enforce_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/opportunistic_tls_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/smtp_tls_security_level"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smtpd_tls_security_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_egress_controls_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_auto_forward_blocked"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_export_monitored_and_alerted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mta_internet_facing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mta_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smtpd_client_connection_count_limit"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/smtpd_client_connection_rate_limit"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smtpd_client_message_rate_limit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mail_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/version_banner_disclosed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vrfy_expn_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Inbound Filtering",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/attachment_malware_scanning"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/content_filtering_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/link_detonation"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

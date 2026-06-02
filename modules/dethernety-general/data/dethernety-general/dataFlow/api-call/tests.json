@@ -1,0 +1,111 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "flow_tls_encrypted": false,
+      "hsts_enforced": false,
+      "min_tls_version": "tls1_0_or_tls1_1_or_sslv3_accepted",
+      "cipher_suites_strong_only": "any_legacy_cbc_rc4_3des_null_or_export_suite_accepted",
+      "downgrade_and_renegotiation_protected": "insecure_renegotiation_or_downgrade_observed",
+      "server_certificate_validated": false,
+      "tls_root_trust_managed": false,
+      "sender_constrained": false,
+      "access_token_ttl_minutes": 0,
+      "jwt_signature_verified": false,
+      "accepts_alg_none": true,
+      "signature_algorithm_pinned_server_side": false,
+      "rs256_to_hs256_confusion_possible": true,
+      "transmitted_in_url_or_query": true,
+      "secrets_masked_in_logs": false,
+      "outbound_fetch_destination_allowlisted": false,
+      "private_and_metadata_targets_blocked": false,
+      "cloud_metadata_endpoint_blocked": false,
+      "scopes_least_privilege": false,
+      "audience_claim_validated": false,
+      "least_privilege_authorization_at_crossing": false
+    },
+    "expectedExposures": [
+      "Adversary-in-the-Middle via skipped certificate validation",
+      "Cleartext transport / TLS strip",
+      "JWT signature bypass (alg=none / alg-confusion)",
+      "Bearer token / sensitive data leakage via URL",
+      "Over-scoped / wrong-audience token abuse",
+      "Server-Side Request Forgery via outbound flow",
+      "Stolen-bearer-token replay",
+      "TLS protocol/cipher downgrade"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "flow_tls_encrypted": true,
+      "hsts_enforced": true,
+      "min_tls_version": "tls1_2_or_higher",
+      "cipher_suites_strong_only": "aead_with_forward_secrecy_only",
+      "downgrade_and_renegotiation_protected": "downgrade_sentinel_absent_and_secure_renegotiation_only",
+      "server_certificate_validated": true,
+      "tls_root_trust_managed": true,
+      "sender_constrained": true,
+      "access_token_ttl_minutes": 0,
+      "jwt_signature_verified": true,
+      "accepts_alg_none": false,
+      "signature_algorithm_pinned_server_side": true,
+      "rs256_to_hs256_confusion_possible": false,
+      "transmitted_in_url_or_query": false,
+      "secrets_masked_in_logs": true,
+      "outbound_fetch_destination_allowlisted": true,
+      "private_and_metadata_targets_blocked": true,
+      "cloud_metadata_endpoint_blocked": true,
+      "scopes_least_privilege": true,
+      "audience_claim_validated": true,
+      "least_privilege_authorization_at_crossing": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "flow_tls_encrypted": true,
+      "hsts_enforced": true,
+      "min_tls_version": "tls1_0_or_tls1_1_or_sslv3_accepted",
+      "cipher_suites_strong_only": "any_legacy_cbc_rc4_3des_null_or_export_suite_accepted",
+      "downgrade_and_renegotiation_protected": "insecure_renegotiation_or_downgrade_observed",
+      "server_certificate_validated": true,
+      "tls_root_trust_managed": true,
+      "sender_constrained": true,
+      "access_token_ttl_minutes": 0,
+      "jwt_signature_verified": true,
+      "accepts_alg_none": false,
+      "signature_algorithm_pinned_server_side": true,
+      "rs256_to_hs256_confusion_possible": false,
+      "transmitted_in_url_or_query": false,
+      "secrets_masked_in_logs": true,
+      "outbound_fetch_destination_allowlisted": true,
+      "private_and_metadata_targets_blocked": true,
+      "cloud_metadata_endpoint_blocked": true,
+      "scopes_least_privilege": true,
+      "audience_claim_validated": true,
+      "least_privilege_authorization_at_crossing": true
+    },
+    "expectedExposures": [
+      "TLS protocol/cipher downgrade"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Adversary-in-the-Middle via skipped certificate validation",
+      "Cleartext transport / TLS strip",
+      "JWT signature bypass (alg=none / alg-confusion)",
+      "Bearer token / sensitive data leakage via URL",
+      "Over-scoped / wrong-audience token abuse",
+      "Server-Side Request Forgery via outbound flow",
+      "Stolen-bearer-token replay"
+    ]
+  }
+]

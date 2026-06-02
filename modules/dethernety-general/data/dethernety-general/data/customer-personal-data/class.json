@@ -1,0 +1,9 @@
+{
+  "id": "7d6f45d4-3b84-49f3-8085-7105b0448706",
+  "name": "Customer & Personal Data",
+  "classType": "data",
+  "type": "data",
+  "description": "Customer and personal data — also called PII, customer records, personal information, GDPR/CCPA-regulated data, or subscriber data — records identifying or describing customers, carrying regulatory and breach-disclosure weight. A crown-jewel asset driving impact and compliance. The place to look for PII, customer/personal data, regulated personal information, or the sensitive records about people the system holds.",
+  "category": "Sensitive Information",
+  "status": "draft"
+}

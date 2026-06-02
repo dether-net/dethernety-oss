@@ -1,0 +1,222 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mfa_enforced_at_boundary_crossing": {
+        "type": "boolean",
+        "title": "MFA Enforced at Boundary Crossing",
+        "description": "Attests that every remote-access session crossing this boundary (VPN tunnel, bastion login, ZTNA grant) requires multi-factor authentication before the session is established — no password-only path, no bypass groups, no single-factor fallback. True when MFA is uniformly enforced at the crossing; false when the boundary accepts single-factor (password-only) authentication.",
+        "default": false
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "boolean",
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "Attestation: the remote-access boundary (VPN/bastion/ZTNA portal) accepts ONLY phishing-resistant authenticators — FIDO2/WebAuthn security keys or PKI smartcards (PIV/CAC) — for the second factor. SMS, voice, email OTP, and push-only methods are disabled for this app. Fires (insecure) when phishable factors are permitted, allowing an adversary-in-the-middle proxy to relay credentials and OTP/push approval in real time. Source: CISA Implementing Phishing-Resistant MFA fact sheet; NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions.",
+        "default": false
+      },
+      "vpn_protocol_modern_strong": {
+        "type": "boolean",
+        "title": "VPN Protocol Modern and Strong",
+        "description": "Attestation: the remote-access tunnel negotiates only a modern, NIST-recommended VPN protocol — WireGuard, IKEv2/IPsec with strong suites, or TLS-based SSL VPN with current TLS (>=1.2, preferably 1.3). Legacy protocols (PPTP, bare L2TP without IPsec, IKEv1 aggressive-mode PSK, SSLv2/SSLv3) are disabled on the concentrator and not negotiable. Interpreted boolean (not a substring of a protocol-list string) so polarity is safe: the secure attestation is true, the insecure attestation (legacy protocol enabled or negotiable) is false. Grounded in NIST SP 800-77r1 (IPsec) and NIST SP 800-113 (SSL VPN); operationalised by NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions.",
+        "default": false
+      },
+      "vpn_cipher_suites_strong_only": {
+        "type": "boolean",
+        "title": "VPN Cipher Suites Strong Only",
+        "description": "Attestation: the tunnel's negotiable cryptographic proposals include only NIST-approved suites for key exchange, encryption, and integrity — e.g. ECDH P-256+ or X25519 for KEX, AES-GCM-128/256 for confidentiality, SHA-256+ for integrity. Weak/legacy primitives (DES, 3DES, RC4, MD5, SHA-1, anon-DH, export-grade, CBC-mode in SSH contexts) are absent from IKE/IPsec proposals, openvpn cipher/tls-cipher lists, and TLS suite lists. Modeled as an interpreted boolean rather than a regex over the raw cipher string because raw cipher lists are composite directives where 'HIGH:!aNULL:!MD5' securely excludes weak tokens that still appear as substrings — pattern matching would false-fire on hardened config. The assessor interprets the raw configuration (per the dossier inspect commands: testssl.sh, ike-scan -M, sshd -T ciphers/macs/kex) and attests true when only strong suites are negotiable. Grounded in NIST SP 800-77r1 and NIST SP 800-113.",
+        "default": false
+      },
+      "split_tunnel_disabled": {
+        "type": "boolean",
+        "title": "Split Tunnel Disabled",
+        "description": "Interpreted attestation: the remote-access channel forces ALL client traffic — including DNS — through the VPN tunnel (full-tunnel mode, default route 0.0.0.0/0 and ::/0 pushed, corporate DNS pushed, no split-include/exclude routes for internet ranges). True iff there is no parallel cleartext egress path on the VPN-connected device that could bridge untrusted-to-trusted. Per NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions and CMMC SC.L2-3.13.7.",
+        "default": false
+      },
+      "admin_endpoint_health_attested_at_elevation": {
+        "type": "boolean",
+        "title": "Admin Endpoint Health Attested at Elevation",
+        "description": "Attestation: before the remote-access session (VPN tunnel, bastion login, ZTNA grant) is established, the policy enforcement point evaluates endpoint health signals — patch level, EDR/AV running and healthy, disk encryption on, OS within supported baseline — as a hard precondition; non-compliant devices are denied or quarantined. True means a device-trust posture verdict gates admission; false means admission is granted on user credentials alone.",
+        "default": false
+      },
+      "managed_device_enrollment_enforced": {
+        "type": "boolean",
+        "title": "Managed Device Enrollment Enforced",
+        "description": "Attestation: the remote-access boundary requires a managed-device claim (MDM/UEM enrollment, corporate device certificate, or equivalent attested device identity) before granting the tunnel/session; unenrolled or BYOD devices without a verified managed identity are refused. True means only enrolled/managed devices may cross the boundary; false means any device with valid user credentials is admitted.",
+        "default": false
+      },
+      "bastion_mediates_all_admin_access": {
+        "type": "boolean",
+        "title": "Bastion Mediates All Admin Access",
+        "description": "Attestation: administrative SSH/RDP into the trusted zone is mediated exclusively through the bastion / jump host — production hosts reject management connections from any non-bastion source via host firewall and network ACL, and no direct admin path bypasses recording / JIT / mediation controls. Verified by attempting ssh/rdp to a production management interface from a non-bastion user-network source (must be refused/filtered) and by reviewing network ACLs / security groups so inbound 22/3389 (and equivalent management ports) is restricted to the bastion's source identity with no broader allow-list.",
+        "default": false
+      },
+      "no_standing_admin_privileges_jit_required": {
+        "type": "boolean",
+        "title": "No Standing Admin Privileges — JIT Required",
+        "description": "Attests that administrative privilege on production is granted just-in-time (time-bound, approval-gated) and that no permanent/standing admin entitlements exist on production hosts or control-plane roles. Secure value is true (JIT-only, no standing admin); insecure value is false (standing admin entitlements present). When false, an attacker who compromises a user account inherits durable admin power without traversing a recorded, gated path.",
+        "default": false
+      },
+      "privileged_access_via_pam_with_session_recording": {
+        "type": "boolean",
+        "title": "Privileged Access via PAM with Session Recording",
+        "description": "Attests that all interactive administrative sessions traverse a PAM/bastion that records the session (keystroke, command transcript, or video) to tamper-evident storage. Secure value is true (PAM-mediated and recorded); insecure value is false (no bastion/PAM mediation or no session recording). When false, admin actions are unattributable and forensically opaque, removing the deterrent and detection value of mediation.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Attests the VPN/bastion edge appliance is on a vendor-supported version and current on security patches within the organisation's SLA, with no open KEV-listed CVE applicable to the running version. True when the running version is supported and not affected by any open KEV entry; false when the appliance is end-of-support, behind on critical patches, or exposed to a publicly-known unpatched CVE (e.g. CVE-2023-27997 FortiOS, CVE-2024-3400 PAN-OS, CVE-2023-46805 Ivanti Connect Secure).",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet-Reachable",
+        "description": "Attests the VPN/bastion edge appliance's administrative / management interfaces (web-admin, SSH-admin, API console on ports such as 8443/4443/22) are not reachable from untrusted internet sources — only the VPN service ports answer on the public interface; the management plane is bound to an internal interface or jump-host network. True when an internet-side port scan returns only sanctioned VPN service ports; false when admin/management interfaces are exposed publicly.",
+        "default": false
+      }
+    },
+    "required": [
+      "mfa_enforced_at_boundary_crossing",
+      "phishing_resistant_authenticator_required",
+      "vpn_protocol_modern_strong",
+      "vpn_cipher_suites_strong_only",
+      "split_tunnel_disabled",
+      "admin_endpoint_health_attested_at_elevation",
+      "managed_device_enrollment_enforced",
+      "bastion_mediates_all_admin_access",
+      "no_standing_admin_privileges_jit_required",
+      "privileged_access_via_pam_with_session_recording",
+      "edge_appliance_patched_within_sla",
+      "edge_management_interfaces_not_internet_reachable"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_at_boundary_crossing"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_endpoint_health_attested_at_elevation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_device_enrollment_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_standing_admin_privileges_jit_required"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_cipher_suites_strong_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_protocol_modern_strong"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bastion_mediates_all_admin_access"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/split_tunnel_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_access_via_pam_with_session_recording"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

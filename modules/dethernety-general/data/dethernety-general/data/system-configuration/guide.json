@@ -1,0 +1,713 @@
+[
+  {
+    "option_name": "secrets_hardcoded_in_config_or_iac",
+    "option_description": "Whether secrets (API keys, passwords, tokens, SSH/private keys, connection strings) are hardcoded in plaintext in source, config files, or IaC manifests committed to version control.",
+    "security_impact": "Primary OR-trigger for the exposure \"Hardcoded plaintext secrets in config/IaC committed to VCS\" — when true, plaintext credentials are recoverable from git history and leak wholesale (ATT&CK T1552.001 Credentials in Files).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan the repository (working tree and history) for verified secrets.",
+        "command": "trufflehog git file://. --results=verified,unknown   # or: docker run trufflesecurity/trufflehog github --repo <url>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero verified secrets (secure). Any verified API keys/tokens/passwords found in tracked files or history = insecure.",
+        "source": "OWASP Infrastructure as Code Security Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "Scan the full git history with a second secret scanner to confirm no credentials are embedded.",
+        "command": "git secrets --scan-history   # or: detect-secrets scan --all-files",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No secrets detected across working tree and history (secure); flagged credentials = insecure.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "secret_scanning_enabled",
+    "option_description": "Whether a secret-scanning guard (pre-commit hook and/or CI scan) is installed and enforced to catch secrets before they are committed (shift-left).",
+    "security_impact": "Detective/preventive control whose absence enables the exposure \"Hardcoded plaintext secrets in config/IaC committed to VCS\" — with no scanning guard, secrets can be committed freely; an enabled scanner is the gate that keeps that exposure from firing.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the pre-commit config to confirm a secret-scanning hook is configured.",
+        "command": "cat .pre-commit-config.yaml   # confirm a detect-secrets / gitleaks / git-secrets hook is configured",
+        "file_path": ".pre-commit-config.yaml",
+        "navigation": null,
+        "expected_output": "A secret-scanning hook (detect-secrets/gitleaks) present and required (secure). Absent (insecure).",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the CI pipeline also runs a secret scan that gates merge, not only the local pre-commit hook.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A CI job (trufflehog/gitleaks/GitGuardian) runs on every PR and blocks merge on findings (secure). No CI-side scanning (gap).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_in_env_or_image_layers",
+    "option_description": "Whether secrets are present in environment variables / .env files or baked into container image layers (docker ENV/ARG, build args).",
+    "security_impact": "Primary OR-trigger for the exposure \"Secrets in environment variables / .env or baked into image layers\" — when true, secrets are readable by processes, logs, crash dumps, metadata endpoints, and anyone with the image (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Walk the image layers and ENV for secret strings.",
+        "command": "docker history --no-trunc <image>   # and inspect image layers / env for secret strings",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No secret values present in any image layer or ENV (secure). 'Mounts must be mounted in by the orchestrator and never built-in, as this will leak the secret with the container definition.'",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "Check for world-readable .env files in the repo/working tree.",
+        "command": "ls -l .env   # and: grep -rIl -E '(API_KEY|SECRET|PASSWORD|TOKEN)=' .",
+        "file_path": ".env",
+        "navigation": null,
+        "expected_output": "No tracked .env carrying live secrets (secure). Plaintext credentials in .env / env files (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "secrets_injected_at_runtime_not_baked_in",
+    "option_description": "Whether secrets are injected at runtime by the orchestrator (sidecar, in-memory mounted volume, env-from-secret-ref) rather than built into container images or shipped in the artifact.",
+    "security_impact": "Protective property whose absence (false) is an OR-trigger for \"Secrets in environment variables / .env or baked into image layers\" — runtime injection keeps secrets out of image layers; baked-in secrets leak with the container definition (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect image layers/ENV to confirm secrets are mounted at runtime, not built in.",
+        "command": "docker history --no-trunc <image>   # and inspect image layers / env for secret strings",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No secret values present in any image layer or ENV (secure). 'Mounts must be mounted in by the orchestrator and never built-in, as this will leak the secret with the container definition.'",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the deployment manifests to confirm secrets resolve from a secret-ref / mounted volume at runtime.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Manifests use secretKeyRef / volume mounts / sidecar injection rather than literal values (secure). Inline literal secrets in manifests (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_dedicated_secret_manager",
+    "option_description": "Whether secrets live in a centralized vault / secret manager (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, CyberArk Conjur) with fine-grained per-secret access rather than in flat config files.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Secrets in environment variables / .env or baked into image layers\" — a managed store with per-secret access is the alternative to secrets kept in flat config / .env (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm config references a vault/secret-manager rather than inline values.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence config references a vault/secret-manager (e.g. Vault path, AWS Secrets Manager ARN, Key Vault reference) rather than inline values (secure). Inline plaintext = insecure.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm a populated managed secret store is the documented source of truth.",
+        "command": "aws secretsmanager list-secrets   # or: vault kv list secret/   (confirm a managed store is the source of truth)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A populated managed secret store exists and is the documented source of secrets (secure).",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "iac_version_controlled_with_required_review",
+    "option_description": "Whether all infrastructure-as-code and configuration is tracked in version control with mandatory peer-reviewed pull requests (branch protection) before merge.",
+    "security_impact": "Protective change-control property; its absence (false) is an OR-trigger for \"Configuration / IaC tampering with no change detection or change control\" — without required review, config changes reach production with no approval or provenance (ATT&CK T1565.001 / T1195.001, NIST CM-3).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Query branch protection for the required approving-review count on the default branch.",
+        "command": "gh api repos/<owner>/<repo>/branches/main/protection --jq '.required_pull_request_reviews.required_approving_review_count'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": ">= 1 required approving review with protection enabled (secure). No branch protection / direct pushes allowed (insecure).",
+        "source": "OWASP Infrastructure as Code Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "commits_signed",
+    "option_description": "Whether config/IaC changes carry verified provenance via signed commits and signature-verified artifacts/components (NIST CM-14).",
+    "security_impact": "Protective integrity property; its absence (false) is an OR-trigger for \"Configuration / IaC tampering with no change detection or change control\" — unsigned commits/artifacts let unverified infrastructure changes reach production (ATT&CK T1195.001, NIST CM-14).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm required signatures on the default branch and that commits verify.",
+        "command": "gh api repos/<owner>/<repo>/branches/main/protection --jq '.required_signatures.enabled'   # and 'git log --show-signature'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Required signatures enabled / commits show 'Good signature' (secure). Unsigned commits accepted (insecure).",
+        "source": "NIST SP 800-53 Rev 5 CM family"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_change_detection_enabled",
+    "option_description": "Whether integrity monitoring / change detection is in place so unauthorized modification of config/IaC is detected (includes IaC misconfiguration scanning in CI on every change).",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Configuration / IaC tampering with no change detection or change control\" — with no integrity monitoring an attacker can weaken controls silently (ATT&CK T1565.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm an IaC misconfiguration/integrity scanner runs and gates CI on every change.",
+        "command": "checkov -d .   # or: tflint ; tfsec . ; snyk iac test .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Scanner runs in CI with no unresolved high/critical misconfigurations (secure). Scanner absent or findings ignored (insecure).",
+        "source": "OWASP Infrastructure as Code Security Cheat Sheet"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm config-change events are recorded so tampering is detectable after the fact.",
+        "command": "vault audit list   # AWS: confirm CloudTrail captures secretsmanager:GetSecretValue events",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one enabled audit device / CloudTrail data events for secret reads (secure). None (insecure).",
+        "source": "OWASP Logging Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether read/write access to secret stores and config is least-privilege and per-principal — engineers and services do not have blanket access to all secrets.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Over-broad write access to config and secret stores\" — wildcard IAM/Vault policies let one compromised principal read or rewrite everything (ATT&CK T1098, NIST CM-5).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review IAM/Vault policies for wildcard access to secret stores.",
+        "command": "aws iam simulate-principal-policy / review IAM policies for secretsmanager:* on Resource '*'   # Vault: review policy paths",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies scope each principal to specific secret ARNs/paths (secure). Wildcard secretsmanager:* on '*' or all-vault-paths (insecure).",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "per_secret_access_scoping",
+    "option_description": "Whether IAM roles/policies are scoped to specific secrets/paths per principal rather than granting access to an entire secret namespace.",
+    "security_impact": "Protective granularity property; its absence (false) is an OR-trigger for \"Over-broad write access to config and secret stores\" — broad wildcard access to all secrets/config widens blast radius on one compromised principal (ATT&CK T1098).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm policies bind principals to specific secret ARNs/paths, not wildcards.",
+        "command": "aws iam simulate-principal-policy / review IAM policies for secretsmanager:* on Resource '*'   # Vault: review policy paths",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies scope each principal to specific secret ARNs/paths (secure). Wildcard secretsmanager:* on '*' or all-vault-paths (insecure).",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secret_access_audited",
+    "option_description": "Whether who/what accessed which secret or changed which config, and when, is recorded in an audit trail to enable detection and incident response.",
+    "security_impact": "Detective property; its absence (false) is an OR-trigger for \"Over-broad write access to config and secret stores\" (no audit trail means over-broad access goes unobserved) and supports detection of \"Configuration / IaC tampering with no change detection or change control\" (ATT&CK T1098 / T1565.001).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm audit logging is enabled on the secret store / config-change events.",
+        "command": "vault audit list   # AWS: confirm CloudTrail captures secretsmanager:GetSecretValue events",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one enabled audit device / CloudTrail data events for secret reads (secure). None (insecure).",
+        "source": "OWASP Logging Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether secrets and sensitive config are encrypted at rest (AES-256-GCM minimum) with envelope encryption and keys stored separately from the data they protect.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Config and secrets unencrypted at rest or in transit\" — plaintext secrets at rest or keys co-located with data expose credentials directly.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the secret store encrypts with a managed CMK / Vault seal backend.",
+        "command": "aws secretsmanager describe-secret --secret-id <id> --query KmsKeyId   # confirm CMK encryption; Vault: confirm seal/transit backend",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A KMS key id present / Vault seal configured (secure). No encryption / default plaintext storage (insecure).",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether all retrieval of secrets and config from their store is over TLS, with no plaintext (HTTP) transport of credentials.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Config and secrets unencrypted at rest or in transit\" — any http:// secret-store endpoint exposes credentials on the wire.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm a valid TLS handshake to the secret-store endpoint and that clients use https only.",
+        "command": "openssl s_client -connect <secret-store-host>:443 </dev/null   # confirm TLS; verify clients use https:// endpoints only",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Valid TLS handshake; clients configured with https endpoints (secure). Any http:// secret-store endpoint (insecure).",
+        "source": "OWASP Key Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "iac_state_secrets_encrypted",
+    "option_description": "Whether IaC state (e.g. Terraform state), which can contain plaintext secrets, is stored in an encrypted, access-controlled backend and not committed to VCS.",
+    "security_impact": "Protective property bridging two exposures; its absence (false) is an OR-trigger for \"Config and secrets unencrypted at rest or in transit\" and relates to \"Publicly exposed config / IaC and embedded secrets\" — unencrypted or VCS-committed state leaks the plaintext secrets it holds (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm state is not tracked in VCS and the backend is encrypted + access-controlled.",
+        "command": "git ls-files | grep -E 'terraform\\.tfstate'   # confirm state not tracked; verify backend encryption/access on the bucket",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No state file tracked in VCS; backend encrypted + access-controlled (secure). State committed / unencrypted (insecure).",
+        "source": "OWASP Infrastructure as Code Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "hardened_baseline_documented",
+    "option_description": "Whether a current, documented, version-controlled baseline configuration exists reflecting the most restrictive mode consistent with operations (NIST CM-2/CM-6).",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Insecure default settings shipped to production\" — with no defined baseline there is nothing to harden against and configuration is ad-hoc (OWASP A05).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an approved, version-controlled baseline spec exists and deviations are documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An approved baseline spec exists, is reviewed at a defined frequency, and deviations are documented/approved (secure). No baseline (insecure).",
+        "source": "NIST SP 800-53 Rev 5 CM family"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether shipped default accounts and default passwords have been removed or changed before production.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Insecure default settings shipped to production\" — default credentials left live are trivially exploitable (OWASP A05, ATT&CK T1078.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm no default accounts/passwords remain in the production configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No default accounts/passwords, no sample/debug endpoints, error handling does not leak stack traces, unnecessary features disabled (secure). Any present (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unnecessary_services_disabled",
+    "option_description": "Whether the configuration enables only mission-essential functions, with unnecessary ports, protocols, services, and software prohibited or removed (least functionality, NIST CM-7).",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Insecure default settings shipped to production\" — unused/legacy services, ports, and protocols left enabled widen the attack surface (OWASP A05, CIS Control 4).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm configuration restricts functionality to essential capabilities; unused services/ports disabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration restricts functionality to essential capabilities; unused services/ports disabled (secure). Unnecessary services/ports enabled by default (insecure).",
+        "source": "CIS Controls v8 Control 4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "debug_and_verbose_errors_disabled_in_prod",
+    "option_description": "Whether debug mode and verbose error messages (stack traces, exposed admin/debug endpoints) are disabled in production.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Insecure default settings shipped to production\" — verbose errors and debug endpoints leak internal detail attackers reuse (OWASP A05).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm production error handling does not leak stack traces and debug endpoints are off.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No default accounts/passwords, no sample/debug endpoints, error handling does not leak stack traces, unnecessary features disabled (secure). Any present (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sample_apps_and_default_content_removed",
+    "option_description": "Whether sample applications, default content, and unnecessary pre-installed features have been removed from the production deployment.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Insecure default settings shipped to production\" — sample apps and default content are well-known, frequently vulnerable footholds (OWASP A05).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm sample/default applications and content are absent from production.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No default accounts/passwords, no sample/debug endpoints, error handling does not leak stack traces, unnecessary features disabled (secure). Any present (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "drift_detection_enabled",
+    "option_description": "Whether running configuration is continuously compared against the reviewed baseline and unmanaged drift is detected and alerted (NIST CM-6 monitoring).",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Configuration drift from the reviewed baseline undetected\" — without drift detection the running config silently diverges from the hardened baseline (ATT&CK T1562.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a drift check against the baseline and confirm deviations are surfaced.",
+        "command": "terraform plan -detailed-exitcode   # exit 2 = drift; or AWS Config / driftctl scan",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plan exit code 0 (no drift) or drift surfaced and triaged via tooling (secure). No drift detection in place (insecure).",
+        "source": "NIST SP 800-53 Rev 5 CM family"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "running_config_matches_baseline",
+    "option_description": "Whether the live running configuration currently matches the reviewed, hardened baseline with no unmanaged deviations.",
+    "security_impact": "State property; a false value is an OR-trigger for \"Configuration drift from the reviewed baseline undetected\" — running config diverging from the baseline reintroduces vulnerabilities the baseline removed (ATT&CK T1562.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare running config against the baseline via a plan/scan; any drift indicates a mismatch.",
+        "command": "terraform plan -detailed-exitcode   # exit 2 = drift; or AWS Config / driftctl scan",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plan exit code 0 (no drift) or drift surfaced and triaged via tooling (secure). No drift detection in place (insecure).",
+        "source": "NIST SP 800-53 Rev 5 CM family"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "out_of_band_changes_controlled",
+    "option_description": "Whether manual / out-of-band configuration changes are prohibited or controlled, so changes flow through the reviewed change-control workflow rather than ad-hoc hotfixes.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Configuration drift from the reviewed baseline undetected\" — manual hotfixes and out-of-band changes are the primary source of silent drift (ATT&CK T1562.001, NIST CM-3).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review change-management procedure and confirm manual console changes are barred or reconciled back to IaC.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Out-of-band changes prohibited or reconciled into IaC under change control (secure). Ad-hoc console/manual changes routine (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-check for unmanaged changes by running a drift scan.",
+        "command": "terraform plan -detailed-exitcode   # exit 2 = drift; or AWS Config / driftctl scan",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plan exit code 0 (no drift) or drift surfaced and triaged via tooling (secure). Unmanaged out-of-band changes show as drift (insecure).",
+        "source": "NIST SP 800-53 Rev 5 CM family"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_repo_private",
+    "option_description": "Whether the repository holding config/IaC is private rather than a public git repo.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Publicly exposed config / IaC and embedded secrets\" — a public repo discloses configuration and any embedded secrets to unauthenticated attackers (ATT&CK T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the repo is private and check for any public exposure of config artifacts.",
+        "command": "aws s3api get-bucket-policy-status --bucket <b> --query PolicyStatus.IsPublic   # and: curl -s https://<host>/.env ; ls -l .env",
+        "file_path": ".env",
+        "navigation": null,
+        "expected_output": "Bucket IsPublic=false, .env returns 404/403 from web and has 0600 perms, repo private (secure). Any public exposure (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_files_not_world_readable",
+    "option_description": "Whether config files (e.g. .env) have restrictive filesystem permissions and are not world-readable or web-served.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Publicly exposed config / IaC and embedded secrets\" — world-readable .env / config files disclose embedded secrets locally and over the web (ATT&CK T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check config file permissions and that .env is not served over the web.",
+        "command": "aws s3api get-bucket-policy-status --bucket <b> --query PolicyStatus.IsPublic   # and: curl -s https://<host>/.env ; ls -l .env",
+        "file_path": ".env",
+        "navigation": null,
+        "expected_output": "Bucket IsPublic=false, .env returns 404/403 from web and has 0600 perms, repo private (secure). Any public exposure (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_object_storage_not_publicly_accessible",
+    "option_description": "Whether object-storage buckets holding config/IaC are private and not publicly accessible.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Publicly exposed config / IaC and embedded secrets\" — an open S3/object-storage bucket discloses configuration and embedded secrets (ATT&CK T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the bucket policy status reports the bucket is not public.",
+        "command": "aws s3api get-bucket-policy-status --bucket <b> --query PolicyStatus.IsPublic   # and: curl -s https://<host>/.env ; ls -l .env",
+        "file_path": ".env",
+        "navigation": null,
+        "expected_output": "Bucket IsPublic=false, .env returns 404/403 from web and has 0600 perms, repo private (secure). Any public exposure (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "metadata_endpoint_access_restricted",
+    "option_description": "Whether the cloud instance metadata endpoint is restricted (e.g. IMDSv2 / hop-limit / no SSRF reachability) so config and credentials it exposes cannot be harvested.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Publicly exposed config / IaC and embedded secrets\" — an exposed metadata endpoint discloses configuration and instance credentials (ATT&CK T1530).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the instance metadata endpoint to confirm IMDSv2 is required and credentials are not freely reachable.",
+        "command": "curl -s http://169.254.169.254/latest/meta-data/   # then confirm IMDSv2 token is required (HttpTokens=required)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IMDSv1 unauthenticated access blocked; token required (secure). Credentials retrievable without a token (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm instance metadata options enforce required tokens and a low hop limit across the fleet.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Instances set HttpTokens=required and HttpPutResponseHopLimit=1 (secure). Optional/v1-allowed metadata (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "iac_state_not_publicly_exposed",
+    "option_description": "Whether IaC state files (which can hold plaintext secrets) are not committed to a public repo or stored in a publicly accessible backend.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"Publicly exposed config / IaC and embedded secrets\" — publicly exposed state leaks the plaintext credentials it contains (ATT&CK T1530 / T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm state is not tracked in VCS and the backend is not publicly accessible.",
+        "command": "git ls-files | grep -E 'terraform\\.tfstate'   # confirm state not tracked; verify backend encryption/access on the bucket",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No state file tracked in VCS; backend encrypted + access-controlled (secure). State committed / unencrypted (insecure).",
+        "source": "OWASP Infrastructure as Code Security Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the state backend bucket is not public.",
+        "command": "aws s3api get-bucket-policy-status --bucket <state-bucket> --query PolicyStatus.IsPublic",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IsPublic=false on the state backend bucket (secure). Public state backend (insecure).",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_backed_up_to_known_good",
+    "option_description": "Whether configuration is recoverable to a known-good state via VCS history and a documented restore path.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"No config backup or rollback to a known-good state\" — without a known-good copy, tampering, deletion, or ransomware leaves nothing to restore (ATT&CK T1485).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented restore path to a prior reviewed commit exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented restore path: revert to a prior reviewed commit + restore secret store/state from backup (secure). No recovery path (insecure).",
+        "source": "NIST SP 800-128 Security-Focused Configuration Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secret_store_and_state_backed_up",
+    "option_description": "Whether the secret store and IaC state are backed up and restorable, complementing VCS history for full configuration recovery.",
+    "security_impact": "Protective property; its absence (false) is an OR-trigger for \"No config backup or rollback to a known-good state\" — VCS history alone cannot restore secret-store/state contents after loss (ATT&CK T1485).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the secret store and state backend are backed up and restorable per the documented recovery procedure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented restore path: revert to a prior reviewed commit + restore secret store/state from backup (secure). No recovery path (insecure).",
+        "source": "NIST SP 800-128 Security-Focused Configuration Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rollback_tested",
+    "option_description": "Whether the rollback / restore-to-known-good procedure has been actually tested, not just documented.",
+    "security_impact": "Assurance property; its absence (false) is an OR-trigger for \"No config backup or rollback to a known-good state\" — an untested rollback path may fail when needed, leaving the system unrecoverable after tampering or loss (ATT&CK T1485).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a rollback/restore drill has been performed and evidenced (date, result), not merely documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a successful restore test (revert to prior commit + restore secret store/state) within a defined period (secure). Untested or never-exercised procedure (gap).",
+        "source": "NIST SP 800-128 Security-Focused Configuration Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

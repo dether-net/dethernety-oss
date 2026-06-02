@@ -1,0 +1,302 @@
+[
+  {
+    "option_name": "ingress_default_deny_enforced",
+    "option_description": "Attests that the network edge enforces default-deny inbound: only documented, allow-listed (proto, port, destination) tuples cross-referenced to an asset inventory are reachable from untrusted networks; no any/any/allow rule, no shadow public IP, no forgotten dev/debug port.",
+    "security_impact": "References \"Exploit of public-facing application\" — one of its OR-conditions — firing when ingress_default_deny_enforced is false (ATT&CK T1190). A missing default-deny baseline is what turns an internal-only service vulnerability into an internet-exploitable one, because surface that should never have been reachable becomes the initial-access path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Architecture review of the edge firewall / cloud security-group ruleset.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented edge firewall / cloud security-group ruleset with an explicit deny-all baseline and a finite allow-list of (proto, port, destination) entries cross-referenced to an asset inventory; absence of any 'any/any/allow' rule.",
+        "source": "NIST SP 800-41 Rev.1 (Firewalls and Firewall Policy)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run an external full-port scan against the organization's public IP range and compare open ports to the documented allow-list.",
+        "command": "nmap -Pn -p- -T4 <public_ip_range>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only documented service ports (e.g. 443, 25 on the mail relay) are open from the internet; no management ports (22, 3389, 5985, 8443-admin), DB ports (3306, 5432, 27017, 6379), nor file-share ports (445, 2049) reachable externally.",
+        "source": "CIS Controls v8 Control 12 Network Infrastructure Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "waf_active_blocking_on_public_web",
+    "option_description": "Attests that a Web Application Firewall (cloud WAF, ModSecurity + OWASP CRS, or equivalent) sits in front of every public-facing HTTP application in BLOCKING mode (not DetectionOnly / monitor-only) with anomaly scoring at sensible thresholds — a WAF in monitor-only is telemetry, not a control.",
+    "security_impact": "References \"Exploit of public-facing application\" — one of its OR-conditions — firing when waf_active_blocking_on_public_web is false (ATT&CK T1190). When the WAF is monitor-only or absent, SQLi / XSS / deserialization / RCE payloads reach the origin and the perimeter offers no compensating filter against an unpatched application.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the ModSecurity engine mode from the WAF configuration.",
+        "command": "grep -E '^SecRuleEngine' /etc/modsecurity/modsecurity.conf",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On (blocking). 'DetectionOnly' or 'Off' is insecure.",
+        "source": "OWASP CRS / ModSecurity documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a known-malicious payload to a public endpoint and verify the WAF blocks it at the edge.",
+        "command": "curl -sS -o /dev/null -w '%{http_code}\\n' \"https://<public_hostname>/?q=' OR 1=1--\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WAF returns 403 (blocked). CRS default inbound anomaly threshold is 5; a single critical-severity match causes a block.",
+        "source": "OWASP CRS (crs-setup.conf.example — inbound_anomaly_score_threshold default 5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "remote_access_via_ztna_or_mfa_vpn",
+    "option_description": "Attests that remote workforce access uses a Zero-Trust Network Access broker or, at minimum, a VPN that enforces phishing-resistant MFA, AND that the tunnel exits into a segmented zone with per-application authorization — not onto a flat internal LAN with broad east-west reachability.",
+    "security_impact": "References \"External remote service compromise without MFA\" — its sole OR-condition — firing when remote_access_via_ztna_or_mfa_vpn is false (ATT&CK T1133, T1078). Without MFA at the remote-access edge, stuffed / phished / infostealer-harvested credentials become initial access; without downstream segmentation, that initial access becomes the whole internal LAN.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented remote-access architecture and authentication policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented architecture shows MFA required on every remote-access authentication; tunnel exits into a segmented zone with per-application policy, not into the office LAN with broad east-west reachability.",
+        "source": "MITRE ATT&CK T1133 (External Remote Services — M1032 MFA, M1030 Network Segmentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect VPN/ZTNA authentication configuration and verify MFA assertions are present in successful-auth logs (vendor-specific).",
+        "command": "# vendor-specific: show authentication config / verify MFA assertion in VPN logs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPN/ZTNA logs show every successful authentication included an MFA factor (TOTP, FIDO2, push); no users carry MFA-bypass exemptions.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Attests that every internet-facing edge appliance (VPN gateway, NGFW, load balancer, mail gateway) is on a vendor-supported non-EOL firmware build, with no CISA KEV-listed CVE past its remediation deadline — typically 15 days for internet-facing KEV entries per CISA BOD 22-01.",
+    "security_impact": "References \"Unpatched edge-appliance KEV chain\" — one of its OR-conditions — firing when edge_appliance_patched_within_sla is false (ATT&CK T1190, T1133, T1599). A mass-exploited n-day in a perimeter device (CVE-2024-3400 PAN-OS, CVE-2023-46805/CVE-2024-21887 Ivanti, CVE-2024-23113 FortiOS) gives the attacker a privileged position INSIDE the perimeter with no downstream control to defeat.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Cross-reference the edge-appliance patch register against the CISA KEV catalog and vendor advisories.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patch register shows every edge appliance is on a vendor-supported, non-EOL firmware; no entry in the CISA KEV catalog applies to a running version past its remediation deadline (CISA BOD 22-01 floor: 15 days for internet-facing KEV vulns for federal agencies; private orgs commonly adopt 14-30 day SLA).",
+        "source": "CISA BOD 22-01 (Reducing the Significant Risk of Known Exploited Vulnerabilities)"
+      },
+      {
+        "type": "command",
+        "instruction": "Query each edge appliance for its running firmware build (vendor-specific show-version / get-system-status / request-system-info).",
+        "command": "# vendor-specific: show version / get system status / pan-os request system info",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running build matches the vendor's currently-supported security release; CVE-2024-3400 (PAN-OS), CVE-2024-21887/CVE-2023-46805 (Ivanti CS), CVE-2024-23113 (FortiOS) are not applicable.",
+        "source": "CISA Known Exploited Vulnerabilities Catalog"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Attests that admin / management planes (firewall admin GUIs, hypervisor consoles, IPMI/BMC, cloud-provider admin APIs, Kubernetes API server, Jenkins, RDP/SSH jump hosts) bind only to the internal management VLAN and are not reachable from the public internet — admin access goes through a bastion or ZTNA tunnel.",
+    "security_impact": "References \"Unpatched edge-appliance KEV chain\" — one of its OR-conditions — firing when edge_management_interfaces_not_internet_reachable is false (ATT&CK T1190, T1133, T1599). Most weaponised edge-appliance CVEs (Ivanti CS, FortiOS, PAN-OS) are only exploitable because their management interfaces are publicly exposed; hiding the management plane reduces a critical RCE to a same-VLAN-only finding.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the org's public IPs for the well-known admin ports of common edge appliances.",
+        "command": "nmap -Pn -p 22,3389,8443,9443,4443,10250 <external_public_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All admin/management ports closed or filtered from the public internet; admin access reachable only via the bastion/ZTNA tunnel.",
+        "source": "CIS Controls v8 Control 12 Safeguard 12.8 (Maintain Dedicated Computing Resources for All Administrative Work)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the operator runbook and per-appliance interface bindings for each edge device.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented operator runbook proves that admin UIs of edge appliances (Fortinet, Palo Alto, Ivanti, F5, Cisco) bind only to internal management VLAN, not the WAN interface.",
+        "source": "CIS Controls v8 Control 12 (Network Infrastructure Management)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Attests that volumetric (L3/L4) and application-layer (L7) DDoS protection exists upstream of the org's bandwidth bottleneck — a CDN / scrubbing provider / cloud-native DDoS service — so an attack exceeding link capacity does not saturate the link itself, plus a documented runbook for engaging the scrubber during an active flood.",
+    "security_impact": "References \"Network denial of service\" — its sole OR-condition — firing when ddos_protection_in_place is false (ATT&CK T1498). When the flood exceeds the link capacity at the target, on-prem filtering cannot help — only upstream interception by ISP, CDN, or scrubbing services preserves availability.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the contract / config evidence for an upstream DDoS service and the documented engagement runbook.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Contract / config evidence of an upstream DDoS service (AWS Shield Advanced, Cloudflare, Akamai Prolexic, Azure DDoS Protection, GCP Cloud Armor) covering each public-facing entry point; runbook for engaging the scrubbing provider during an active flood.",
+        "source": "MITRE ATT&CK T1498 Network Denial of Service (M1037 Filter Network Traffic — upstream interception)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Resolve each public hostname and inspect response headers for CDN/scrubbing-provider markers (the attacker's traffic should be terminating at the provider, not the origin).",
+        "command": "dig +short <public_hostname>; curl -sI https://<public_hostname> | grep -iE 'server|cf-ray|x-amz-cf'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DNS resolves to a CDN/scrubbing provider's IP range (Cloudflare, AWS CloudFront, Akamai) rather than directly to the origin; response headers show provider markers (cf-ray, x-amz-cf-id).",
+        "source": "MITRE ATT&CK T1498 mitigation guidance (provider solutions)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "egress_default_deny_enforced",
+    "option_description": "Attests that outbound traffic from internal networks is default-deny with an allowlist of legitimate destinations / FQDNs, and that client-side DNS-over-HTTPS to public resolvers (1.1.1.1 / 8.8.8.8) is blocked so corporate DNS inspection cannot be bypassed.",
+    "security_impact": "References \"Application-layer egress C2\" — its sole OR-condition — firing when egress_default_deny_enforced is false (ATT&CK T1071). Without egress filtering, established footholds beacon out over HTTPS/DNS/SMTP to attacker C2 and exfiltrate data; application-layer C2 blends with legitimate traffic and can only be defeated at the destination by an FQDN allowlist.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From inside the internal segment, attempt to reach an arbitrary internet destination not on the allowlist.",
+        "command": "# from inside the segment: curl -sS --max-time 5 https://<arbitrary-internet-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Arbitrary external destinations are blocked; only allowlisted FQDNs (package mirrors, vendor APIs, telemetry sinks) are reachable. DNS resolution for unlisted destinations does not succeed via the corporate resolver.",
+        "source": "MITRE ATT&CK T1071 Application Layer Protocol (M1037 Filter Network Traffic — egress)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the egress proxy / NGFW configuration and DNS-resolver policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress proxy / NGFW config shows default-deny outbound; documented allowlist of categories/FQDNs; DNS-over-HTTPS only to approved enterprise resolvers (no client-side DoH to 1.1.1.1/8.8.8.8 bypassing inspection).",
+        "source": "NIST SP 800-41 Rev.1 (default-deny firewall policy)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dns_hardened",
+    "option_description": "Attests that authoritative DNS for the org's domains is hardened: DNSSEC signed with a valid DS record at the parent zone, no dangling CNAMEs pointing to deprovisioned cloud resources (continuous subdomain-takeover monitoring), SPF -all / DKIM / DMARC p=reject published, and the registrar account has MFA plus a registrar-lock against social-engineered hijack.",
+    "security_impact": "References \"DNS hijack or subdomain takeover\" — its sole OR-condition — firing when dns_hardened is false (ATT&CK T1584.002). Without DNSSEC, registrar MFA+lock, and dangling-CNAME monitoring, an attacker can serve content under the org's own domain — defeating TLS validation from the user's perspective.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify DNSSEC chain-of-trust by checking the AD flag on the SOA response and the DS record at the parent TLD.",
+        "command": "dig +dnssec <domain> SOA; dig DS <domain> @<parent-tld-nameserver>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AD flag set on the response; valid DS record present at the parent zone (proves DNSSEC chain-of-trust delegation, not just signing).",
+        "source": "RFC 4033/4035 DNSSEC (canonical assessor procedure)"
+      },
+      {
+        "type": "command",
+        "instruction": "Look up the SPF, DMARC, and DKIM TXT records published for the domain.",
+        "command": "dig TXT <domain>; dig TXT _dmarc.<domain>; dig TXT default._domainkey.<domain>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "v=spf1 ... -all (or ~all) hard-fail SPF; v=DMARC1; p=reject (or p=quarantine) with rua= reporting; DKIM key published.",
+        "source": "DMARC.org / RFC 7489"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cloud_objects_not_anonymously_public",
+    "option_description": "Attests that no object-storage bucket (S3, Azure Blob, GCS) or static-website endpoint is anonymously readable unless it is intentionally a public website asset, and that account-level public-access-block is enforced (S3 BlockPublic*=true, Azure allowBlobPublicAccess=false, GCS publicAccessPrevention=enforced).",
+    "security_impact": "References \"Cloud-object anonymous exposure\" — its sole OR-condition — firing when cloud_objects_not_anonymously_public is false (ATT&CK T1530). The boundary class deliberately covers the SaaS-edge surface, not only the firewall edge: a public bucket holding sensitive data is exfil via a single unauthenticated HTTPS GET.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the account-level and per-bucket public-access-block configuration on each cloud provider.",
+        "command": "aws s3api get-public-access-block --account-id <id> --bucket <bucket>; az storage account show -n <acct> --query 'allowBlobPublicAccess'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BlockPublicAcls=true, IgnorePublicAcls=true, BlockPublicPolicy=true, RestrictPublicBuckets=true on every bucket; Azure allowBlobPublicAccess=false. GCS bucket iamConfiguration.publicAccessPrevention=enforced.",
+        "source": "CIS Controls v8 Control 12 + vendor public-access-block reference"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to fetch a non-public object via its anonymous public URL without credentials.",
+        "command": "curl -sI https://<bucket>.s3.amazonaws.com/<key> # without credentials",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 AccessDenied for any object not intended to be public. A 200 on a key holding non-public data is an exposure finding.",
+        "source": "AWS S3 public-access-block reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "perimeter_crossings_logged_and_centralized",
+    "option_description": "Attests that every perimeter ingress and egress (edge-firewall ALLOW/DENY events, VPN session opens, WAF block events, cloud VPC flow logs) is shipped to a central tamper-resistant log store separate from the audited devices, with at least 90 days of online retention.",
+    "security_impact": "References \"Unmonitored perimeter crossings\" — its sole OR-condition — firing when perimeter_crossings_logged_and_centralized is false (ATT&CK T1562 Impair Defenses, T1070 Indicator Removal). Logs that live only on the edge device can be erased by an attacker who has just compromised that device — off-box centralisation per NIST AU-9(2) is the only integrity guarantee.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for the last 24h of edge-firewall, VPN, and WAF events and confirm every boundary device is reporting.",
+        "command": "# query SIEM for last 24h of edge firewall ALLOW/DENY events; VPN session-open events; WAF block events",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty event stream from every boundary device covering the last 24h, with retention >= 90 days online + >= 12 months total.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management (8.9 centralization, 8.10 retention >=90d)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the log-destination architecture stores events off-box on a physically different system with object-lock or equivalent integrity protection.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs stored off-box (SIEM / log-archive bucket with object lock) — a compromised edge device cannot erase its own flow records; integrity-protection per NIST AU-9(2) (physically different system).",
+        "source": "NIST SP 800-53 Rev.5 AU-9(2)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

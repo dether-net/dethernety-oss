@@ -1,0 +1,467 @@
+[
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether the primary persistence layer (database, volume, or object store) applies at-rest encryption so storage-media compromise yields ciphertext rather than readable content.",
+    "security_impact": "Satisfies \"At-rest encryption enabled on all persisted stores\" — one of that countermeasure's AND-conditions — firing when encrypted_at_rest is true alongside storage_encryption_enabled, tde_enabled and backups_encrypted. Confirms the protection mitigating cloud/local storage data theft (ATT&CK T1530/T1005, M1041; D3FEND D3-DENCR/D3-FE).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check that every RDS database instance reports storage encryption enabled (the primary managed-store exemplar).",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].{id:DBInstanceIdentifier,enc:StorageEncrypted}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "StorageEncrypted: true for every instance (secure); any false is an unencrypted store. Mirrors CIS AWS RDS.3.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping)"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify a self-managed block device is encrypted by dumping its LUKS header.",
+        "command": "sudo cryptsetup luksDump /dev/<device>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A valid LUKS header with a Cipher line present (secure: the block device is encrypted); 'Device is not a valid LUKS device' means the volume is cleartext.",
+        "source": "NIST SP 800-111 Guide to Storage Encryption Technologies for End User Devices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "storage_encryption_enabled",
+    "option_description": "Whether the underlying block/disk/object storage layer has volume- or bucket-level encryption enabled (e.g. EBS, S3 SSE, managed-disk encryption).",
+    "security_impact": "Satisfies \"At-rest encryption enabled on all persisted stores\" — one of that countermeasure's AND-conditions — firing when storage_encryption_enabled is true together with encrypted_at_rest, tde_enabled and backups_encrypted. Protects against local/physical media theft (ATT&CK T1005, M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm EBS default encryption is on and that no volume is left unencrypted.",
+        "command": "aws ec2 get-ebs-encryption-by-default; aws ec2 describe-volumes --query 'Volumes[?Encrypted==`false`].VolumeId'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EbsEncryptionByDefault: true and an empty unencrypted-volume list (secure); any unencrypted volume is a gap. Mirrors CIS AWS EC2.7.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping)"
+      },
+      {
+        "type": "command",
+        "instruction": "For on-prem/self-managed volumes, verify the block device exposes a valid encryption header.",
+        "command": "sudo cryptsetup luksDump /dev/<device>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A valid LUKS header with a Cipher line present (secure); 'not a valid LUKS device' means the volume is cleartext.",
+        "source": "NIST SP 800-111 Guide to Storage Encryption Technologies for End User Devices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "tde_enabled",
+    "option_description": "Whether the database engine applies Transparent Data Encryption so data files, transaction logs, and tempdb are encrypted at the storage layer.",
+    "security_impact": "Satisfies \"At-rest encryption enabled on all persisted stores\" — one of that countermeasure's AND-conditions — firing when tde_enabled is true alongside encrypted_at_rest, storage_encryption_enabled and backups_encrypted. Ensures DB files/logs/backups are not written in cleartext (ATT&CK T1005, M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the DB instance reports storage encryption with a KMS key bound (RDS storage encryption also covers logs, automated backups, snapshots and read replicas).",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].{id:DBInstanceIdentifier,enc:StorageEncrypted,kms:KmsKeyId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "StorageEncrypted true with a KmsKeyId set (secure); false = cleartext DB storage.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For a self-managed engine (SQL Server / Oracle / MySQL), confirm engine-level TDE is enabled on the database and its log files.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Engine reports TDE/encryption-state ENABLED for the database, log, and tempdb files; no datafile is written in cleartext.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backups_encrypted",
+    "option_description": "Whether automated backups, snapshots, and exported copies inherit or enforce at-rest encryption — not just the live store.",
+    "security_impact": "Satisfies \"At-rest encryption enabled on all persisted stores\" — one of that countermeasure's AND-conditions — firing when backups_encrypted is true with the other store flags. Closes the snapshot/backup exposure path where an unencrypted backup copy bypasses the primary store's protection (ATT&CK T1530, M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List any self-owned EBS snapshots that are not encrypted.",
+        "command": "aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[?Encrypted==`false`].SnapshotId'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty list = all snapshots encrypted (secure); any returned SnapshotId is an unencrypted backup copy.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup process to confirm backups/snapshots receive at-rest protection equivalent to primary data, with keys in a separate trust domain.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review confirms backups/snapshots receive equivalent at-rest protection to primary data and their keys live in a separate trust domain.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "at_rest_encryption_strength",
+    "option_description": "The at-rest cipher and key strength: strong = AES-256 (or AES-128 minimum) FIPS-approved algorithm; weak = legacy/short-key ciphers; none = unencrypted.",
+    "security_impact": "Satisfies \"FIPS-approved strong algorithm and key strength\" — one of that countermeasure's AND-conditions — firing when at_rest_encryption_strength equals \"strong\" together with fips_validated_module true. Defeats weak/legacy-cipher cryptanalysis (DES/3DES/RC4) (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the cipher and key size from the encrypted volume's LUKS header.",
+        "command": "sudo cryptsetup luksDump /dev/<device> | grep -i cipher",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "cipher: aes-xts-plain64 with a 512-bit keysize → AES-256 (XTS splits the key, so 512-bit keysize = AES-256) (secure); a non-AES or short-key cipher is weak.",
+        "source": "NIST SP 800-111 Guide to Storage Encryption Technologies for End User Devices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the algorithm is a FIPS-approved cipher implemented by a validated module, not legacy crypto.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify the crypto module backing the store appears on the NIST CMVP validated-modules list (FIPS 140-3). Requirement is not merely 'use AES-256' but 'use a CMVP-validated module'.",
+        "source": "FIPS 140-3 / NIST Cryptographic Module Validation Program (CMVP)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "strong"
+    ]
+  },
+  {
+    "option_name": "fips_validated_module",
+    "option_description": "Whether the encryption is performed by a FIPS 140-2/140-3 CMVP-validated cryptographic module rather than unvalidated or proprietary crypto.",
+    "security_impact": "Satisfies \"FIPS-approved strong algorithm and key strength\" — one of that countermeasure's AND-conditions — firing when fips_validated_module is true alongside at_rest_encryption_strength == \"strong\". Assures the AES implementation is correctly validated, hardening against cryptanalytic recovery (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the module backing at-rest encryption appears on the NIST CMVP validated-modules list with an active certificate.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify the crypto module backing the store appears on the NIST CMVP validated-modules list (FIPS 140-3). Requirement is not merely 'use AES-256' but 'use a CMVP-validated module'.",
+        "source": "FIPS 140-3 / NIST Cryptographic Module Validation Program (CMVP)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Obtain the provider/vendor FIPS attestation (e.g. KMS HSM FIPS 140 level, or OS crypto module certificate number) and confirm it maps to the algorithms in use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Provider attestation or CMVP certificate number naming the validated module and the approved algorithms (AES, SHA-2, HMAC) it implements.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "keys_managed_in_hsm_or_kms",
+    "option_description": "Whether master/key-encryption keys live in a dedicated KMS or HSM in a separate trust domain from the data store, rather than in app config or alongside the ciphertext.",
+    "security_impact": "Satisfies \"Keys held in a dedicated KMS/HSM with envelope encryption\" — one of that countermeasure's AND-conditions — firing when keys_managed_in_hsm_or_kms is true together with envelope_encryption_kek_dek_split. Prevents a single storage compromise from yielding both ciphertext and the key (ATT&CK T1552, M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List KMS keys and confirm key material is managed in KMS/HSM rather than embedded with the data.",
+        "command": "aws kms list-keys && aws kms describe-key --key-id <id> --query 'KeyMetadata.{mgr:KeyManager,origin:Origin,store:KeyStoreId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key material managed in KMS (Origin AWS_KMS or EXTERNAL/CloudHSM custom key store), not embedded with the data (secure).",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Architecture review confirming keys are not recoverable from a stolen disk/snapshot alone.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture review confirms at-rest encryption keys live in a separate trust domain from the storage they protect; keys are not recoverable from a stolen disk/snapshot alone.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "envelope_encryption_kek_dek_split",
+    "option_description": "Whether a key-encryption-key wraps per-object data-encryption keys (envelope encryption), so DEKs are never stored or used in plaintext.",
+    "security_impact": "Satisfies \"Keys held in a dedicated KMS/HSM with envelope encryption\" — one of that countermeasure's AND-conditions — firing when envelope_encryption_kek_dek_split is true alongside keys_managed_in_hsm_or_kms. Ensures a leaked persisted DEK is useless without the KMS-held KEK (ATT&CK T1552, M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Generate a data key from the KEK to demonstrate the envelope pattern in use.",
+        "command": "aws kms generate-data-key --key-id <kek-id> --key-spec AES_256",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns Plaintext (used locally to encrypt, then discarded) and CiphertextBlob (the wrapped DEK persisted alongside data) — demonstrating the KEK/DEK envelope pattern.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Design review confirming DEKs are wrapped by a KMS KEK and stored separately from data, with KEKs separate from DEKs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Design review confirms DEKs are generated/wrapped by a KMS KEK (e.g. KMS GenerateDataKey returns plaintext + ciphertext DEK; only the ciphertext DEK is persisted). DEKs stored separately from data, and KEKs stored separately from DEKs.",
+        "source": "NIST SP 800-57 Part 1 Rev. 5 Recommendation for Key Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "key_rotation_enabled",
+    "option_description": "Whether the KMS/key policy has automatic rotation enabled for the keys protecting this data, rather than using a key indefinitely.",
+    "security_impact": "Satisfies \"Key rotation on a bounded cryptoperiod\" — one of that countermeasure's AND-conditions — firing when key_rotation_enabled is true together with key_rotation_period_days <= 365. Bounds the cryptoperiod per NIST SP 800-57 (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query whether automatic key rotation is enabled for the key.",
+        "command": "aws kms get-key-rotation-status --key-id <id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyRotationEnabled: true (secure). false = key never rotated. Mirrors CIS AWS KMS.4.",
+        "source": "AWS KMS — Rotate AWS KMS keys (developer guide)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented rotation schedule exists per key type.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented cryptoperiod per key type with a defined rotation schedule; NIST 800-57 assigns bounded cryptoperiods rather than indefinite use.",
+        "source": "NIST SP 800-57 Part 1 Rev. 5 Recommendation for Key Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "key_rotation_period_days",
+    "option_description": "The configured key cryptoperiod in days; <= 365 satisfies NIST SP 800-57 bounded-cryptoperiod guidance.",
+    "security_impact": "Satisfies \"Key rotation on a bounded cryptoperiod\" — one of that countermeasure's AND-conditions — firing when key_rotation_period_days <= 365 together with key_rotation_enabled true. Keeps the originator-usage period bounded so a compromised key has limited reach (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the configured rotation interval; the KMS default is 365 days and is configurable via RotationPeriodInDays.",
+        "command": "aws kms get-key-rotation-status --key-id <id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyRotationEnabled: true with RotationPeriodInDays bounded (default 365). A value <= 365 satisfies the rule; rotation off or unbounded is insecure.",
+        "source": "AWS KMS — Rotate AWS KMS keys (developer guide)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the documented cryptoperiod per key type matches NIST 800-57 originator-usage guidance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented cryptoperiod per key type (e.g. ~1-2 yr originator-usage for symmetric data-encryption keys) rather than indefinite use.",
+        "source": "NIST SP 800-57 Part 1 Rev. 5 Recommendation for Key Management"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      365,
+      90
+    ]
+  },
+  {
+    "option_name": "kms_key_protection_policy_enforced",
+    "option_description": "Whether the key policy/grants are scoped to specific principals and actions with no kms:* wildcard, following least privilege.",
+    "security_impact": "Satisfies \"Least-privilege key policy with separation of duties\" — one of that countermeasure's AND-conditions — firing when kms_key_protection_policy_enforced is true together with kms_admin_separated_from_db_admin. Removes the over-broad grant that lets a principal both administer and decrypt with the key (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the key policy and check for any kms:* wildcard grant to a broad principal.",
+        "command": "aws kms get-key-policy --key-id <id> --policy-name default --query 'Policy' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No statement granting Action 'kms:*' to a broad principal (secure). A kms:* grant gives a principal both administer AND use of the key.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm IAM policies referencing the key are likewise scoped and contain no kms:* wildcard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IAM policies grant only the specific KMS actions a principal needs; no kms:* in IAM or key policy.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "kms_admin_separated_from_db_admin",
+    "option_description": "Whether separation of duties holds: principals that administer keys are distinct from those that administer or read the data store.",
+    "security_impact": "Satisfies \"Least-privilege key policy with separation of duties\" — one of that countermeasure's AND-conditions — firing when kms_admin_separated_from_db_admin is true together with kms_key_protection_policy_enforced. Prevents a single custodian from both accessing data and exporting keys (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the key policy to confirm admin roles cannot use the key and user roles cannot administer it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key policy review: administrator roles that create/delete keys do NOT hold kms:Decrypt/kms:Encrypt; services that use the key do NOT hold administrative actions. Some services need only Encrypt, not Decrypt.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm storage-infra duties separate key management from data access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Storage-infra review confirms key-management duties are separated from data-access duties so a single custodian cannot both access data and export keys.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "customer_managed_key_used",
+    "option_description": "Whether encryption uses org-controlled customer-managed/BYOK keys rather than provider-default keys, enabling independent rotation, policy, and revocation.",
+    "security_impact": "Satisfies \"Customer-managed keys with crypto-shred deletion\" — one of that countermeasure's AND-conditions — firing when customer_managed_key_used is true together with secure_deletion_or_crypto_shred. Gives the org policy control needed for independent revocation and crypto-shred (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the key is customer-managed or provider-managed.",
+        "command": "aws kms describe-key --key-id <id> --query 'KeyMetadata.KeyManager'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CUSTOMER (org-controlled, secure) vs AWS (provider-managed, less control). Customer-managed keys are preferred for granular access/rotation/deletion control.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the org holds the key policy and can enable/disable, rotate, and schedule deletion of the key.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Org controls the key policy with rights to enable/disable, rotate, and schedule deletion — not a provider-default key the org cannot govern.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "secure_deletion_or_crypto_shred",
+    "option_description": "Whether a documented secure-deletion path exists whereby destroying the key (crypto-shred) renders the data irrecoverable.",
+    "security_impact": "Satisfies \"Customer-managed keys with crypto-shred deletion\" — one of that countermeasure's AND-conditions — firing when secure_deletion_or_crypto_shred is true together with customer_managed_key_used. Enables NIST Purge-level cryptographic erase for secure deletion and data-residency exit (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a working key-deletion (crypto-shred) path by scheduling deletion of a test key.",
+        "command": "aws kms schedule-key-deletion --key-id <id> --pending-window-in-days 7",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key scheduled for deletion; once deleted, all data encrypted under it is permanently unrecoverable (cryptographic erase). Confirms a working crypto-shred path.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the sanitization procedure maps key destruction to NIST 800-88 Purge-level cryptographic erase.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sanitization procedure maps key destruction to NIST 800-88 Purge-level cryptographic erase for the media's confidentiality impact.",
+        "source": "NIST SP 800-88 Rev. 2 Guidelines for Media Sanitization"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "key_management_audit_logging_enabled",
+    "option_description": "Whether KMS API calls and key-administration events are captured to a tamper-evident audit trail (e.g. CloudTrail/KMS logs).",
+    "security_impact": "Satisfies \"Key-usage and key-management audit logging\" — one of that countermeasure's AND-conditions — firing when key_management_audit_logging_enabled is true together with secret_access_audited. Makes misuse of decrypt/admin rights visible for accountability (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Look up KMS events in CloudTrail to confirm key-usage and key-admin operations are logged.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventSource,AttributeValue=kms.amazonaws.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KMS Encrypt/Decrypt/GenerateDataKey/RotateKey/ScheduleKeyDeletion events present with source IP and principal (secure); absent = key use is unaudited.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the trail is tamper-evident (e.g. log file validation / immutable retention) so key-admin events cannot be silently altered.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit trail has integrity protection (log-file validation or immutable/WORM retention) and is not writable by the key administrators it records.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "secret_access_audited",
+    "option_description": "Whether each key/secret access is logged with the requesting principal and source IP, enabling forensic attribution.",
+    "security_impact": "Satisfies \"Key-usage and key-management audit logging\" — one of that countermeasure's AND-conditions — firing when secret_access_audited is true together with key_management_audit_logging_enabled. Provides per-access attribution so abuse of granted decrypt rights is traceable (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect KMS access events in CloudTrail and confirm each carries the principal identity and source IP.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventSource,AttributeValue=kms.amazonaws.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KMS Encrypt/Decrypt/GenerateDataKey events present, each recording userIdentity (principal) and sourceIPAddress; absent or anonymized = inadequate attribution.",
+        "source": "AWS KMS encryption best practices (AWS Prescriptive Guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For a non-AWS secrets store, confirm access logs capture principal and source IP per read.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secrets/KMS access log records the requesting principal and source IP on every key/secret retrieval.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

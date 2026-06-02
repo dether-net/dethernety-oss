@@ -1,0 +1,873 @@
+[
+  {
+    "option_name": "content_security_policy_enforced",
+    "option_description": "Whether the server delivers a restrictive Content-Security-Policy response header that constrains script/object/frame sources, providing the second-layer defense against reflected/stored/DOM XSS.",
+    "security_impact": "One of the OR-triggers for \"Cross-site scripting / DOM script injection\" — the exposure fires when this is false (the CSP header is absent), leaving the page's XSS surface unmitigated at the policy layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Content-Security-Policy response header from the app's document response.",
+        "command": "curl -sI https://APP_HOST/ | grep -i '^content-security-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "content-security-policy: default-src 'self'; script-src 'self' 'nonce-...'; object-src 'none' (secure / true) vs no header (insecure / false)",
+        "source": "MDN Content-Security-Policy header reference"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the document request's response headers in browser DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > select the document request > Response Headers > content-security-policy",
+        "expected_output": "Restrictive policy present (secure / true) vs missing (insecure / false)",
+        "source": "MDN Content-Security-Policy header reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "csp_allows_unsafe_inline_or_eval",
+    "option_description": "Whether the CSP's script-src/default-src permits 'unsafe-inline', 'unsafe-eval', or a wildcard, which would neutralize the CSP as an XSS control even when a header is present.",
+    "security_impact": "One of the OR-triggers for \"Cross-site scripting / DOM script injection\" — the exposure fires when this is true, because a CSP that allows unsafe-inline/eval no longer blocks injected script.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the CSP header and inspect its script-src/default-src directives for the dangerous keywords.",
+        "command": "curl -sI https://APP_HOST/ | grep -i '^content-security-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy WITHOUT 'unsafe-inline'/'unsafe-eval' and without default-src * (secure / false) vs those tokens present (insecure / true)",
+        "source": "MDN Content-Security-Policy header reference"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the CSP in DevTools and confirm script-src excludes unsafe-inline/unsafe-eval (uses nonces/hashes instead).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > content-security-policy",
+        "expected_output": "script-src uses 'nonce-...'/'sha256-...' with no 'unsafe-inline'/'unsafe-eval' (secure / false) vs permissive (insecure / true)",
+        "source": "MDN Content-Security-Policy header reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "trusted_types_enforced",
+    "option_description": "Whether the CSP enforces Trusted Types (require-trusted-types-for 'script'), forcing dangerous DOM sinks (innerHTML, eval) through a sanitizing policy to mitigate DOM-based XSS.",
+    "security_impact": "One of the OR-triggers for \"Cross-site scripting / DOM script injection\" — the exposure fires when this is false, leaving DOM XSS sinks unguarded.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the CSP header carries the require-trusted-types-for directive.",
+        "command": "curl -sI https://APP_HOST/ | grep -i 'content-security-policy' | grep -io 'require-trusted-types-for'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "require-trusted-types-for (present = secure / true) vs no match (not enforced / false)",
+        "source": "MDN Content-Security-Policy header reference (Trusted Types directives)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the CSP in DevTools for the trusted-types and require-trusted-types-for directives.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > content-security-policy",
+        "expected_output": "require-trusted-types-for 'script' present (secure / true) vs absent (false)",
+        "source": "MDN Content-Security-Policy header reference (Trusted Types directives)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "contextual_output_encoding_applied",
+    "option_description": "Whether all untrusted data is rendered via context-aware output encoding / auto-escaping templating, with no raw innerHTML/document.write/dangerouslySetInnerHTML/v-html of user data — the foundational first-layer XSS defense.",
+    "security_impact": "One of the OR-triggers for \"Cross-site scripting / DOM script injection\" — the exposure fires when this is false, because user data reaches a DOM sink unsanitized.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep the client source for dangerous DOM sinks and trace whether untrusted data flows into them unsanitized.",
+        "command": "grep -rnE 'innerHTML|outerHTML|document\\.write|dangerouslySetInnerHTML|v-html' CLIENT_SRC/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No untrusted data flows into these sinks unsanitized (secure / true) vs user-controlled values assigned to innerHTML/dangerouslySetInnerHTML (insecure XSS sink / false)",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet; OWASP Top 10 A03 Injection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review templates/components to confirm untrusted data is rendered via auto-escaping framework bindings with DOMPurify on any HTML.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All dynamic data auto-escaped, DOMPurify on raw HTML (secure / true) vs raw interpolation of user data (false)",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet; OWASP Top 10 A03 Injection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "x_content_type_options_nosniff_set",
+    "option_description": "Whether the server sends X-Content-Type-Options: nosniff, stopping the browser from MIME-sniffing responses into executable types.",
+    "security_impact": "One of the OR-triggers for \"Cross-site scripting / DOM script injection\" — the exposure fires when this is false (header absent), enabling MIME-sniffing of user-controlled content into script.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the X-Content-Type-Options response header.",
+        "command": "curl -sI https://APP_HOST/ | grep -i '^x-content-type-options'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "x-content-type-options: nosniff (secure / true) vs absent (insecure / false)",
+        "source": "OWASP Secure Headers Project"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the document response headers in DevTools for the nosniff directive.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > x-content-type-options",
+        "expected_output": "nosniff present (secure / true) vs absent (false)",
+        "source": "OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "stored_in_js_accessible_storage",
+    "option_description": "Whether a session token, JWT, refresh token, or PII is persisted in localStorage/sessionStorage/IndexedDB or any other JavaScript-readable client storage (true = insecure).",
+    "security_impact": "An OR-trigger for both \"Token / session theft from insecure client storage\" and \"Sensitive data cached / persisted client-side\" — both exposures fire when this is true, because injected script or a hostile extension can read and replay the token / harvest PII.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect client storage in DevTools for any token or PII presence after authenticating.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Application > Storage > Local Storage / Session Storage / IndexedDB",
+        "expected_output": "No JWT/refresh token or PII present (secure / false) vs token/PII visible in JS-readable storage (insecure / true)",
+        "source": "MDN Set-Cookie header reference (DevTools inspection)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Decode the access token and confirm tokens are held in HttpOnly cookies / a BFF pattern rather than JS-readable storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Decode the access token (jwt.io / DevTools) and check DevTools > Application > Local/Session Storage for any token presence",
+        "expected_output": "No token in JS-readable storage (secure / false) vs token in localStorage (insecure / true)",
+        "source": "RFC 8725 JSON Web Token Best Current Practices; OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cookie_httponly_flag",
+    "option_description": "Whether the session/auth cookie carries the HttpOnly attribute, forbidding JavaScript (document.cookie) access to the token.",
+    "security_impact": "One of the OR-triggers for \"Token / session theft from insecure client storage\" — the exposure fires when this is false, because injected script can read and exfiltrate the session token via document.cookie.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Set-Cookie header from the login/session response and check for the HttpOnly attribute.",
+        "command": "curl -sI https://APP_HOST/login | grep -i '^set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie: session=...; HttpOnly; Secure; SameSite=... (secure / true) vs no HttpOnly flag (insecure / false)",
+        "source": "MDN Set-Cookie header reference; OWASP Session Management Cheat Sheet"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the HttpOnly column for the session cookie in DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Application > Storage > Cookies — check HttpOnly column",
+        "expected_output": "HttpOnly checked for the session cookie (secure / true) vs unchecked (insecure / false)",
+        "source": "MDN Set-Cookie header reference (DevTools inspection)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cookie_secure_flag",
+    "option_description": "Whether the session cookie carries the Secure attribute so it is only transmitted over HTTPS, preventing leakage to a network attacker over cleartext.",
+    "security_impact": "An OR-trigger for both \"Token / session theft from insecure client storage\" and \"Session hijacking over insecure transport / mixed content\" — both fire when this is false, because the cookie can leak over cleartext and be replayed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Set-Cookie header and check for the Secure attribute.",
+        "command": "curl -sI https://APP_HOST/login | grep -i '^set-cookie' | grep -io 'Secure'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure (present = secure / true) vs no match (insecure / false)",
+        "source": "MDN Set-Cookie header reference"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the Secure column for the session cookie in DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Application > Storage > Cookies — check Secure column",
+        "expected_output": "Secure checked for the session cookie (secure / true) vs unchecked (insecure / false)",
+        "source": "MDN Set-Cookie header reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "samesite_mode",
+    "option_description": "The SameSite attribute value on the session cookie (Strict, Lax, or None), controlling whether the cookie is sent on cross-site requests.",
+    "security_impact": "One of the OR-triggers for \"Token / session theft from insecure client storage\" — the exposure fires when this equals 'None' (cookie sent cross-site, widening replay/CSRF surface); 'Strict' and 'Lax' are the non-firing secure values.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Set-Cookie header and read the SameSite= value.",
+        "command": "curl -sI https://APP_HOST/login | grep -i '^set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SameSite=Strict/Lax (secure) vs SameSite missing or =None (weaker / firing)",
+        "source": "MDN Set-Cookie header reference (SameSite, __Host- prefix)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Read the SameSite column for the session cookie in DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Application > Storage > Cookies — read SameSite column",
+        "expected_output": "Strict or Lax (secure) vs None (firing)",
+        "source": "MDN Set-Cookie header reference (SameSite, __Host- prefix)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "Strict",
+      "Lax",
+      "None"
+    ]
+  },
+  {
+    "option_name": "access_token_short_lived_rotated",
+    "option_description": "Whether access tokens delivered to the client are short-lived (minutes) with refresh-token rotation and server-side revocation.",
+    "security_impact": "One of the OR-triggers for \"Token / session theft from insecure client storage\" — the exposure fires when this is false, because a stolen long-lived token remains valid long enough to hijack the account and cannot be revoked.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Decode the access token and read its exp claim; confirm token lifetime is short and rotation/revocation is in place.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Decode the access token (jwt.io / DevTools) and read the exp claim; check DevTools > Application > Local/Session Storage for any token presence",
+        "expected_output": "Short exp (minutes), no token in JS-readable storage (secure / true) vs long exp and token in localStorage (insecure / false)",
+        "source": "RFC 8725 JSON Web Token Best Current Practices; OWASP Session Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm refresh-token rotation and server-side revocation are configured in the identity/session layer.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Refresh-token rotation + server-side revocation enabled (secure / true) vs non-revocable long-lived bearer tokens (false)",
+        "source": "RFC 8725 JSON Web Token Best Current Practices; OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "hsts_enabled",
+    "option_description": "Whether the application sends a Strict-Transport-Security response header with a long max-age and includeSubDomains, forcing the browser onto HTTPS.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking over insecure transport / mixed content\" — the exposure fires when this is false (missing header or max-age=0), allowing SSL-strip/downgrade so cookies/tokens travel in cleartext.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Strict-Transport-Security response header.",
+        "command": "curl -sI https://APP_HOST/ | grep -i '^strict-transport-security'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "strict-transport-security: max-age=63072000; includeSubDomains (secure / true) vs absent / max-age=0 (insecure / false)",
+        "source": "RFC 6797 HTTP Strict Transport Security (HSTS); OWASP Secure Headers Project"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the document response headers in DevTools for the HSTS header and its max-age.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > strict-transport-security",
+        "expected_output": "Long max-age with includeSubDomains (secure / true) vs absent or max-age=0 (false)",
+        "source": "RFC 6797 HTTP Strict Transport Security (HSTS); OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "upgrade_insecure_requests_enabled",
+    "option_description": "Whether the Content-Security-Policy includes the upgrade-insecure-requests directive, instructing the browser to rewrite http:// subresource requests to https://.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking over insecure transport / mixed content\" — the exposure fires when this is false, leaving the page reliant on no-mixed-content discipline and exposed to cleartext downgrade of subresources.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the CSP header carries the upgrade-insecure-requests directive.",
+        "command": "curl -sI https://APP_HOST/ | grep -i 'content-security-policy' | grep -io 'upgrade-insecure-requests'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "upgrade-insecure-requests present (secure / true) vs absent (false)",
+        "source": "OWASP Secure Headers Project (recommended CSP); MDN Content-Security-Policy header reference"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the CSP in DevTools and confirm the upgrade-insecure-requests directive is present.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > content-security-policy",
+        "expected_output": "Directive present (secure / true) vs absent (false)",
+        "source": "OWASP Secure Headers Project (recommended CSP); MDN Content-Security-Policy header reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mixed_content_present",
+    "option_description": "Whether the page actually references http:// scripts, iframes, or other active subresources (active mixed content). True is the insecure state.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking over insecure transport / mixed content\" — the exposure fires when this is true, because an attacker can read/modify the downgraded cleartext portion and ride the session even with HSTS present.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Load the page and watch the DevTools Console / Security panel for mixed-content warnings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Console / Security panel — look for 'Mixed Content' warnings on page load",
+        "expected_output": "No mixed-content warnings (secure / false) vs blocked/upgraded http subresource warnings (insecure source present / true)",
+        "source": "Mozilla Web Security Guidelines"
+      },
+      {
+        "type": "command",
+        "instruction": "Scan the rendered HTML for hardcoded http:// active subresources.",
+        "command": "curl -s https://APP_HOST/ | grep -oE '(src|href)=\"http://[^\"]+\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No http:// active subresources (secure / false) vs http:// script/iframe references (insecure / true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "subresource_integrity_enforced",
+    "option_description": "Whether every cross-origin/CDN <script> and <link> tag carries a Subresource Integrity (integrity='sha384-...') attribute plus crossorigin, so the browser rejects a tampered/swapped third-party resource.",
+    "security_impact": "One of the OR-triggers for \"Client-side supply-chain compromise (CDN/npm, no SRI)\" — the exposure fires when this is false (a CDN script has no integrity attribute), the Magecart-style supply-chain-exposed state.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List external script tags and confirm each carries an integrity attribute.",
+        "command": "curl -s https://APP_HOST/ | grep -oE '<script[^>]*src=\"https?://[^\"]+\"[^>]*>' | grep -L 'integrity='",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All external scripts carry integrity='sha384-...' + crossorigin (secure / true) vs external scripts without integrity= (insecure / false)",
+        "source": "MDN Subresource Integrity"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect cross-origin script/link elements in the DevTools Elements panel for integrity + crossorigin attributes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Elements — inspect each cross-origin <script>/<link> for integrity= and crossorigin attributes",
+        "expected_output": "Every external resource SRI-pinned (secure / true) vs unpinned CDN script (insecure / false)",
+        "source": "MDN Subresource Integrity"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dependency_versions_pinned_lockfile",
+    "option_description": "Whether the client-side JS dependency tree is pinned via a committed lockfile (package-lock.json / pnpm-lock.yaml / yarn.lock) with exact resolved versions and integrity hashes.",
+    "security_impact": "One of the OR-triggers for \"Client-side supply-chain compromise (CDN/npm, no SRI)\" — the exposure fires when this is false (unpinned/floating dependencies), allowing a compromised upstream package to be silently swapped into the build.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a committed lockfile with exact resolved versions and integrity hashes is present and is the authoritative install source.",
+        "command": null,
+        "file_path": "package-lock.json | pnpm-lock.yaml | yarn.lock",
+        "navigation": null,
+        "expected_output": "Lockfile committed with exact pinned versions + integrity hashes (secure / true) vs no lockfile / floating ranges (insecure / false)",
+        "source": "MDN Subresource Integrity; OWASP Top 10 A06 Vulnerable and Outdated Components"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the CI build installs from the committed lockfile (e.g. npm ci / pnpm install --frozen-lockfile) rather than resolving fresh.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CI uses frozen-lockfile install (secure / true) vs unpinned resolution at build (false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dependency_vulnerability_scanning_enabled",
+    "option_description": "Whether automated Software Composition Analysis / dependency scanning (npm audit, Dependabot, SCA tooling) runs against the client-side dependency tree to surface known-vulnerable or malicious packages before release.",
+    "security_impact": "One of the OR-triggers for \"Client-side supply-chain compromise (CDN/npm, no SRI)\" — the exposure fires when this is false (the dependency tree is unaudited).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Run npm audit and confirm SCA gating runs in CI, reviewing all external script origins for necessity and SRI.",
+        "command": "npm audit --production",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No high/critical advisories and every external script vetted+SRI-pinned (secure / true) vs unaudited tree / unpinned CDN scripts (insecure / false)",
+        "source": "MDN Subresource Integrity; OWASP Top 10 A06 Vulnerable and Outdated Components"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SCA / dependency scanning gates release on unresolved high/critical advisories in the CI pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCA enabled and gating release (secure / true) vs no scanning (insecure / false)",
+        "source": "OWASP Top 10 A06 Vulnerable and Outdated Components"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "frame_ancestors_restricted",
+    "option_description": "Whether the CSP frame-ancestors directive is set to 'none' or 'self' — the modern primary anti-clickjacking control.",
+    "security_impact": "One of the OR-triggers for \"Clickjacking / UI redress\" — the exposure fires when this is false (frame-ancestors absent or permissive), leaving the page embeddable in an attacker-controlled iframe.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the CSP and X-Frame-Options headers and confirm frame-ancestors is 'none' or 'self'.",
+        "command": "curl -sI https://APP_HOST/ | grep -iE '^(x-frame-options|content-security-policy)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "frame-ancestors 'none'/'self' present (secure / true) vs absent/permissive (clickjackable / false)",
+        "source": "OWASP Secure Headers Project; MDN Content-Security-Policy header reference (frame-ancestors)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the CSP in DevTools for the frame-ancestors directive.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > content-security-policy",
+        "expected_output": "frame-ancestors 'none' or 'self' (secure / true) vs absent or permissive (false)",
+        "source": "MDN Content-Security-Policy header reference (frame-ancestors)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "x_frame_options_set",
+    "option_description": "Whether the X-Frame-Options response header is set to DENY or SAMEORIGIN — the legacy anti-framing fallback for older clients.",
+    "security_impact": "One of the OR-triggers for \"Clickjacking / UI redress\" — the exposure fires when this is false (header absent); with frame-ancestors also missing, the page is framable by any origin.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the X-Frame-Options response header.",
+        "command": "curl -sI https://APP_HOST/ | grep -i '^x-frame-options'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DENY or SAMEORIGIN present (secure / true) vs absent (false)",
+        "source": "OWASP Secure Headers Project"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the document response headers in DevTools for X-Frame-Options.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > document request > Response Headers > x-frame-options",
+        "expected_output": "DENY/SAMEORIGIN present (secure / true) vs absent (false)",
+        "source": "OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cors_allow_origin_wildcard",
+    "option_description": "Whether the Access-Control-Allow-Origin response header is set to '*' (wildcard) rather than an explicit allow-listed origin. True is insecure.",
+    "security_impact": "One of the OR-triggers for \"Overly-permissive CORS / unvalidated postMessage origin\" — the exposure fires when this is true, because a wildcard ACAO lets any origin issue cross-origin reads (and exposes authenticated responses when combined with credentials).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Issue a cross-origin request and inspect the Access-Control-Allow-Origin response header for a wildcard.",
+        "command": "curl -sI -H 'Origin: https://evil.example' https://APP_HOST/api/ | grep -iE '^access-control-allow-(origin|credentials)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Explicit trusted origin only (secure / false) vs Access-Control-Allow-Origin: '*' (insecure / true)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the CORS response headers of a cross-origin API call in DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > select the API request > Response Headers > access-control-allow-origin",
+        "expected_output": "Explicit origin (secure / false) vs '*' (insecure / true)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cors_origin_reflected",
+    "option_description": "Whether the server reflects an arbitrary request Origin back into Access-Control-Allow-Origin without validating it against an allow-list. True is insecure (functionally a credentialed wildcard).",
+    "security_impact": "One of the OR-triggers for \"Overly-permissive CORS / unvalidated postMessage origin\" — the exposure fires when this is true, because a spoofed attacker Origin is echoed and granted cross-origin read access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Send a request with a spoofed Origin header and confirm the server does NOT echo it into Access-Control-Allow-Origin.",
+        "command": "curl -sI -H 'Origin: https://evil.example' https://APP_HOST/api/ | grep -iE '^access-control-allow-(origin|credentials)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No reflection of evil origin (secure / false) vs Access-Control-Allow-Origin reflecting the attacker Origin (insecure / true)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Repeat the spoofed-Origin probe with several distinct fake origins to confirm none are reflected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server emits only its fixed allow-listed origin regardless of supplied Origin (secure / false) vs each fake origin echoed back (insecure / true)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cors_allow_credentials",
+    "option_description": "Whether the Access-Control-Allow-Credentials response header is true, permitting credentialed cross-origin requests (cookies/Authorization forwarded). Only safe with an explicit validated origin allow-list.",
+    "security_impact": "One of the OR-triggers for \"Overly-permissive CORS / unvalidated postMessage origin\" — a secondary trigger that, combined with the absence of an allow-list, exposes authenticated responses to a malicious origin.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the Access-Control-Allow-Credentials response header on a cross-origin request.",
+        "command": "curl -sI -H 'Origin: https://evil.example' https://APP_HOST/api/ | grep -iE '^access-control-allow-(origin|credentials)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access-Control-Allow-Credentials: true only alongside a single validated origin (acceptable) vs true with wildcard/reflected origin (insecure / true firing)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the CORS response headers of a credentialed cross-origin call in DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > select the API request > Response Headers > access-control-allow-credentials",
+        "expected_output": "Credentials only paired with explicit allow-listed origin (acceptable) vs credentials with permissive origin (insecure)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cors_origin_allowlist_strict",
+    "option_description": "Whether Access-Control-Allow-Origin is emitted only after validating the request Origin against an explicit finite allow-list (with Vary: Origin). True is the secure state.",
+    "security_impact": "One of the OR-triggers for \"Overly-permissive CORS / unvalidated postMessage origin\" — the exposure fires on its absence (is_false) when credentials are also allowed, because credentialed CORS without a strict allow-list exposes authenticated responses.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Probe with both a trusted and a spoofed Origin and confirm the server validates against a finite allow-list and emits Vary: Origin.",
+        "command": "curl -sI -H 'Origin: https://evil.example' https://APP_HOST/api/ | grep -iE '^(access-control-allow-origin|vary)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only validated allow-listed origins echoed, Vary: Origin present (secure / true) vs any origin accepted (insecure / false)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the server CORS configuration to confirm the request Origin is checked against a finite allow-list before emitting Access-Control-Allow-Origin.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Finite validated allow-list in config (secure / true) vs wildcard/reflected behavior (insecure / false)",
+        "source": "MDN CORS guide (wildcard + credentials rule)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "postmessage_origin_validated",
+    "option_description": "Whether every window.postMessage receiver (addEventListener('message', ...)) checks event.origin against a trusted allow-list before acting on the message.",
+    "security_impact": "One of the OR-triggers for \"Overly-permissive CORS / unvalidated postMessage origin\" — the exposure fires on its absence (is_false), because a handler with no event.origin check lets a malicious frame/window inject or steal cross-frame data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep client source for message listeners and postMessage senders and review their origin handling.",
+        "command": "grep -rnE \"addEventListener\\(['\\\"]message['\\\"]|postMessage\\(\" CLIENT_SRC/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every message listener checks event.origin against a trusted allow-list (secure / true) vs missing origin check (insecure / false)",
+        "source": "MDN CORS guide (postMessage origin validation note)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Code review: confirm each message-event handler validates event.origin before processing the payload.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All handlers validate event.origin (secure / true) vs an unchecked handler (insecure / false)",
+        "source": "MDN CORS guide (postMessage origin validation note)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "postmessage_target_origin_wildcard",
+    "option_description": "Whether any window.postMessage sender uses a '*' targetOrigin instead of an explicit https origin, broadcasting (potentially sensitive) messages to whatever origin occupies the target frame. True is insecure.",
+    "security_impact": "One of the OR-triggers for \"Overly-permissive CORS / unvalidated postMessage origin\" — the exposure fires when this is true, because a wildcard targetOrigin can leak the message to a hostile origin.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep client source for postMessage senders and confirm none use '*' as targetOrigin.",
+        "command": "grep -rnE \"postMessage\\(\" CLIENT_SRC/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every postMessage pins an explicit https origin (secure / false) vs a '*' targetOrigin (insecure / true)",
+        "source": "MDN CORS guide (postMessage origin validation note)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Code review: confirm no postMessage call uses '*' as targetOrigin; each pins an explicit https origin.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Explicit targetOrigin everywhere (secure / false) vs a wildcard targetOrigin (insecure / true)",
+        "source": "MDN CORS guide (postMessage origin validation note)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cache_control_no_store_on_sensitive",
+    "option_description": "Whether authenticated/sensitive responses (PII or token-bearing) carry Cache-Control: no-store (with max-age=0), preventing the payload from lingering in the browser disk cache, back-button history, or shared proxies.",
+    "security_impact": "One of the OR-triggers for \"Sensitive data cached / persisted client-side\" — the exposure fires when this is false (a cacheable sensitive response), leaving PII/tokens in client/proxy caches.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Request an authenticated sensitive page and read its Cache-Control header.",
+        "command": "curl -sI -H 'Cookie: session=...' https://APP_HOST/account | grep -iE '^cache-control'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "cache-control: no-store (secure / true) vs public / long max-age / absent on a PII page (insecure / false)",
+        "source": "OWASP Secure Headers Project (Cache-Control for sensitive data)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the Cache-Control response header of an authenticated/sensitive response in DevTools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Network tab > select an authenticated response > Response Headers > cache-control",
+        "expected_output": "no-store, max-age=0 (secure / true) vs cacheable (insecure / false)",
+        "source": "OWASP Secure Headers Project (Cache-Control for sensitive data)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "sensitive_field_autocomplete_off",
+    "option_description": "Whether secret/sensitive input fields (passwords, MFA codes, account/card numbers) disable browser autofill via autocomplete=off (or autocomplete=\"new-password\"), preventing the browser caching the secret on a shared device.",
+    "security_impact": "One of the OR-triggers for \"Sensitive data cached / persisted client-side\" — the exposure fires when this is false, because the browser's autofill store retains the secret.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Fetch the form HTML and inspect secret fields for the autocomplete attribute.",
+        "command": "curl -s https://APP_HOST/login | grep -iE '<input[^>]*(type=\"password\"|name=\"(otp|card|account)\")[^>]*>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret fields carry autocomplete=off / autocomplete=\"new-password\" (secure / true) vs no autocomplete attribute (insecure / false)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the rendered secret input elements in the DevTools Elements panel for autocomplete handling.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools > Elements — inspect password/MFA/card inputs for autocomplete=off / \"new-password\"",
+        "expected_output": "autocomplete disabled on secret fields (secure / true) vs autofill permitted (insecure / false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_side_input_validation_enforced",
+    "option_description": "Whether the server independently re-validates all client-supplied input (types, ranges, business-rule constraints) on every state-changing/sensitive endpoint, rather than relying on client-side/UI validation.",
+    "security_impact": "One of the OR-triggers for \"Server relying on client-side validation / authorization\" — the exposure fires when this is false, because an attacker can modify the client or call the API directly to bypass client-only validation.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Replay a tampered request body via curl bypassing the UI and confirm the server rejects it.",
+        "command": "curl -X POST -H 'Content-Type: application/json' -d '{\"tampered\":\"value\"}' https://APP_HOST/api/endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server rejects (400/422) the tampered/invalid request (secure / true) vs server accepts client-only-validated input (insecure / false)",
+        "source": "OWASP Application Security Verification Standard (ASVS); OWASP Top 10 A03 Injection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the endpoint handlers to confirm server-side validation exists independent of the client.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server-side validation present on every state-changing endpoint (secure / true) vs reliance on client-side validation only (insecure / false)",
+        "source": "OWASP Application Security Verification Standard (ASVS)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authz_enforced_server_side_centrally",
+    "option_description": "Whether the server enforces authentication and authorization for every sensitive action server-side, independent of the untrusted client, with no reliance on UI hiding of privileged controls.",
+    "security_impact": "One of the OR-triggers for \"Server relying on client-side validation / authorization\" — the exposure fires when this is false, because an attacker can drive a non-browser client or replay a privileged call to reach functionality the UI merely hid.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Replay a privileged API call with a lower-privileged token, bypassing the UI, and confirm a 403.",
+        "command": "curl -H 'Authorization: Bearer LOW_PRIV_TOKEN' https://APP_HOST/api/admin/action",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server rejects (403/422) the over-privileged request (secure / true) vs server honors it (insecure / false)",
+        "source": "OWASP Application Security Verification Standard (ASVS); OWASP Top 10 A01 Broken Access Control"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the authorization layer to confirm checks are centralized server-side and not dependent on UI control visibility.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Central server-side authZ on every sensitive action (secure / true) vs UI-hiding-based access control (insecure / false)",
+        "source": "OWASP Top 10 A01 Broken Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "client_asserted_state_trusted_serverside",
+    "option_description": "Whether the server honors roles, privilege flags, or authorization decisions asserted by the client (e.g. an isAdmin field in the request body, a client-supplied role header, or a client-editable JWT claim) instead of deriving them from trusted server-side state. True is insecure.",
+    "security_impact": "One of the OR-triggers for \"Server relying on client-side validation / authorization\" — the exposure fires when this is true, because the untrusted client can edit the asserted role/flag to escalate privilege.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Tamper a client-asserted role/flag in the request and confirm the server ignores it, deriving authorization from server-side state.",
+        "command": "curl -X POST -H 'Content-Type: application/json' -d '{\"isAdmin\":true}' https://APP_HOST/api/action",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server ignores the client-asserted flag and derives authZ from trusted session/store (secure / false) vs server honors it (insecure / true)",
+        "source": "OWASP Application Security Verification Standard (ASVS); OWASP Top 10 A01 Broken Access Control"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the request-handling path to confirm roles/privilege are read from server-side session/store, never from the request body or client-editable claims.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authorization derived from server-side trusted state (secure / false) vs client-asserted role honored (insecure / true)",
+        "source": "OWASP Top 10 A01 Broken Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

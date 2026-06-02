@@ -1,0 +1,101 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "automated_os_patch_management_enabled": false,
+      "automated_application_patch_management_enabled": false,
+      "os_patch_deployment_cadence_days": 0,
+      "emergency_out_of_band_patch_path": false,
+      "critical_patch_window_days": 0,
+      "documented_vulnerability_and_remediation_process": false,
+      "patch_coverage_of_inventory_complete": false,
+      "firmware_and_network_device_patch_coverage": false,
+      "third_party_and_agent_patch_coverage": false,
+      "vulnerability_scanning_feeds_prioritization": false,
+      "internal_scan_interval_days": 0,
+      "external_scan_interval_days": 0,
+      "remediation_rate_measured_between_scans": false,
+      "patch_tested_in_staging_before_production": false,
+      "patch_rollback_path_exists": false,
+      "patch_change_control_enforced": false,
+      "update_source_integrity_verified": false,
+      "patch_compliance_reporting_and_metrics": false
+    },
+    "expectedCountermeasures": [
+      "Vulnerability scanning feeds risk-based prioritization"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "automated_os_patch_management_enabled": true,
+      "automated_application_patch_management_enabled": true,
+      "os_patch_deployment_cadence_days": 0,
+      "emergency_out_of_band_patch_path": true,
+      "critical_patch_window_days": 0,
+      "documented_vulnerability_and_remediation_process": true,
+      "patch_coverage_of_inventory_complete": true,
+      "firmware_and_network_device_patch_coverage": true,
+      "third_party_and_agent_patch_coverage": true,
+      "vulnerability_scanning_feeds_prioritization": true,
+      "internal_scan_interval_days": 0,
+      "external_scan_interval_days": 0,
+      "remediation_rate_measured_between_scans": true,
+      "patch_tested_in_staging_before_production": true,
+      "patch_rollback_path_exists": true,
+      "patch_change_control_enforced": true,
+      "update_source_integrity_verified": true,
+      "patch_compliance_reporting_and_metrics": true
+    },
+    "expectedCountermeasures": [
+      "Patch testing, staged rollout, and rollback",
+      "Automated patch deployment on cadence",
+      "Risk-based critical-SLA and emergency out-of-band patch path",
+      "Vulnerability scanning feeds risk-based prioritization",
+      "Change-controlled deployment from a verified update source",
+      "Complete patch coverage across the asset and software inventory",
+      "Patch compliance reporting and metrics"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "automated_os_patch_management_enabled": true,
+      "automated_application_patch_management_enabled": true,
+      "os_patch_deployment_cadence_days": 0,
+      "emergency_out_of_band_patch_path": true,
+      "critical_patch_window_days": 0,
+      "documented_vulnerability_and_remediation_process": true,
+      "patch_coverage_of_inventory_complete": true,
+      "firmware_and_network_device_patch_coverage": true,
+      "third_party_and_agent_patch_coverage": true,
+      "vulnerability_scanning_feeds_prioritization": true,
+      "internal_scan_interval_days": 0,
+      "external_scan_interval_days": 0,
+      "remediation_rate_measured_between_scans": true,
+      "patch_tested_in_staging_before_production": true,
+      "patch_rollback_path_exists": true,
+      "patch_change_control_enforced": true,
+      "update_source_integrity_verified": true,
+      "patch_compliance_reporting_and_metrics": true
+    },
+    "expectedCountermeasures": [
+      "Automated patch deployment on cadence",
+      "Risk-based critical-SLA and emergency out-of-band patch path",
+      "Change-controlled deployment from a verified update source",
+      "Complete patch coverage across the asset and software inventory",
+      "Vulnerability scanning feeds risk-based prioritization",
+      "Patch compliance reporting and metrics",
+      "Patch testing, staged rollout, and rollback"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

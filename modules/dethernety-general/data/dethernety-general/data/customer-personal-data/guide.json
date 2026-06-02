@@ -1,0 +1,302 @@
+[
+  {
+    "attribute_name": "access_audit_trail_enabled",
+    "option_name": "Access audit trail enabled",
+    "how_to_obtain": [
+      "Verify per NIST SP 800-53 AU-2 / AU-3 that every read of the PII store is logged with subject, object, timestamp, and source; review the data-store's audit configuration (e.g. PostgreSQL pgaudit, MySQL audit plugin, MongoDB auditLog, AWS CloudTrail data events on S3/RDS/DynamoDB).",
+      "Run a benign authenticated SELECT against a PII table and confirm a record appears in the audit sink within the documented latency window — absence proves the trail is off (source: OWASP Logging Cheat Sheet, 'Event Attributes' section).",
+      "Cross-check against PCI DSS v4.0 Req 10.2.1.1 (all individual access to cardholder data is logged) and CIS Controls v8 Safeguard 8.5 (collect detailed audit logs).",
+      "Insecure value (false) is an OR-trigger of the 'Audit-log tampering' exposure — without the trail there is nothing for an attacker to tamper with, but the underlying detection gap is the same."
+    ]
+  },
+  {
+    "attribute_name": "at_rest_encryption_strength",
+    "option_name": "At-rest encryption algorithm strength",
+    "how_to_obtain": [
+      "Review the cryptographic inventory: algorithm must be AES-GCM or AES-CCM with key length >= 128 bits, no DES/3DES/RC4/MD5/SHA-1 for confidentiality, no ECB mode (source: OWASP Cryptographic Storage Cheat Sheet, 'Algorithms' section).",
+      "Confirm PCI DSS v4.0 Req 3.5.1 attestation of strong cryptography with minimum 112-bit effective key strength and a documented crypto-agility plan for weak-cipher retirement.",
+      "Inspect the data store's encryption configuration (e.g. `aws rds describe-db-instances --query 'DBInstances[].StorageEncrypted'`, `gcloud kms keys describe`, TDE algorithm in SQL Server `sys.dm_database_encryption_keys`) and confirm AEAD mode.",
+      "Enum values 'none' or 'weak' are OR-triggers of the 'Unencrypted PII at rest' exposure; 'strong' is required to satisfy PCI DSS Req 3 and NIST SP 800-53 SC-28 (Protection of Information at Rest)."
+    ]
+  },
+  {
+    "attribute_name": "audit_log_tamper_evident",
+    "option_name": "Audit log tamper-evident",
+    "how_to_obtain": [
+      "Verify NIST SP 800-53 AU-9 evidence: audit logs are shipped to an append-only / WORM sink (S3 Object Lock, Azure Blob immutability, GCS Bucket Lock, dedicated SIEM with retention lock), and data-plane admins cannot modify or delete log entries.",
+      "Confirm cryptographic integrity: hash-chained / signed log streams (e.g. AWS CloudTrail log file validation via `aws cloudtrail validate-logs`, journald FSS, syslog-ng disk-buffer with HMAC).",
+      "Cross-check against PCI DSS v4.0 Req 10.3.2 (audit log files protected from modification) and Req 10.3.4 (file-integrity monitoring on logs).",
+      "Insecure value (false) is an OR-trigger of the 'Audit-log tampering' exposure — maps to MITRE ATT&CK T1562.008 (Disable or Modify Cloud Logs)."
+    ]
+  },
+  {
+    "attribute_name": "audit_management_restricted_to_privileged_subset",
+    "option_name": "Audit management restricted to privileged subset (separation of duties)",
+    "how_to_obtain": [
+      "Per NIST SP 800-53 AU-9(4) separation of duties: list the IAM principals with permissions to rotate, delete, or reconfigure the audit-log sink and confirm they are disjoint from the data-plane principals who can read/write PII.",
+      "Inspect IAM policies — e.g. `aws iam simulate-principal-policy` against `logs:DeleteLogGroup` / `s3:PutBucketPolicy` on the log bucket; Azure RBAC `Microsoft.Insights/*` role assignments — data-plane admins must NOT hold these.",
+      "Review PCI DSS v4.0 Req 10.3.1 (read access to audit logs limited to job-related need) and Req 6.4.2 / 7.2 (separation of duties between development, operations, and audit).",
+      "Insecure (false) — same principal can both touch the data and erase the evidence — is an OR-trigger of the 'Audit-log tampering' exposure."
+    ]
+  },
+  {
+    "attribute_name": "backups_encrypted",
+    "option_name": "Backups, snapshots, and exports encrypted",
+    "how_to_obtain": [
+      "Inspect the backup register: every backup target lists encryption, KMS key, retention, and restore-test cadence (source: NIST SP 800-88 Rev. 2 Guidelines for Media Sanitization, §4 Media Sanitization Categories).",
+      "Run cloud-provider checks: `aws rds describe-db-snapshots --query 'DBSnapshots[].Encrypted'`, `aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].Encrypted'`, `aws s3api get-bucket-encryption` on the backup bucket — every entry must be true.",
+      "Confirm PCI DSS v4.0 Req 3.5.1 covers backup media (the requirement is media-agnostic) and Req 9.4.1 (media containing cardholder data physically secured).",
+      "Insecure (false) is an OR-trigger of the 'Unencrypted PII at rest' exposure — backups are the most common forgotten cleartext copy that re-exposes data even when the primary store is encrypted."
+    ]
+  },
+  {
+    "attribute_name": "bulk_export_monitored_and_alerted",
+    "option_name": "Bulk export anomaly monitoring and alerting",
+    "how_to_obtain": [
+      "Review the monitoring stack for volumetric anomaly rules on the PII store: row-count thresholds, byte-volume baselines, query-cardinality alerts (e.g. CloudWatch metric alarms on `BytesDownloaded` for S3, Datadog DB query-volume monitors, Splunk anomaly detection on SELECT row counts).",
+      "Run a synthetic bulk-export test: SELECT 10x the normal page size, or perform an S3 ListObjects + bulk GetObject, and confirm an alert fires within the documented SLA (source: OWASP Logging Cheat Sheet, 'Event Monitoring' section).",
+      "Cross-check against CIS Controls v8 Safeguard 13.3 (Deploy a Network Intrusion Detection Solution) and Safeguard 8.11 (Conduct Audit Log Reviews).",
+      "Insecure (false) is an OR-trigger of the 'Bulk exfiltration without DLP or egress monitoring' exposure — maps to MITRE ATT&CK T1030 (Data Transfer Size Limits) detection gap."
+    ]
+  },
+  {
+    "attribute_name": "dlp_egress_controls_enabled",
+    "option_name": "DLP / egress controls on PII outbound paths",
+    "how_to_obtain": [
+      "Inspect the DLP coverage matrix: every outbound channel (HTTP API, SQL export, email, cloud-storage upload, removable media) has detection patterns for PII/PAN/health-data with block-or-quarantine action (source: CIS Controls v8 Safeguard 3.13 Deploy a Data Loss Prevention Solution).",
+      "Run a synthetic exfil test: upload a marked test PII payload (canary records, marked-credit-card test BIN) to an external web service and confirm the egress is blocked or alerts (source: MITRE ATT&CK T1567 Exfiltration Over Web Service).",
+      "Inspect product configuration: e.g. Symantec / Forcepoint DLP rule sets, Google Cloud DLP InspectJobs, AWS Macie sensitive-data findings; Netskope / Zscaler CASB egress rules.",
+      "Insecure (false) is an OR-trigger of the 'Bulk exfiltration without DLP or egress monitoring' exposure — covers MITRE ATT&CK T1567, T1567.002 (Exfiltration to Cloud Storage), and T1537 (Transfer Data to Cloud Account)."
+    ]
+  },
+  {
+    "attribute_name": "encrypted_at_rest",
+    "option_name": "Encryption at rest enabled",
+    "how_to_obtain": [
+      "Architecture review confirms encryption at rest on every store of customer data (DB, object store, backups, search index, message-queue persistence, caches) — ciphers AES-128-GCM/CCM or stronger (source: OWASP Cryptographic Storage Cheat Sheet, 'Storing the Cryptographic Material').",
+      "Confirm PCI DSS v4.0 Req 3.5.1 evidence that PAN is rendered unreadable anywhere stored — via strong cryptography, one-way hash, truncation, or tokenization.",
+      "Per-platform check: `aws s3api get-bucket-encryption --bucket <pii-bucket>`, `aws rds describe-db-instances --query 'DBInstances[?StorageEncrypted==\\`false\\`]'`, `gcloud sql instances describe`, MongoDB `db.serverStatus().encryption`; cross-reference NIST SP 800-53 SC-28 (Protection of Information at Rest).",
+      "Insecure (false) is the primary OR-trigger of the 'Unencrypted PII at rest' exposure — maps to CWE-311 and MITRE ATT&CK T1213 (Data from Information Repositories)."
+    ]
+  },
+  {
+    "attribute_name": "field_level_protection_method",
+    "option_name": "Field-level protection method",
+    "how_to_obtain": [
+      "Review the schema and ORM/data-access layer: list each sensitive column (PAN, SSN, national ID, full DoB) and the protection applied — truncation, one-way hash (with appropriate salt/pepper), tokenization (vault token), field-level encryption (e.g. AWS KMS envelope, MongoDB CSFLE), or pseudonymization (source: NIST SP 800-188 De-Identifying Government Datasets, §4 De-Identification Techniques).",
+      "Confirm PCI DSS v4.0 Req 3.5.1 strong-crypto, Req 3.4.1 PAN-rendered-unreadable when stored, and Req 3.4 PAN masked when displayed (max first-six / last-four).",
+      "Inspect tokenization-vault configuration (e.g. HashiCorp Vault Transit / Transform engine, TokenEx, Skyflow): confirm the production data-store holds only tokens, with format-preserving or random tokenization documented.",
+      "Enum value 'none' is an OR-trigger of the 'Unprotected sensitive fields (no masking/tokenization)' exposure — equivalent to CWE-200 record-level exposure."
+    ]
+  },
+  {
+    "attribute_name": "governed_transfer_safeguards",
+    "option_name": "Governed cross-border transfer safeguards",
+    "how_to_obtain": [
+      "Inspect the record-of-processing: every cross-border transfer to a non-adequacy country must be covered by GDPR Article 46 safeguards — Standard Contractual Clauses (2021 Commission set), Binding Corporate Rules, or equivalent (source: GDPR Articles 44–49).",
+      "Confirm a documented Transfer Impact Assessment (TIA) post-Schrems II (CJEU C-311/18) for each transfer, addressing third-country surveillance law and supplementary technical measures.",
+      "Sample one active vendor / sub-processor that processes PII outside the controller's region and pull the signed SCC plus TIA — absence on any transfer means the attestation is false.",
+      "Insecure (false) is an OR-trigger of the 'Data residency / sovereignty violation' exposure."
+    ]
+  },
+  {
+    "attribute_name": "hsts_enforced",
+    "option_name": "HSTS enforced on browser-facing endpoints",
+    "how_to_obtain": [
+      "Network test: `curl -sI https://<host> | grep -i strict-transport-security` — expect `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` or similar per RFC 6797.",
+      "Confirm submission to the browser HSTS preload list via https://hstspreload.org/?domain=<host> for top-level domains carrying PII (source: OWASP HTTP Strict Transport Security Cheat Sheet).",
+      "Inspect reverse-proxy / load-balancer config (e.g. nginx `add_header Strict-Transport-Security`, AWS ALB rule, Cloudflare HSTS toggle) and confirm `max-age` >= 31536000 (1 year).",
+      "Insecure (false) is an OR-trigger of the 'Cleartext or downgraded transport of PII' exposure — without HSTS a sslstrip-style downgrade puts PII on the wire in clear (MITRE ATT&CK T1557)."
+    ]
+  },
+  {
+    "attribute_name": "key_rotation_enabled",
+    "option_name": "Encryption-key rotation enabled",
+    "how_to_obtain": [
+      "Inspect KMS rotation configuration: `aws kms get-key-rotation-status --key-id <id>` must report `KeyRotationEnabled: true`; Azure Key Vault `az keyvault key rotation-policy show`; GCP `gcloud kms keys describe --format='get(rotationPeriod)'`.",
+      "Confirm PCI DSS v4.0 Req 3.7.4 attestation: cryptographic keys rotated at the end of the defined cryptoperiod, per NIST SP 800-57 Part 1 guidance (typical: 1 year for DEKs, 2 years for KEKs).",
+      "Cross-check against OWASP Key Management Cheat Sheet 'Key Rotation' section: documented rotation policy AND evidence of actual rotation events in the KMS audit log.",
+      "Insecure (false) is an OR-trigger of the 'Weak key management (keys co-located, unrotated, no HSM/KMS)' exposure."
+    ]
+  },
+  {
+    "attribute_name": "keys_derived_from_passphrase",
+    "option_name": "Keys derived from passphrase (low-entropy KEK)",
+    "how_to_obtain": [
+      "Review the key-generation procedure: KEK/DEK must be generated as full-entropy random material by an HSM/KMS, not derived from a human-chosen passphrase fed through PBKDF2/scrypt/Argon2 (source: OWASP Key Management Cheat Sheet, 'Key Generation' section).",
+      "Inspect config files, environment variables, and secret-manager entries for patterns like `ENCRYPTION_PASSWORD`, `KEY_PASSPHRASE`, `MASTER_PASSWORD` — any such derivation is the insecure value.",
+      "Confirm PCI DSS v4.0 Req 3.6.1.2 (cryptographic keys distributed securely) and Req 3.7.6 (split knowledge / dual control of cleartext keying material) — passphrase-derived keys typically violate split-knowledge.",
+      "Insecure (true) is an OR-trigger of the 'Weak key management (keys co-located, unrotated, no HSM/KMS)' exposure."
+    ]
+  },
+  {
+    "attribute_name": "keys_managed_in_hsm_or_kms",
+    "option_name": "Keys managed in HSM / KMS",
+    "how_to_obtain": [
+      "Verify key inventory shows DEKs wrapped by KEKs in a KMS/HSM (e.g. AWS KMS, GCP Cloud KMS, Azure Key Vault Premium, HashiCorp Vault Transit, Thales Luna HSM); KEKs never appear in application config or source (source: OWASP Key Management Cheat Sheet).",
+      "Confirm PCI DSS v4.0 Req 3.6 attestation: key-management procedures cover generation, distribution, storage, rotation, retirement; Req 3.7 covers split-knowledge / dual-control.",
+      "Scan source repos and container images for hard-coded key material: `gitleaks detect`, `trufflehog filesystem .` — must return zero high-confidence findings for encryption keys (mitigates CWE-798 Use of Hard-coded Credentials).",
+      "Insecure (false) is an OR-trigger of the 'Weak key management (keys co-located, unrotated, no HSM/KMS)' exposure — common in early-stage stacks that ship encryption-key material in `.env` files."
+    ]
+  },
+  {
+    "attribute_name": "keys_stored_with_data",
+    "option_name": "Keys stored with data (co-located)",
+    "how_to_obtain": [
+      "Architecture review: key-storage blast radius must be disjoint from ciphertext blast radius — KEK in KMS (separate IAM, separate region replica) with wrapped DEKs alongside ciphertext is acceptable; raw DEK in the same DB row or volume is not (source: OWASP Key Management Cheat Sheet, 'Key Storage' section).",
+      "Inspect backups: a backup that contains both ciphertext AND the raw key collapses the control — confirm KMS keys are NOT included in DB snapshots.",
+      "Confirm PCI DSS v4.0 Req 3.6.1.3: access to cryptographic keys restricted to the fewest number of custodians necessary, separated from access to the data.",
+      "Insecure (true) is an OR-trigger of the 'Weak key management (keys co-located, unrotated, no HSM/KMS)' exposure."
+    ]
+  },
+  {
+    "attribute_name": "least_privilege_access_enforced",
+    "option_name": "Least-privilege access enforced",
+    "how_to_obtain": [
+      "Entitlement review shows access to personal-data tables / buckets granted by named role with documented business need; entitlements reviewed at least annually (source: CIS Controls v8 Safeguard 3.3 Configure Data Access Control Lists, Safeguard 6.8 Define and Maintain Role-Based Access Control).",
+      "Confirm PCI DSS v4.0 Req 7.2.1 access control system covers all components, Req 7.2.4 (review user access at least once every six months), Req 7.2.5 (manage application / service accounts).",
+      "Inspect IAM: `aws iam list-policies --scope Local` for the PII data store; flag any `*:*` or `<service>:*` on the PII resource. Cross-reference NIST SP 800-53 AC-6 (Least Privilege).",
+      "Insecure (false) is an OR-trigger of the 'Over-broad access to PII stores' exposure — maps to MITRE ATT&CK T1213 (Data from Information Repositories)."
+    ]
+  },
+  {
+    "attribute_name": "pan_rendered_unreadable",
+    "option_name": "PAN rendered unreadable anywhere stored",
+    "how_to_obtain": [
+      "Confirm PCI DSS v4.0 Req 3.5.1 attestation: PAN is rendered unreadable anywhere it is stored, by one of strong cryptography, one-way hash (full PAN), truncation (first 6 / last 4), or tokenization.",
+      "Sample the PII data store: SELECT a sample row and confirm the PAN column is not in cleartext — it contains a token, a truncated value, or ciphertext.",
+      "Inspect any analytics export, replication target, search index, and log sink — PCI DSS Req 3.5.1 applies everywhere PAN appears, not only the primary store.",
+      "Insecure (false) is an OR-trigger of the 'Unprotected sensitive fields (no masking/tokenization)' exposure — by definition a PCI DSS Req 3.5 finding."
+    ]
+  },
+  {
+    "attribute_name": "pii_excluded_from_logs",
+    "option_name": "PII excluded from logs and telemetry",
+    "how_to_obtain": [
+      "Log analysis: `grep -E '[0-9]{13,19}|[\\w.-]+@[\\w.-]+\\.\\w+|password=|authorization: bearer' <log_sample>` — should produce no hits; logging framework has redaction filters on known sensitive field names (source: OWASP Logging Cheat Sheet, 'Data to exclude' section).",
+      "Code review confirms structured logging with explicit, allow-listed fields; debug logs disabled in production; CWE-532 (Insertion of Sensitive Information into Log File) controls in place.",
+      "Inspect APM / distributed-tracing config (Datadog, New Relic, Honeycomb) for span-attribute denylists / scrubbers on `http.request.body`, `db.statement`, `user.email`.",
+      "Insecure (false) is an OR-trigger of the 'PII leakage into logs and telemetry' exposure — logs are typically retained longer and more broadly accessible than the primary data store."
+    ]
+  },
+  {
+    "attribute_name": "relies_on_disk_encryption_only",
+    "option_name": "Relies on disk-encryption-only at rest",
+    "how_to_obtain": [
+      "Architecture review: identify the at-rest layers protecting PII — disk/volume (LUKS, BitLocker, EBS volume encryption) AND/OR application/column/tablespace encryption (TDE, MongoDB CSFLE, application envelope encryption); if ONLY the disk layer is present, the attestation is true (insecure).",
+      "Confirm the threat model recognises that volume crypto is transparent to a live OS — a compromised application, DB account, or host reads cleartext (source: OWASP Cryptographic Storage Cheat Sheet, 'Storage' guidance).",
+      "Cross-check PCI DSS v4.0 Req 3.5.1.2: where disk-level encryption is used on non-removable media for PAN, additional controls must apply (or a layered control such as column-level encryption is recommended).",
+      "Insecure (true) is an OR-trigger of the 'Unencrypted PII at rest' exposure — even where `encrypted_at_rest` is true, single-layer disk crypto fails the threat model for live-host compromise."
+    ]
+  },
+  {
+    "attribute_name": "residency_confined_to_approved_regions",
+    "option_name": "Residency confined to approved regions",
+    "how_to_obtain": [
+      "Inventory check: pull the regions of every PII-bearing store — primary DB, replicas, snapshots, search indexes, caches, log sinks — via `aws ec2 describe-regions`, `aws s3api get-bucket-location`, `aws rds describe-db-instances --query '[].[DBInstanceIdentifier,AvailabilityZone]'`, GCP `gcloud asset search-all-resources`, Azure Resource Graph.",
+      "Cross-reference against the contract / regulator-approved region list (e.g. EEA + adequacy-decision countries for EU PII); any residency outside the list is insecure (source: GDPR Articles 44–49 + Schrems II CJEU C-311/18).",
+      "Confirm DR replicas, ad-hoc operational copies, and downstream processor locations are scoped — the dossier flags these as common silent escapes.",
+      "Insecure (false) is an OR-trigger of the 'Data residency / sovereignty violation' exposure — maps to MITRE ATT&CK T1537 (Transfer Data to Cloud Account) in the cross-account / region exfil sense."
+    ]
+  },
+  {
+    "attribute_name": "retention_schedule_enforced",
+    "option_name": "Retention schedule actively enforced",
+    "how_to_obtain": [
+      "Retention schedule is keyed by data class; automated purge job evidence (cron history, scheduled-task logs, lifecycle policy via `aws s3api get-bucket-lifecycle-configuration`); backups also rolled within the retention window (source: NIST SP 800-88 Rev. 2 Guidelines for Media Sanitization).",
+      "Confirm PCI DSS v4.0 Req 3.2.1: cardholder data storage is minimized; data exceeding retention is securely destroyed; Req 3.1 sets the data-retention and disposal policy requirement.",
+      "Cross-check GDPR Art. 5(1)(e) storage-limitation: documented purpose-linked retention period; sample DSAR fulfilment evidence to confirm purge actually runs.",
+      "Insecure (false) is an OR-trigger of the 'Indefinite retention and unsafe deletion' exposure."
+    ]
+  },
+  {
+    "attribute_name": "row_or_column_level_restriction",
+    "option_name": "Row-level / column-level access restriction",
+    "how_to_obtain": [
+      "Inspect database-level controls: PostgreSQL row-security policies (`SELECT * FROM pg_policies`), MySQL views with `WHERE` tenancy clauses, SQL Server Row-Level Security predicates, Snowflake row-access policies + dynamic-data-masking policies, BigQuery row-level access policies + column-level access tags.",
+      "Confirm PCI DSS v4.0 Req 7.2.1 (access control covers all components and accounts) and Req 7.2.5.1 (application / system accounts have access restricted to that necessary); CIS Controls v8 Safeguard 3.3 (Configure Data Access Control Lists).",
+      "Sample test: connect as a low-privilege role / service-account and SELECT — confirm the result excludes other tenants' rows and that PII columns return masked / null values.",
+      "Insecure (false) is an OR-trigger of the 'Over-broad access to PII stores' exposure — table-level grants without finer scope mean one compromised analyst reads everyone."
+    ]
+  },
+  {
+    "attribute_name": "secrets_masked_in_logs",
+    "option_name": "Secrets masked / redacted in logs",
+    "how_to_obtain": [
+      "Inspect the logging framework's redaction config: e.g. Logback `replace` patterns, log4j2 `ReplaceConverter`, Winston / Pino redact arrays, Serilog destructuring policies — must scrub known sensitive field names (`password`, `authorization`, `cookie`, `api_key`, card-number patterns) before sinks (source: OWASP Logging Cheat Sheet, 'Data to exclude' section).",
+      "Confirm coverage extends across centralised sinks: Splunk / Elastic / Loki forwarders apply props.conf / pipeline filters; distributed-tracing spans (OpenTelemetry) have processors stripping sensitive attributes.",
+      "Log analysis sample: `grep -iE 'authorization: bearer|password=|secret=|api[_-]?key=' <production_log_sample>` — should produce no hits over a 24-hour sample window (CWE-532 mitigation).",
+      "Insecure (false) is an OR-trigger of the 'PII leakage into logs and telemetry' exposure — together with `pii_excluded_from_logs` covers CWE-532 end-to-end."
+    ]
+  },
+  {
+    "attribute_name": "secure_deletion_or_crypto_shred",
+    "option_name": "Secure deletion / crypto-shred at retention-end",
+    "how_to_obtain": [
+      "Confirm retention-end deletion applies NIST SP 800-88 Rev. 2 sanitization (Clear / Purge / Destroy) matched to media risk, OR crypto-shredding (KMS key destruction makes ciphertext unrecoverable) across primary stores AND backups.",
+      "Inspect KMS-key lifecycle for crypto-shred evidence: `aws kms schedule-key-deletion` audit history; key-rotation + decommission policy documented per OWASP Key Management Cheat Sheet 'Key Destruction'.",
+      "Confirm PCI DSS v4.0 Req 3.2.1 (data exceeding retention rendered unrecoverable) and Req 9.4.7 (electronic media destroyed when no longer needed).",
+      "Insecure (false) is an OR-trigger of the 'Indefinite retention and unsafe deletion' exposure — 'soft' logical deletes do not satisfy this."
+    ]
+  },
+  {
+    "attribute_name": "sensitive_fields_field_level_protected",
+    "option_name": "Sensitive fields field-level protected",
+    "how_to_obtain": [
+      "Per the schema, every high-sensitivity field (PAN, SSN, government ID, biometric) is protected by at least one of: truncation, one-way hash, tokenization, field-level encryption, or pseudonymization (source: NIST SP 800-188 De-Identifying Government Datasets + PCI DSS v4.0 Req 3.3–3.5).",
+      "Sample query as a low-privilege role: confirm PII fields return masked / tokenized / encrypted values, not plaintext.",
+      "Inspect application code paths that handle sensitive fields: tokenization-vault calls, format-preserving encryption wrappers, hash-with-pepper helpers — confirm no code path persists cleartext alongside the protected form.",
+      "Insecure (false) is an OR-trigger of the 'Unprotected sensitive fields (no masking/tokenization)' exposure — a PCI DSS Req 3.3 / 3.5 audit finding."
+    ]
+  },
+  {
+    "attribute_name": "shared_admin_accounts",
+    "option_name": "Shared admin / service accounts to PII store",
+    "how_to_obtain": [
+      "Per PCI DSS v4.0 Req 8.2.1: all access is identified to an individual user — generic / shared / group accounts to the PII data store are prohibited; confirm via `SELECT usename FROM pg_user`, MySQL `mysql.user`, AWS IAM users on the DB resource, MongoDB `db.getUsers()`.",
+      "Cross-check NIST SP 800-53 IA-2 (Identification and Authentication — Organizational Users): each user uniquely identified before access; CIS Controls v8 Safeguard 5.4 (Restrict Administrator Privileges to Dedicated Administrator Accounts).",
+      "Interview the on-call rota: confirm break-glass / emergency-access credentials are per-person (vaulted with checkout audit), not a shared root password.",
+      "Insecure (true) is an OR-trigger of the 'Over-broad access to PII stores' exposure — one credential compromise yields the whole dataset and queries cannot be attributed."
+    ]
+  },
+  {
+    "attribute_name": "soft_delete_leaves_recoverable_pii",
+    "option_name": "Soft-delete leaves recoverable PII",
+    "how_to_obtain": [
+      "Review the deletion implementation: a soft-delete (tombstone column, `deleted_at` flag, status='inactive') that leaves the underlying row, plus its appearance in backups and replicas, is the insecure value (source: dossier 'retention_and_deletion_policy' surface).",
+      "Sample test: 'delete' a test PII record via the application, then connect as DB admin and confirm whether the row is still SELECTable; check whether the most recent backup still contains the row.",
+      "Confirm GDPR Art. 17 (Right to Erasure) compliance: subject-erasure runbook must propagate to primary, replicas, search indexes, analytics warehouses, AND backups within the retention rollover window.",
+      "Insecure (true) is an OR-trigger of the 'Indefinite retention and unsafe deletion' exposure — Marriott / H&M-class finding pattern."
+    ]
+  },
+  {
+    "attribute_name": "storage_destinations_documented",
+    "option_name": "Storage destinations inventoried and documented",
+    "how_to_obtain": [
+      "Per CIS Controls v8 Safeguards 3.1 / 3.2 / 3.7 (Establish and Maintain a Data Inventory, Manage Data Inventory, Establish and Maintain a Data Classification Scheme): data inventory covers structured + unstructured stores, primary + backups, with classification labels; reviewed >= annually.",
+      "Cross-check GDPR Art. 30 records-of-processing: each processing activity names every storage destination including geographic location; sub-processor list is current.",
+      "Inspect inventory tooling: AWS Macie / GCP Cloud DLP / Azure Purview discovery scans for PII across accounts; reconcile findings against the documented inventory — undiscovered storage means the attestation is false.",
+      "Insecure (false) is an OR-trigger of the 'Data residency / sovereignty violation' exposure — you cannot prove residency you do not know."
+    ]
+  },
+  {
+    "attribute_name": "tls_only_transport",
+    "option_name": "TLS-only transport for PII (no cleartext fallback)",
+    "how_to_obtain": [
+      "Network test: `openssl s_client -connect <host>:<port> -tls1_2` succeeds AND a plaintext attempt (`curl http://<host>:<port>/`) is refused / redirected with 301 to HTTPS (source: CIS Controls v8 Safeguard 3.10 Encrypt Sensitive Data in Transit).",
+      "Inventory of every flow touching personal data documents TLS termination + minimum version — east-west AND north-south, internal service-to-service AND service-to-DB (source: GDPR Article 32(1)(a) appropriate-measure record).",
+      "Inspect listener configuration: nginx / Envoy / HAProxy have no plain HTTP `listen` on PII-bearing endpoints; DB clients enforce `sslmode=verify-full` (PostgreSQL) / `--ssl-mode=VERIFY_IDENTITY` (MySQL); message brokers (Kafka, RabbitMQ) accept TLS-only listeners. Cross-reference NIST SP 800-53 SC-8 (Transmission Confidentiality and Integrity).",
+      "Insecure (false) is the primary OR-trigger of the 'Cleartext or downgraded transport of PII' exposure — maps to CWE-319 and MITRE ATT&CK T1557 (Adversary-in-the-Middle)."
+    ]
+  },
+  {
+    "attribute_name": "weak_tls_versions_enabled",
+    "option_name": "Weak TLS versions / ciphers enabled",
+    "how_to_obtain": [
+      "Network test: `nmap --script ssl-enum-ciphers -p <port> <host>` OR `testssl.sh --severity HIGH <host>:<port>` — output must show TLS 1.2 / TLS 1.3 only, no SSLv2/v3/TLS 1.0/TLS 1.1, no RC4/3DES/EXPORT/NULL ciphers (source: OWASP Transport Layer Security Cheat Sheet).",
+      "Confirm PCI DSS v4.0 Req 4.2.1 strong cryptography and security protocols for in-transit cardholder data — TLS 1.2 minimum; weak ciphers (including those marked WEAK by IETF) disabled.",
+      "Inspect proxy / load-balancer / TLS-terminator policy: AWS ALB `SecurityPolicy` is `ELBSecurityPolicy-TLS13-1-2-2021-06` or stricter; Cloudflare SSL/TLS minimum version is 1.2; nginx `ssl_protocols TLSv1.2 TLSv1.3;` and `ssl_ciphers` restricted to Mozilla 'intermediate' or 'modern' profile.",
+      "Insecure (true) is an OR-trigger of the 'Cleartext or downgraded transport of PII' exposure — an active MITM can negotiate the downgraded session and read PII (MITRE ATT&CK T1557)."
+    ]
+  }
+]

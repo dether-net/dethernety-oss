@@ -1,0 +1,517 @@
+[
+  {
+    "option_name": "permissions_granted_via_roles_only",
+    "option_description": "Whether every effective permission is conferred only through a role assignment, with no direct user-to-permission grant, inline grant, or ad-hoc ACE that bypasses the role model (INCITS 359 Core RBAC invariant).",
+    "security_impact": "Satisfies \"Role-only permission grants with deny-by-default enforcement\" — fires when permissions_granted_via_roles_only is true — providing the Core RBAC role-only invariant (D3-UAP / mitigation M1026) that closes the direct-grant loophole T1098 (Account Manipulation) relies on. One of the OR-triggers (with deny_by_default_authorization) that establishes the role-only grant path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate every principal's effective permissions and verify each derives from a role assignment, not a direct grant. Look for any AWS inline user policies, direct DB GRANT to a login, or per-user ACEs that confer access outside a role.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "0 direct user-permission bindings; every effective permission traces to a role. Any user holding permissions outside a role is a violation.",
+        "source": "NIST RBAC FAQ / INCITS 359 Core RBAC"
+      },
+      {
+        "type": "command",
+        "instruction": "For a cloud-IAM implementation, list inline and attached policies directly on human user identities (substitute the user name); permissions should arrive only via group/role membership.",
+        "command": "aws iam list-user-policies --user-name <u> ; aws iam list-attached-user-policies --user-name <u>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty inline and attached policy lists for human users (PolicyNames: [] and AttachedPolicies: []). Any non-empty list is a direct grant = insecure.",
+        "source": "CIS AWS Foundations Benchmark (IAM least-privilege)"
+      },
+      {
+        "type": "command",
+        "instruction": "Pull the full authorization detail set to systematically find direct user-attached policies across the account rather than checking users one at a time.",
+        "command": "aws iam get-account-authorization-details --filter User",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each UserDetailList entry has empty UserPolicyList and AttachedManagedPolicies; permissions appear only under GroupDetailList/RoleDetailList. Users with non-empty policy lists are direct grants.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "deny_by_default_authorization",
+    "option_description": "Whether the authorization engine fails closed: access is denied unless an explicitly authorizing role grants it, with no default-allow fallthrough when no role matches.",
+    "security_impact": "Satisfies \"Role-only permission grants with deny-by-default enforcement\" — fires when deny_by_default_authorization is true — enforcing AC-3/AC-3(7) access enforcement so the engine returns deny on absence of an authorizing role, mitigating privilege escalation via default-allow (T1548). One of the OR-triggers (with permissions_granted_via_roles_only) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Probe a protected resource as a principal that holds NO authorizing role and confirm the policy decision point returns deny; verify the engine's evaluation default is deny rather than an implicit allow on no-match.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access denied for the unauthorized principal; policy default is deny (AC-3 enforce approved authorizations only). A grant on absence of a matching role = default-allow = insecure.",
+        "source": "NIST SP 800-53 AC-3 Access Enforcement / AC-3(7) RBAC policy"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM, simulate an action the test principal has no role/policy granting and confirm the simulator returns implicitDeny (no statement allowed it).",
+        "command": "aws iam simulate-principal-policy --policy-source-arn <arn> --action-names <action> --resource-arns <resource>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EvalDecision: implicitDeny for the unauthorized action — confirming no ambient/default allow.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "rbac_enforced_at_resource_pep",
+    "option_description": "Whether the role-based authorization decision is enforced at the resource / policy enforcement point for every request — uniformly at system, application, and service levels — with no path (direct DB, object store, admin console, back-end API) that circumvents the role check.",
+    "security_impact": "Satisfies \"RBAC enforced at every resource path without bypass\" — fires when rbac_enforced_at_resource_pep is true — providing AC-3 access enforcement at the resource PEP so no unauthenticated or non-RBAC route reaches the resource, mitigating valid-account abuse and bypass (T1078). The sole trigger of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach the protected resource via every known path — API, direct DB connection, object store, admin console — and confirm each applies the same role check rather than only the UI layer enforcing it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every access path applies the identical RBAC decision. Any path that grants access without the role (e.g. direct DB connection bypassing the app) is a bypass = insecure.",
+        "source": "NIST SP 800-53 AC-3 Access Enforcement (system/application/service levels)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the architecture/access-path map and confirm the role check sits at the protected resource and cannot be skipped by client-side checks; enumerate alternate access paths and confirm each is subject to the same RBAC decision.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented enumeration of all access paths (DB, object store, admin console, back-end API) each mapped to the same enforcement point. No unprotected back door.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "role_grants_least_privilege",
+    "option_description": "Whether each role authorizes only the accesses its task requires — permission sets scoped to the minimum needed, with no broad grants beyond task need and no wildcard or admin-equivalent grants (e.g. '*' actions/resources, superuser permissions).",
+    "security_impact": "Satisfies \"Least-privilege role scoping with privileged-role minimization\" — fires when role_grants_least_privilege is true — providing AC-6 least privilege (D3-UAP) that blunts valid-account abuse by minimizing what a compromised principal inherits (T1078). One of the OR-triggers (with privileged_roles_minimized, admins_use_separate_nonprivileged_accounts) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review each role definition against its documented purpose; confirm no permission exceeds task need. Flag wildcard/admin-equivalent grants (Action:* Resource:*) and roles whose permission set exceeds their job function.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each role scoped to its task minimum; no wildcard / all-access / superuser entries. Over-broad roles or a few god-roles everyone holds = insecure.",
+        "source": "NIST SP 800-53 AC-6 Least Privilege"
+      },
+      {
+        "type": "command",
+        "instruction": "Use the cloud access analyzer / Access Advisor last-accessed data to confirm role permissions are actually used and surface unused over-broad permissions for removal.",
+        "command": "aws accessanalyzer list-findings  # unused-access analyzer; or review IAM Access Advisor last-accessed data per role",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Roles show permissions actually used; unused/over-broad permissions flagged. Persistent unused broad permissions = scope creep = insecure.",
+        "source": "CIS AWS Foundations Benchmark (IAM.28 Access Analyzer)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "privileged_roles_minimized",
+    "option_description": "Whether privileged/admin roles are held by a minimal, named set of principals rather than broadly assigned, limiting the standing-escalation blast radius of any single compromised principal.",
+    "security_impact": "Satisfies \"Least-privilege role scoping with privileged-role minimization\" — fires when privileged_roles_minimized is true — providing AC-6(2)/AC-6(5) privileged-access minimization that mitigates abuse of elevation control (T1548). One of the OR-triggers (with role_grants_least_privilege, admins_use_separate_nonprivileged_accounts) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate the members of each privileged/admin-equivalent role and confirm membership equals a documented, minimal, named authorized set rather than being broadly assigned.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each privileged role's member count matches the minimal documented set. Bloated/standing admin membership = insecure.",
+        "source": "NIST SP 800-53 AC-6(2)/AC-6(5) ; CIS Controls v8 Control 5 (5.4 dedicated admin accounts)"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS, list which principals can assume each admin role / are attached to AdministratorAccess; for Azure AD/Entra review Privileged Role Administrator and Global Administrator assignments (ideally via PIM eligible-vs-active).",
+        "command": "aws iam get-account-authorization-details --filter Role  # cross-ref AdministratorAccess attachments and AssumeRole trust ; az role assignment list --role 'Owner' --all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A short, named list of admin-role principals matching the authorized set; Azure PIM shows privileged roles as eligible (just-in-time) rather than permanently active for most members.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "admins_use_separate_nonprivileged_accounts",
+    "option_description": "Whether holders of privileged roles perform routine, non-administrative work from separate non-privileged roles/accounts, so day-to-day activity does not run with standing elevated privilege.",
+    "security_impact": "Satisfies \"Least-privilege role scoping with privileged-role minimization\" — fires when admins_use_separate_nonprivileged_accounts is true — providing AC-6(5) dedicated-admin separation (CIS 5.4) that limits exposure of privileged credentials during routine work, mitigating elevation abuse (T1548). One of the OR-triggers of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm privileged principals each have a distinct non-privileged identity used for routine computing (email, browsing, general work) and that admin accounts/roles are reserved for administrative tasks only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each admin maps to a separate non-privileged account for daily work; admin role used only for admin actions. Admins using the privileged role for everyday work = insecure.",
+        "source": "NIST SP 800-53 AC-6(2)/AC-6(5) ; CIS Controls v8 Control 5 (5.4 dedicated admin accounts)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample sign-in / activity logs for admin-role accounts and confirm they are used for administrative actions, not general interactive day-to-day usage (e.g. no routine email/SaaS sign-ins from the privileged identity).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin-account activity is sparse and administrative in nature; routine activity originates from the paired non-privileged identity.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "segregation_of_duties_enforced",
+    "option_description": "Whether separation of duties is enforced over documented mutually-exclusive (toxic) duty pairs via Static SoD (a principal cannot be assigned both roles) and/or Dynamic SoD (cannot activate both in one session), encoded as SSD/DSD constraints and blocked at decision time — not merely policy on paper.",
+    "security_impact": "Satisfies \"Separation of duties enforced over toxic role combinations\" — fires when segregation_of_duties_enforced is true — providing AC-5 separation of duties (INCITS 359 SSD/DSD) that prevents a single principal completing a maker=checker workflow, mitigating fraud/account manipulation (T1098). The sole trigger of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm documented mutually-exclusive duty pairs exist (e.g. create vendor AND approve payment) and review the RBAC engine's SoD ruleset export to verify those toxic combinations are encoded as SSD (assignment) and/or DSD (session) constraints.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented toxic-pair list, each mapped to an SSD/DSD constraint in the engine. No SoD model / one principal able to hold maker+checker = insecure.",
+        "source": "NIST RBAC FAQ / INCITS 359 (SSD/DSD) ; NIST SP 800-53 AC-5 Separation of Duties"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Run a positive enforcement probe: attempt to assign (SSD) or activate in one session (DSD) both halves of a documented toxic pair and confirm the engine refuses it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The assignment/activation is rejected by the engine at decision time. Acceptance of a forbidden combination = SoD not actually enforced = insecure.",
+        "source": "NIST RBAC FAQ / INCITS 359 (SSD/DSD) ; NIST SP 800-53 AC-5 Separation of Duties"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "role_definitions_documented_and_governed",
+    "option_description": "Whether every role has a documented purpose, named owner, and an explicitly defined permission set on record, so the role model is intelligible and authoritative rather than an opaque accretion of grants.",
+    "security_impact": "Satisfies \"Role definitions governed with role-explosion hygiene\" — fires when role_definitions_documented_and_governed is true — providing the documented RBAC scheme CIS 6.8 requires, the governance baseline that makes weakening edits (T1484) detectable. One of the OR-triggers (with role_change_control_enforced, role_model_rationalized_no_explosion) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the maintained role catalog and confirm each role records a purpose/justification, a named owner, and an explicit permission (rights) set, reviewed periodically.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A role catalog mapping each role to its rights, owner, and purpose. Undocumented roles, no owner, or informally-added permissions = insecure.",
+        "source": "CIS Controls v8 Control 6 (6.8 define/maintain RBAC)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "role_change_control_enforced",
+    "option_description": "Whether role definitions and their permission sets are maintained under formal change control (request, review/approval, and recorded change history) so role-definition edits cannot drift ungoverned.",
+    "security_impact": "Satisfies \"Role definitions governed with role-explosion hygiene\" — fires when role_change_control_enforced is true — providing the governed role-change workflow that mitigates domain/tenant policy modification to weaken access control (T1484). One of the OR-triggers (with role_definitions_documented_and_governed, role_model_rationalized_no_explosion) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the change-management process and audit trail for role-definition modifications; confirm a request, review/approval step, and recorded change history are required before any role's permission set is edited.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each role-definition edit traces to an approved change request with recorded history (who/what/when/approver). Direct ungoverned edits to role permissions = insecure.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Cross-reference recent role-definition change events in the audit log against the change-management tickets to confirm no out-of-band edits occurred without an approval record.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every logged role-definition edit maps to an approved change record; any orphaned edit with no ticket is ungoverned drift.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "role_model_rationalized_no_explosion",
+    "option_description": "Whether the role model is actively kept rationalized via role mining/consolidation and role hierarchy rather than accreting near-duplicate single-member roles, preventing role explosion that re-creates direct-grant behaviour.",
+    "security_impact": "Satisfies \"Role definitions governed with role-explosion hygiene\" — fires when role_model_rationalized_no_explosion is true — providing the role-hierarchy/hygiene facet (INCITS 359 Hierarchical RBAC) that keeps the model governable so least privilege stays meaningful. One of the OR-triggers (with role_definitions_documented_and_governed, role_change_control_enforced) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review total role count vs population, the single-member-role ratio, and duplicate/redundant roles; look for evidence of periodic role-mining/consolidation activity and a role hierarchy with inheritance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rationalized role set with periodic cleanup records; few single-member roles. Thousands of near-duplicate or one-off single-member roles = role explosion = governance breakdown = insecure.",
+        "source": "NIST RBAC FAQ / INCITS 359 (Hierarchical RBAC) ; NIST SP 800-53 AC-6 Least Privilege"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "periodic_privilege_recertification",
+    "option_description": "Whether role/permission assignments are reviewed on a defined cadence via attestation campaigns: each grant is explicitly confirmed or revoked by an accountable reviewer and the recertification results are recorded.",
+    "security_impact": "Satisfies \"Periodic access recertification with centralized authority\" — fires when periodic_privilege_recertification is true — providing AC-6(7) review of user privileges that closes the gap where access outlives its need, mitigating privilege accumulation (T1098). One of the OR-triggers (with recertification_max_interval_days, centralized_authorization_directory) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Obtain records of completed recertification/attestation campaigns and confirm they run on a defined cadence, that each grant was explicitly confirmed or revoked by an accountable reviewer, and that revocations were actioned and outcomes recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Completed campaign records within the defined period (e.g. quarterly) with revocations actioned. No campaign records or stale (>1yr unreviewed) assignments = insecure.",
+        "source": "NIST SP 800-53 AC-6(7) Review of User Privileges"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IdP/IGA tool (e.g. Entra ID Access Reviews, SailPoint/Saviynt certification campaigns), open the recertification campaign dashboard and review the most recent campaign's completion status and decisions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Identity Governance > Access Reviews (Entra) or Certifications > Campaigns (IGA tool) > most recent campaign > Results",
+        "expected_output": "A completed campaign with per-assignment confirm/revoke decisions recorded. Open/overdue or never-run campaigns = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "recertification_max_interval_days",
+    "option_description": "Maximum elapsed days between successive access-recertification campaigns for a given assignment. A bounded cadence (commonly <= 90 days, tighter for privileged roles) ensures access does not outlive its need.",
+    "security_impact": "Satisfies \"Periodic access recertification with centralized authority\" — fires when recertification_max_interval_days is at or below the policy threshold — quantifying the AC-6(7) review cadence so privilege accumulation (T1098) cannot persist between reviews. One of the OR-triggers (with periodic_privilege_recertification, centralized_authorization_directory) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine the maximum days the policy permits between recertification campaigns for an assignment, and confirm actual campaign cadence does not exceed it (commonly <= 90 days, tighter for privileged roles).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bounded interval at or below the policy threshold (e.g. 90). An unbounded or >1yr interval means access can outlive its need = insecure.",
+        "source": "NIST SP 800-53 AC-6(7) Review of User Privileges"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IGA/IdP access-review settings, read the configured recurrence/frequency of the certification campaign and compute the maximum interval in days; check privileged-role campaigns for a tighter cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Identity Governance > Access Reviews > <review> > Settings > Recurrence (e.g. Quarterly = ~90 days)",
+        "expected_output": "Recurrence resolves to <= the policy threshold in days (e.g. Quarterly -> 90; Monthly -> 30 for privileged).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "30",
+      "180"
+    ]
+  },
+  {
+    "option_name": "centralized_authorization_directory",
+    "option_description": "Whether access is centralized through a directory/IdP acting as a single source of truth, so grants and revocations apply consistently rather than across N disconnected role tables where stale access lingers.",
+    "security_impact": "Satisfies \"Periodic access recertification with centralized authority\" — fires when centralized_authorization_directory is true — providing CIS 6.7/5.6 centralized access control so a single leaver/revoke action removes access everywhere, mitigating orphaned standing access (T1078). One of the OR-triggers (with periodic_privilege_recertification, recertification_max_interval_days) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a central directory/identity service (IdP/SSO) is authoritative for role assignment and that consuming systems federate to it rather than keeping disconnected per-system local role tables.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grants and revocations flow through one central directory/IdP single source of truth. Each system keeping its own role table (revocation done N times) = insecure.",
+        "source": "CIS Controls v8 Control 6 (6.7) ; CIS Controls v8 Control 5 (5.6)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inventory the in-scope applications and confirm each consumes roles/assignments from the central IdP (SAML/OIDC/SCIM provisioning) rather than maintaining standalone local accounts and roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Application inventory shows federation/SCIM to the central directory; few or no apps with standalone local role tables.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "joiner_mover_leaver_lifecycle_enforced",
+    "option_description": "Whether role assignments are bound to identity-lifecycle events from the authoritative HR/identity source: joiners provisioned per least privilege, and movers/transfers have prior-position roles removed as part of granting new ones, so a transferred principal does not retain standing access from previous duties (no privilege accumulation / role creep).",
+    "security_impact": "Satisfies \"Joiner-mover-leaver lifecycle deprovisioning enforced\" — fires when joiner_mover_leaver_lifecycle_enforced is true — providing AC-2 account management / CIS 6.1-6.2 lifecycle binding that prevents transfer-driven privilege accumulation, mitigating orphaned standing access (T1078) and account manipulation (T1098). One of the OR-triggers (with offboarding_credential_revocation_enforced) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Sample recent joiners and movers/transfers: confirm joiner roles match the assigned job per least privilege and that mover/transfer workflows REMOVED roles tied to the prior position, not just added the new position's roles, all driven from the authoritative HR/identity source.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Joiner roles match job; mover lost prior-position roles. Transfers that accumulate roles (old roles retained) = privilege creep = insecure.",
+        "source": "CIS Controls v8 Control 6 (6.1 grant, 6.2 revoke) ; NIST SP 800-53 AC-2 Account Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the HR-driven provisioning integration (e.g. HR feed to IdP/IGA) and confirm mover events trigger a role swap workflow (remove superseded + add new) rather than additive-only requests.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented HR-event-driven joiner/mover workflows with transfer logic that removes superseded roles. Ad-hoc, request-only additive provisioning = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "offboarding_credential_revocation_enforced",
+    "option_description": "Whether, on a leaver/termination event, all role assignments and access for the principal are revoked promptly within the defined policy window, removing the orphaned standing-access foothold a terminated principal would otherwise retain.",
+    "security_impact": "Satisfies \"Joiner-mover-leaver lifecycle deprovisioning enforced\" — fires when offboarding_credential_revocation_enforced is true — providing CIS 6.2 immediate-on-termination deprovisioning / AC-2 that removes the leaver foothold, mitigating orphaned standing access (T1078). One of the OR-triggers (with joiner_mover_leaver_lifecycle_enforced) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Sample recent leavers/terminations and confirm all role assignments and access were disabled/revoked within the defined policy window (CIS 6.2 immediate on termination), with no lingering access in downstream systems.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terminated users' access disabled within the policy window; no retained roles. Lingering access after termination = insecure.",
+        "source": "CIS Controls v8 Control 6 (6.1 grant, 6.2 revoke) ; NIST SP 800-53 AC-2 Account Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "For sampled terminations, compare the HR termination timestamp against the account-disable/de-provision timestamps in the IdP and downstream-system logs to measure actual revocation latency against the policy window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Revocation timestamps fall within the policy window of the termination event across all systems. Gaps beyond the window = incomplete/slow deprovisioning = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "identity_access_audit_logging_enabled",
+    "option_description": "Whether identity and access events are captured to a centralized audit log (single source of truth), so access-control activity is recorded rather than going unlogged.",
+    "security_impact": "Satisfies \"Role assignment and change audit logging integrity\" — fires when identity_access_audit_logging_enabled is true — providing the AU-family audit capture that makes access-control activity detectable, underpinning detection of account manipulation (T1098) and policy weakening (T1484). One of the OR-triggers (with role_assignment_changes_logged, audit_log_tamper_evident) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm identity and access-control events are captured to a centralized audit log rather than going unlogged; verify the central log is receiving the IdP/IAM event stream.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Identity/access events present in the centralized audit store. Events not captured or only stored locally per-system = insecure.",
+        "source": "NIST SP 800-53 AC-2(7) (monitor role assignments) ; AU family / AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS, confirm a CloudTrail multi-Region trail is enabled and delivering management events (which include IAM/role-change events) to a central log destination.",
+        "command": "aws cloudtrail describe-trails ; aws cloudtrail get-trail-status --name <trail>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one IsMultiRegionTrail: true trail with IsLogging: true delivering to a central S3/CloudWatch destination. No active trail = access events unlogged = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "role_assignment_changes_logged",
+    "option_description": "Whether role assignment and change events specifically — grant, revoke, role-definition edits, and privileged-membership changes — are recorded with the actor, target principal, role, and timestamp, making account manipulation and policy-weakening edits attributable (T1098, T1484).",
+    "security_impact": "Satisfies \"Role assignment and change audit logging integrity\" — fires when role_assignment_changes_logged is true — providing AC-2(7) monitoring of role assignments/changes so account manipulation (T1098) and role/policy modification (T1484) are attributable. One of the OR-triggers (with identity_access_audit_logging_enabled, audit_log_tamper_evident) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Make a test role assignment and confirm an audit event captures the actor, target principal, role, and timestamp; also confirm role-definition edits and privileged-membership changes generate equivalent events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A role-change event with actor/target/role/time fields populated for grant, revoke, role-edit, and privileged-membership changes. Role changes unlogged or missing the field set = insecure.",
+        "source": "NIST SP 800-53 AC-2(7) (monitor role assignments) ; AU family / AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS, query CloudTrail for IAM role-mutation events to confirm they are recorded with the calling identity and parameters.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=AttachRolePolicy  # also AddUserToGroup, PutRolePolicy, AttachUserPolicy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Events returned with userIdentity (actor), requestParameters (target principal/role), and eventTime (timestamp). Absence of role-mutation events = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether the centralized audit store is tamper-protected (append-only / write-once / integrity-sealed) so logged role changes cannot be silently altered or deleted by an attacker covering tracks.",
+    "security_impact": "Satisfies \"Role assignment and change audit logging integrity\" — fires when audit_log_tamper_evident is true — providing AU-9 protection of audit information so logged role/policy changes cannot be silently erased, preserving attribution against track-covering (T1484/T1098). One of the OR-triggers (with identity_access_audit_logging_enabled, role_assignment_changes_logged) of that countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the centralized audit store is append-only / write-once / integrity-sealed so logged role changes cannot be silently altered or deleted; review who can modify or delete log records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit store configured append-only/WORM/integrity-sealed with no actor able to silently mutate records. Locally mutable logs or admins able to delete log entries = insecure.",
+        "source": "NIST SP 800-53 AC-2(7) (monitor role assignments) ; AU family / AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS, verify CloudTrail log-file validation is enabled and the destination S3 bucket has Object Lock (WORM) / restrictive bucket policy so log files are tamper-evident.",
+        "command": "aws cloudtrail describe-trails --query 'trailList[].LogFileValidationEnabled' ; aws s3api get-object-lock-configuration --bucket <log-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LogFileValidationEnabled: true and the log bucket has Object Lock (COMPLIANCE/GOVERNANCE) enabled. Validation off or bucket writable/deletable = not tamper-evident = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  }
+]

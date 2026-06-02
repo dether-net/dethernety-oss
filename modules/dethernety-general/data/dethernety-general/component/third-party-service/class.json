@@ -1,0 +1,9 @@
+{
+  "id": "b61aed3e-b30b-4304-943a-0191a59ce0c6",
+  "name": "Third-Party Service",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "A third-party service — also called an external SaaS, partner API, vendor integration, or external dependency — a service the system relies on for functionality outside the organization's control. Introduces trust, availability, and data-sharing risk across the boundary. The place to look for a third-party/external SaaS, partner API, vendor service, or an outside integration the system depends on.",
+  "category": "External Services",
+  "status": "draft"
+}

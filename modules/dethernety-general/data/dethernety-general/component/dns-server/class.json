@@ -1,0 +1,9 @@
+{
+  "id": "2b469d07-08da-4084-bbc9-e384c182e1ad",
+  "name": "DNS Server",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A DNS server — also called a name server, resolver, Route 53, or domain name service — that resolves hostnames to addresses for internal and external clients. Underpins service discovery and every outbound connection's first lookup. The place to look for DNS, the name server/resolver, domain resolution, or the hostname-to-IP lookup service.",
+  "category": "Infrastructure Services",
+  "status": "draft"
+}

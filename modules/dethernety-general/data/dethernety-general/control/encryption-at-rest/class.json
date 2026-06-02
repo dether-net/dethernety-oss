@@ -1,0 +1,9 @@
+{
+  "id": "f5dfec30-7d94-412e-b982-b3e3d1afd324",
+  "name": "Encryption at Rest",
+  "classType": "control",
+  "type": "Encryption at Rest",
+  "description": "Encryption at rest — also called storage/disk encryption, database/volume encryption, TDE, KMS-managed keys, or encrypted backups — a control that encrypts persisted data so storage compromise yields no readable content. The place to look for at-rest encryption, encrypted disks/volumes/databases, key management for stored data, or protecting data on disk.",
+  "category": "Data Security",
+  "status": "draft"
+}

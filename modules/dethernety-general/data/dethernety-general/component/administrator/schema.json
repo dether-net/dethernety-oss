@@ -1,0 +1,259 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mfa_enforced_for_admin": {
+        "type": "boolean",
+        "title": "MFA Enforced for All Admin Logins",
+        "description": "Attestation: every administrative/privileged login is gated by multi-factor authentication (not a password alone), enforced via the IdP/SSO directory with no admin-role exclusions (CIS 6.5, NIST AC). Secure = true. The exposure fires when MFA is NOT enforced for admins (false), leaving privileged logins password-only and a stolen admin password alone yields a valid session — the primary enabler of credential stuffing, phishing, and valid-credential abuse.",
+        "default": false
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "string",
+        "enum": [
+          "fido2_or_piv",
+          "sms_otp_or_push"
+        ],
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "Attestation: the admin MFA factor is phishing-resistant (FIDO2/WebAuthn or PKI/PIV, origin-bound, AAL2/AAL3 per NIST SP 800-63B / CISA) rather than a phishable shared-secret factor (SMS, voice, TOTP, push). Secure value = fido2_or_piv. The exposure fires on the insecure value sms_otp_or_push, which an AiTM proxy defeats by relaying the captured OTP/push approval to mint a valid session."
+      },
+      "admin_credential_hygiene": {
+        "type": "boolean",
+        "title": "Admin Credential Hygiene Enforced",
+        "description": "Attestation: the residual password factor for admin accounts is strong, unique, and screened against breached-password datasets, with lockout/throttling bound to the account (CIS 5.2, OWASP Credential Stuffing). Secure = true. As a secondary trigger the exposure fires when hygiene is NOT attested (false): reused/short/breached admin passwords make the password leg stuffable even where MFA exists."
+      },
+      "no_shared_privileged_credentials": {
+        "type": "boolean",
+        "title": "Privileged Actions Attributable to Named Operators",
+        "description": "Attestation: every privileged action is attributable to one named human operator — no shared/generic admin logins in routine use (NIST AC-2(7), CIS 5.1). Secure = true. The exposure fires when false — a shared credential broadens who can present 'valid' credentials and makes privileged actions non-attributable even when a log exists, defeating identity-level incident response.",
+        "default": false
+      },
+      "privileged_session_anomaly_monitoring": {
+        "type": "boolean",
+        "title": "Privileged Session Anomaly Monitoring",
+        "description": "Attestation: privileged accounts are monitored for atypical usage (off-hours login, impossible travel, atypical resource access) so abuse of valid admin credentials is detected (NIST AC-2(12), MITRE T1078 detection). Secure = true. The exposure fires when false — an adversary using stolen valid credentials blends into normal traffic undetected.",
+        "default": false
+      },
+      "no_standing_admin_privileges_jit_required": {
+        "type": "boolean",
+        "title": "No Standing Privilege — JIT Elevation Required",
+        "description": "Attestation: privileged access is just-in-time (requested, justified, approved, time-bounded, auto-revoked) toward Zero Standing Privileges, rather than standing/always-on admin role assignments. Secure = true (JIT/ZSP brokered, no persistent active privileged role). The exposure fires when false — always-on standing admin rights an attacker can ride for lateral movement after a single foothold (BeyondTrust ZSP; Entra PIM eligible-vs-active).",
+        "default": false
+      },
+      "least_privilege_admin_scoping": {
+        "type": "boolean",
+        "title": "Least-Privilege Admin Scoping",
+        "description": "Attestation: each admin holds only the minimum privileges required for their role via documented RBAC, rather than blanket global-admin / root-everywhere. Secure = true (scoped least-privilege roles, CIS 6.8; NIST AC-6 / AC-6(5)). The exposure fires when false — over-broad superuser scope that lets a compromised operator pivot across the whole trust zone.",
+        "default": false
+      },
+      "privileged_access_via_pam_with_session_recording": {
+        "type": "boolean",
+        "title": "Privileged Access Brokered Through PAM with Session Recording",
+        "description": "Attestation: privileged access is brokered through a PAM/bastion that vaults credentials and records sessions, so operators do not hold raw long-lived secrets and access is centrally monitored (NIST AC-2(7); OpenSSH bastion hardening). Secure = true. The exposure fires when false — operators connect directly with raw credentials and sessions are unvaulted/unrecorded, widening the lateral-movement surface.",
+        "default": false
+      },
+      "periodic_privilege_recertification": {
+        "type": "boolean",
+        "title": "Periodic Privilege Recertification",
+        "description": "Attestation: privileged entitlements are reviewed on a defined recurring frequency and excess/stale rights are reassigned or removed (NIST AC-6(7); CIS 5.1 inventory-driven recertification). Secure = true. The exposure fires when false (no recurring privilege review) — entitlements accumulate as unreviewed standing access (privilege creep).",
+        "default": false
+      },
+      "dormant_admin_accounts_disabled": {
+        "type": "boolean",
+        "title": "Dormant Admin Accounts Disabled",
+        "description": "Attestation: unused/dormant privileged accounts are disabled or removed within a defined window (CIS 5.3: 45 days; NIST AC-2(3)) and admin access is revoked promptly on termination/role change (CIS 6.2). Secure = true. The exposure fires when false — terminated or role-changed operators retain admin access and dormant privileged accounts linger as quiet footholds for re-entry.",
+        "default": false
+      },
+      "shared_admin_accounts": {
+        "type": "boolean",
+        "title": "Shared Admin Accounts in Use",
+        "description": "Attestation (insecure-firing): a generic/role 'admin' login is shared by multiple operators in routine human use, so privileged actions are non-attributable to one named person. Secure posture is one named privileged identity per operator (CIS 5.1, NIST AC-2(7)). This attribute is TRUE when such a shared admin credential exists, and the exposure fires on TRUE.",
+        "default": false
+      },
+      "operators_hold_raw_longlived_admin_secrets": {
+        "type": "boolean",
+        "title": "Operators Hold Raw Long-Lived Admin Secrets",
+        "description": "Attestation (insecure-firing): operators hold raw, long-lived privileged secrets (static passwords, persistent SSH keys, API tokens) outside a vault rather than checking out short-lived brokered credentials. TRUE multiplies the credential-theft surface and is the un-vaulted half of this vector; secure posture vaults and short-lives privileged secrets. The exposure fires on TRUE."
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Management Plane Not Internet-Reachable",
+        "description": "Attestation: the admin/management network path (admin console, SSH/RDP, control-plane API) is reachable only from internal/trusted networks rather than directly from the public internet. Secure = true. The exposure fires when false — an internet-exposed management plane, an External Remote Services (MITRE T1133) initial-access surface frequently entered with valid creds and no exploit signature (CIS 6.4). Verified via network test that management endpoints are unreachable from the internet, reachable only over VPN/ZTNA.",
+        "default": false
+      },
+      "remote_admin_access_requires_mfa": {
+        "type": "boolean",
+        "title": "Remote Admin Access Requires MFA",
+        "description": "Attestation: all remote administrative/management network access is gated by multi-factor authentication (CIS 6.4 / 6.5). Secure = true. The exposure fires when false — single-factor or unauthenticated remote management, a reachable management plane entered with valid creds alone."
+      },
+      "remote_access_via_ztna_or_mfa_vpn": {
+        "type": "boolean",
+        "title": "Remote Access via ZTNA or MFA-Gated VPN",
+        "description": "Attestation: operators reach the control plane only through a brokered access path (ZTNA or an MFA-gated VPN / bastion) rather than connecting directly to an internet-facing management endpoint. Secure = true. The exposure fires when false — direct internet-to-control-plane reachability that bypasses a brokered, identity-aware ingress (MITRE T1133)."
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Privileged Actions Audited to Tamper-Resistant Store",
+        "description": "Attestation: all privileged actions are logged to a centralized, tamper-resistant store (admins cannot modify or delete their own audit trail), with execution of privileged functions recorded in sufficient detail for forensic reconstruction (NIST AC-6(9), PCI DSS Req 10, CIS 8.2/8.3). Secure = true. The exposure fires when false — missing or admin-modifiable audit logs make malicious privileged actions undetectable and unreconstructable.",
+        "default": false
+      }
+    },
+    "required": [
+      "mfa_enforced_for_admin",
+      "phishing_resistant_authenticator_required",
+      "admin_credential_hygiene",
+      "no_shared_privileged_credentials",
+      "privileged_session_anomaly_monitoring",
+      "no_standing_admin_privileges_jit_required",
+      "least_privilege_admin_scoping",
+      "privileged_access_via_pam_with_session_recording",
+      "periodic_privilege_recertification",
+      "dormant_admin_accounts_disabled",
+      "shared_admin_accounts",
+      "operators_hold_raw_longlived_admin_secrets",
+      "control_plane_api_not_publicly_exposed",
+      "remote_admin_access_requires_mfa",
+      "remote_access_via_ztna_or_mfa_vpn",
+      "audit_log_tamper_evident"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_admin"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_credential_hygiene"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_admin_access_requires_mfa"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dormant_admin_accounts_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_admin_scoping"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_shared_privileged_credentials"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/no_standing_admin_privileges_jit_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/periodic_privilege_recertification"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_admin_accounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_access_via_pam_with_session_recording"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/operators_hold_raw_longlived_admin_secrets"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_access_via_ztna_or_mfa_vpn"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_session_anomaly_monitoring"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

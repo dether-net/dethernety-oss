@@ -1,0 +1,332 @@
+[
+  {
+    "option_name": "mfa_enforced_for_admin",
+    "option_description": "Whether multi-factor authentication is mandatory for every administrative / privileged sign-in (CIS 6.5) — the highest-risk login class.",
+    "security_impact": "Satisfies \"MFA enforced on all high-risk access\" — one of its OR-conditions — the countermeasure fires when mfa_enforced_for_admin is true, mitigating credential-theft / valid-account reuse against privileged accounts (D3-MFA, ATT&CK M1032 / T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate every privileged/admin account in the IdP/directory and confirm each is in scope of an enforced MFA policy with no exception.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enumerate every privileged/admin account in the IdP/directory and confirm each is in scope of an enforced MFA policy with no exception. Secure: 100% of admin accounts MFA-required; insecure: any admin account password-only or excluded.",
+        "source": "CIS Controls v8 Control 6 (6.5)"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IdP conditional-access / sign-in policy for the admin role/group and confirm a require-MFA grant covers the admin scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query the IdP conditional-access / sign-in policy for the admin role/group; expect a require-MFA grant covering the admin scope with no break-glass-only exclusion left broadly open.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_for_vpn_login",
+    "option_description": "Whether MFA is required for remote network access (VPN, remote desktop, zero-trust gateway) — CIS 6.4 — so there is no password-only remote entry into the network.",
+    "security_impact": "Satisfies \"MFA enforced on all high-risk access\" — one of its OR-conditions — the countermeasure fires when mfa_enforced_for_vpn_login is true, blocking password-only remote access (D3-MFA, ATT&CK M1032 / T1133).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the VPN/remote-access gateway authentication profile and confirm each remote-access path requires a second factor.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review the VPN/remote-access gateway authentication profile: each remote-access path requires a second factor. Secure: MFA on all remote-access methods; insecure: any password-only remote path.",
+        "source": "CIS Controls v8 Control 6 (6.4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_for_externally_exposed_apps",
+    "option_description": "Whether MFA is enforced on every internet-exposed enterprise application (CIS 6.3) so external app logins require a second factor.",
+    "security_impact": "Satisfies \"MFA enforced on all high-risk access\" — one of its OR-conditions — the countermeasure fires when mfa_enforced_for_externally_exposed_apps is true, gating internet-facing apps against credential reuse (D3-MFA, ATT&CK M1032 / T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inventory internet-exposed apps and confirm each authenticates through an MFA-enforced path (SSO with MFA, or app-native MFA).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inventory internet-exposed apps and confirm each authenticates through an MFA-enforced path (SSO with MFA, or app-native MFA). Secure: all externally-exposed apps MFA-gated; insecure: any password-only external app.",
+        "source": "CIS Controls v8 Control 6 (6.3)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "option_description": "The strongest authenticator class required for high-value/admin access on the ladder [sms_otp < email_otp < totp_app < push_number_matching < fido2_or_piv]. Secure value fido2_or_piv mandates an origin-bound, phishing-resistant authenticator (NIST AAL3-aligned).",
+    "security_impact": "Satisfies \"Phishing-resistant authenticator required for high-value access\" — the sole condition — the countermeasure fires when phishing_resistant_authenticator_required equals fido2_or_piv, defeating phishing / AiTM credential relay because FIDO2/PIV are origin-bound (D3-MFA, ATT&CK M1032 / T1566).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine the minimum authenticator accepted for admin/high-value access on the strength ladder.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Determine the minimum authenticator accepted for admin/high-value access on the ladder [sms_otp < email_otp < totp_app < push_number_matching < fido2_or_piv]. Secure: fido2_or_piv required for privileged access; insecure: sms_otp/email_otp accepted.",
+        "source": "NIST SP 800-63B Rev 4 (AAL ladder, phishing-resistant authenticators); CISA Implementing Phishing-Resistant MFA fact sheet"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "fido2_or_piv"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_mfa_enabled",
+    "option_description": "Whether at least one phishing-resistant authenticator (FIDO2/WebAuthn or PIV/PKI smart card) is provisioned and accepted in the environment — supporting context for whether the authenticator-strength requirement is technically achievable.",
+    "security_impact": "Supporting context for \"Phishing-resistant authenticator required for high-value access\" — this CONTEXTUAL_EVIDENCE attribute is not itself an OR-trigger of that rule's condition (the rule fires on phishing_resistant_authenticator_required = fido2_or_piv); it records whether a phishing-resistant authenticator is available at all.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm FIDO2/WebAuthn security keys/passkeys or PIV/PKI smart-card auth are enrolled and accepted in the IdP.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm FIDO2/WebAuthn security keys/passkeys or PIV/PKI smart-card auth are enrolled and accepted. Secure: phishing-resistant authenticator available and used for high-value access; insecure: only SMS-OTP/email/app-code/push available.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet; NIST SP 800-63B Rev 4 (AAL2/AAL3 phishing-resistant)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "weak_sms_voice_mfa_disabled",
+    "option_description": "Whether phishable/spoofable factors (SMS-OTP, voice call) are disabled/demoted for high-value accounts, given SS7-interception and SIM-swap exposure.",
+    "security_impact": "Satisfies \"Weak phishable factors disabled / demoted\" — the sole condition — the countermeasure fires when weak_sms_voice_mfa_disabled is true, preventing downgrade to an interceptable factor (D3-MFA, ATT&CK M1032 / T1111).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SMS-OTP and voice-call factors are removed/blocked as a permitted method for admin and high-value accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm SMS-OTP and voice-call factors are removed/blocked as a permitted method for admin and high-value accounts. Secure: SMS/voice not selectable for privileged auth; insecure: SMS/voice still an accepted second factor.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet (SS7 / SIM-swap threats)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mfa_fail_closed",
+    "option_description": "Whether the MFA system denies access when the MFA service is unreachable or errors, rather than failing open and granting access on password alone.",
+    "security_impact": "Satisfies \"No MFA bypass — fail-closed, legacy auth blocked, exclusions minimized\" — one of its OR-conditions — the countermeasure fires when mfa_fail_closed is true, closing the fail-open MFA-bypass path (D3-MFA, ATT&CK M1032 / T1556.006).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the MFA/RADIUS/IdP failure-mode setting to confirm authentication is denied when the MFA service errors or is unreachable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review the MFA/RADIUS/IdP failure-mode setting. Secure: on MFA-service error/unreachable, authentication is denied (fail closed); insecure: access granted on password alone when MFA fails (fail open).",
+        "source": "MITRE ATT&CK Mitigation M1032 (configure MFA to fail closed); MITRE ATT&CK T1556.006"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "legacy_auth_protocols_disabled",
+    "option_description": "Whether legacy/basic-authentication protocols that bypass modern interactive MFA (basic auth, IMAP/POP/SMTP-AUTH legacy endpoints, legacy ActiveSync) are blocked tenant-wide.",
+    "security_impact": "Satisfies \"No MFA bypass — fail-closed, legacy auth blocked, exclusions minimized\" — one of its OR-conditions — the countermeasure fires when legacy_auth_protocols_disabled is true, closing the legacy-auth MFA-skip path (D3-MFA, ATT&CK M1032 / T1556.006).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the IdP for legacy/basic-auth status and confirm a conditional-access policy or tenant setting blocks legacy authentication on all accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query the IdP for legacy/basic-auth status; expect a conditional-access policy or tenant setting blocking legacy authentication on all accounts. Secure: legacy auth blocked; insecure: legacy auth permitted (silent MFA bypass).",
+        "source": "MITRE ATT&CK T1556.006 Modify Authentication Process: MFA"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "conditional_access_exclusions_minimized",
+    "option_description": "Whether MFA conditional-access exclusions are tightly scoped (single documented, monitored break-glass account) rather than broad user/group/trusted-network carve-outs that let attackers skip MFA.",
+    "security_impact": "Satisfies \"No MFA bypass — fail-closed, legacy auth blocked, exclusions minimized\" — one of its OR-conditions — the countermeasure fires when conditional_access_exclusions_minimized is true, shrinking the CA-exclusion MFA-bypass surface (D3-MFA, ATT&CK M1032 / T1556.006).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate all conditional-access MFA exclusions (users, groups, trusted IPs/locations) and confirm only a documented, alerted break-glass exclusion exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enumerate all conditional-access MFA exclusions (users, groups, trusted IPs/locations). Secure: only a documented, alerted break-glass exclusion; insecure: broad trusted-network or group exclusions disabling MFA.",
+        "source": "MITRE ATT&CK T1556.006 (exclude users from conditional access policies)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "push_number_matching_enabled",
+    "option_description": "When push-based MFA is used, whether number-matching (challenge-code entry) is enabled so a user cannot blindly one-tap approve a fraudulent push.",
+    "security_impact": "Satisfies \"Anti-MFA-fatigue — number-matching and push rate-limiting\" — one of its OR-conditions — the countermeasure fires when push_number_matching_enabled is true, defeating blind-approval prompt-bombing (D3-MFA, ATT&CK M1032 / T1621).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the authenticator/IdP push policy and confirm number-matching is enforced on all push prompts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query the authenticator/IdP push policy. Secure: number-matching (and ideally app context: app name + geo) enforced on all push prompts; insecure: simple one-tap approve.",
+        "source": "MITRE ATT&CK T1621 MFA Request Generation; MITRE ATT&CK Mitigation M1032"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "push_request_rate_limiting_enabled",
+    "option_description": "Whether MFA push/prompt generation is rate-limited/throttled per account with anomalous-prompt alerting, so an attacker cannot flood a user with approval prompts (prompt-bombing / MFA fatigue).",
+    "security_impact": "Satisfies \"Anti-MFA-fatigue — number-matching and push rate-limiting\" — one of its OR-conditions — the countermeasure fires when push_request_rate_limiting_enabled is true, throttling MFA-fatigue flooding (D3-MFA, ATT&CK M1032 / T1621).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the IdP throttles/locks repeated MFA prompts and alerts on bursts of denied/ignored prompts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm the IdP throttles/locks repeated MFA prompts and alerts on bursts of denied/ignored prompts. Secure: rate-limiting + anomalous-prompt alerting; insecure: unlimited push generation.",
+        "source": "MITRE ATT&CK T1621 MFA Request Generation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "step_up_reauth_for_sensitive_actions",
+    "option_description": "Whether sensitive operations (privilege elevation, key/secret access, security/config changes) require a fresh MFA challenge beyond the initial session login.",
+    "security_impact": "Satisfies \"Step-up re-auth and bounded MFA session lifetime\" — its first OR-group — the countermeasure fires when step_up_reauth_for_sensitive_actions is true, limiting the value of a hijacked post-auth session for high-risk actions (D3-MFA, ATT&CK M1032 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm sensitive/privileged operations trigger a fresh MFA challenge rather than relying on the existing session.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm sensitive/privileged operations trigger a fresh MFA challenge. Secure: step-up re-auth required for high-risk actions; insecure: single login covers all subsequent sensitive operations.",
+        "source": "NIST SP 800-63B Rev 4 (reauthentication for higher-assurance operations)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mfa_session_lifetime_bounded",
+    "option_description": "Whether authenticated sessions carry an AAL-appropriate bounded lifetime plus reauthentication interval rather than indefinite trust, limiting the value of a stolen session token.",
+    "security_impact": "Satisfies \"Step-up re-auth and bounded MFA session lifetime\" — its second OR-group — the countermeasure fires when mfa_session_lifetime_bounded is true, bounding the window a stolen session token can replay an MFA'd session (D3-MFA, ATT&CK M1032 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review session/token lifetime and reauth interval in the IdP.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review session/token lifetime and reauth interval in the IdP. Secure: AAL-appropriate bounded session with periodic reauth (e.g. AAL2 reauth at least every 12h / 30min inactivity); insecure: long-lived/never-expiring sessions.",
+        "source": "NIST SP 800-63B Rev 4 (session management / reauthentication)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "session_idle_timeout_minutes",
+    "option_description": "The configured idle-session timeout in minutes; the session is invalidated after no more than 30 minutes of inactivity when secure.",
+    "security_impact": "Satisfies \"Step-up re-auth and bounded MFA session lifetime\" — its third OR-group — the countermeasure fires when session_idle_timeout_minutes is less than or equal to 30, capping how long an unattended MFA'd session can be reused (D3-MFA, ATT&CK M1032 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured idle-session timeout in the IdP/session-management settings; secure when sessions are invalidated after no more than 30 minutes of inactivity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Idle-session timeout value in minutes. Secure: <= 30 minutes of inactivity invalidates the session; insecure: > 30 minutes or no idle timeout.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      15,
+      30
+    ]
+  },
+  {
+    "option_name": "secure_mfa_enrollment_and_recovery",
+    "option_description": "Whether authenticator enrollment is identity-proofed and account/authenticator recovery re-establishes equivalent assurance without a weak self-service path (no knowledge-based reset, no unverified factor self-registration, no helpdesk social-engineering bypass).",
+    "security_impact": "Satisfies \"Secure enrollment, recovery, and MFA event auditing\" — one of its OR-conditions — the countermeasure fires when secure_mfa_enrollment_and_recovery is true, preventing attacker self-registration of a rogue factor or a weak recovery MFA-bypass (D3-MFA, ATT&CK M1018 / T1556.006).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review MFA enrollment and account-recovery procedures to confirm identity-proofed enrollment and equivalent-assurance recovery.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review MFA enrollment and account-recovery procedures. Secure: identity-proofed enrollment, recovery via equivalent-assurance path (backup FIDO key / verified helpdesk), attacker cannot self-register a new factor; insecure: knowledge-based reset or unverified factor self-registration.",
+        "source": "MITRE ATT&CK Mitigation M1018 (secure enrollment/deactivation); NIST SP 800-63B Rev 4 (enrollment & binding)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mfa_authentication_events_audited",
+    "option_description": "Whether MFA authentication events (successes, failures, denied/ignored prompts, factor registrations, MFA-policy changes) are logged to a durable store and surfaced through alerting.",
+    "security_impact": "Satisfies \"Secure enrollment, recovery, and MFA event auditing\" — one of its OR-conditions — the countermeasure fires when mfa_authentication_events_audited is true, giving detection of fatigue attacks and MFA-bypass tampering (D3-MFA, ATT&CK M1047 / T1621, T1556.006).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm MFA sign-in events, factor registrations, and MFA-policy changes are captured centrally and alerted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm MFA sign-in events, factor registrations, and MFA-policy changes are captured centrally and alerted. Secure: events logged + reviewed; insecure: MFA changes/denied prompts not logged.",
+        "source": "MITRE ATT&CK Mitigation M1047 (Audit — review MFA actions, verify MFA enabled)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

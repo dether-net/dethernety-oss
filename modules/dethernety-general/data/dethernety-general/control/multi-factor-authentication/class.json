@@ -1,0 +1,9 @@
+{
+  "id": "2c3a0d07-54dc-448d-a384-2bdf815ea409",
+  "name": "Multi-Factor Authentication",
+  "classType": "control",
+  "type": "Multi-Factor Authentication",
+  "description": "Multi-factor authentication (MFA) — also called 2FA, two-factor or two-step verification, OTP/TOTP, authenticator app, hardware security key, FIDO2/WebAuthn, or passkey — a control requiring a second proof beyond a password before access is granted. Applied at login to identity providers and privileged interfaces. The place to look for MFA, 2FA, step-up authentication, or the second-factor requirement that blunts credential theft and phishing.",
+  "category": "Access Control",
+  "status": "draft"
+}

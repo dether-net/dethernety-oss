@@ -1,0 +1,9 @@
+{
+  "id": "065616af-6ede-4fa9-8d44-d19b1c20d905",
+  "name": "Data Loss Prevention",
+  "classType": "control",
+  "type": "Data Loss Prevention",
+  "description": "Data loss prevention (DLP) — also called data exfiltration controls, content inspection, egress filtering, or sensitive-data monitoring — a control that inspects data in motion and at rest to detect and block unauthorized movement of sensitive content. The place to look for DLP, exfiltration prevention, sensitive-data egress control, or content-aware blocking of data leaving the org.",
+  "category": "Data Protection",
+  "status": "draft"
+}

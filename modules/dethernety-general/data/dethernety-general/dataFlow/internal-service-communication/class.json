@@ -1,0 +1,9 @@
+{
+  "id": "2fa43160-3510-41b6-8f06-ac6102148bee",
+  "name": "Internal Service Communication",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Internal service communication — also called east-west traffic, service mesh/intra-cluster calls, backend-to-backend traffic, or internal RPC — traffic among backend services within trusted zones. Often unencrypted and a lateral-movement channel once the perimeter is breached. The place to look for east-west traffic, internal service-to-service calls, intra-zone communication, or backend mesh traffic.",
+  "category": "Application Traffic",
+  "status": "draft"
+}

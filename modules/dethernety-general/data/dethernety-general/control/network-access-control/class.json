@@ -1,0 +1,9 @@
+{
+  "id": "57a57a43-e63a-4c50-be5b-ff0494b2c2ff",
+  "name": "Network Access Control",
+  "classType": "control",
+  "type": "Network Access Control",
+  "description": "Network access control (NAC) — also called 802.1X, port-based access control, device posture/admission, segmentation enforcement, or microsegmentation — a control governing which devices and identities may join and traverse network segments to limit lateral movement. The place to look for NAC, 802.1X, network admission, device posture checks, or controlling which endpoints reach which segments.",
+  "category": "Control Mechanisms",
+  "status": "draft"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+  "name": "HTTP/S Request",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "An HTTP/S request — also called web traffic, an HTTP(S) request/response, a browser-to-server call, or web-layer traffic — client-to-server web traffic crossing the perimeter carrying requests and responses. The primary inbound web channel. The place to look for HTTP/HTTPS traffic, web requests/responses, browser-to-server calls, or the web-layer flow entering the system.",
+  "category": "Application Traffic",
+  "status": "draft"
+}

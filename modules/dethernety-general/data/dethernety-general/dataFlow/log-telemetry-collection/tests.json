@@ -1,0 +1,86 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "flow_tls_encrypted": false,
+      "min_tls_version": "tls1_2_or_higher",
+      "server_certificate_validated": false,
+      "log_pipeline_integrity_protected": false,
+      "service_to_service_mtls_enforced": false,
+      "identity_propagated_cryptographically": false,
+      "secrets_masked_in_logs": false,
+      "pii_excluded_from_logs": false,
+      "audit_log_tamper_evident": false,
+      "logging_failure_alerting_enabled": false,
+      "clocks_synced_to_trusted_time_source": false,
+      "timestamps_in_utc": false,
+      "log_flood_overflow_protection": false
+    },
+    "expectedExposures": [
+      "Indicator removal at destination — mutable log archive",
+      "Backdated / clock-skewed events break correlation",
+      "Cleartext log transport (sniffing and disclosure)",
+      "Forwarder masquerade / spoofed log source",
+      "MITM modification of events in transit",
+      "Secrets and PII leakage into log bodies (CWE-532)",
+      "Silent collection failure — no dead-man-switch alarm",
+      "Telemetry flood — DoS of SIEM ingest"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "flow_tls_encrypted": true,
+      "min_tls_version": "tls1_0_or_tls1_1_or_sslv3_accepted",
+      "server_certificate_validated": true,
+      "log_pipeline_integrity_protected": true,
+      "service_to_service_mtls_enforced": true,
+      "identity_propagated_cryptographically": true,
+      "secrets_masked_in_logs": true,
+      "pii_excluded_from_logs": true,
+      "audit_log_tamper_evident": true,
+      "logging_failure_alerting_enabled": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "timestamps_in_utc": true,
+      "log_flood_overflow_protection": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "flow_tls_encrypted": true,
+      "min_tls_version": "tls1_2_or_higher",
+      "server_certificate_validated": true,
+      "log_pipeline_integrity_protected": true,
+      "service_to_service_mtls_enforced": true,
+      "identity_propagated_cryptographically": true,
+      "secrets_masked_in_logs": true,
+      "pii_excluded_from_logs": true,
+      "audit_log_tamper_evident": true,
+      "logging_failure_alerting_enabled": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "timestamps_in_utc": true,
+      "log_flood_overflow_protection": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Indicator removal at destination — mutable log archive",
+      "Backdated / clock-skewed events break correlation",
+      "Cleartext log transport (sniffing and disclosure)",
+      "Forwarder masquerade / spoofed log source",
+      "MITM modification of events in transit",
+      "Secrets and PII leakage into log bodies (CWE-532)",
+      "Silent collection failure — no dead-man-switch alarm",
+      "Telemetry flood — DoS of SIEM ingest"
+    ]
+  }
+]

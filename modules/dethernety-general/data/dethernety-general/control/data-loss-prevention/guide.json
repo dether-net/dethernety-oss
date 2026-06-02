@@ -1,0 +1,408 @@
+[
+  {
+    "option_name": "data_classification_scheme_established",
+    "option_description": "Whether a documented data-classification scheme (e.g. Public/Internal/Confidential/Restricted per CIS 3.7) is maintained and referenced by DLP detection policies, giving the engine a definition of 'sensitive content' to match against.",
+    "security_impact": "Satisfies the countermeasure \"Sensitive data classified and discovered\" — fires as one of its OR-conditions when data_classification_scheme_established is true (the other being sensitive_data_inventory_and_discovery == maintained_with_discovery_scans). Present, this protection establishes the classification baseline DLP relies on to recognize sensitive data (CIS 3.7).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review for a documented data-classification scheme with named sensitivity levels, confirm it is maintained, and confirm DLP detection policies reference those classes/labels.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented data classification scheme (per CIS 3.7) with named sensitivity levels exists, is maintained, and the DLP policies reference those classes/labels. Insecure: no scheme, or DLP rules not tied to it.",
+        "source": "CIS Controls v8 Control 3 Data Protection (Assessment Specification)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the DLP console (e.g. Microsoft Purview, Forcepoint, Symantec/Broadcom, Zscaler, Netskope), open the sensitivity-label / classification configuration and confirm policies select content by those defined categories rather than ad-hoc patterns alone.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP console > Information protection / Classification > Labels & policy bindings",
+        "expected_output": "DLP policies are bound to the organization's defined classification categories/labels. Insecure: policies present but with no classification taxonomy behind them.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "sensitive_data_inventory_and_discovery",
+    "option_description": "State of the sensitive-data inventory and data-at-rest discovery: whether a current inventory is maintained and periodic discovery scans run against storage/repositories (CIS 3.1/3.2), so shadow data is visible to enforcement.",
+    "security_impact": "Satisfies the countermeasure \"Sensitive data classified and discovered\" — fires as one of its OR-conditions when sensitive_data_inventory_and_discovery == maintained_with_discovery_scans (the other being data_classification_scheme_established true). Present at that value, DLP knows where sensitive repositories are and can cover them (CIS 3.1/3.2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a maintained data inventory exists and that DLP data-at-rest discovery scans run on storage/repositories on a defined cadence, with results reconciled to the inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A maintained data inventory exists (CIS 3.2) and DLP data-at-rest discovery scans run on storage/repositories on a defined cadence, with results reconciled to the inventory. Insecure: no inventory or discovery not run.",
+        "source": "CIS Controls v8 Control 3 Data Protection (Assessment Specification)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review data-at-rest DLP discovery scan reports and confirm findings feed a remediation workflow (move/quarantine/encrypt) rather than only data-in-motion being covered.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data-at-rest DLP discovery scans run against repositories and findings feed remediation. Insecure: only data-in-motion covered, stored sensitive data unmonitored.",
+        "source": "MITRE ATT&CK Mitigation M1057 Data Loss Prevention"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "maintained_with_discovery_scans"
+    ]
+  },
+  {
+    "option_name": "network_egress_dlp_enabled",
+    "option_description": "Whether a network DLP capability is deployed and actively inspecting outbound traffic at managed interfaces / the network perimeter (SC-7(10); CIS 3.13) — the core egress protection.",
+    "security_impact": "Satisfies the countermeasure \"Egress network DLP enforced in blocking mode\" — fires as one of its OR-conditions when network_egress_dlp_enabled is true (the other being dlp_enforcement_mode == block). Present, sensitive content leaving via the network is inspected at managed egress points.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm a DLP solution inspects outbound traffic across managed interfaces/egress points (positioned at internal endpoints, external boundaries, and managed interfaces).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A DLP solution inspects outbound traffic across managed interfaces/egress points and is positioned at internal endpoints, external boundaries, and managed interfaces. Insecure: no egress inspection point.",
+        "source": "NIST SP 800-53 Rev 5 SC-7(10) Prevent Exfiltration"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run a controlled positive test: send sensitive-pattern content (a synthetic SSN/credit-card test string) over an outbound channel and verify the DLP egress point detects/blocks it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sensitive-pattern test content sent over an outbound channel is detected/blocked by the DLP egress point. Insecure: test content traverses unimpeded.",
+        "source": "CIS Controls v8 Control 3 Data Protection (Assessment Specification)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "dlp_enforcement_mode",
+    "option_description": "Enforcement mode of high-severity DLP policies: block (actively stops matching transfers) versus monitor (only alerts/logs) or off (disabled).",
+    "security_impact": "Satisfies the countermeasure \"Egress network DLP enforced in blocking mode\" — fires as one of its OR-conditions when dlp_enforcement_mode == block (the other being network_egress_dlp_enabled true). At block, the control actually prevents exfiltration rather than merely logging it (the monitor-only bypass vector is closed).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the DLP console, open the high-severity sensitive-data policies and confirm their action is set to Block/Prevent, not Monitor/Audit-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP console > Policies > (high-severity sensitive-data policy) > Enforcement action",
+        "expected_output": "DLP console shows high-severity sensitive-data policies set to Block/Prevent (not Monitor/Audit-only). Insecure: all policies in monitor-only mode so nothing is actually blocked.",
+        "source": "CIS Controls v8 Control 3 Data Protection (Assessment Specification)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positively confirm enforcement: send synthetic sensitive content matching a high-severity policy over a covered channel and verify the transfer is actually blocked (not just logged).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The matching transfer is blocked/prevented and a block event is recorded. Insecure: transfer completes with only a monitor-mode log entry.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "block"
+    ]
+  },
+  {
+    "option_name": "tls_inspection_enabled",
+    "option_description": "Whether TLS/SSL inspection (decrypt-inspect-re-encrypt) is enabled on the DLP egress path so encrypted channels are not a content-inspection blind spot (SC-7(10)).",
+    "security_impact": "Satisfies the countermeasure \"TLS/SSL inspection on the DLP egress path\" — fires as one of its OR-conditions when tls_inspection_enabled is true (the other being deep_packet_inspection_enabled true). Present, it closes the DLP-blindness-via-encrypted-channels vector so encrypted outbound content is inspected.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify TLS/SSL inspection is enabled on the DLP egress path (with appropriate exclusions) so encrypted outbound content is inspected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS/SSL inspection is enabled on the DLP egress path (with appropriate exclusions) so encrypted outbound content is inspected. Insecure: encrypted traffic passes the DLP point uninspected.",
+        "source": "NIST SP 800-53 Rev 5 SC-7(10) Prevent Exfiltration"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the secure web gateway / proxy DLP console, confirm SSL/TLS decryption is enabled on the egress path and review the bypass/exclusion list for scope creep.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SWG/Proxy console > SSL inspection / Decryption policy",
+        "expected_output": "SSL/TLS decryption is on for outbound traffic with a governed exclusion list. Insecure: decryption off or broad bypass categories.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "deep_packet_inspection_enabled",
+    "option_description": "Whether deep packet inspection / protocol-format adherence is enforced on the DLP egress path so content is examined beyond headers (SC-7(10) names DPI and protocol-format adherence as exfiltration-prevention techniques).",
+    "security_impact": "Satisfies the countermeasure \"TLS/SSL inspection on the DLP egress path\" — fires as one of its OR-conditions when deep_packet_inspection_enabled is true (the other being tls_inspection_enabled true). Present, payload content is inspected, helping detect Exfiltration Over Alternative Protocol.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify DPI / protocol-format enforcement inspects payload content on the egress path (application-layer verification network/transport-layer devices cannot do), not only header/flow-level inspection.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DPI / protocol-format adherence is enforced on the egress path and inspects payload content. Insecure: only header/flow-level inspection occurs.",
+        "source": "NIST SP 800-53 Rev 5 SC-7(10) Prevent Exfiltration"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the egress DLP/firewall console, confirm content/payload inspection and protocol-format adherence (e.g. XML gateway / application-layer verification) is enabled rather than port/protocol allow-listing alone.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP/NGFW console > Content inspection / Protocol enforcement",
+        "expected_output": "Payload-level content inspection and protocol-format checks are enabled on egress. Insecure: filtering is port/header-based only.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "endpoint_dlp_agent_coverage",
+    "option_description": "Whether endpoint DLP agents are deployed and reporting on all managed endpoints (workstations/laptops/servers) and reconciled to the asset inventory (M1057; CIS 3.13), covering local actions network DLP cannot see.",
+    "security_impact": "Satisfies the countermeasure \"Endpoint and removable-media DLP coverage\" — fires as one of its OR-conditions when endpoint_dlp_agent_coverage is true (the other being removable_media_control_enabled true). Present, off-network and local exfiltration (T1052, T1005) is monitored on endpoints.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an endpoint DLP agent is deployed and reporting on all managed endpoints and that coverage is reconciled against the asset inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint DLP agent deployed and reporting on all managed endpoints; coverage reconciled against the asset inventory. Insecure: gaps where endpoints have no agent and physical/local exfiltration is unmonitored.",
+        "source": "MITRE ATT&CK Mitigation M1057 Data Loss Prevention"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the endpoint DLP management console, pull the agent-health/coverage report and compare the count of reporting agents against the managed-endpoint inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Endpoint DLP console > Devices / Agent health",
+        "expected_output": "Reporting-agent count matches the managed-endpoint inventory with no material gaps. Insecure: endpoints in inventory without a healthy agent.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "removable_media_control_enabled",
+    "option_description": "Whether device control blocks or encrypts sensitive-content writes to USB / removable media (CIS 3.9; M1057 counters T1052/.001 exfiltration over physical medium).",
+    "security_impact": "Satisfies the countermeasure \"Endpoint and removable-media DLP coverage\" — fires as one of its OR-conditions when removable_media_control_enabled is true (the other being endpoint_dlp_agent_coverage true). Present, USB exfiltration of sensitive data is blocked or forced to encryption.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm endpoint DLP/device-control policy blocks or restricts sensitive-content writes to removable media and enforces encryption on permitted removable media (CIS 3.9).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint DLP/device-control policy blocks or restricts sensitive-content writes to removable media and enforces encryption on permitted removable media. Insecure: unrestricted USB writes of sensitive data.",
+        "source": "CIS Controls v8 Control 3 Data Protection (Assessment Specification)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positively test on a managed endpoint: attempt to copy a synthetic sensitive file to a USB device and confirm the write is blocked or the media is force-encrypted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The sensitive-content write to removable media is blocked (or only succeeds onto encrypted media). Insecure: the file copies to plain USB unimpeded.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "email_dlp_gateway_enabled",
+    "option_description": "Whether outbound email is routed through a DLP-inspecting mail gateway operating in enforce mode (blocking/quarantining sensitive attachments and body content) — a primary exfiltration and accidental-leak channel.",
+    "security_impact": "Satisfies the countermeasure \"Email, web, and cloud (CASB) channel coverage\" — fires as one of its OR-conditions when email_dlp_gateway_enabled is true (the other being web_cloud_casb_dlp_enabled true). Present, sensitive content leaving via email is detected and blocked.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm outbound email is routed through a DLP-inspecting mail gateway with sensitive-content policies in enforce mode (blocks/quarantines on hits).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound email is routed through a DLP-inspecting mail gateway with sensitive-content policies in enforce mode. Insecure: outbound mail bypasses DLP.",
+        "source": "MITRE ATT&CK Mitigation M1057 Data Loss Prevention"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positively test: send an outbound email containing synthetic sensitive content matching an enforce-mode policy and confirm it is blocked or quarantined.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The test email is blocked/quarantined by the mail-gateway DLP policy. Insecure: it delivers externally with no action.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "web_cloud_casb_dlp_enabled",
+    "option_description": "Whether web uploads and cloud-app traffic are inspected via SWG/CASB enforce-mode DLP (mitigates T1567 exfiltration over web services and T1537 transfer to cloud accounts).",
+    "security_impact": "Satisfies the countermeasure \"Email, web, and cloud (CASB) channel coverage\" — fires as one of its OR-conditions when web_cloud_casb_dlp_enabled is true (the other being email_dlp_gateway_enabled true). Present, sensitive uploads to web services and sanctioned/unsanctioned cloud apps are blocked.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm outbound web traffic and sanctioned cloud apps are inspected via secure web gateway / CASB with DLP policies, and that uploads of sensitive content to web services / unsanctioned cloud are blocked.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound web traffic and sanctioned cloud apps are inspected via secure web gateway / CASB with DLP policies; uploads of sensitive content to web services/unsanctioned cloud are blocked. Insecure: web/cloud egress not covered.",
+        "source": "MITRE ATT&CK Mitigation M1057 Data Loss Prevention"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the CASB/SWG console, confirm DLP policies are bound to web-upload and cloud-app channels in enforce mode and review the sanctioned/unsanctioned cloud app catalog.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CASB/SWG console > DLP policies > Web upload & Cloud app coverage",
+        "expected_output": "Web-upload and cloud-app DLP policies are present and in enforce mode across sanctioned and unsanctioned apps. Insecure: monitor-only or channels uncovered.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "information_flow_rules_bound_to_classification",
+    "option_description": "Whether DLP enforces information-flow restrictions that are bound to data classification labels/categories (AC-4) — e.g. block confidential data egressing in the clear to the Internet, restrict cross-domain transfers by content.",
+    "security_impact": "Satisfies the countermeasure \"Information-flow rules bound to classification with governed exceptions\" — fires as one of its OR-conditions when information_flow_rules_bound_to_classification is true (the other being dlp_exceptions_governed_and_recertified true). Present, the control operationalizes AC-4 information-flow enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm DLP/flow-control rules enforce documented information-flow restrictions tied to classification (block classified/export-controlled data to the Internet in clear, restrict cross-domain transfers by content).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DLP/flow-control rules enforce documented information-flow restrictions (block classified/export-controlled data to the Internet in clear, restrict cross-domain transfers by content). Insecure: no flow policy bound to classification.",
+        "source": "NIST SP 800-53 Rev 5 AC-4 Information Flow Enforcement"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the DLP console, inspect a sample of flow-control rules and confirm their allow/block decisions reference classification categories rather than being generic content patterns.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP console > Policies > Flow / destination rules > conditions",
+        "expected_output": "Flow rules condition on classification labels/categories to allow or block. Insecure: rules are generic and not tied to classification.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "dlp_exceptions_governed_and_recertified",
+    "option_description": "Whether DLP exceptions / allow-lists are documented, approved, time-bound, and periodically recertified so they do not become permanent exfiltration gaps (AC-4 / SC-7(10)).",
+    "security_impact": "Satisfies the countermeasure \"Information-flow rules bound to classification with governed exceptions\" — fires as one of its OR-conditions when dlp_exceptions_governed_and_recertified is true (the other being information_flow_rules_bound_to_classification true). Present, it closes the ungoverned-exception bypass vector.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm DLP policy exceptions/bypasses are documented, approved, time-bound, and periodically reviewed/recertified with an owner.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DLP policy exceptions/bypasses are documented, approved, time-bound, and periodically reviewed/recertified. Insecure: open-ended allow-lists with no owner or review.",
+        "source": "NIST SP 800-53 Rev 5 AC-4 Information Flow Enforcement"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the DLP console, export the current exception/allow-list entries and check each has an approval reference and an expiry date against the recertification record.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP console > Policies > Exceptions / Allow-lists",
+        "expected_output": "Every exception carries an approval record and expiry, matching a recurring recertification log. Insecure: exceptions accumulate without expiry or review.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "dlp_policy_hit_alerting_enabled",
+    "option_description": "Whether DLP policy hits raise alerts into a monitored SOC/SIEM incident workflow rather than only being silently logged (SI-4; SC-7(10)), so detections become response and active-attack signal is reviewed.",
+    "security_impact": "Satisfies the countermeasure \"Policy-hit alerting, tuning, and exfiltration testing\" — fires as one of its OR-conditions when dlp_policy_hit_alerting_enabled is true (the other being exfiltration_testing_performed true). Present, policy hits are surfaced into a monitored detection/response workflow.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm DLP policy hits generate alerts routed to a monitored queue/SIEM with an incident-response workflow, and that events are reviewed on a cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DLP policy hits generate alerts routed to a monitored queue/SIEM with an incident response workflow; events are reviewed on a cadence. Insecure: hits logged but never reviewed or alerted.",
+        "source": "NIST SP 800-53 Rev 5 SC-7(10) Prevent Exfiltration"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM/SOC platform, confirm a DLP alert rule or detection feed exists and review recent DLP policy-hit alerts to verify they were triaged.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Detections / Alert rules > DLP source",
+        "expected_output": "DLP hits appear as alerts in the monitored workflow with triage history. Insecure: DLP events present only in raw logs with no alert rule.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "exfiltration_testing_performed",
+    "option_description": "Whether exfiltration-capability tests are run on a defined frequency (synthetic sensitive data sent over each covered channel) to validate that DLP detects and blocks representative egress attempts (SC-7(10)).",
+    "security_impact": "Satisfies the countermeasure \"Policy-hit alerting, tuning, and exfiltration testing\" — fires as one of its OR-conditions when exfiltration_testing_performed is true (the other being dlp_policy_hit_alerting_enabled true). Present, the control is periodically validated rather than assumed effective.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm exfiltration / DLP efficacy tests are run on a defined frequency (synthetic sensitive data sent over each covered channel) and that results show enforcement holds and feed tuning.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exfiltration tests / DLP efficacy tests are run on a defined frequency (synthetic sensitive data sent over each covered channel) and results show enforcement holds. Insecure: capability never validated.",
+        "source": "NIST SP 800-53 Rev 5 SC-7(10) Prevent Exfiltration"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the most recent exfiltration-test report and confirm findings drove rule tuning / false-positive and false-negative review per a documented cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented DLP rule-tuning process exists with periodic review of false-positive/false-negative rates fed by test results. Insecure: rules unchanged since deployment / tests never run.",
+        "source": "CIS Controls v8 Control 3 Data Protection (Assessment Specification)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

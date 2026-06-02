@@ -1,0 +1,83 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "mfa_enforced_at_boundary_crossing": false,
+      "phishing_resistant_authenticator_required": false,
+      "vpn_protocol_modern_strong": false,
+      "vpn_cipher_suites_strong_only": false,
+      "split_tunnel_disabled": false,
+      "admin_endpoint_health_attested_at_elevation": false,
+      "managed_device_enrollment_enforced": false,
+      "bastion_mediates_all_admin_access": false,
+      "no_standing_admin_privileges_jit_required": false,
+      "privileged_access_via_pam_with_session_recording": false,
+      "edge_appliance_patched_within_sla": false,
+      "edge_management_interfaces_not_internet_reachable": false
+    },
+    "expectedExposures": [
+      "Unpatched / management-exposed VPN edge appliance",
+      "No device posture / endpoint health attestation",
+      "Split-tunnel DNS / traffic leak bridging trust zones",
+      "Standing admin privilege with no JIT and no session recording",
+      "Bastion bypass via direct admin path to backend",
+      "Phishable MFA factor (SMS/TOTP/push) on VPN portal",
+      "Single-factor remote authentication at boundary",
+      "Weak or legacy VPN protocol and cipher suite"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "mfa_enforced_at_boundary_crossing": true,
+      "phishing_resistant_authenticator_required": true,
+      "vpn_protocol_modern_strong": true,
+      "vpn_cipher_suites_strong_only": true,
+      "split_tunnel_disabled": true,
+      "admin_endpoint_health_attested_at_elevation": true,
+      "managed_device_enrollment_enforced": true,
+      "bastion_mediates_all_admin_access": true,
+      "no_standing_admin_privileges_jit_required": true,
+      "privileged_access_via_pam_with_session_recording": true,
+      "edge_appliance_patched_within_sla": true,
+      "edge_management_interfaces_not_internet_reachable": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "mfa_enforced_at_boundary_crossing": true,
+      "phishing_resistant_authenticator_required": true,
+      "vpn_protocol_modern_strong": true,
+      "vpn_cipher_suites_strong_only": true,
+      "split_tunnel_disabled": true,
+      "admin_endpoint_health_attested_at_elevation": true,
+      "managed_device_enrollment_enforced": true,
+      "bastion_mediates_all_admin_access": true,
+      "no_standing_admin_privileges_jit_required": true,
+      "privileged_access_via_pam_with_session_recording": true,
+      "edge_appliance_patched_within_sla": true,
+      "edge_management_interfaces_not_internet_reachable": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Unpatched / management-exposed VPN edge appliance",
+      "No device posture / endpoint health attestation",
+      "Split-tunnel DNS / traffic leak bridging trust zones",
+      "Standing admin privilege with no JIT and no session recording",
+      "Bastion bypass via direct admin path to backend",
+      "Phishable MFA factor (SMS/TOTP/push) on VPN portal",
+      "Single-factor remote authentication at boundary",
+      "Weak or legacy VPN protocol and cipher suite"
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "d58e96ad-b094-47de-81c3-656e28ea94a5",
+  "name": "Firewall",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A firewall — also called a network firewall, packet filter, security group, or NACL enforcement engine — a process that permits or denies traffic between zones based on configured rules. The runtime enforcer of network segmentation, distinct from the rule set it loads. The place to look for the firewall, packet-filtering device, network traffic gatekeeper, or the engine enforcing allow/deny between network zones.",
+  "category": "Network Security",
+  "status": "draft"
+}

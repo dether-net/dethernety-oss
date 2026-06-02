@@ -1,0 +1,497 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "data_store_publicly_routable": {
+        "type": "boolean",
+        "title": "Data Store Publicly Routable",
+        "description": "Interpreted from the cache's bind/listen configuration: true when the instance listens on a publicly or broadly reachable interface (e.g. bind 0.0.0.0, '* -::*', or all interfaces) rather than loopback (127.0.0.1) or a specific trusted private IP. Derived by the assessor from `bind`. True is the insecure (exposed) state.",
+        "default": false
+      },
+      "default_user_unauthenticated": {
+        "type": "boolean",
+        "title": "Default User Unauthenticated",
+        "description": "Interpreted boolean over the composite Redis ACL/auth state: true when the built-in 'default' user is reachable with no credentials — shipped as 'user default on nopass ~* &* +@all' with no requirepass and no ACL password set. Modeled as an interpreted boolean because the real key is a composite directive that cannot be safely substring-matched. True is the insecure (unauthenticated full-access) state.",
+        "default": false
+      },
+      "protected_mode_enabled": {
+        "type": "boolean",
+        "title": "Protected Mode Enabled",
+        "description": "Maps to Redis `protected-mode`: the safety net (default yes) that, when bound to all interfaces with no password, accepts only loopback connections. true = 'yes' (secure); the condition fires on is_false ('no'), which on a reachable interface with no auth opens unauthenticated network access.",
+        "default": false
+      },
+      "bind": {
+        "type": "string",
+        "title": "Bind Interfaces (raw)",
+        "description": "Raw Redis `bind` value (network interfaces the cache listens on), e.g. '0.0.0.0', '* -::*', '127.0.0.1 -::1', or a specific private IP. Source field the assessor interprets into data_store_publicly_routable; retained for context, not directly triggered."
+      },
+      "requirepass": {
+        "type": "string",
+        "title": "Requirepass (raw)",
+        "description": "Raw Redis `requirepass` value — legacy single-password auth for the default user. Empty ('') means no password is set via this mechanism; combined with the ACL state it determines default_user_unauthenticated. Retained for context, not directly triggered (ACL-based auth may set the default user password instead)."
+      },
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Flow TLS Encrypted",
+        "description": "Whether client traffic to the store is served over a TLS listener (Redis tls-port set to a non-zero port with tls-cert-file/tls-key-file present). When false, session IDs and bearer tokens travel as plaintext RESP and are readable by any on-path attacker. Interpreted boolean derived from tls-port + TLS cert config; secure value is true.",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Whether the cleartext listener is disabled so clients can connect ONLY over TLS (Redis port 0 with tls-port set). When false, the cleartext port (e.g. 6379) accepts unencrypted connections alongside any TLS port, leaving plaintext interception possible. Interpreted boolean derived from the port config key; secure value is true.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Whether the TLS listener permits legacy protocol versions (TLSv1.0/TLSv1.1) — the downgradeable variant of this vector. Interpreted boolean derived from the Redis tls-protocols directive (raw composite string is NOT pattern-matched to avoid substring false-positives); the assessor sets this true when TLSv1.0/1.1 are allowed. Secure value is false.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "TLSv1.0",
+          "TLSv1.1",
+          "TLSv1.2",
+          "TLSv1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The lowest TLS protocol version accepted on the encrypted transport. Positive condition on the insecure side: TLSv1.0/TLSv1.1 are downgradeable and weak-cipher-prone; secure values are TLSv1.2/TLSv1.3. Derived from the Redis tls-protocols directive."
+      },
+      "cipher_suites_strong_only": {
+        "type": "boolean",
+        "title": "Strong Cipher Suites Only",
+        "description": "Whether the TLS listener negotiates only strong cipher suites (no aNULL/eNULL/RC4/MD5/export ciphers). Modeled as an interpreted boolean rather than regex-matching the raw cipher-list string (a hardened list such as 'HIGH:!aNULL:!MD5' still contains the weak token names as substrings). The assessor interprets the Redis tls-ciphers/tls-ciphersuites directives; secure value is true."
+      },
+      "persistence_enabled": {
+        "type": "boolean",
+        "title": "Persistence Enabled",
+        "description": "Whether the cache writes in-memory state to disk via RDB snapshots (the 'save' schedule) or the append-only file (appendonly yes). When true for a session/token tier, transient secrets are durably written to disk. True is the firing (insecure) value for this transient-secret store because it creates the at-rest exposure surface the cache was meant to avoid.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted At Rest",
+        "description": "Whether the persisted RDB/AOF data is protected by at-rest encryption (Redis has no built-in at-rest encryption, so this is satisfied only by encrypted/restricted storage — an encrypted volume or filesystem hosting CONFIG GET dir). False (no at-rest encryption while persistence is on) fires the exposure: cleartext dump.rdb/appendonly files leak the very sessions and tokens the tier held transiently.",
+        "default": false
+      },
+      "dump_files_world_readable": {
+        "type": "boolean",
+        "title": "Dump Files World-Readable",
+        "description": "Whether the persistence directory and its dump.rdb/appendonly files carry broad (world/group-readable) filesystem permissions, letting any local user or co-tenant read the persisted secrets. Positive-insecure complement of the shared 'config_files_not_world_readable' attestation, modeled this way to keep the within-AND-group condition a directly-auditable hazard rather than a double negative. True fires the exposure."
+      },
+      "relies_on_disk_encryption_only": {
+        "type": "boolean",
+        "title": "Relies On Disk Encryption Only",
+        "description": "Whether at-rest protection rests solely on full-disk/volume encryption (which guards against stolen-disk/offline access) without file-permission restriction or application-layer secret handling. Context for assessing residual risk: disk encryption alone does not stop a host-local reader from reading a world-readable dump, so this evidence sharpens the dump_files_world_readable finding. Not itself a trigger."
+      },
+      "cache_patched_within_sla": {
+        "type": "boolean",
+        "title": "Cache Patched Within SLA",
+        "description": "Whether the running Redis engine has been patched within the remediation SLA to a release fixing known critical CVEs — notably CVE-2025-49844 (RediShell), the Lua use-after-free enabling sandbox escape to native RCE. Secure value is true; the exposure fires when false (an unpatched build exposing the Lua UAF). Aligned with the workspace patch-currency facet (edge_appliance_patched_within_sla).",
+        "default": false
+      },
+      "scripting_restricted_for_app_users": {
+        "type": "boolean",
+        "title": "Scripting Restricted For App Users",
+        "description": "Whether EVAL/EVALSHA/SCRIPT/FCALL (the Lua scripting attack surface) is removed from the credentials applications actually use — i.e. app/named ACL users carry '-@scripting' rather than inheriting the default user's '+@all'. Interpreted boolean over the ACL command-category directive (not a raw-substring match). Secure value is true; the exposure fires when false (scripting reachable, leaving the RediShell sandbox-escape surface available).",
+        "default": false
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "Interpreted boolean: the running redis_version is at or below the vulnerable range for a known critical remote-code-execution CVE that remains unremediated — specifically CVE-2025-49844 (RediShell). Models the version-exposure verdict without substring-matching the raw version string. Secure value is false; the exposure fires when true.",
+        "default": false
+      },
+      "redis_version": {
+        "type": "string",
+        "title": "Redis Version (raw)",
+        "description": "Raw running engine version string from 'redis-cli INFO server | grep redis_version'. Context only — interpreted against the CVE-2025-49844 (RediShell) fixed-release cutoff to derive cache_patched_within_sla / unpatched_known_rce_cve. Not pattern-matched directly (version-substring comparison is polarity-unsafe in RE2)."
+      },
+      "dangerous_commands_acl_restricted": {
+        "type": "boolean",
+        "title": "Dangerous Commands ACL-Restricted",
+        "description": "Whether app/named ACL users carry -@dangerous/-@admin so destructive/administrative commands (FLUSHALL, FLUSHDB, KEYS, CONFIG, SHUTDOWN, DEBUG) are not grantable to them. Interpreted by the assessor from `ACL GETUSER`/`ACL LIST` against the `ACL CAT dangerous` set — true only when those categories are excluded from the credentials apps actually use. FALSE (dangerous commands still reachable by app credentials) fires this destructive-command-access exposure.",
+        "default": false
+      },
+      "dangerous_commands_renamed_or_disabled": {
+        "type": "boolean",
+        "title": "Dangerous Commands Renamed Or Disabled",
+        "description": "Whether dangerous commands are neutralised at the engine level via the legacy `rename-command` mechanism (e.g. `rename-command FLUSHALL \"\"` to disable, or renamed to an unguessable token) for CONFIG/FLUSHALL/FLUSHDB/KEYS/DEBUG/SHUTDOWN. Interpreted from `grep '^rename-command'` (composite string, read as an interpreted boolean rather than substring-matched). FALSE (all commands available under normal names) is the secondary trigger; AND-ed with the ACL facet it means destructive commands are reachable by neither defence."
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Whether least-privilege named users exist for applications (each scoped to the keys/commands it needs) rather than every client authenticating as the all-powerful built-in `default` user (`+@all`). For Redis, interpreted from `ACL LIST` / a configured `aclfile` defining per-app users. FALSE (only the single full-access default user exists, so any compromised app credential inherits FLUSHALL/CONFIG/KEYS) fires this exposure on its own.",
+        "default": false
+      },
+      "aclfile": {
+        "type": "string",
+        "title": "ACL File Path (raw)",
+        "description": "Raw `CONFIG GET aclfile` value — path to the external ACL file defining least-privilege named users. Empty means only the built-in default user exists; supports deriving `least_privilege_access_enforced`. Context only, not a trigger."
+      },
+      "maxmemory_limit_set": {
+        "type": "boolean",
+        "title": "Maxmemory Limit Set",
+        "description": "Interpreted from the Redis 'maxmemory' config key: true when a sized non-zero memory cap is configured (e.g. 4gb), false when maxmemory is 0/unset (unbounded growth). With no cap a flood of writes drives the host to OOM, taking down the hot-data tier that fronts authentication and session state.",
+        "default": false
+      },
+      "maxmemory_policy": {
+        "type": "string",
+        "enum": [
+          "noeviction",
+          "allkeys-lru",
+          "allkeys-lfu",
+          "allkeys-random",
+          "volatile-lru",
+          "volatile-lfu",
+          "volatile-random",
+          "volatile-ttl"
+        ],
+        "title": "Maxmemory Policy",
+        "description": "The Redis 'maxmemory-policy' eviction policy applied when the memory limit is reached. 'noeviction' returns errors on writes once full rather than evicting — when paired with an unset maxmemory and TTL-bearing session/token data this is an availability hazard mismatched to the cache's usage. A volatile-*/allkeys-* policy paired with a set maxmemory bounds growth instead."
+      },
+      "maxmemory": {
+        "type": "string",
+        "title": "Maxmemory (raw)",
+        "description": "Raw value of the Redis 'maxmemory' config key (e.g. \"0\" for unbounded, or a byte limit like \"4gb\"). Retained as context for the assessor; the load-bearing trigger is the interpreted boolean maxmemory_limit_set derived from this value."
+      },
+      "persistent_logging_absent": {
+        "type": "boolean",
+        "title": "Persistent Logging Absent",
+        "description": "Interpreted: Redis has no durable log destination — `logfile` is empty AND syslog is not enabled — so operational/audit logs go to volatile stdout only and are not retained off-box. Derived from `CONFIG GET logfile` (empty) together with the absence of `syslog-enabled yes`; true means there is no persistent audit trail. Modeled as an interpreted boolean because the security depends on the combination of two raw fields rather than any single substring.",
+        "default": false
+      },
+      "logfile": {
+        "type": "string",
+        "title": "Logfile (raw)",
+        "description": "Raw Redis `logfile` config value (`CONFIG GET logfile`). Empty with no syslog means logs are emitted to stdout only (volatile). Retained for context to derive `persistent_logging_absent`."
+      },
+      "syslog_enabled": {
+        "type": "boolean",
+        "title": "Syslog Enabled (raw)",
+        "description": "Raw Redis `syslog-enabled` config value. When true, Redis ships logs to syslog (which can forward off-box for durable retention). Used together with `logfile` to derive `persistent_logging_absent`."
+      },
+      "slowlog_log_slower_than": {
+        "type": "integer",
+        "title": "Slowlog Log Slower Than (microseconds)",
+        "description": "Redis `slowlog-log-slower-than` threshold in microseconds. A negative value (-1) disables the slow-query log entirely — the closest Redis has to command-level audit/observability — removing any record of abusive/expensive commands (KEYS, big SORT, repeated AUTH failures) that signal scraping, brute-force, or DoS. Secure is a positive microsecond threshold (e.g. 10000); insecure (firing) is < 0."
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Whether a durable audit trail of access (who connected, when) is captured and retained for this component. Supporting context for the audit-logging posture; not itself the trigger for this exposure."
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Whether security-relevant events (authentication failures, privileged/abusive commands) are fully captured in logs. Supporting context; the volatile-stdout and disabled-slowlog conditions are what actually fire this exposure."
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored On Separate System",
+        "description": "Whether logs are shipped to and retained on a separate system (off-box, tamper-resistant). Supporting context for durability of any audit trail; relevant to whether stdout-only logging is recoverable."
+      }
+    },
+    "required": [
+      "data_store_publicly_routable",
+      "default_user_unauthenticated",
+      "protected_mode_enabled",
+      "flow_tls_encrypted",
+      "tls_only_transport",
+      "weak_tls_versions_enabled",
+      "min_tls_version",
+      "cipher_suites_strong_only",
+      "persistence_enabled",
+      "encrypted_at_rest",
+      "dump_files_world_readable",
+      "cache_patched_within_sla",
+      "scripting_restricted_for_app_users",
+      "unpatched_known_rce_cve",
+      "dangerous_commands_acl_restricted",
+      "dangerous_commands_renamed_or_disabled",
+      "least_privilege_access_enforced",
+      "maxmemory_limit_set",
+      "maxmemory_policy",
+      "persistent_logging_absent",
+      "slowlog_log_slower_than"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_user_unauthenticated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/requirepass"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dangerous_commands_acl_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scripting_restricted_for_app_users"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dangerous_commands_renamed_or_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/aclfile"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cipher_suites_strong_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/relies_on_disk_encryption_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_store_publicly_routable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/protected_mode_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bind"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cache_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/redis_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/maxmemory_limit_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/maxmemory_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/maxmemory"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/persistent_logging_absent"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/slowlog_log_slower_than"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logfile"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/syslog_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/persistence_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dump_files_world_readable"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

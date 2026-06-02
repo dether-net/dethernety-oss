@@ -1,0 +1,1065 @@
+[
+  {
+    "option_name": "keys_managed_in_hsm_or_kms",
+    "option_description": "Whether the IdP's token/assertion signing private keys are protected by an HSM or KMS as non-exportable material rather than stored as plaintext key files on disk.",
+    "security_impact": "Triggers \"Signing-key compromise / golden token / golden SAML\" — one of its OR-conditions — firing when keys_managed_in_hsm_or_kms is false. A disk-resident static signing key an attacker can steal yields golden-token / golden-SAML forgery for any user across every federated RP (T1606.002 / T1649).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the realm signing-key providers and confirm the active key material is HSM/KMS-backed (non-exportable) rather than a plaintext rsa-generated key on disk.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > Keys > Providers",
+        "expected_output": "An rsa/rsa-generated provider with rotation; old keys shown as passive, not a single permanent active key",
+        "source": "Keycloak Server Administration Guide (regularly rotate keys); OWASP Key Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review where the active signing private key actually lives — confirm it is held in an HSM/KMS as non-exportable material (NIST SP 800-63C requires FIPS 140 L1+ signing keys at AAL3/government AAL2), not a key file on the filesystem.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key custody documented as HSM/KMS-resident and non-exportable; no plaintext private-key file readable on the IdP host",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "key_rotation_enabled",
+    "option_description": "Whether the realm signing keys (JWKS) are rotated on a schedule with superseded keys retired to passive, bounding the forgery window of a leaked key.",
+    "security_impact": "Triggers \"Signing-key compromise / golden token / golden SAML\" — one of its OR-conditions — firing when key_rotation_enabled is false. A single static key never rotated gives a stolen signing key indefinite golden-token capability (T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the realm Keys providers for scheduled rotation with superseded keys retired to passive.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > Keys > Providers",
+        "expected_output": "An rsa/rsa-generated provider with rotation; old keys shown as passive, not a single permanent active key",
+        "source": "Keycloak Server Administration Guide (regularly rotate keys); OWASP Key Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "signing_key_high_entropy",
+    "option_description": "Whether the token/assertion signing key is generated with adequate cryptographic strength and entropy (adequate asymmetric key size from a strong RNG, FIPS 140 backed per NIST SP 800-63C).",
+    "security_impact": "Triggers \"Signing-key compromise / golden token / golden SAML\" — one of its OR-conditions — firing when signing_key_high_entropy is false. A weak/low-entropy signing key can be recovered or brute-forced, enabling token/assertion forgery (T1606).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the active signing-key provider's key size/type in the realm Keys providers; confirm an adequately-sized asymmetric key (e.g. RSA >= 2048 / EC P-256+).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > Keys > Providers (key size / type column)",
+        "expected_output": "Asymmetric key of adequate size (RSA >= 2048 or EC P-256+); not an undersized or symmetric key",
+        "source": "Keycloak Server Administration Guide (regularly rotate keys); OWASP Key Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the signing key was generated from a strong RNG and is FIPS 140 backed where required by the AAL (NIST SP 800-63C).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key generation documented as strong-RNG / FIPS 140 backed at the required AAL",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "signature_algorithm_pinned_server_side",
+    "option_description": "Whether the IdP/verifier pins an expected asymmetric signing algorithm (RS256/ES256/PS256) server-side per RFC 8725 instead of trusting the token's own 'alg' header, and never advertises or accepts 'alg:none' or symmetric HS256.",
+    "security_impact": "An OR-trigger of TWO exposures (fires when signature_algorithm_pinned_server_side is false): \"Signing-key compromise / golden token / golden SAML\" and \"JWT algorithm confusion / alg:none / RS256->HS256\". Header-driven algorithm selection enables RS256->HS256 key-confusion and alg:none forgery (T1606 / T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the per-client Access/ID Token Signature Algorithm and confirm an asymmetric algorithm is fixed (the verifier does not select from the token's own alg header).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Advanced > Fine Grain OpenID Connect Configuration > Access Token / ID Token Signature Algorithm",
+        "expected_output": "RS256 or ES256; HS256/none is insecure",
+        "source": "Keycloak Server Administration Guide; RFC 8725 JWT BCP"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the OIDC discovery document for the advertised signing algorithms; presence of HS256/none indicates the verifier may not pin an asymmetric algorithm.",
+        "command": "curl -s {iss}/.well-known/openid-configuration | jq .id_token_signing_alg_values_supported",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Includes RS256/ES256; presence of HS256/none as an advertised/acceptable value is a concern",
+        "source": "OpenID Connect Core / Discovery"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "federation_trust_validated",
+    "option_description": "Whether inbound federation trusts (identity-provider / SAML SP relationships and their signing certificates) are explicitly validated and pinned, so a rogue trust cannot inject attacker-controlled signing material.",
+    "security_impact": "Triggers \"Signing-key compromise / golden token / golden SAML\" — one of its OR-conditions — firing when federation_trust_validated is false. The rogue-trust path of golden SAML (SolarWinds/UNC2452) lets an attacker forge assertions for any user (T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review each configured Identity Provider brokering entry and its signing certificate; confirm trusts are explicitly pinned and metadata is not auto-accepted from attacker-supplied sources.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Identity Providers > {provider} (signing certificate / validate signature settings)",
+        "expected_output": "Each inbound trust has a pinned/validated signing certificate; no auto-accept of unverified federation metadata",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IdP owners on how new inbound federation trusts are onboarded — confirm signing material is verified out-of-band and pinned (NIST SP 800-63C federation trust establishment).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented trust-establishment procedure with out-of-band certificate verification; no self-service rogue-trust path",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "redirect_uri_exact_match_enforced",
+    "option_description": "Whether the IdP enforces exact-string matching of each client's Valid Redirect URIs (no wildcard '*', no overly-broad host/path, no http://localhost or 127.0.0.1 entries in production) per RFC 9700.",
+    "security_impact": "Triggers \"Lax redirect_uri / open-redirect code theft\" — its sole OR-condition — firing when redirect_uri_exact_match_enforced is false. Wildcard/loopback/path-traversable redirect URIs let an attacker exfiltrate the authorization code/token (account takeover; Keycloak CVE-2024-8883 / CVE-2024-1132 / CVE-2023-6927; T1190 / T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect each client's Valid Redirect URIs and confirm every entry is a single exact absolute https URI.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Settings > Valid Redirect URIs",
+        "expected_output": "Each entry is a single exact URI; no '*' segments and no localhost/127.0.0.1 entries",
+        "source": "Keycloak Server Administration Guide (Mitigating Security Threats — unspecific redirect URIs)"
+      },
+      {
+        "type": "api",
+        "instruction": "Read the per-client redirectUris allow-list via the admin REST API and check no element is a wildcard or loopback host in production.",
+        "command": "GET {admin}/admin/realms/{realm}/clients?clientId={id} -> redirectUris[]",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No element contains '*' or a localhost host in production",
+        "source": "RFC 9700 OAuth 2.0 Security BCP (exact redirect_uri matching)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "accepts_alg_none",
+    "option_description": "Whether the IdP issues or accepts JWTs whose JOSE 'alg' header is 'none' (unsigned tokens). RFC 8725 requires rejecting 'none'.",
+    "security_impact": "Triggers \"JWT algorithm confusion / alg:none / RS256->HS256\" — one of its OR-conditions — firing when accepts_alg_none is true. Honouring unsigned tokens lets an attacker strip the signature and forge arbitrary tokens (T1606 / T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the OIDC discovery document — an advertised/acceptable 'none' value signals the verifier may honour unsigned tokens.",
+        "command": "curl -s {iss}/.well-known/openid-configuration | jq .id_token_signing_alg_values_supported",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Includes RS256/ES256; presence of HS256/none as an advertised/acceptable value is a concern",
+        "source": "OpenID Connect Core / Discovery"
+      },
+      {
+        "type": "command",
+        "instruction": "Craft a test token with the JOSE header set to {\"alg\":\"none\"} (signature stripped) and present it to a protected endpoint; confirm the verifier rejects it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The endpoint rejects the alg:none token (401/invalid_token); acceptance is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "rs256_to_hs256_confusion_possible",
+    "option_description": "Whether the verifier selects the HMAC/RSA verification routine from the token's own 'alg' header rather than a pinned expected algorithm, permitting an RS256->HS256 switch signed with the IdP's public key.",
+    "security_impact": "Triggers \"JWT algorithm confusion / alg:none / RS256->HS256\" — one of its OR-conditions — firing when rs256_to_hs256_confusion_possible is true. Header-driven routine selection lets an attacker forge tokens by signing HS256 with the known public key (T1606 / T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm the per-client signature algorithm is a fixed asymmetric value (RS*/ES*/PS*) so the verifier cannot be steered to HMAC by the token's alg header.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Advanced > Fine Grain OpenID Connect Configuration > Access Token / ID Token Signature Algorithm",
+        "expected_output": "RS256 or ES256; HS256/none is insecure",
+        "source": "Keycloak Server Administration Guide; RFC 8725 JWT BCP"
+      },
+      {
+        "type": "command",
+        "instruction": "Take an RS256 token, re-sign it as HS256 using the IdP's published JWKS public key as the HMAC secret, and present it; confirm the verifier rejects the algorithm switch.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The verifier rejects the HS256-resigned token; acceptance proves RS256->HS256 confusion is possible",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "access_token_signature_algorithm",
+    "option_description": "Per-client access/ID token signature algorithm. Asymmetric RS*/ES*/PS* are secure (RPs verify via public JWKS); symmetric HS* enables RS256->HS256 key-confusion forgery and 'none' is never acceptable.",
+    "security_impact": "Triggers \"JWT algorithm confusion / alg:none / RS256->HS256\" — one of its OR-conditions — firing when access_token_signature_algorithm is in [HS256, HS384, HS512, none]. A symmetric/none algorithm enables forgery against every RP that trusts the IdP (T1606 / T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the per-client token signature algorithm under Fine Grain OpenID Connect Configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Advanced > Fine Grain OpenID Connect Configuration > Access Token / ID Token Signature Algorithm",
+        "expected_output": "RS256 or ES256; HS256/none is insecure",
+        "source": "Keycloak Server Administration Guide; RFC 8725 JWT BCP"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the advertised signing algorithms from OIDC discovery as a realm-wide cross-check.",
+        "command": "curl -s {iss}/.well-known/openid-configuration | jq .id_token_signing_alg_values_supported",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Includes RS256/ES256; presence of HS256/none as an advertised/acceptable value is a concern",
+        "source": "OpenID Connect Core / Discovery"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "RS256",
+      "ES256",
+      "PS256",
+      "HS256",
+      "none"
+    ]
+  },
+  {
+    "option_name": "pkce_required",
+    "option_description": "Whether Proof Key for Code Exchange (PKCE) is enforced for the OAuth/OIDC authorization-code flow on this client. RFC 9700 mandates PKCE for ALL client types.",
+    "security_impact": "Triggers \"Insecure OAuth flow / authorization-code interception without PKCE\" — one of its OR-conditions — firing when pkce_required is false. Without PKCE an intercepted authorization code can be redeemed by an attacker (T1550.001 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm the per-client PKCE Code Challenge Method is set (not blank), enforcing PKCE for the authorization-code flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Advanced > Advanced Settings > Proof Key for Code Exchange Code Challenge Method",
+        "expected_output": "S256 (secure); blank means PKCE not enforced for this client",
+        "source": "Keycloak Server Administration Guide; RFC 7636 PKCE"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pkce_method_s256_required",
+    "option_description": "Whether PKCE is enforced specifically with the S256 (SHA-256) code-challenge method rather than the weak 'plain' method.",
+    "security_impact": "Triggers \"Insecure OAuth flow / authorization-code interception without PKCE\" — one of its OR-conditions — firing when pkce_method_s256_required is false. The 'plain' method transmits the verifier-equivalent in the clear, removing the code-binding protection (T1550.001 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm the per-client Code Challenge Method is fixed to S256 (not 'plain').",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Advanced > Advanced Settings > Proof Key for Code Exchange Code Challenge Method",
+        "expected_output": "S256 (secure); blank means PKCE not enforced for this client",
+        "source": "Keycloak Server Administration Guide; RFC 7636 PKCE"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "code_challenge_method_plain_accepted",
+    "option_description": "Whether the IdP accepts the deprecated 'plain' PKCE code-challenge method (alongside or instead of S256). 'plain' offers no protection against a passive observer of the challenge.",
+    "security_impact": "Triggers \"Insecure OAuth flow / authorization-code interception without PKCE\" — one of its OR-conditions — firing when code_challenge_method_plain_accepted is true. Accepting 'plain' negates PKCE's defence against code interception (T1550.001 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm the per-client Code Challenge Method is fixed to S256 so 'plain' is not an accepted method.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Advanced > Advanced Settings > Proof Key for Code Exchange Code Challenge Method",
+        "expected_output": "S256 (secure); blank means PKCE not enforced for this client",
+        "source": "Keycloak Server Administration Guide; RFC 7636 PKCE"
+      },
+      {
+        "type": "command",
+        "instruction": "Initiate an authorization-code request with code_challenge_method=plain and confirm the IdP refuses it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The IdP rejects the 'plain' challenge method (only S256 honoured); acceptance is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "implicit_or_ropc_grant_enabled",
+    "option_description": "Whether either the deprecated Implicit grant (token in URL fragment, no PKCE) or the Resource Owner Password Credentials (ROPC / Direct Access Grants) grant is enabled on this client. RFC 9700 deprecates both.",
+    "security_impact": "Triggers \"Insecure OAuth flow / authorization-code interception without PKCE\" — one of its OR-conditions — firing when implicit_or_ropc_grant_enabled is true. Implicit exposes tokens in the URL with no code-exchange protection; ROPC makes the client handle the raw password and bypasses MFA/consent/federation (T1550.001 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the client's Capability config for the Implicit flow toggle.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Settings > Capability config > Implicit flow",
+        "expected_output": "Implicit flow = Off; Standard flow = On",
+        "source": "Keycloak Server Administration Guide; RFC 9700 (implicit grant deprecated)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the client's Capability config for the Direct Access Grants (ROPC) toggle.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Settings > Capability config > Direct access grants",
+        "expected_output": "Direct access grants = Off",
+        "source": "Keycloak Server Administration Guide; RFC 9700 (ROPC deprecated)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "oauth_state_bound_and_verified",
+    "option_description": "Whether the OAuth 'state' parameter is generated, bound to the user's session, and verified on the authorization-response callback (RFC 6749 CSRF defence on the redirect endpoint).",
+    "security_impact": "Triggers \"Insecure OAuth flow / authorization-code interception without PKCE\" — one of its OR-conditions — firing when oauth_state_bound_and_verified is false. An unbound/unverified state enables login-CSRF on the redirect endpoint (T1550.001 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture the authorization request/response for the client and confirm a unique 'state' is sent and that tampering with or omitting it on the callback is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A unique state is present on the request and the callback rejects a mismatched/missing state",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the relying-party client integration code/library to confirm it generates, stores in session, and verifies the state parameter on callback (state binding is an RP responsibility).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP code generates and verifies a session-bound state per RFC 6749",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "oidc_nonce_validated",
+    "option_description": "Whether the OIDC 'nonce' claim is sent on the authentication request and validated against the returned ID token, defeating ID-token replay (OIDC Core requirement).",
+    "security_impact": "Triggers \"Insecure OAuth flow / authorization-code interception without PKCE\" — one of its OR-conditions — firing when oidc_nonce_validated is false. Without nonce validation an ID token can be replayed (T1550.001 / T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture an OIDC authentication request and the returned ID token; confirm a nonce is sent and matches the 'nonce' claim in the ID token the RP validates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The request carries a nonce and the RP validates it against the ID token's nonce claim",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the RP integration to confirm nonce generation and validation against the returned ID token (an RP-side OIDC Core requirement).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP code sends and validates the nonce per OIDC Core",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "saml_assertion_signature_verified",
+    "option_description": "Whether the IdP signs SAML assertions AND the relying party cryptographically verifies that signature over the full assertion with XML signature-wrapping defences.",
+    "security_impact": "Triggers \"SAML assertion forgery / signature-wrapping / replay\" — one of its OR-conditions — firing when saml_assertion_signature_verified is false. Unsigned/unverified assertions can be forged or signature-wrapped to impersonate any user (golden SAML; T1606.002 / T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the SAML client's signing capabilities — confirm Sign Assertions and Client signature required are On.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {saml-client} > Settings > SAML capabilities: Sign Assertions / Sign Documents / Client signature required / Encrypt Assertions",
+        "expected_output": "Sign Assertions On; signature required On; assertions encrypted where confidentiality required",
+        "source": "OWASP SAML Security Cheat Sheet; NIST SP 800-63C-4 (FAL1 signed / FAL2 encrypted)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SP verifies the signature over the full assertion with signature-wrapping defences (canonical reference resolution, single-assertion enforcement).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects assertions whose signature does not cover the full assertion / contains injected sibling assertions",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "saml_audience_restriction_strict",
+    "option_description": "Whether every issued assertion carries an AudienceRestriction naming the specific intended SP EntityID and the SP rejects assertions whose audience does not exactly match itself.",
+    "security_impact": "Triggers \"SAML assertion forgery / signature-wrapping / replay\" — one of its OR-conditions — firing when saml_audience_restriction_strict is false. An assertion minted for one SP can be replayed at another to impersonate the user (NIST SP 800-63C; T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Decode an issued SAML assertion and inspect the AudienceRestriction; confirm it names the specific SP EntityID (not missing/empty or shared/wildcard).",
+        "command": "Decode an issued access/ID token (e.g. jwt decode) and inspect aud, iss, exp claims",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "aud == the specific client_id/RP; iss == IdP issuer URL; exp present and short",
+        "source": "NIST SP 800-63C-4 (audience restriction, signed assertions); OpenID Connect Core ID Token validation"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SP rejects assertions whose Audience does not exactly match its own EntityID (per-RP audience binding enforced at the consumer).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects an assertion whose AudienceRestriction names a different SP",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "saml_recipient_inresponseto_matched",
+    "option_description": "Whether the SP binds each assertion to its originating request by validating SubjectConfirmationData Recipient == its ACS URL and InResponseTo == the in-flight AuthnRequest ID, rejecting unsolicited/mismatched responses.",
+    "security_impact": "Triggers \"SAML assertion forgery / signature-wrapping / replay\" — one of its OR-conditions — firing when saml_recipient_inresponseto_matched is false. An attacker can inject an unsolicited or stolen assertion at the SP (forced-login / assertion-injection; T1606.002 / T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the SP's SAML response handling and confirm it validates Recipient == its ACS URL and InResponseTo == the in-flight AuthnRequest ID, rejecting unsolicited responses.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects responses with a mismatched Recipient/InResponseTo or with no matching outstanding AuthnRequest",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Replay a captured assertion to the SP's ACS with no matching outstanding AuthnRequest and confirm it is refused.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP refuses the unsolicited/injected assertion",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "saml_assertion_replay_cache_active",
+    "option_description": "Whether the SP maintains a replay cache keyed on assertion ID (and enforces NotBefore/NotOnOrAfter Conditions) so a previously-consumed, still-valid assertion cannot be presented twice.",
+    "security_impact": "Triggers \"SAML assertion forgery / signature-wrapping / replay\" — one of its OR-conditions — firing when saml_assertion_replay_cache_active is false. A captured valid assertion can be replayed to re-authenticate as the victim (NIST SP 800-63C; T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SP maintains an assertion-ID replay cache and enforces NotBefore/NotOnOrAfter Conditions (one-time use within the validity window).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects a second presentation of the same assertion ID and assertions outside the Conditions window",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Present the same still-valid assertion twice to the SP and confirm the second presentation is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Second presentation of the assertion is refused (replay blocked)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audience_claim_validated",
+    "option_description": "Whether every assertion/token the IdP mints carries a per-RP audience (aud) bound to the specific requesting client/RP, and that audience is the binding all RPs check.",
+    "security_impact": "Triggers \"Missing audience restriction / cross-RP token replay\" — one of its OR-conditions — firing when audience_claim_validated is false. A token minted for one RP can be replayed at another (NIST SP 800-63C; T1550.001 / T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Decode an issued access/ID token and confirm the 'aud' claim is the specific requesting client_id (not missing/empty or shared/wildcard).",
+        "command": "Decode an issued access/ID token (e.g. jwt decode) and inspect aud, iss, exp claims",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "aud == the specific client_id/RP; iss == IdP issuer URL; exp present and short",
+        "source": "NIST SP 800-63C-4 (audience restriction, signed assertions); OpenID Connect Core ID Token validation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "issuer_claim_validated",
+    "option_description": "Whether issued assertions/tokens carry the IdP issuer (iss) claim and the signature covers iss, so a token cannot be passed off as originating from a different trusted issuer.",
+    "security_impact": "Triggers \"Missing audience restriction / cross-RP token replay\" — one of its OR-conditions — firing when issuer_claim_validated is false. Absent/unsigned iss weakens the iss/aud/sub/exp signed binding NIST SP 800-63C requires (T1550.001 / T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Decode an issued token and confirm an 'iss' claim is present and equals the IdP issuer URL (and is covered by the signature).",
+        "command": "Decode an issued access/ID token (e.g. jwt decode) and inspect aud, iss, exp claims",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "aud == the specific client_id/RP; iss == IdP issuer URL; exp present and short",
+        "source": "NIST SP 800-63C-4 (audience restriction, signed assertions); OpenID Connect Core ID Token validation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "expiry_claim_validated",
+    "option_description": "Whether issued assertions/tokens carry an expiration (exp) claim covered by the issuer signature, so a captured token cannot be replayed indefinitely.",
+    "security_impact": "Triggers \"Missing audience restriction / cross-RP token replay\" — one of its OR-conditions — firing when expiry_claim_validated is false. Missing/unsigned exp removes the time bound on a replayable token (T1550.001 / T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Decode an issued token and confirm an 'exp' claim is present (short-lived) and covered by the signature.",
+        "command": "Decode an issued access/ID token (e.g. jwt decode) and inspect aud, iss, exp claims",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "aud == the specific client_id/RP; iss == IdP issuer URL; exp present and short",
+        "source": "NIST SP 800-63C-4 (audience restriction, signed assertions); OpenID Connect Core ID Token validation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_available",
+    "option_description": "Whether multi-factor authentication is configured/available and required in the IdP login browser flow rather than password-only.",
+    "security_impact": "Triggers \"Weak / phishable MFA and credential brute force on the IdP\" — one of its OR-conditions — firing when mfa_available is false. Password-only login leaves the front door open to credential stuffing and brute force (T1110 / T1621 / T1598.003).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the browser authentication flow and Required Actions; confirm an MFA execution (OTP/WebAuthn) is required, not merely optional.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Authentication > Flows (browser flow) — WebAuthn/OTP required; Required Actions: Configure OTP / WebAuthn enabled",
+        "expected_output": "An MFA execution is REQUIRED (not Alternative/Disabled) in the flow used by admins",
+        "source": "NIST SP 800-63B Rev 4 (AAL2/AAL3, phishing-resistant); CISA Implementing Phishing-Resistant MFA"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "option_description": "Whether the IdP requires a phishing-resistant authenticator (FIDO2/WebAuthn or PKI) rather than accepting phishable factors (SMS OTP / push).",
+    "security_impact": "Triggers \"Weak / phishable MFA and credential brute force on the IdP\" — one of its OR-conditions — firing when phishing_resistant_authenticator_required is false. Phishable-only MFA lets an AiTM proxy harvest password + OTP/push and mint an IdP session (T1598.003 / T1621).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the authentication flow and confirm a phishing-resistant authenticator (WebAuthn/FIDO2 or PKI) is required, not merely offered alongside phishable SMS OTP/push.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Authentication > Flows (browser flow) — WebAuthn/OTP required; Required Actions: Configure OTP / WebAuthn enabled",
+        "expected_output": "An MFA execution is REQUIRED (not Alternative/Disabled) in the flow used by admins",
+        "source": "NIST SP 800-63B Rev 4 (AAL2/AAL3, phishing-resistant); CISA Implementing Phishing-Resistant MFA"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_mfa_enforced",
+    "option_description": "Whether MFA is REQUIRED (not Alternative/Disabled) in the authentication flow used by realm/admin accounts.",
+    "security_impact": "Triggers \"Weak / phishable MFA and credential brute force on the IdP\" — one of its OR-conditions — firing when admin_mfa_enforced is false. IdP admin compromise yields golden-token control of the whole federation, so admin MFA is the highest-value facet (T1110 / T1621).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm MFA is set to Required (not Alternative/Disabled) in the realm/admin authentication flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Authentication > Flows (browser flow) — WebAuthn/OTP required; Required Actions: Configure OTP / WebAuthn enabled",
+        "expected_output": "An MFA execution is REQUIRED (not Alternative/Disabled) in the flow used by admins",
+        "source": "NIST SP 800-63B Rev 4 (AAL2/AAL3, phishing-resistant); CISA Implementing Phishing-Resistant MFA"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether brute-force detection (temporary lockout / increasing backoff) or upstream rate limiting is enabled on the IdP login/token endpoints.",
+    "security_impact": "An OR-trigger of TWO exposures (fires when rate_limiting_or_lockout_enabled is false): \"Weak / phishable MFA and credential brute force on the IdP\" (T1110) and \"IdP availability / DoS (single point of failure)\" (T1498 / T1499.003). Without it, login attempts are unlimited (credential stuffing) and request volume is unbounded (application-layer DoS).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the realm Security Defenses for Brute Force Detection (it is disabled by default in Keycloak).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > Security Defenses > Brute Force Detection",
+        "expected_output": "Enabled with a failure threshold and lockout/wait policy",
+        "source": "Keycloak Server Administration Guide (Mitigating Security Threats)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm any upstream gateway/WAF rate limiting fronting the public auth/token endpoints bounds request volume in addition to Keycloak's lockout.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Gateway/WAF rate limiting documented on /realms/*/protocol/* auth and token endpoints",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "breached_password_screening_enabled",
+    "option_description": "Whether the IdP password policy screens proposed/credential passwords against known-breached corpora so credential reuse is blocked at the source.",
+    "security_impact": "Triggers \"Weak / phishable MFA and credential brute force on the IdP\" — one of its OR-conditions — firing when breached_password_screening_enabled is false. Permitting known-breached passwords raises credential-stuffing success against the IdP (T1110 / NIST SP 800-63B blocklist).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the realm password policy for a breached/compromised-password (blocklist) check.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Authentication > Policies > Password policy",
+        "expected_output": "A breached/compromised-password (or 'not recently used' / blocklist) policy entry is present per NIST SP 800-63B",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "refresh_token_rotation_enabled",
+    "option_description": "Whether the IdP rotates the refresh token on each use with reuse-detection (Keycloak 'Revoke Refresh Token' On with a small Refresh Token Reuse Count).",
+    "security_impact": "Triggers \"Refresh-token theft without rotation\" — appearing in two of its OR-groups (firing when refresh_token_rotation_enabled is false, including the AND-group with sender_constrained false). Without rotation a replayed stolen token is never flagged as compromise (RFC 9700; T1550.001 / T1528).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm 'Revoke Refresh Token' is enabled at the realm Tokens settings with a small allowed reuse count (rotation + reuse detection).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > Tokens > Revoke Refresh Token",
+        "expected_output": "Enabled, with a small allowed Refresh Token Reuse Count",
+        "source": "Keycloak Server Administration Guide; RFC 9700 (refresh-token rotation with reuse detection)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_side_revocation_supported",
+    "option_description": "Whether the IdP can revoke an issued refresh token server-side (token revocation / session-bound invalidation) so a detected-compromised or reused token is actively killed.",
+    "security_impact": "Triggers \"Refresh-token theft without rotation\" — one of its OR-conditions — firing when server_side_revocation_supported is false. Without it even a flagged refresh token remains valid until natural expiry, sustaining indefinite stolen-token access (T1550.001 / T1528).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the IdP advertises a token revocation endpoint in OIDC discovery and that revoking a refresh token there immediately invalidates it.",
+        "command": "curl -s {iss}/.well-known/openid-configuration | jq .revocation_endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A revocation_endpoint URL is present and revoking a refresh token there kills subsequent use",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "Confirm server-side session invalidation is available (admin can log out a user's sessions, killing associated refresh tokens).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Users > {user} > Sessions (Logout) / Realm Settings > Sessions",
+        "expected_output": "Admin logout invalidates the user's sessions and bound refresh tokens",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "sender_constrained",
+    "option_description": "Whether issued tokens are sender-constrained (DPoP per RFC 9449 or mTLS per RFC 8705) so a bearer token exfiltrated from a legitimate client cannot be presented from an attacker's machine.",
+    "security_impact": "Triggers \"Refresh-token theft without rotation\" — it is one half of that exposure's AND-group (firing when sender_constrained is false AND refresh_token_rotation_enabled is false). A non-sender-constrained token is a pure bearer credential usable anywhere (RFC 9449/8705; T1550.001 / T1528).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check OIDC discovery for DPoP support (dpop_signing_alg_values_supported) and inspect whether issued tokens carry a cnf (confirmation) claim binding them to a key.",
+        "command": "curl -s {iss}/.well-known/openid-configuration | jq '{dpop: .dpop_signing_alg_values_supported, mtls: .tls_client_certificate_bound_access_tokens}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DPoP algorithms advertised and/or mTLS-bound tokens enabled; issued tokens carry a cnf claim",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm clients are configured for DPoP or mTLS sender-constraining (note: this is an advanced facet not exposed as a single Keycloak realm toggle).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Clients documented as DPoP- or mTLS-bound (RFC 9449 / RFC 8705)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "full_scope_allowed_clients",
+    "option_description": "Whether at least one OAuth/OIDC client has 'Full Scope Allowed' enabled, so its tokens carry every realm role regardless of need.",
+    "security_impact": "Triggers \"Over-broad client scopes / over-privileged clients\" — one of its OR-conditions — firing when full_scope_allowed_clients is true. A single such client's compromise yields broad federated access, violating least privilege (T1078 / T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect each client's Scope tab for the 'Full Scope Allowed' toggle; flag any client where it is On.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Client scopes / Scope tab > Full Scope Allowed",
+        "expected_output": "Off, with only the needed client scopes assigned",
+        "source": "Keycloak Server Administration Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "scopes_least_privilege",
+    "option_description": "Whether per-client scopes/roles are explicitly mapped to only what each client needs, rather than every client receiving the full set of realm roles.",
+    "security_impact": "Triggers \"Over-broad client scopes / over-privileged clients\" — one of its OR-conditions — firing when scopes_least_privilege is false. Over-privileged clients carry tokens far beyond need so one client's compromise yields broad access (T1078 / T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect each client's assigned client scopes and confirm only the needed scopes/roles are mapped (no blanket realm-role grants).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Clients > {client} > Client scopes / Scope tab > Full Scope Allowed",
+        "expected_output": "Off, with only the needed client scopes assigned",
+        "source": "Keycloak Server Administration Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ssl_required",
+    "option_description": "Keycloak per-realm 'Require SSL' (sslRequired) controlling whether the IdP refuses non-TLS requests to its login, token, and admin endpoints. 'none' (the Keycloak default) accepts plaintext.",
+    "security_impact": "Triggers \"Unencrypted IdP transport\" — one of its OR-conditions — firing when ssl_required equals 'none'. Plaintext exposes credentials, authorization codes, and tokens to sniffing/MITM on an adjacent network path (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the realm 'Require SSL' setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > General > Require SSL",
+        "expected_output": "'All requests' (secure) or 'External requests' (acceptable); 'None' is insecure",
+        "source": "Keycloak Server Administration Guide"
+      },
+      {
+        "type": "api",
+        "instruction": "Read sslRequired from the realm via the admin REST API.",
+        "command": "GET {admin}/admin/realms/{realm}  -> field sslRequired",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"sslRequired\":\"all\" or \"external\"; \"none\" is insecure",
+        "source": "Keycloak Server Administration Guide"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all",
+      "external",
+      "none"
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether the IdP serves its login/token/admin endpoints exclusively over TLS and refuses any plaintext HTTP connection.",
+    "security_impact": "Triggers \"Unencrypted IdP transport\" — one of its OR-conditions — firing when tls_only_transport is false. Cleartext acceptance anywhere on the path exposes credentials/codes/tokens to sniffing and AiTM (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the IdP endpoints over plaintext HTTP and confirm they refuse or redirect to HTTPS rather than serving content over cleartext.",
+        "command": "curl -sI http://{idp-host}/realms/{realm}/.well-known/openid-configuration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or a 301/308 redirect to https://; a 200 over plaintext is insecure",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "Cross-check the realm 'Require SSL' setting which governs whether plaintext is accepted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Realm Settings > General > Require SSL",
+        "expected_output": "'All requests' (secure) or 'External requests' (acceptable); 'None' is insecure",
+        "source": "Keycloak Server Administration Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the IdP's TLS listener still negotiates deprecated protocol versions (TLS 1.0 / TLS 1.1 / SSLv3) below the TLS 1.2+ secure floor.",
+    "security_impact": "Triggers \"Unencrypted IdP transport\" — one of its OR-conditions — firing when weak_tls_versions_enabled is true. Deprecated versions are vulnerable to downgrade and known cipher attacks, weakening the transport even when TLS is nominally enabled (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the negotiable TLS protocol versions on the IdP listener and confirm TLS 1.0/1.1/SSLv3 are not offered.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 {idp-host}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2 / TLSv1.3 negotiable; no TLSv1.0/1.1 or SSLv3",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "hsts_enforced",
+    "option_description": "Whether the IdP emits an HTTP Strict-Transport-Security response header so browsers are pinned to HTTPS and an SSL-strip / first-request downgrade on the login flow is prevented.",
+    "security_impact": "Triggers \"Unencrypted IdP transport\" — one of its OR-conditions — firing when hsts_enforced is false. Without HSTS the initial navigation is downgradeable to cleartext (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch the IdP login page headers over HTTPS and confirm a Strict-Transport-Security header is present.",
+        "command": "curl -sI https://{idp-host}/realms/{realm}/account | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Strict-Transport-Security header (with a non-trivial max-age) is returned; absence is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "software_version_patched",
+    "option_description": "Whether the IdP software is running at or above the fixed release for all applicable published advisories (e.g. Keycloak >= 25.0.6 / 24.0.8 / 22.0.13 for CVE-2024-8883).",
+    "security_impact": "Triggers \"IdP software exploitation (unpatched CVE)\" — one of its OR-conditions — firing when software_version_patched is false. An unpatched internet-facing IdP is a prime exploitation target for redirect bypass / auth bypass / RCE (T1190 / T1212).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read systemInfo.version from server info and compare against the vendor advisory fixed-version list.",
+        "command": "GET {admin}/admin/serverinfo -> systemInfo.version  (or check /realms/{realm} response headers / release notes)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version is at/above the fixed release for all applicable Keycloak advisories",
+        "source": "Keycloak security advisories (CVE-2024-8883, CVE-2024-1132, CVE-2023-6927)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether this internet-facing IdP has had vendor security patches applied within the organization's defined patch SLA (e.g. critical CVEs within the committed remediation window).",
+    "security_impact": "Triggers \"IdP software exploitation (unpatched CVE)\" — one of its OR-conditions — firing when edge_appliance_patched_within_sla is false. Overdue patching governs how promptly published advisories (CVE-2024-8883 and companions) are remediated on an internet-facing IdP (T1190 / T1212).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch-management record for the IdP and confirm security patches were applied within the organization's committed remediation SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patch ledger shows recent advisories applied within the committed SLA window; no overdue security patches",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "api",
+        "instruction": "Cross-check the running version against the advisory fixed-version list as evidence of current patch state.",
+        "command": "GET {admin}/admin/serverinfo -> systemInfo.version  (or check /realms/{realm} response headers / release notes)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version is at/above the fixed release for all applicable Keycloak advisories",
+        "source": "Keycloak security advisories (CVE-2024-8883, CVE-2024-1132, CVE-2023-6927)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the deployed IdP release is subject to at least one published, exploitable CVE (redirect-validation bypass, auth bypass, info disclosure, or RCE) for which no patch has been applied.",
+    "security_impact": "Triggers \"IdP software exploitation (unpatched CVE)\" — one of its OR-conditions — firing when unpatched_known_rce_cve is true. An unremediated known-exploitable advisory matching the running version is directly exploitable (T1190 / T1212).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the running version and cross-reference it against the vendor security-advisory list (CVE-2024-8883 / CVE-2024-1132 / CVE-2023-6927 / CVE-2026-3872) to determine if an unremediated exploitable CVE applies.",
+        "command": "GET {admin}/admin/serverinfo -> systemInfo.version  (or check /realms/{realm} response headers / release notes)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version is at/above the fixed release for all applicable Keycloak advisories",
+        "source": "Keycloak security advisories (CVE-2024-8883, CVE-2024-1132, CVE-2023-6927)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "clustered_ha_deployed",
+    "option_description": "Whether the IdP runs as a multi-instance HA cluster (>=2 replicas) behind a load balancer with health probes, rather than a single instance.",
+    "security_impact": "Triggers \"IdP availability / DoS (single point of failure)\" — one of its OR-conditions — firing when clustered_ha_deployed is false. The IdP gates all federated authentication, so a single node is a single point of failure whose loss denies authentication to every RP (T1498 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP deployment topology and confirm multiple replicas behind a load balancer with health probes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deployment topology shows >=2 IdP replicas, LB health probes, and rate limiting on the public auth/token endpoints",
+        "source": "Keycloak Server Administration Guide (clustering); OWASP (availability)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Whether volumetric/network DoS protection (upstream WAF/CDN/scrubbing or provider DDoS mitigation) fronts the public auth/token endpoints.",
+    "security_impact": "Triggers \"IdP availability / DoS (single point of failure)\" — one of its OR-conditions — firing when ddos_protection_in_place is false. Without it a network DoS against the internet-facing IdP denies authentication federation-wide (T1498 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the network fronting the IdP and confirm upstream volumetric DoS protection (WAF/CDN/scrubbing or provider DDoS mitigation) protects the public auth/token endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deployment topology shows >=2 IdP replicas, LB health probes, and rate limiting on the public auth/token endpoints",
+        "source": "Keycloak Server Administration Guide (clustering); OWASP (availability)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

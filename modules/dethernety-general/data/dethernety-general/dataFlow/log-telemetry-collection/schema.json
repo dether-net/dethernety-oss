@@ -1,0 +1,229 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Flow TLS Encrypted",
+        "description": "Attestation: the log/telemetry channel from source to collector/SIEM is wrapped in TLS end-to-end (e.g. syslog-over-TLS on 6514 per RFC 5425, or OTLP with a configured tls block). When false, event bodies — including credentials, PII, and session data — are exposed to any on-path observer and cleartext rewrite becomes trivial.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Attestation: TLS floor on the log flow. Context for the MITM-modification exposure — a weak floor widens the cert/integrity gap (downgrade-then-rewrite), but is not the load-bearing trigger for any rule here."
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Attestation: forwarders validate the collector's certificate chain AND hostname end-to-end — no insecure_skip_verify, no insecure: true, no pinning to a self-signed cert without verification. When false, a MITM with any forged or attacker-controlled cert can intercept and rewrite events in transit (RFC 5425 §5 modification threat; OpenTelemetry configtls insecure_skip_verify anti-pattern).",
+        "default": false
+      },
+      "log_pipeline_integrity_protected": {
+        "type": "boolean",
+        "title": "Log Pipeline Integrity Protected",
+        "description": "Attestation: events crossing this flow carry per-event or per-batch integrity protection (HMAC, signed envelope, hash-chained batch, or equivalent) verified at the SIEM, so an on-path attacker who reaches the wire cannot silently rewrite, drop, or inject records even if TLS is somehow stripped or terminated mid-path. NIST AU-9 requires audit information be protected from unauthorized modification.",
+        "default": false
+      },
+      "service_to_service_mtls_enforced": {
+        "type": "boolean",
+        "title": "Service-to-Service mTLS Enforced",
+        "description": "Attestation: the log-forwarder-to-collector channel enforces mutual TLS — both peers present and validate X.509 certificates per RFC 5425 §4.2. When false, the collector accepts events from any TLS client (or none), letting an attacker masquerade as a legitimate forwarder and inject fabricated events.",
+        "default": false
+      },
+      "identity_propagated_cryptographically": {
+        "type": "boolean",
+        "title": "Identity Propagated Cryptographically",
+        "description": "Attestation: each emitting workload presents its own cryptographic identity (SPIFFE SVID, per-pod client cert, or unique API key) — not a shared cluster-wide secret. When false, a compromised pod can impersonate any other workload's logs, destroying non-repudiation and enabling spoofed source attribution at the SIEM.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Logs",
+        "description": "Attestation: the forwarder/source masks or redacts secrets (API tokens, passwords, JWTs, session identifiers, private-key material) BEFORE events enter the log/telemetry pipeline — not at the central SIEM after exposure. Grounded in CWE-532, OWASP ASVS V7, and the OpenTelemetry redaction processor (allow_all_keys: false with blocked_values regex).",
+        "default": false
+      },
+      "pii_excluded_from_logs": {
+        "type": "boolean",
+        "title": "PII Excluded from Logs",
+        "description": "Attestation: personally identifiable information and regulated data (PAN/card numbers, government IDs, full email/phone where not required, health identifiers) are excluded or tokenized at the source before they enter the log pipeline. Grounded in CWE-532, OWASP ASVS V7, PCI DSS Req 3.4/10, and OpenTelemetry redaction processor guidance.",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper Evident",
+        "description": "Attestation: the log archive / SIEM destination is tamper-evident — WORM, S3 Object Lock (Compliance/Governance), Azure Immutable Blob, GCS Bucket Lock, or append-only indices — so a compromised admin cannot silently delete or rewrite history. NIST AU-9 and MITRE ATT&CK T1070 (Indicator Removal) name this as the primary defensive control.",
+        "default": false
+      },
+      "logging_failure_alerting_enabled": {
+        "type": "boolean",
+        "title": "Logging Failure Alerting Enabled",
+        "description": "Attestation: a dead-man-switch fires when a source falls silent or the ingest pipeline drops — heartbeat-missing / source-silent-> N min / ingest-rate-collapse rules exist per critical source class with a documented SLO (e.g. page within 15 min). Required by NIST AU-5 and the direct counter to MITRE T1562.006 (Indicator Blocking).",
+        "default": false
+      },
+      "clocks_synced_to_trusted_time_source": {
+        "type": "boolean",
+        "title": "Clocks Synced to Trusted Time Source",
+        "description": "Attestation: every log source keeps its clock synchronized to a trusted time source (NTP/Chrony, stratum <=4) within bounded skew (e.g. < 1s RMS offset). Per NIST SP 800-92 §4.4 — unsynced clocks let an attacker backdate events to fall outside an evasion window and break cross-source correlation.",
+        "default": false
+      },
+      "timestamps_in_utc": {
+        "type": "boolean",
+        "title": "Timestamps in UTC",
+        "description": "Attestation: all sources emit event timestamps in UTC with sub-second resolution (not local timezone, not a zone-naive wall clock). Per NIST SP 800-92 and OWASP ASVS V7 — non-UTC timestamps break correlation across sources and enable timezone-shift evasion windows.",
+        "default": false
+      },
+      "log_flood_overflow_protection": {
+        "type": "boolean",
+        "title": "Log Flood Overflow Protection",
+        "description": "Attestation: the log/telemetry pipeline enforces per-source rate limits AND bounded queues / backpressure (e.g. OpenTelemetry memory_limiter processor, exporterhelper.sending_queue.queue_size, max_recv_msg_size_mib on receivers) so a noisy or compromised source cannot exhaust the SIEM, drop other tenants' signal, or crash the ingest pipeline.",
+        "default": false
+      }
+    },
+    "required": [
+      "flow_tls_encrypted",
+      "server_certificate_validated",
+      "log_pipeline_integrity_protected",
+      "service_to_service_mtls_enforced",
+      "identity_propagated_cryptographically",
+      "secrets_masked_in_logs",
+      "pii_excluded_from_logs",
+      "audit_log_tamper_evident",
+      "logging_failure_alerting_enabled",
+      "clocks_synced_to_trusted_time_source",
+      "timestamps_in_utc",
+      "log_flood_overflow_protection"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_propagated_cryptographically"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_to_service_mtls_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_flood_overflow_protection"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logging_failure_alerting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/clocks_synced_to_trusted_time_source"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_pipeline_integrity_protected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_excluded_from_logs"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/timestamps_in_utc"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

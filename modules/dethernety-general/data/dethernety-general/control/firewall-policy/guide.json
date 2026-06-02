@@ -1,0 +1,437 @@
+[
+  {
+    "option_name": "ingress_default_deny_enforced",
+    "option_description": "Whether the inbound ruleset terminates in a deny-all so only an explicit, scoped allow-list permits inbound traffic (allow-list, not block-list).",
+    "security_impact": "Satisfies the countermeasure \"Ingress default-deny enforced\" — fires when ingress_default_deny_enforced is true — providing inbound traffic filtering (D3FEND D3-ITF) that mitigates exposed/unneeded public-facing services (ATT&CK T1190, M1037 Filter Network Traffic). With this protection present, anything not explicitly permitted is dropped at the boundary.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the inbound chain: confirm a terminating deny-all with all permits above it scoped to named services.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ruleset review shows a terminating deny-all on the inbound chain with all permits above it scoped to named services. Insecure: a broad any/any permit or no terminal deny so anything not explicitly blocked is allowed.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, inspect the security policy for an explicit interzone deny and absence of any/any allow rules on internet-facing zones.",
+        "command": null,
+        "file_path": null,
+        "navigation": "On PAN-OS: Policies > Security; confirm an explicit intrazone/interzone deny and that no Allow rule uses 'any' for source/application/service on internet-facing zones.",
+        "expected_output": "A final deny rule is present and the predefined interzone-default (deny) is logged. Insecure: any/any Allow rules above the deny.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "egress_default_deny_enforced",
+    "option_description": "Whether outbound traffic defaults to deny with a scoped egress allow-list (named destinations/ports/protocols) rather than permit-any.",
+    "security_impact": "Satisfies the countermeasure \"Egress default-deny enforced\" — fires when egress_default_deny_enforced is true — providing outbound traffic filtering (D3FEND D3-OTF, ATT&CK M1037) that severs C2 callbacks and exfiltration to unapproved destinations (T1048, T1071). With this protection present, compromised internal hosts cannot reach arbitrary internet destinations.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the outbound ruleset for scoped egress permits terminating in a deny-all.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ruleset shows scoped egress permits (e.g. proxy/DNS forwarders, named SaaS endpoints) terminating in deny-all outbound. Insecure: a blanket outbound allow letting any internal host reach any internet IP/port.",
+        "source": "MITRE ATT&CK Mitigation M1037 Filter Network Traffic"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an internal host, attempt outbound to a non-approved destination/port and confirm the firewall blocks it.",
+        "command": "from an internal host, attempt outbound to a non-approved destination/port, e.g. 'curl -m 5 http://203.0.113.10:4444' or 'nc -vz 203.0.113.10 4444'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection times out / is refused at the firewall (egress denied). Insecure: connection succeeds, proving any/any egress.",
+        "source": "MITRE ATT&CK Mitigation M1037 Filter Network Traffic"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_rules_scoped",
+    "option_description": "Whether each allow rule names a specific source/destination/port/protocol tied to a documented business need, with no overly broad address or service ranges.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Least-privilege rules scoped\" — fires when least_privilege_rules_scoped is true (alongside no_any_any_permit_rules) — implementing least privilege (NIST AC-6) that shrinks exposed attack surface (T1190) and constrains lateral movement (T1021).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit the rule base: confirm zero permits use 'any' across source AND destination AND service, and each maps to a documented business need.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rule-base audit: zero permits with 'any' in source AND destination AND service. Each rule maps to a documented business need. Insecure: presence of any/any or any-service permits.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/ASA, dump access-lists and inspect for broad any-any permits.",
+        "command": "On Cisco IOS/ASA: 'show running-config | include access-list' / 'show access-lists' and inspect for 'permit ip any any' or 'permit tcp any any'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No 'permit ... any any' lines on edge/inter-segment ACLs. Insecure: broad any-any permits present.",
+        "source": "CIS Cisco IOS Benchmark v2.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "no_any_any_permit_rules",
+    "option_description": "Whether the ruleset is free of any/any (or any-service) permit rules.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Least-privilege rules scoped\" — fires when no_any_any_permit_rules is true (alongside least_privilege_rules_scoped) — implementing least privilege (NIST AC-6); absence of any/any permits denies broad attack surface (T1190) and lateral movement (T1021).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Scan the rule base for any rule permitting any-source to any-destination or any-service.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rule-base audit: zero permits with 'any' in source AND destination AND service. Insecure: presence of any/any or any-service permits.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/ASA, inspect access-lists specifically for any-any permit lines.",
+        "command": "On Cisco IOS/ASA: 'show running-config | include access-list' / 'show access-lists' and inspect for 'permit ip any any' or 'permit tcp any any'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No 'permit ... any any' lines on edge/inter-segment ACLs. Insecure: broad any-any permits present.",
+        "source": "CIS Cisco IOS Benchmark v2.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "interface_acls_enforce_segmentation",
+    "option_description": "Whether interface/zone ACLs separate distinct trust zones (internet/DMZ/internal/management) at every path split rather than allowing unfiltered inter-zone flow.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Trust-zone segmentation and east-west filtering enforced\" — fires when interface_acls_enforce_segmentation is true (alongside east_west_microsegmentation_enforced) — providing network segmentation (ATT&CK M1030, NIST SP 800-125B) that isolates DMZ-facing services from the internal network and constrains lateral movement (T1021).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the architecture/zone diagram to confirm DMZ, internal and management are distinct filtered zones with the firewall placed at each path split.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture/zone diagram shows DMZ, internal and management as distinct filtered zones with the firewall at the path split. Insecure: flat addressing or DMZ-to-internal any permits.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a DMZ host, attempt to reach an internal-only service and confirm the inter-zone firewall blocks it.",
+        "command": "from a DMZ host, attempt to reach an internal-only service, e.g. 'nc -vz <internal-db-ip> 5432'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection blocked at the inter-zone firewall. Insecure: DMZ host reaches internal service, proving missing segmentation.",
+        "source": "MITRE ATT&CK Mitigation M1030 Network Segmentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "east_west_microsegmentation_enforced",
+    "option_description": "Whether inter-segment (east-west) traffic is filtered and lateral-movement protocols (SMB/RDP/WinRM/VNC) are blocked between segments without a documented business need.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Trust-zone segmentation and east-west filtering enforced\" — fires when east_west_microsegmentation_enforced is true (alongside interface_acls_enforce_segmentation) — providing east-west filtering (ATT&CK M1030/M1037) that blocks remote-services lateral movement (T1021).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a host in one segment, probe a host in another segment on lateral-movement ports and confirm they are blocked where no business need exists.",
+        "command": "from a host in segment A, probe a host in segment B on lateral-movement ports: 'nc -vz <segB-host> 445' '... 3389' '... 5985'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lateral-movement ports blocked between segments lacking a business need. Insecure: SMB/RDP/WinRM reachable across segments.",
+        "source": "MITRE ATT&CK Mitigation M1030 Network Segmentation"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review east-west rules to confirm SMB/RDP/WinRM are denied between segments unless a documented business need permits them.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "East-west rules explicitly block lateral-movement protocols with documented exceptions only. Insecure: internal segments freely reach each other on admin/file-share ports.",
+        "source": "MITRE ATT&CK Mitigation M1030 Network Segmentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "security_profiles_on_allow_rules",
+    "option_description": "Whether every NGFW allow rule attaches threat-prevention / IPS / AV / URL-filtering profiles so permitted traffic is still inspected.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Threat-prevention profiles on allow rules\" — fires when security_profiles_on_allow_rules is true (alongside ips_threat_prevention_enabled) — closing the gap where an attack rides inside an allowed flow (T1190 inside permitted traffic, C2 over allowed protocols T1071).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm each Allow rule references a Security Profile Group rather than profile 'none'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "On PAN-OS: Policies > Security — confirm each Allow rule references a Security Profile Group (AV, Anti-Spyware, Vulnerability Protection, URL Filtering, File Blocking).",
+        "expected_output": "No Allow rule with profile 'none'. Insecure: permitted traffic flows without any threat inspection.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Sample permit rules and confirm a threat-prevention/IPS/AV/URL profile is attached to each rather than passing traffic uninspected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every sampled allow rule carries a threat-prevention profile group. Insecure: allow rules pass traffic with no inspection profile.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "ips_threat_prevention_enabled",
+    "option_description": "Whether the IPS / threat-prevention engine is licensed, enabled and actively inspecting (not monitor-only or merely installed).",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Threat-prevention profiles on allow rules\" — fires when ips_threat_prevention_enabled is true (alongside security_profiles_on_allow_rules) — providing active inline inspection that detects/blocks exploits inside permitted flows (T1190, T1071).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On the NGFW, confirm the threat-prevention/IPS subscription is licensed and the engine is enabled in prevention (not monitor-only) mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "On PAN-OS: Policies > Security — confirm each Allow rule references a Security Profile Group (AV, Anti-Spyware, Vulnerability Protection, URL Filtering, File Blocking), and Device licensing shows Threat Prevention active.",
+        "expected_output": "Threat-prevention/IPS engine licensed, enabled and set to block. Insecure: unlicensed, disabled, or monitor-only.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the firewall team that the IPS engine is in active inline prevention mode and not deployed monitor-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IPS confirmed actively inspecting and dropping on signature match. Insecure: engine present but in monitor/alert-only mode.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "denied_traffic_logging_enabled",
+    "option_description": "Whether denied traffic and security-relevant allowed traffic are logged and forwarded off-box to a central SIEM/syslog rather than held only locally.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Denied and security-relevant traffic logged\" — fires when denied_traffic_logging_enabled is true (alongside implicit_deny_logged) — providing boundary visibility of blocked probes and policy violations supporting detection of T1190/T1048 attempts.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm a Log Forwarding profile ships Traffic + Threat logs to external syslog and that deny/interzone-default logging is on.",
+        "command": null,
+        "file_path": null,
+        "navigation": "On PAN-OS: confirm a Log Forwarding profile sends Traffic + Threat logs to external syslog, and that deny/interzone-default logging is enabled.",
+        "expected_output": "Deny and allow logs forwarded off-box to syslog/SIEM. Insecure: logging disabled on deny rules or logs only stored on the firewall.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, confirm an external logging host and the 'log' keyword on relevant deny ACEs.",
+        "command": "On Cisco IOS: 'show running-config | include logging' and confirm 'logging host <syslog>' plus 'log' keyword on relevant deny ACEs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "External logging host configured and deny ACEs carry the 'log'/'log-input' keyword. Insecure: no logging host or deny lines unlogged.",
+        "source": "CIS Cisco IOS Benchmark v2.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "implicit_deny_logged",
+    "option_description": "Whether the terminal implicit deny-all rule has logging enabled so dropped/denied traffic is recorded rather than silently discarded.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Denied and security-relevant traffic logged\" — fires when implicit_deny_logged is true (alongside denied_traffic_logging_enabled) — ensuring drops at the catch-all rule are recorded, supporting detection of reconnaissance/probing at the boundary (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm the predefined interzone-default (deny) rule has logging enabled and is forwarded.",
+        "command": null,
+        "file_path": null,
+        "navigation": "On PAN-OS: confirm a Log Forwarding profile sends Traffic + Threat logs to external syslog, and that deny/interzone-default logging is enabled.",
+        "expected_output": "The implicit/interzone-default deny is logged and forwarded. Insecure: the terminal deny silently drops with no log.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, confirm the terminal deny ACE carries the 'log'/'log-input' keyword.",
+        "command": "On Cisco IOS: 'show running-config | include logging' and confirm 'logging host <syslog>' plus 'log' keyword on relevant deny ACEs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terminal deny ACE carries the 'log'/'log-input' keyword. Insecure: implicit deny unlogged.",
+        "source": "CIS Cisco IOS Benchmark v2.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "firewall_ruleset_documented_and_owned",
+    "option_description": "Whether the ruleset is documented from a risk analysis with each rule traceable to a named owner and business justification.",
+    "security_impact": "One of the three OR-conditions of the countermeasure \"Ruleset governance: documented ownership, recertification and change control\" — fires when firewall_ruleset_documented_and_owned is true — countering rule-base rot that silently re-opens attack surface (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the ruleset documentation/CMDB and confirm every rule maps to a business need, owner and date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A maintained ruleset document/CMDB maps every rule to a business need + owner + date. Insecure: rules exist with no record of why they were added or who owns them.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the documentation derives from a risk analysis enumerating permitted protocols/sources/destinations/ports.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation traces to a documented risk analysis. Insecure: undocumented, accreted rules with no risk basis.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "firewall_rules_recertified_on_cadence",
+    "option_description": "Whether rules are reviewed on a defined recurring cadence, with stale/shadowed/unused rules pruned.",
+    "security_impact": "One of the three OR-conditions of the countermeasure \"Ruleset governance: documented ownership, recertification and change control\" — fires when firewall_rules_recertified_on_cadence is true — preventing accreted dead/shadowed rules from re-opening attack surface over time (T1190; NIST AC-6).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Look for evidence of a recurring rule-review/recertification: tickets, hit-count reports identifying unused rules, dated sign-off.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a recurring rule-review/recertification (tickets, hit-count reports identifying unused rules, dated sign-off). Insecure: no review record; rules with zero hit counts left in place.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the most recent recertification is dated within the defined cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Last recertification sign-off is within the stated cadence (e.g. quarterly/semi-annual). Insecure: no review for longer than the cadence window.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "firewall_change_control_enforced",
+    "option_description": "Whether rule additions/modifications pass an approved change-control workflow with security-impact analysis, rather than ad-hoc out-of-band edits.",
+    "security_impact": "One of the three OR-conditions of the countermeasure \"Ruleset governance: documented ownership, recertification and change control\" — fires when firewall_change_control_enforced is true — ensuring no ad-hoc permit silently widens exposure (NIST CM-3; T1190 rule-base rot).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm each rule change links to an approved change record and that config diffs are reviewed against an approved baseline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each rule change links to an approved change record; config diffs are reviewed. Insecure: live ruleset diverges from any approved baseline / no change records.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify change records include a security-impact analysis step before approval.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Change records show security-impact review prior to approval. Insecure: changes approved with no security-impact analysis.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Whether the firewall's admin/management interface is restricted to a permitted-IP set or dedicated management network, with plaintext admin protocols (HTTP/Telnet) disabled.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Management plane not internet-reachable and patch-current\" — fires when edge_management_interfaces_not_internet_reachable is true (alongside edge_appliance_patched_within_sla) — preventing compromise of the firewall management plane (pre-auth RCE / auth bypass, T1190; cf. CVE-2024-3400, CVE-2024-21762, CVE-2022-40684).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm Permitted IP Addresses on the management interface and that HTTP/Telnet are disabled (HTTPS/SSH only).",
+        "command": null,
+        "file_path": null,
+        "navigation": "On PAN-OS: Device > Setup > Management — confirm Permitted IP Addresses on the management interface and that HTTP/Telnet are disabled (HTTPS/SSH only).",
+        "expected_output": "Management restricted to a permitted-IP list; plaintext protocols off. Insecure: open mgmt access or HTTP/Telnet enabled.",
+        "source": "CIS Palo Alto Networks Firewall Benchmark"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted/internet vantage, probe the firewall management ports and confirm they do not answer.",
+        "command": "from an untrusted/internet vantage: 'nc -vz <fw-mgmt-ip> 443' and 'nc -vz <fw-mgmt-ip> 22'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management ports unreachable from outside the mgmt network. Insecure: admin HTTPS/SSH answers from untrusted source.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the firewall firmware/OS is within its patch SLA and free of known-exploited pre-authentication CVEs.",
+    "security_impact": "One of the two OR-conditions of the countermeasure \"Management plane not internet-reachable and patch-current\" — fires when edge_appliance_patched_within_sla is true (alongside edge_management_interfaces_not_internet_reachable) — preventing an attacker from exploiting an unpatched firewall to rewrite the very ruleset that is the control (T1190; CVE-2024-3400, CVE-2024-21762, CVE-2022-40684).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running firmware/OS version and compare against the vendor's fixed-version advisories.",
+        "command": "On PAN-OS: 'show system info | match sw-version' / on FortiOS: 'get system status' / on Cisco IOS: 'show version' — compare against the vendor's fixed-version advisories",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running version is at or above the fixed release for all applicable advisories (e.g. PAN-OS past 10.2.9-h1/11.0.4-h1, FortiOS past the CVE-2024-21762 fix). Insecure: a version listed as affected by a KEV CVE.",
+        "source": "CVE-2024-3400 — PAN-OS GlobalProtect arbitrary file creation / OS command injection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the firmware patch cadence meets a defined SLA and cross-check the running version against the CISA KEV catalog.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patching meets the documented SLA and no running version appears in the KEV catalog. Insecure: overdue patches or a KEV-listed affected version in production.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

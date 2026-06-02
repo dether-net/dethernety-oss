@@ -1,0 +1,982 @@
+[
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether indexed events and audit records are tamper-evident via integrity hashing or WORM/append-only storage (e.g. Splunk indexes.conf enableDataIntegrityControl=true, SHA-256 per 128KB slice).",
+    "security_impact": "One of the OR-triggers for the exposure \"Log tampering / deletion to blind detection\" — fires when audit_log_tamper_evident is false, leaving a compromised host or admin able to silently delete or alter the security record (T1070 Indicator Removal).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the Splunk indexes.conf for the per-index data-integrity control. Note the dossier caveat: the default is false and it only protects data indexed AFTER enabling.",
+        "command": "grep -R 'enableDataIntegrityControl' $SPLUNK_HOME/etc/system/local/indexes.conf $SPLUNK_HOME/etc/apps/*/local/indexes.conf",
+        "file_path": "indexes.conf",
+        "navigation": null,
+        "expected_output": "enableDataIntegrityControl = true per index (secure: SHA-256 hashes computed per 128KB slice for tamper-evidence) vs absent/false (insecure default — no integrity hashing)",
+        "source": "Splunk Manage data integrity (indexes.conf enableDataIntegrityControl)"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the stored hashes actually match the buckets for the index.",
+        "command": "splunk check-integrity -index <index> -verbose",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integrity verification PASS for the index's buckets (secure) vs hash mismatch / 'no hash files' (tampering or integrity control never enabled)",
+        "source": "Splunk Manage data integrity (check-integrity CLI)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm whether, instead of (or in addition to) hashing, the index data is written to an immutable/WORM or append-only remote store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit evidence that detection logs are forwarded to a remote/immutable repository per ATT&CK M1029 Remote Data Storage so a compromised source host cannot locate and manipulate them",
+        "source": "MITRE ATT&CK T1070 Indicator Removal (M1029 Remote Data Storage)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_pipeline_integrity_protected",
+    "option_description": "Whether the end-to-end log/event pipeline (ingest through index) is integrity-protected so events cannot be modified, dropped, or forged between source and durable store (hash-chaining / signed forwarding / verified ingest).",
+    "security_impact": "One of the OR-triggers for the exposure \"Log tampering / deletion to blind detection\" — fires when log_pipeline_integrity_protected is false, letting events be altered in transit or at index time without detection.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Splunk forwarding/index TLS stanza — signed/verified forwarding over enableSplunkdSSL is the pipeline-integrity enforcement point.",
+        "command": "grep -A5 '\\[sslConfig\\]' $SPLUNK_HOME/etc/system/local/server.conf",
+        "file_path": "server.conf",
+        "navigation": null,
+        "expected_output": "enableSplunkdSSL = true with operator-supplied serverCert (secure) vs disabled or the bundled demo cert still in place (insecure)",
+        "source": "Splunk About securing the Splunk platform (server.conf [sslConfig] enableSplunkdSSL; replace default certificates)"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify per-index integrity hashing covers the durable store end of the pipeline.",
+        "command": "splunk check-integrity -index <index> -verbose",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integrity verification PASS for the index's buckets (secure) vs hash mismatch / 'no hash files' (no end-to-end integrity)",
+        "source": "Splunk Manage data integrity (check-integrity CLI)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the pipeline design for hash-chaining or signed forwarding from source to durable index.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented hash-chaining / signed-forwarding / verified-ingest design proving events cannot be modified or forged between source and store",
+        "source": "MITRE ATT&CK T1070 Indicator Removal (M1029 Remote Data Storage)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether security events are forwarded to and retained on a remote/immutable repository separate from the monitored hosts (ATT&CK M1029 Remote Data Storage).",
+    "security_impact": "One of the OR-triggers for the exposure \"Log tampering / deletion to blind detection\" — fires when logs_stored_on_separate_system is false, leaving indexed events on locally mutable disk reachable by anyone who compromises the source or SIEM host.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm security events are forwarded off-host to a remote/immutable repository per ATT&CK M1029.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit evidence that detection logs are forwarded to a remote/immutable repository per ATT&CK M1029 Remote Data Storage so a compromised source host cannot locate and manipulate them",
+        "source": "MITRE ATT&CK T1070 Indicator Removal (M1029 Remote Data Storage)"
+      },
+      {
+        "type": "command",
+        "instruction": "On a monitored host, verify the local forwarder ships to a remote indexer rather than writing only locally.",
+        "command": "splunk list forward-server",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active forward-server(s) pointing to a remote indexer tier (secure) vs no forwarding / local-only indexing (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "file_integrity_monitoring_enabled",
+    "option_description": "Whether file-integrity monitoring watches the index/audit data files and configuration so unauthorized deletion or modification of the security record is itself detected and alerted.",
+    "security_impact": "One of the OR-triggers for the exposure \"Log tampering / deletion to blind detection\" — fires when file_integrity_monitoring_enabled is false, so tampering with the stored events leaves no secondary trace.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Wazuh syscheck (FIM) coverage of the SIEM index/audit data and config directories in ossec.conf.",
+        "command": "grep -A15 '<syscheck>' /var/ossec/etc/ossec.conf",
+        "file_path": "ossec.conf",
+        "navigation": null,
+        "expected_output": "syscheck enabled with <directories> entries covering the index/audit data and SIEM config paths (secure) vs syscheck disabled or no coverage of the log store (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm FIM (or equivalent integrity alerting) raises an alert on modification/deletion of the index/audit files, not merely records it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of an active FIM alert covering the log store, with a sample fired/test alert on change to a watched file",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "detection_rules_present_and_enabled",
+    "option_description": "Whether correlation/detection rules (saved/correlation searches) exist, are enabled, scheduled, and tuned to relevant ATT&CK coverage — not an empty or all-disabled rule set.",
+    "security_impact": "One of the OR-triggers for the exposure \"Detection / alerting disabled or silently failing\" — fires when detection_rules_present_and_enabled is false (collection without detection — the most common silent blinding).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Count enabled, scheduled saved/correlation searches via the REST endpoint.",
+        "command": "splunk search '| rest /servicesNS/-/-/saved/searches | search is_scheduled=1 disabled=0 | stats count'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-trivial count of enabled scheduled/correlation searches (secure) vs zero or all disabled (insecure)",
+        "source": "Splunk About securing the Splunk platform (saved/correlation searches)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the enabled rules map to relevant ATT&CK technique coverage and are tuned (not just present).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented detection-coverage mapping showing enabled rules align to the threats the deployment must detect",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Whether all security-relevant sources forward their events to the SIEM with documented coverage and a missing-source/liveness alert (CIS Control 8.2), so a stopped or absent feed is not a silent blind spot.",
+    "security_impact": "One of the OR-triggers for both \"Detection / alerting disabled or silently failing\" and \"Unmasked secrets/PII in the index; coverage and retention gaps\" — fires when security_events_fully_logged is false (forwarders/host logging stopped, T1562.001/.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare expected sources against sources actually reporting recent events.",
+        "command": "splunk search 'index=* | tstats count where index=* by host | inputlookup expected_sources | ... compare'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every expected source has recent events; a 'source has not reported in N hours' alert exists (secure) vs no liveness monitoring (insecure)",
+        "source": "CIS Controls v8 Control 8 Audit Log Management (8.2 collect audit logs)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented log-source inventory and confirm gaps are mapped against the asset inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented log-management process and source inventory reviewed per CIS 8.1; gaps mapped against the asset inventory",
+        "source": "CIS Controls v8 Control 8 Audit Log Management (8.1)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logging_failure_alerting_enabled",
+    "option_description": "Whether the SIEM raises an alert when its own detection/logging pipeline fails — skipped scheduled searches, failed alert actions, or ingestion stalls are surfaced rather than going unnoticed.",
+    "security_impact": "One of the OR-triggers for the exposure \"Detection / alerting disabled or silently failing\" — fires when logging_failure_alerting_enabled is false, so scheduler errors / skipped correlation searches accumulate silently and detections quietly stop firing.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the internal scheduler log for skipped or errored scheduled searches.",
+        "command": "splunk search 'index=_internal sourcetype=scheduler (status=skipped OR status=delegated_remote_error) | stats count by savedsearch_name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Low/zero skipped scheduled searches and a working heartbeat alert (secure) vs many skipped/errored searches (insecure — alerts silently not firing)",
+        "source": "Splunk About securing the Splunk platform (scheduler/_internal monitoring)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an alert exists that fires ON pipeline failure (skipped-search ratio / ingest stall), not merely a dashboard a human must check.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active alert on scheduler skip ratio / failed alert actions / ingestion stalls, with evidence of delivery",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "alert_delivery_path_monitored",
+    "option_description": "Whether the alert delivery path (email/webhook/ticketing/SOAR) is monitored end-to-end with a heartbeat/self-test that proves delivery.",
+    "security_impact": "One of the OR-triggers for the exposure \"Detection / alerting disabled or silently failing\" — fires when alert_delivery_path_monitored is false, so a broken notification channel blinds the SOC the same way deleting logs would.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for skipped/errored alert actions on the delivery path in the scheduler/internal logs.",
+        "command": "splunk search 'index=_internal sourcetype=scheduler (status=skipped OR status=delegated_remote_error) | stats count by savedsearch_name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Low/zero failed alert actions plus a working heartbeat alert (secure) vs failed actions and no delivery confirmation (insecure)",
+        "source": "Splunk About securing the Splunk platform (scheduler/_internal monitoring)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a periodic heartbeat/self-test alert must actually ARRIVE at the destination channel (mailbox/ticket/SOAR), proving end-to-end delivery.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a scheduled heartbeat alert whose absence at the destination triggers escalation",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authenticated_log_forwarders_required",
+    "option_description": "Whether only authenticated, enrolled forwarders/agents may submit events to the ingest channel (e.g. Wazuh authd use_password=yes AND ssl_agent_ca with ssl_verify_host=yes — mutual enrollment authentication).",
+    "security_impact": "One of the OR-triggers for the exposure \"Spoofed / injected or unencrypted log ingestion\" — fires when authenticated_log_forwarders_required is false (open enrollment), letting any host inject forged events to poison detection or bury real alerts.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Wazuh manager <auth> enrollment block in ossec.conf for password + certificate enrollment.",
+        "command": "grep -E 'use_password|ssl_agent_ca|ssl_verify_host|remote_enrollment' /var/ossec/etc/ossec.conf",
+        "file_path": "ossec.conf",
+        "navigation": null,
+        "expected_output": "<use_password>yes</use_password>, <ssl_agent_ca> set, <ssl_verify_host>yes</ssl_verify_host> (secure) vs use_password=no and no CA / ssl_verify_host=no (insecure default — open enrollment)",
+        "source": "Wazuh auth (authd) ossec.conf reference"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For a Splunk deployment, confirm forwarders authenticate (token/cert-based forwarding) rather than accepting anonymous inputs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that ingest accepts only enrolled/authenticated forwarders; no open/anonymous receiving port",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_injection_input_sanitized",
+    "option_description": "Whether incoming log events are validated/sanitized at ingest so a malicious or unauthenticated source cannot inject forged or crafted events that corrupt parsing, spoof source identity, or bury real alerts.",
+    "security_impact": "One of the OR-triggers for the exposure \"Spoofed / injected or unencrypted log ingestion\" — fires when log_injection_input_sanitized is false (raw payloads indexed verbatim with no source/content validation), enabling event forgery and noise floods.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the ingest/parsing config for source-identity binding and content validation (props.conf/transforms.conf or equivalent ingest filters).",
+        "command": "grep -R 'TRANSFORMS\\|SEDCMD\\|REPORT' $SPLUNK_HOME/etc/apps/*/local/props.conf",
+        "file_path": "props.conf",
+        "navigation": null,
+        "expected_output": "Ingest-time transforms validating/normalizing source and content (secure) vs no validation, raw payloads indexed verbatim (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm ingest binds events to an authenticated source identity so a sender cannot spoof another host's identity field.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that source identity is enforced at ingest and crafted/forged payloads are rejected or quarantined",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether TLS 1.2+ is enforced on all log-ingest and enrollment channels with operator-supplied (non-default) certificates so events cannot be carried in cleartext; plaintext syslog/UDP 514 refused.",
+    "security_impact": "One of the OR-triggers for BOTH \"Spoofed / injected or unencrypted log ingestion\" and \"Cleartext / weak-TLS ingest transport\" — fires when tls_only_transport is false (plaintext or unencrypted ingest accepted), exposing events to disclosure, modification, and masquerade (RFC 5425).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Splunk server.conf [sslConfig] stanza for splunkd SSL and a non-default certificate.",
+        "command": "grep -A5 '\\[sslConfig\\]' $SPLUNK_HOME/etc/system/local/server.conf",
+        "file_path": "server.conf",
+        "navigation": null,
+        "expected_output": "enableSplunkdSSL = true with operator-supplied serverCert (secure) vs disabled or the bundled demo cert still in place (insecure)",
+        "source": "Splunk About securing the Splunk platform (server.conf [sslConfig] enableSplunkdSSL; replace default certificates)"
+      },
+      {
+        "type": "command",
+        "instruction": "Probe the indexer ingest port and confirm a TLS handshake completes (and that cleartext is refused).",
+        "command": "openssl s_client -connect <indexer>:9997 -tls1_2",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake completes with the operator's certificate (secure) vs connection in cleartext or presenting the SplunkServerDefaultCert demo cert (insecure)",
+        "source": "RFC 5425 TLS Transport Mapping for Syslog"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the ingest/enrollment channel permits legacy downgradeable TLS (SSLv3/TLS1.0/1.1) or weak ciphers (ADH/EXP/MD5/RC4/3DES), e.g. Wazuh ssl_auto_negotiate=yes. Secure value is false (TLS 1.2+ HIGH ciphers only).",
+    "security_impact": "One of the OR-triggers for BOTH \"Spoofed / injected or unencrypted log ingestion\" and \"Cleartext / weak-TLS ingest transport\" — fires when weak_tls_versions_enabled is true (auto-negotiate or legacy protocols/ciphers accepted), allowing an on-path attacker to force a weak negotiation.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Wazuh <auth> block for protocol/cipher negotiation.",
+        "command": "grep -E 'ssl_auto_negotiate|ciphers' /var/ossec/etc/ossec.conf",
+        "file_path": "ossec.conf",
+        "navigation": null,
+        "expected_output": "ssl_auto_negotiate=no (only TLS 1.2 allowed) with a HIGH cipher list excluding ADH/EXP/MD5/RC4/3DES (secure) vs ssl_auto_negotiate=yes (insecure — permits downgrade)",
+        "source": "Wazuh auth (authd) ossec.conf reference"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols/ciphers actually offered on the ingest/enrollment ports.",
+        "command": "nmap --script ssl-enum-ciphers -p 1514,1515 <wazuh-manager>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/1.3 with A-grade ciphers offered (secure) vs TLSv1.0/1.1 or weak ciphers present (insecure)",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The lowest TLS protocol version the ingest/enrollment channel will negotiate. Secure: TLSv1.2 or TLSv1.3 (RFC 5425 mandates TLS 1.2+); insecure: SSLv3/TLSv1.0/TLSv1.1.",
+    "security_impact": "An OR-trigger for the exposure \"Cleartext / weak-TLS ingest transport\" — the condition selects on the individual legacy values SSLv3/TLSv1.0/TLSv1.1, exposing the channel to downgrade and known protocol weaknesses.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the negotiated minimum on the Wazuh enrollment channel — ssl_auto_negotiate=no pins TLS 1.2 as the floor.",
+        "command": "grep -E 'ssl_auto_negotiate|ciphers' /var/ossec/etc/ossec.conf",
+        "file_path": "ossec.conf",
+        "navigation": null,
+        "expected_output": "ssl_auto_negotiate=no (TLS 1.2 floor) (secure) vs ssl_auto_negotiate=yes permitting SSLv3/TLS1.0/1.1 (insecure)",
+        "source": "Wazuh auth (authd) ossec.conf reference"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm on the wire that the lowest negotiable version is TLSv1.2 or TLSv1.3.",
+        "command": "nmap --script ssl-enum-ciphers -p 1514,1515 <wazuh-manager>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lowest offered protocol is TLSv1.2 (or TLSv1.3) (secure) vs SSLv3/TLSv1.0/TLSv1.1 offered (insecure)",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2",
+      "TLSv1.3",
+      "TLSv1.0"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the ingest endpoint presents and the peer validates an operator-supplied certificate rather than accepting bundled demo/default certificates (Splunk replaced SplunkServerDefaultCert; Wazuh ssl_verify_host=yes with ssl_agent_ca).",
+    "security_impact": "An OR-trigger for the exposure \"Cleartext / weak-TLS ingest transport\" — fires when server_certificate_validated is false (default/demo cert or no validation), enabling on-path masquerade despite a TLS wrapper.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Connect to the ingest port and inspect the presented certificate — confirm it is not the bundled demo cert.",
+        "command": "openssl s_client -connect <indexer>:9997 -tls1_2",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake completes with the operator's certificate (secure) vs presenting the SplunkServerDefaultCert demo cert (insecure)",
+        "source": "RFC 5425 TLS Transport Mapping for Syslog"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Wazuh, confirm certificate verification of the peer is mandatory.",
+        "command": "grep -E 'ssl_agent_ca|ssl_verify_host|ssl_manager_cert' /var/ossec/etc/ossec.conf",
+        "file_path": "ossec.conf",
+        "navigation": null,
+        "expected_output": "<ssl_agent_ca> set and <ssl_verify_host>yes</ssl_verify_host> (secure: peer cert validated against CA + CN/IP check) vs no CA / ssl_verify_host=no (insecure)",
+        "source": "Wazuh auth (authd) ossec.conf reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_available",
+    "option_description": "Whether interactive admin/analyst access to the SIEM console and API requires MFA (ideally via SAML/OIDC SSO to a phishing-resistant IdP).",
+    "security_impact": "One of the OR-triggers for the exposure \"Stolen credentials / weak RBAC on the SIEM\" — fires when mfa_available is false (local password-only login), so stolen credentials alone reach the detection backbone (T1078 Valid Accounts).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SIEM console/API logins are federated to an IdP that enforces MFA, with no local password-only privileged accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that SIEM console/API logins are federated to an IdP enforcing MFA; no local password-only privileged accounts",
+        "source": "Splunk About securing the Splunk platform (manage credentials and access)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Splunk authentication.conf to confirm SAML/LDAP+MFA is the configured authentication backend rather than local Splunk auth.",
+        "command": "grep -E 'authType|authSettings|SAML' $SPLUNK_HOME/etc/system/local/authentication.conf",
+        "file_path": "authentication.conf",
+        "navigation": null,
+        "expected_output": "authType = SAML (or external IdP enforcing MFA) (secure) vs authType = Splunk local-only (insecure — password-only)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether custom least-privilege roles separate analyst (read/search) from admin (config/role management); analyst roles cannot alter config, delete data, or hold admin-equivalent capabilities (edit_*/admin_all_objects).",
+    "security_impact": "One of the OR-triggers for the exposure \"Stolen credentials / weak RBAC on the SIEM\" — fires when least_privilege_access_enforced is false (over-broad roles), letting a compromised analyst or insider disable feeds, delete rules, or read masked data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List users/roles and inspect authorize.conf capabilities to confirm analyst roles lack admin-equivalent capabilities.",
+        "command": "splunk list user; splunk btool authorize list --debug",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named per-person accounts mapped to scoped roles; analyst role lacks edit_* / admin_all_objects capabilities (secure) vs over-broad roles (insecure)",
+        "source": "Splunk About securing the Splunk platform (RBAC / secure the default admin account)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read authorize.conf directly to enumerate the capabilities granted to each custom role.",
+        "command": "cat $SPLUNK_HOME/etc/system/local/authorize.conf",
+        "file_path": "authorize.conf",
+        "navigation": null,
+        "expected_output": "Custom analyst role with read/search capabilities only; admin capabilities confined to a separate role (secure) vs analyst granted edit_*/admin_all_objects (insecure)",
+        "source": "Splunk About securing the Splunk platform (RBAC / secure the default admin account)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "shared_admin_accounts",
+    "option_description": "Whether privileged SIEM access uses a shared admin account rather than named per-person accounts. Secure value is false (named accounts only).",
+    "security_impact": "An OR-trigger for the exposure \"Stolen credentials / weak RBAC on the SIEM\" — fires when shared_admin_accounts is true, losing individual accountability so a leaked shared credential grants full control with no attribution.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List SIEM users and look for generic/shared privileged accounts instead of named per-person accounts.",
+        "command": "splunk list user; splunk btool authorize list --debug",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named per-person accounts mapped to scoped roles (secure) vs a shared admin account used by multiple operators (insecure)",
+        "source": "Splunk About securing the Splunk platform (RBAC / secure the default admin account)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview operators to confirm no shared/team credential is used for privileged SIEM access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that every privileged login maps to one named individual; no shared admin credential in circulation",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether the default SIEM admin account has been removed or its default password (e.g. admin/changeme) replaced.",
+    "security_impact": "One of the OR-triggers for the exposure \"Stolen credentials / weak RBAC on the SIEM\" — fires when default_accounts_removed_or_changed is false, giving any adversary trivial valid-account access via a known default credential (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List users and confirm the default 'admin' account is removed or no longer holds a default password.",
+        "command": "splunk list user; splunk btool authorize list --debug",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No default 'admin' with default password; named accounts in use (secure) vs default admin/changeme still present (insecure)",
+        "source": "Splunk About securing the Splunk platform (RBAC / secure the default admin account)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Attempt (with authorization) a login with the vendor default credential to prove it no longer works.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default credential login is rejected (secure) vs default credential still grants access (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_management_restricted_to_privileged_subset",
+    "option_description": "Whether the SIEM records its own administrative/access activity (config changes, role changes, feed enable/disable, audit-log access) and restricts access to that self-audit trail to a privileged subset (AU-9 / PCI DSS 10.2.x).",
+    "security_impact": "An OR-trigger for the exposure \"Stolen credentials / weak RBAC on the SIEM\" — fires when audit_management_restricted_to_privileged_subset is false, so an insider can disable feeds or delete rules without the action being recorded (silent blinding).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the SIEM self-audit index is populated with recent admin/search/auth activity.",
+        "command": "splunk search 'index=_audit action=* | head 20'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent admin/search/auth events present in the _audit index (secure) vs empty or auditing disabled (insecure)",
+        "source": "Splunk About securing the Splunk platform (use auditing to track activity)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm start/stop/pause of the audit pipeline and access to audit logs are themselves logged and that audit-log access is restricted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that start/stop/pause of the audit pipeline and access to audit logs are themselves logged (PCI DSS 10.2.6/10.2.7) and that audit-log access is restricted (AU-9)",
+        "source": "PCI DSS v4.0 Requirement 10; NIST SP 800-53 AU-9 Protection of Audit Information"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Whether the SIEM web UI and management/search API (Splunk Web 8000, splunkd management 8089, Wazuh dashboard) are bound to an internal/management network or sit behind VPN/ZTNA and are NOT reachable from untrusted/public networks.",
+    "security_impact": "One of the OR-triggers (AND-paired with the patch/CVE triggers) for the exposure \"Internet-exposed SIEM UI/API and unpatched RCE\" — fires when edge_management_interfaces_not_internet_reachable is false, turning the detection backbone into a directly attackable surface (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the SIEM's public IP for management/UI ports from an untrusted network vantage point.",
+        "command": "nmap -p 8000,8089,1514,1515,443 <siem-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management/UI ports filtered from untrusted networks (secure) vs 8000/8089/dashboard open to the internet (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration; MITRE ATT&CK T1190"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the UI/management network binding (interface ACLs, VPN/ZTNA front) limits reachability to the management network.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence the UI/management API is bound to an internal/management network or fronted by VPN/ZTNA; only ingest ports reachable from monitored zones",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Whether the SIEM control-plane / management+search API is not reachable from the public internet (restricted to the management network or fronted by VPN/ZTNA). Mirrors the UI exposure at API granularity.",
+    "security_impact": "One of the OR-triggers (AND-paired with the patch/CVE triggers) for the exposure \"Internet-exposed SIEM UI/API and unpatched RCE\" — fires when control_plane_api_not_publicly_exposed is false, exposing the control-plane API to direct exploitation of known SIEM CVEs.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the splunkd management API port (8089) and Wazuh API from a public vantage point.",
+        "command": "nmap -p 8089,55000 <siem-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Control-plane/API ports filtered from the public internet (secure) vs 8089/API listening on a public interface (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration; MITRE ATT&CK T1190"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the management API bind address restricts it to the management network.",
+        "command": "grep -E 'mgmtHostPort|server.socket_host' $SPLUNK_HOME/etc/system/local/server.conf $SPLUNK_HOME/etc/system/local/web.conf",
+        "file_path": "server.conf",
+        "navigation": null,
+        "expected_output": "Management API bound to an internal/management address (secure) vs bound to 0.0.0.0 / a public interface (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the SIEM is running a software version below the fixed maintenance release for a known RCE CVE (e.g. Splunk unsafe-deserialization RCE CVE-2024-53247, CVE-2024-45733, CVE-2024-36985). True is the insecure/firing value.",
+    "security_impact": "One of the OR-triggers (AND-paired with the exposure triggers) for the exposure \"Internet-exposed SIEM UI/API and unpatched RCE\" — fires when unpatched_known_rce_cve is true; an exposed instance with an unpatched known RCE is a single-step full compromise of the detection capability.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running Splunk version and compare it against the vendor advisory fixed releases.",
+        "command": "splunk version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version at/above the fixed release for all applicable advisories (e.g. >= 9.2.3/9.1.6 for CVE-2024-45733; >= 9.3.2/9.2.4/9.1.7 for CVE-2024-53247) (secure) vs older (insecure)",
+        "source": "Splunk Vulnerability Disclosure advisories (SVD-2024 series)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the version against the current Splunk advisory list (SVD-2024 series) for any unpatched RCE id.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No applicable RCE advisory left unpatched for the running version (secure) vs at least one fixed-release RCE not yet applied (insecure)",
+        "source": "Splunk Vulnerability Disclosure advisories (SVD-2024 series)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the SIEM software is kept at the current supported version with the latest security maintenance release applied inside the defined patch SLA — the broader patch-hygiene companion to unpatched_known_rce_cve.",
+    "security_impact": "One of the OR-triggers for the exposure \"Internet-exposed SIEM UI/API and unpatched RCE\" — fires when edge_appliance_patched_within_sla is false (behind the fixed release and outside the patch window), even where a specific RCE id is not yet attributed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running version and compare against the current supported maintenance release.",
+        "command": "splunk version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version at the current supported release with the latest security maintenance release (secure) vs behind the latest release and outside SLA (insecure)",
+        "source": "Splunk Vulnerability Disclosure advisories (SVD-2024 series)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch SLA and the date the latest maintenance release was applied versus its publication date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence the latest maintenance release was applied within the defined patch window (secure) vs an overdue patch gap (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_flood_overflow_protection",
+    "option_description": "Whether bounded ingest queues and overflow handling protect the SIEM against log-flood DoS — when a source spikes, queues are capped and excess is shed/throttled rather than silently exhausting index storage/license and dropping real events.",
+    "security_impact": "One of the OR-triggers for the exposure \"Log flood / index-flooding denial of service\" — fires when log_flood_overflow_protection is false (unbounded ingest), so a high-volume injection fills the index and blinds detection by overload.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect per-source ingest throughput and queue behaviour in the internal metrics log.",
+        "command": "splunk search 'index=_internal source=*metrics.log group=per_source_thruput | timechart sum(kb) by series'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-source throughput baselined with bounded queues / controlled shedding under spike (secure) vs unbounded ingest with no shedding (insecure)",
+        "source": "MITRE ATT&CK T1498 Network Denial of Service; CIS Controls v8 Control 8 (8.3 adequate log storage)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm queue/overflow limits exist and excess is shed/throttled in a controlled way rather than ageing out real events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented bounded-queue / overflow-shedding behaviour proven not to drop in-window real events under flood",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "per_source_volume_baselining",
+    "option_description": "Whether per-source ingest volume is baselined and a sudden spike against that baseline raises an alert, so a log flood from a compromised or spoofing source is detected rather than burying real alerts in noise.",
+    "security_impact": "One of the OR-triggers for the exposure \"Log flood / index-flooding denial of service\" — fires when per_source_volume_baselining is false (no per-source spike alerting), so a flood goes undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect per-source throughput series and confirm a baseline + spike alert exists.",
+        "command": "splunk search 'index=_internal source=*metrics.log group=per_source_thruput | timechart sum(kb) by series'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-source throughput baselined with alerting on sudden spikes (secure) vs no volume monitoring (insecure)",
+        "source": "MITRE ATT&CK T1498 Network Denial of Service; CIS Controls v8 Control 8 (8.3 adequate log storage)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a scheduled anomaly/spike alert fires on per-source volume deviation, not merely a dashboard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active per-source volume-spike alert with evidence of delivery (secure) vs none (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_storage_sized_for_retention",
+    "option_description": "Whether index storage is sized with headroom so events survive the required retention window and a flood cannot exhaust capacity and force early rotation/overwrite of real events.",
+    "security_impact": "One of the OR-triggers for the exposure \"Log flood / index-flooding denial of service\" — fires when log_storage_sized_for_retention is false (no headroom monitoring), so a volume surge ages out events before review and destroys the detection record.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read indexes.conf retention and size caps to confirm storage is sized so events are not aged out before the retention window.",
+        "command": "grep -E 'frozenTimePeriodInSecs|maxTotalDataSizeMB' $SPLUNK_HOME/etc/system/local/indexes.conf",
+        "file_path": "indexes.conf",
+        "navigation": null,
+        "expected_output": "frozenTimePeriodInSecs >= 7776000 (90 days) and storage sized so events are not aged out by maxTotalDataSizeMB before that (secure) vs size-driven early rotation (insecure)",
+        "source": "Splunk indexes.conf retention settings; CIS Controls v8 Control 8 (8.3/8.10)"
+      },
+      {
+        "type": "command",
+        "instruction": "Check current index disk usage/headroom against the configured size caps.",
+        "command": "splunk search '| dbinspect index=* | stats sum(sizeOnDiskMB) by index'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Disk usage well below maxTotalDataSizeMB with monitored headroom (secure) vs at/near the cap with no headroom monitoring (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Whether network-layer DoS protection (rate limiting / scrubbing / per-source connection and bandwidth controls) shields the SIEM ingest endpoints from high-volume flood traffic.",
+    "security_impact": "One of the OR-triggers for the exposure \"Log flood / index-flooding denial of service\" — fires when ddos_protection_in_place is false (ingest ports accept unbounded inbound volume), allowing a flood to overwhelm ingestion.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm network-layer DoS controls (rate limiting, scrubbing, per-source connection/bandwidth caps) front the ingest endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of rate limiting / scrubbing / per-source connection and bandwidth controls on the ingest endpoints (secure) vs unbounded inbound volume with no DoS controls (insecure)",
+        "source": "MITRE ATT&CK T1498 Network Denial of Service; CIS Controls v8 Control 8 (8.3 adequate log storage)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the firewall/load-balancer/proxy config in front of the ingest ports for per-source rate/connection limits.",
+        "command": null,
+        "file_path": "<firewall/LB ingest-rate-limit config>",
+        "navigation": null,
+        "expected_output": "Per-source connection/bandwidth rate limits configured on the ingest path (secure) vs no limits (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether secrets, credentials, and tokens are masked/redacted before or at index time (e.g. Splunk SEDCMD / props.conf anonymization or an ingest-time filter) so the SIEM does not become a high-value plaintext credential store (CWE-532; OWASP ASVS V7).",
+    "security_impact": "One of the OR-triggers for the exposure \"Unmasked secrets/PII in the index; coverage and retention gaps\" — fires when secrets_masked_in_logs is false (raw passwords/keys/tokens indexed verbatim).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep props.conf for SEDCMD masking rules covering secret/token patterns.",
+        "command": "grep -R 'SEDCMD' $SPLUNK_HOME/etc/apps/*/local/props.conf $SPLUNK_HOME/etc/system/local/props.conf",
+        "file_path": "props.conf",
+        "navigation": null,
+        "expected_output": "SEDCMD rules masking known secret/PII patterns at index time (secure) vs none and a search showing plaintext secrets in raw events (insecure)",
+        "source": "MITRE CWE-532 Insertion of Sensitive Information into Log File; OWASP ASVS V7 Error Handling and Logging"
+      },
+      {
+        "type": "command",
+        "instruction": "Run a targeted search for common secret patterns to prove they are not indexed in cleartext.",
+        "command": "splunk search 'index=* (password=* OR \"api_key\" OR \"Authorization: Bearer\") | head 20'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No raw secrets returned / values masked (secure) vs plaintext passwords/keys/tokens in raw events (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pii_excluded_from_logs",
+    "option_description": "Whether regulated PII (PAN, government IDs, sensitive personal data) is excluded or masked from indexed events, so the index is not a high-value plaintext PII store and GDPR/PCI exposure.",
+    "security_impact": "One of the OR-triggers for the exposure \"Unmasked secrets/PII in the index; coverage and retention gaps\" — fires when pii_excluded_from_logs is false (regulated PII indexed verbatim).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep props.conf for SEDCMD/anonymization rules masking PAN, government IDs, and sensitive personal fields.",
+        "command": "grep -R 'SEDCMD' $SPLUNK_HOME/etc/apps/*/local/props.conf $SPLUNK_HOME/etc/system/local/props.conf",
+        "file_path": "props.conf",
+        "navigation": null,
+        "expected_output": "SEDCMD rules masking known PII patterns at index time (secure) vs none and a search showing plaintext PII in raw events (insecure)",
+        "source": "MITRE CWE-532 Insertion of Sensitive Information into Log File; OWASP ASVS V7 Error Handling and Logging"
+      },
+      {
+        "type": "command",
+        "instruction": "Search for PAN/government-ID patterns to prove regulated PII is not indexed verbatim.",
+        "command": "splunk search 'index=* | regex _raw=\"\\b(?:\\d[ -]*?){13,16}\\b\" | head 20'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches / values masked (secure) vs PAN-like or government-ID PII present in raw events (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Online retention window in days for indexed events (Splunk frozenTimePeriodInSecs / index sizing). The forensic minimum is 90 days (CIS Control 8.3/8.10).",
+    "security_impact": "An OR-trigger for the exposure \"Unmasked secrets/PII in the index; coverage and retention gaps\" — fires when retention is below 90 days, since too-short retention destroys evidence and creates a forensic blind spot.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read frozenTimePeriodInSecs (and the size cap) from indexes.conf and convert to days (>= 7776000s = 90 days).",
+        "command": "grep -E 'frozenTimePeriodInSecs|maxTotalDataSizeMB' $SPLUNK_HOME/etc/system/local/indexes.conf",
+        "file_path": "indexes.conf",
+        "navigation": null,
+        "expected_output": "frozenTimePeriodInSecs >= 7776000 (90 days) and storage sized so events are not aged out by maxTotalDataSizeMB before that (secure) vs short frozenTimePeriodInSecs or size-driven early rotation (insecure)",
+        "source": "Splunk indexes.conf retention settings; CIS Controls v8 Control 8 (8.3/8.10)"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the oldest event actually present per index meets the configured retention window.",
+        "command": "splunk search '| tstats min(_time) as oldest where index=* by index | eval days_retained=round((now()-oldest)/86400,1)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Oldest events span >= 90 days (secure) vs the index holding less than the configured/required window (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Whether the SIEM and all log sources synchronize time against a trusted source (NTP, consistent UTC) so correlated events share a coherent timeline (CIS Control 8.4).",
+    "security_impact": "An OR-trigger for the exposure \"Unmasked secrets/PII in the index; coverage and retention gaps\" — fires when clocks_synced_to_trusted_time_source is false (clock skew breaks correlation and enables timestomping, T1070.006).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check NTP synchronization status on the SIEM host (and sample sources).",
+        "command": "timedatectl status; chronyc tracking",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "System clock synchronized: yes, with a reachable NTP source (secure) vs unsynchronized / large offset (insecure)",
+        "source": "CIS Controls v8 Control 8 Audit Log Management (8.4 standardize time synchronization)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm all log sources standardize on NTP and consistent UTC timestamps in indexed events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented NTP/UTC standardization across all sources and the SIEM (secure) vs inconsistent timezones in indexed events (insecure)",
+        "source": "CIS Controls v8 Control 8 Audit Log Management (8.4 standardize time synchronization)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether the index store volumes / object store are encrypted at rest (AES-256 or cloud-managed KMS keys) so disk/snapshot theft does not disclose the indexed credentials, PII, and sensitive payloads (NIST SP 800-92; OWASP Cryptographic Storage).",
+    "security_impact": "An OR-trigger for the exposure \"Unmasked secrets/PII in the index; coverage and retention gaps\" — fires when encrypted_at_rest is false (indexes on unencrypted volumes).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the index storage volumes / object store use at-rest encryption with managed keys (KMS/HSM) separate from the data.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that the index storage volumes / object store use at-rest encryption with managed keys (KMS/HSM) separate from data; NIST 800-92 notes logs may capture sensitive information and require confidentiality protection",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management; OWASP Cryptographic Storage Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux SIEM host, check whether the index volume is on an encrypted block device.",
+        "command": "lsblk -o NAME,TYPE,MOUNTPOINT,FSTYPE; cryptsetup status <index-volume>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Index mount sits on a LUKS/crypt device or cloud-encrypted volume (secure) vs plain unencrypted volume (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

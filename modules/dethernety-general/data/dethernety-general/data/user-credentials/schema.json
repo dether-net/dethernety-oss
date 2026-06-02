@@ -1,0 +1,363 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "passwords_one_way_hashed": {
+        "type": "boolean",
+        "title": "Passwords One-Way Hashed",
+        "description": "Every stored password is protected by a one-way adaptive KDF (Argon2id/scrypt/bcrypt/PBKDF2) so the secret cannot be recovered; fires is_false (plaintext or reversibly-encrypted storage). Consolidates the inverse framing passwords_stored_plaintext_or_reversible.",
+        "default": false
+      },
+      "adaptive_memory_hard_hash_used": {
+        "type": "boolean",
+        "title": "Adaptive / Memory-Hard Hash Used",
+        "description": "Stored passwords use a memory-hard/adaptive KDF (Argon2id preferred); fires is_false on a fast/unsalted digest (MD5/SHA-1/raw SHA-256).",
+        "default": false
+      },
+      "per_credential_salt_used": {
+        "type": "boolean",
+        "title": "Per-Credential Salt Used",
+        "description": "Each credential carries a unique random salt (>=32 bits); fires is_false (missing or shared salt enables rainbow tables)."
+      },
+      "adequate_work_factor": {
+        "type": "boolean",
+        "title": "Adequate KDF Work Factor",
+        "description": "KDF cost meets OWASP minimums (Argon2id m>=19MiB t>=2; bcrypt>=10; PBKDF2>=600k); fires is_false (speed-tuned or below floor)."
+      },
+      "secrets_stored_in_dedicated_secret_manager": {
+        "type": "boolean",
+        "title": "Secrets In Dedicated Secret Manager",
+        "description": "Long-lived API/SSH/private keys held in a managed vault and injected at runtime; fires is_false.",
+        "default": false
+      },
+      "secrets_hardcoded_in_config_or_iac": {
+        "type": "boolean",
+        "title": "Secrets Hardcoded In Config / IaC",
+        "description": "Plaintext keys/tokens in tracked config/.env/IaC/image layers; fires is_true.",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Credentials transmitted exclusively over TLS; login/auth endpoints HTTPS-only with HTTP redirected; fires is_false.",
+        "default": false
+      },
+      "hsts_enforced": {
+        "type": "boolean",
+        "title": "HSTS Enforced",
+        "description": "HSTS header on authenticated responses defeats SSL-strip/downgrade; fires is_false."
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting / Lockout Enabled",
+        "description": "Failed-auth attempts throttled or account locked (account-bound); fires is_false (unlimited guessing).",
+        "default": false
+      },
+      "breached_password_screening_enabled": {
+        "type": "boolean",
+        "title": "Breached-Password Screening Enabled",
+        "description": "New/changed passwords screened against a breached/common-password corpus (Pwned Passwords k-anonymity) and rejected; fires is_false. Referenced by both the brute-force and credential-strength-policy rules.",
+        "default": false
+      },
+      "mfa_available": {
+        "type": "boolean",
+        "title": "MFA Available",
+        "description": "A second factor (TOTP/WebAuthn/possession) available and enforced for sensitive access; fires is_false (password-only).",
+        "default": false
+      },
+      "max_consecutive_failed_attempts": {
+        "type": "integer",
+        "title": "Max Consecutive Failed Attempts",
+        "description": "Cap on consecutive failed attempts before lockout/throttle; fires gt 100 (NIST 800-63B ceiling).",
+        "minimum": 0,
+        "maximum": 100
+      },
+      "generic_failure_responses": {
+        "type": "boolean",
+        "title": "Generic Failure Responses",
+        "description": "Failed-auth returns a single generic message for all failure modes (no user-exists disclosure); fires is_false.",
+        "default": false
+      },
+      "constant_time_login_responses": {
+        "type": "boolean",
+        "title": "Constant-Time Login Responses",
+        "description": "Login handling takes comparable time for valid vs invalid usernames (no timing side channel); fires is_false."
+      },
+      "password_min_length": {
+        "type": "integer",
+        "title": "Password Minimum Length",
+        "description": "Enforced minimum password length; fires lt 8 (NIST floor; 15 without MFA)."
+      },
+      "password_max_length_cap_below_64": {
+        "type": "boolean",
+        "title": "Password Max-Length Capped Below 64",
+        "description": "Policy caps max length <64 OR strips/blocks characters (prevents passphrases); fires is_true.",
+        "default": false
+      },
+      "composition_rules_or_forced_rotation_imposed": {
+        "type": "boolean",
+        "title": "Composition Rules / Forced Rotation Imposed",
+        "description": "Mandatory composition rules OR forced periodic rotation imposed (NIST says SHOULD NOT); fires is_true."
+      },
+      "key_rotation_enabled": {
+        "type": "boolean",
+        "title": "Key Rotation Enabled",
+        "description": "Long-lived API/SSH/private keys have a documented, tested rotation lifecycle; fires is_false.",
+        "default": false
+      },
+      "forced_reset_or_revocation_on_compromise": {
+        "type": "boolean",
+        "title": "Forced Reset / Revocation On Compromise",
+        "description": "Documented, tested path to revoke/reissue a leaked credential AND force password reset on evidence of compromise; fires is_false.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked In Logs",
+        "description": "Passwords/keys/auth-headers redacted at emission before logs; fires is_false.",
+        "default": false
+      },
+      "transmitted_in_url_or_query": {
+        "type": "boolean",
+        "title": "Transmitted In URL Or Query",
+        "description": "Credential/secret placed in a URL path/query string (leaks via logs/referrer/history); fires is_true.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Read/management access to the credential/hash table and secret store restricted to the auth-service identity (least-privilege); fires is_false.",
+        "default": false
+      },
+      "pepper_stored_separately": {
+        "type": "boolean",
+        "title": "Pepper Stored Separately",
+        "description": "Server-side pepper (>=112-bit) held in a separate secret manager/HSM, not beside the hashes; fires is_false (no pepper or co-located)."
+      }
+    },
+    "required": [
+      "passwords_one_way_hashed",
+      "adaptive_memory_hard_hash_used",
+      "per_credential_salt_used",
+      "adequate_work_factor",
+      "secrets_stored_in_dedicated_secret_manager",
+      "secrets_hardcoded_in_config_or_iac",
+      "tls_only_transport",
+      "hsts_enforced",
+      "rate_limiting_or_lockout_enabled",
+      "breached_password_screening_enabled",
+      "mfa_available",
+      "max_consecutive_failed_attempts",
+      "generic_failure_responses",
+      "constant_time_login_responses",
+      "password_min_length",
+      "password_max_length_cap_below_64",
+      "composition_rules_or_forced_rotation_imposed",
+      "key_rotation_enabled",
+      "forced_reset_or_revocation_on_compromise",
+      "secrets_masked_in_logs",
+      "transmitted_in_url_or_query",
+      "least_privilege_access_enforced",
+      "pepper_stored_separately"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pepper_stored_separately"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/password_max_length_cap_below_64"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/password_min_length"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_hardcoded_in_config_or_iac"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_dedicated_secret_manager"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/composition_rules_or_forced_rotation_imposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/adaptive_memory_hard_hash_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/passwords_one_way_hashed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/adequate_work_factor"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/per_credential_salt_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Brute Force Resistance",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/breached_password_screening_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/generic_failure_responses"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/constant_time_login_responses"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_consecutive_failed_attempts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Exposure",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/transmitted_in_url_or_query"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Rotation Revocation",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/forced_reset_or_revocation_on_compromise"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

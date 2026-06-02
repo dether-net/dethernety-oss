@@ -1,0 +1,9 @@
+{
+  "id": "c5b6b440-459d-467d-915b-309eb8ff1a18",
+  "name": "Cache / In-Memory Store",
+  "classType": "component",
+  "type": "STORE",
+  "description": "An in-memory cache or key-value store — also called Redis, Memcached, Valkey, ElastiCache, a session store, or hot-data tier — a fast volatile layer holding sessions, tokens, rate-limit counters, and frequently-read data. Fronts slower databases to cut latency. The place to look for the cache, Redis/Memcached, in-memory/key-value store, session cache, or the hot-data acceleration tier.",
+  "category": "Data Persistence",
+  "status": "draft"
+}

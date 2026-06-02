@@ -1,0 +1,520 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper-Evident",
+        "description": "Whether indexed events and audit records are tamper-evident via integrity hashing or WORM/append-only storage (e.g. Splunk indexes.conf enableDataIntegrityControl=true, SHA-256 per 128KB slice; default false). When false, a compromised host or admin can silently delete or alter the security record to conceal activity and break timeline reconstruction (T1070 Indicator Removal). Secure=true means integrity controls or immutable storage are in effect.",
+        "default": false
+      },
+      "log_pipeline_integrity_protected": {
+        "type": "boolean",
+        "title": "Log Pipeline Integrity Protected",
+        "description": "Whether the end-to-end log/event pipeline (ingest through index) is integrity-protected so events cannot be modified, dropped, or forged between source and durable store. When false, events can be altered in transit or at index time without detection, enabling blinding of the detection record. Confirm hash-chaining / signed forwarding / verified ingest is in place.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored On Separate System",
+        "description": "Whether security events are forwarded to and retained on a remote/immutable repository separate from the monitored hosts (ATT&CK M1029 Remote Data Storage). When false, indexed events sit on locally mutable disk where an adversary who compromises the source host or the SIEM host can locate and manipulate the record. Secure=true means a compromised source cannot reach or alter the authoritative copy.",
+        "default": false
+      },
+      "file_integrity_monitoring_enabled": {
+        "type": "boolean",
+        "title": "File Integrity Monitoring Enabled",
+        "description": "Whether file-integrity monitoring watches the index/audit data files and configuration so unauthorized deletion or modification of the security record is itself detected and alerted. When false, tampering with the stored events leaves no secondary trace. Secure=true means FIM (or equivalent integrity alerting) covers the log store."
+      },
+      "detection_rules_present_and_enabled": {
+        "type": "boolean",
+        "title": "Detection Rules Present And Enabled",
+        "description": "Interpreted attestation: correlation/detection rules (saved/correlation searches) exist, are enabled, scheduled, and tuned to relevant ATT&CK coverage. Insecure (false) when the rule set is empty or all rules are disabled — events are collected but nothing ever fires (collection without detection, the most common silent blinding). Verify | rest /servicesNS/-/-/saved/searches | search is_scheduled=1 disabled=0 returns a non-trivial count.",
+        "default": false
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Shared-vocabulary attestation: all security-relevant sources forward their security events to the SIEM with documented coverage and a missing-source/liveness alert (CIS Control 8.2), so a stopped or absent feed is not a silent detection blind spot (T1562.001/.002). Insecure (false) when forwarders/host logging services are stopped or a source has quietly ceased reporting without a liveness alert.",
+        "default": false
+      },
+      "logging_failure_alerting_enabled": {
+        "type": "boolean",
+        "title": "Logging Failure Alerting Enabled",
+        "description": "Shared-vocabulary attestation: the SIEM raises an alert when its own detection/logging pipeline fails — skipped scheduled searches, failed alert actions, or ingestion stalls are surfaced rather than going unnoticed. Insecure (false) when scheduler errors / skipped correlation searches accumulate silently, so detections quietly stop firing. Verified via index=_internal sourcetype=scheduler status=skipped/error monitoring.",
+        "default": false
+      },
+      "alert_delivery_path_monitored": {
+        "type": "boolean",
+        "title": "Alert Delivery Path Monitored",
+        "description": "Interpreted attestation: the alert delivery path (email/webhook/ticketing/SOAR) is monitored end-to-end with a heartbeat/self-test that proves delivery. Insecure (false) when there is no delivery confirmation, so a broken notification channel blinds the SOC the same way deleting logs would — an adversary who suppresses or breaks alert delivery achieves silent blinding. Verified by a periodic heartbeat alert that must arrive at the destination."
+      },
+      "authenticated_log_forwarders_required": {
+        "type": "boolean",
+        "title": "Authenticated Log Forwarders Required",
+        "description": "Only authenticated, enrolled forwarders/agents may submit events to the ingest channel (e.g. Wazuh authd use_password=yes AND ssl_agent_ca set with ssl_verify_host=yes — mutual enrollment authentication). True when forwarder authentication is mandatory; false on open enrollment (use_password=no, no certificate verification), where any host on the network can enroll and inject forged events to poison detection or bury real alerts. Modelled as an interpreted boolean so the trigger is polarity-safe.",
+        "default": false
+      },
+      "log_injection_input_sanitized": {
+        "type": "boolean",
+        "title": "Log Injection Input Sanitized",
+        "description": "Incoming log events are validated/sanitized at ingest so a malicious or unauthenticated source cannot inject forged or crafted events that corrupt parsing, spoof source identity, or bury real alerts (log injection / detection poisoning). True when ingest-side input validation is in place; false when raw event payloads are indexed verbatim with no source/content validation, enabling event forgery and indicator-blocking-style noise floods. Interpreted boolean, polarity-safe by construction."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "TLS 1.2+ is enforced on all log-ingest and enrollment channels with operator-supplied (non-default) certificates so events cannot be carried in cleartext (Splunk enableSplunkdSSL=true with a real serverCert; Wazuh agent channel encrypted). Secure (true): plaintext syslog/UDP 514 refused. Insecure (false): plaintext syslog or unencrypted ingest accepted, exposing events in motion to disclosure, modification, and masquerade (RFC 5425). Shared workspace vocabulary attribute. Interpreted boolean so the secure value cannot be false-matched as a substring.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted boolean: whether the ingest/enrollment channel permits legacy downgradeable TLS (SSLv3/TLS1.0/1.1) or weak ciphers (ADH/EXP/MD5/RC4/3DES), e.g. Wazuh ssl_auto_negotiate=yes. Secure (false): only TLS 1.2+ with a HIGH cipher list is negotiated (ssl_auto_negotiate=no). Insecure (true): auto-negotiate or legacy protocols/ciphers accepted, allowing an on-path attacker to force a weak negotiation and recover or tamper with event data (RFC 5425 mandates TLS 1.2+). Shared workspace vocabulary attribute; modeled as an interpreted boolean so the hardened cipher string is not false-matched.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLSv1.0",
+          "TLSv1.1",
+          "TLSv1.2",
+          "TLSv1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The lowest TLS protocol version the ingest/enrollment channel will negotiate. Secure: TLSv1.2 or TLSv1.3 (RFC 5425 mandates TLS 1.2+ for syslog transport). Insecure: SSLv3/TLSv1.0/TLSv1.1 — exposed to downgrade and known protocol weaknesses. Shared workspace vocabulary attribute (aligned to the gateway/dataFlow min_tls_version naming); the granular protocol-version enum is retained because the cleartext/weak-TLS condition selects on the individual legacy versions."
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "The ingest endpoint presents and the peer validates an operator-supplied certificate rather than accepting bundled demo/default certificates. Secure (true): non-default serverCert in use, peer validates it (Splunk replaced SplunkServerDefaultCert; Wazuh ssl_verify_host=yes with ssl_agent_ca). Insecure (false): default/demo cert still in place or no certificate validation, enabling on-path masquerade despite a TLS wrapper. Shared workspace vocabulary attribute."
+      },
+      "mfa_available": {
+        "type": "boolean",
+        "title": "MFA Available",
+        "description": "Interactive admin/analyst access to the SIEM console and API requires MFA (ideally via SAML/OIDC SSO to a phishing-resistant IdP). When false, local password-only login means stolen credentials alone reach the detection backbone (T1078 Valid Accounts). Maps to the SIEM dossier's siem_mfa_on_console (secure=true).",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least Privilege Access Enforced",
+        "description": "Custom least-privilege roles separate analyst (read/search) from admin (config/role management); analyst roles cannot alter config, delete data, or hold admin-equivalent capabilities (edit_*/admin_all_objects). When false, over-broad roles let a compromised analyst or insider disable feeds, delete detection rules, or read sensitive masked data. Maps to the dossier's siem_rbac_least_privilege (secure=true).",
+        "default": false
+      },
+      "shared_admin_accounts": {
+        "type": "boolean",
+        "title": "Shared Admin Accounts",
+        "description": "Whether privileged SIEM access uses a shared admin account rather than named per-person accounts. When true, individual accountability is lost and a leaked shared credential grants full control of the detection backbone with no attribution. Insecure-polarity flag (secure=false: named accounts only)."
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed Or Changed",
+        "description": "Whether the default SIEM admin account has been removed or its default password (e.g. admin/changeme) replaced. When false, a known default credential gives any adversary trivial valid-account access to the SIEM (T1078). Maps to the default-admin hardening within the dossier's siem_rbac_least_privilege facet (secure=true).",
+        "default": false
+      },
+      "audit_management_restricted_to_privileged_subset": {
+        "type": "boolean",
+        "title": "Audit Management Restricted To Privileged Subset",
+        "description": "Whether the SIEM records its own administrative/access activity (config changes, role changes, feed enable/disable, audit-log access) and restricts access to that self-audit trail to a privileged subset (AU-9 / PCI DSS 10.2.x). When false, an insider or attacker with credentials can disable feeds or delete rules without the action being recorded — silent blinding. Maps to the dossier's audit_logging_of_siem_itself facet (secure=true)."
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet Reachable",
+        "description": "Shared workspace vocabulary. True when the SIEM web UI and management/search API (e.g. Splunk Web 8000, splunkd management 8089, Wazuh dashboard) are bound to an internal/management network or sit behind VPN/ZTNA and are NOT reachable from untrusted/public networks — only ingest ports are exposed to monitored zones. False (insecure) means a management/UI port is listening on a public interface, turning the detection backbone into a directly attackable surface (T1190).",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control Plane API Not Publicly Exposed",
+        "description": "Shared workspace vocabulary. True when the SIEM control-plane / management+search API is not reachable from the public internet (restricted to the management network or fronted by VPN/ZTNA). False (insecure) means the control-plane API answers on a public interface, exposing it to direct exploitation of known SIEM CVEs. Mirrors 'management_ui_not_internet_exposed' at the API granularity.",
+        "default": false
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "True (insecure) when the SIEM is running a software version below the fixed maintenance release for a known remote-code-execution CVE — e.g. Splunk unsafe-deserialization RCE CVE-2024-53247 (fixed >= 9.3.2/9.2.4/9.1.7), CVE-2024-45733, CVE-2024-36985. Set from `splunk version` against the vendor advisory (SVD-2024 series). The insecure value is the firing value: an exposed instance with an unpatched known RCE is a single-step full compromise of the detection capability.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Shared workspace vocabulary. True when the SIEM software is kept at the current supported version with the latest security maintenance release applied inside the defined patch SLA. False (insecure) means the instance is behind the fixed release for applicable advisories and outside the patch window — the broader patch-hygiene companion to unpatched_known_rce_cve, firing even where a specific RCE id is not yet attributed."
+      },
+      "log_flood_overflow_protection": {
+        "type": "boolean",
+        "title": "Log Flood Overflow Protection",
+        "description": "Bounded ingest queues and overflow handling protect the SIEM against log-flood denial of service: when a source spikes, queues are capped and excess is shed/throttled in a controlled way rather than silently exhausting index storage or license and dropping or aging out real events. Insecure (false) when ingest is unbounded, so a high-volume injection fills the index and blinds detection by overload. Maps to the dossier's ingest_rate_limiting_and_capacity facet.",
+        "default": false
+      },
+      "per_source_volume_baselining": {
+        "type": "boolean",
+        "title": "Per-Source Volume Baselining",
+        "description": "Per-source ingest volume is baselined and a sudden spike against that baseline raises an alert, so a log flood from a compromised or spoofing source is detected rather than burying real alerts in noise. Insecure (false) when no per-source volume anomaly/spike alerting exists and a flood goes undetected. Grounded in the dossier's ingest_rate_limiting_and_capacity inspect (per_source_thruput baselining + spike alerting)."
+      },
+      "log_storage_sized_for_retention": {
+        "type": "boolean",
+        "title": "Log Storage Sized For Retention",
+        "description": "Index storage is sized with headroom so events survive the required retention window and a flood cannot exhaust capacity and force early rotation/overwrite of real events. Insecure (false) when storage has no headroom monitoring and a volume surge ages out or drops events before review, destroying the detection record. Relates to ingest_rate_limiting_and_capacity (storage headroom) and log_retention_period (size-driven early rotation)."
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Network-layer denial-of-service protection (rate limiting / scrubbing / per-source connection and bandwidth controls) shields the SIEM ingest endpoints from high-volume flood traffic. Insecure (false) when ingest ports accept unbounded inbound volume with no DoS controls, allowing a flood to overwhelm ingestion. Shared workspace vocabulary for the availability/network-flood facet."
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked In Logs",
+        "description": "Whether secrets, credentials, and tokens are masked/redacted before or at index time (e.g. Splunk SEDCMD / props.conf anonymization or an ingest-time filter) so the SIEM does not become a high-value plaintext credential store (CWE-532; OWASP ASVS V7). Interpreted boolean — secure value is true; the exposure fires when false (raw passwords/keys/tokens indexed verbatim).",
+        "default": false
+      },
+      "pii_excluded_from_logs": {
+        "type": "boolean",
+        "title": "PII Excluded From Logs",
+        "description": "Whether regulated PII (PAN, government IDs, sensitive personal data) is excluded or masked from indexed events. Interpreted boolean — secure value is true; the exposure fires when false (regulated PII indexed verbatim, turning the index into a high-value plaintext PII store and a GDPR/PCI exposure).",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Log Retention Days",
+        "description": "Online retention window in days for indexed events (Splunk frozenTimePeriodInSecs / index sizing). The forensic minimum is 90 days (CIS Control 8.3/8.10); the exposure fires when retention is below 90 days, since too-short retention destroys evidence and creates a forensic blind spot."
+      },
+      "clocks_synced_to_trusted_time_source": {
+        "type": "boolean",
+        "title": "Clocks Synced To Trusted Time Source",
+        "description": "Whether the SIEM and all log sources synchronize time against a trusted source (NTP, consistent UTC) so correlated events share a coherent timeline (CIS Control 8.4). Interpreted boolean — secure value is true; the exposure fires when false (clock skew breaks correlation and enables timestomping, T1070.006, to hide where events fall)."
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted At Rest",
+        "description": "Whether the index store volumes / object store are encrypted at rest (AES-256 or cloud-managed KMS keys) so disk/snapshot theft does not disclose the indexed credentials, PII, and sensitive payloads (NIST SP 800-92; OWASP Cryptographic Storage). Interpreted boolean — secure value is true; the exposure fires when false (indexes on unencrypted volumes)."
+      }
+    },
+    "required": [
+      "audit_log_tamper_evident",
+      "log_pipeline_integrity_protected",
+      "logs_stored_on_separate_system",
+      "file_integrity_monitoring_enabled",
+      "detection_rules_present_and_enabled",
+      "security_events_fully_logged",
+      "logging_failure_alerting_enabled",
+      "alert_delivery_path_monitored",
+      "authenticated_log_forwarders_required",
+      "log_injection_input_sanitized",
+      "tls_only_transport",
+      "weak_tls_versions_enabled",
+      "min_tls_version",
+      "server_certificate_validated",
+      "mfa_available",
+      "least_privilege_access_enforced",
+      "shared_admin_accounts",
+      "default_accounts_removed_or_changed",
+      "audit_management_restricted_to_privileged_subset",
+      "edge_management_interfaces_not_internet_reachable",
+      "control_plane_api_not_publicly_exposed",
+      "unpatched_known_rce_cve",
+      "edge_appliance_patched_within_sla",
+      "log_flood_overflow_protection",
+      "per_source_volume_baselining",
+      "log_storage_sized_for_retention",
+      "ddos_protection_in_place",
+      "secrets_masked_in_logs",
+      "pii_excluded_from_logs",
+      "log_retention_days",
+      "clocks_synced_to_trusted_time_source",
+      "encrypted_at_rest"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authenticated_log_forwarders_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_available"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_admin_accounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_excluded_from_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_injection_input_sanitized"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_flood_overflow_protection"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_storage_sized_for_retention"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/per_source_volume_baselining"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_rules_present_and_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_pipeline_integrity_protected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logging_failure_alerting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/alert_delivery_path_monitored"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_management_restricted_to_privileged_subset"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/clocks_synced_to_trusted_time_source"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/file_integrity_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

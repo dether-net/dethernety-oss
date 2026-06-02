@@ -1,0 +1,785 @@
+[
+  {
+    "option_name": "privileged_credentials_vaulted",
+    "attribute_name": "privileged_credentials_vaulted",
+    "option_description": "All human and non-human privileged credentials (admin passwords, root/DB keys, service-account secrets, API keys, SSH keys, tokens) are stored only in a central encrypted vault and fetched at runtime, with no standing copies held in apps, files, or operator hands.",
+    "security_impact": "Satisfies the countermeasure \"credential_vaulting_rotation_and_secrets_management\" — fires when privileged_credentials_vaulted is true — mitigating valid-account abuse and credential theft (ATT&CK T1078/T1555, MITRE M1026 Privileged Account Management). With credentials held only in the vault there are no human-held standing secrets to steal or dump.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the PAM vault account inventory (e.g. CyberArk Safes/Accounts list, HashiCorp Vault secret engine mounts, Azure Key Vault / AWS Secrets Manager inventory) and confirm it covers every class of privileged account — domain admin, local admin, root, DB, network device, cloud root/IAM. Confirm no privileged credential is documented or distributed outside the vault.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM console > Accounts/Safes inventory (CyberArk PVWA), or `vault secrets list` / Key Vault > Secrets",
+        "expected_output": "Vault inventory shows coverage of all classes of privileged account (domain admin, local admin, root, DB, network device, cloud root/IAM); confirm no privileged credential is documented or distributed outside the vault.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Validate the vault's encryption standard at rest and in transit, and that retrieving a credential is gated by an approval / time-bound workflow rather than freely readable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vault encryption standard validated (AES-256 or equivalent) at rest and TLS in transit; access to retrieve a credential gated by approval/time-bound workflow.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credential_rotation_enforced",
+    "attribute_name": "credential_rotation_enforced",
+    "option_description": "Automatic credential rotation runs on a recurring cycle, including rotate-after-checkin / one-time-use handling for the highest-value accounts.",
+    "security_impact": "Satisfies the countermeasure \"credential_vaulting_rotation_and_secrets_management\" — one of its OR-conditions — firing when credential_rotation_enforced is true. Shortens the useful life of any captured secret, blunting OS credential dumping and password-store theft (ATT&CK T1003/T1555, M1027).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Pull the vault's rotation logs/policy (CyberArk CPM platform policy, Vault rotation/static-roles config, cloud Secrets Manager rotation schedule) and confirm every managed credential rotated within the policy interval and that rotate-after-use (one-time-use) is enabled so a checked-out password is invalidated on check-in.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM console > Platform Management / rotation policy and CPM rotation logs",
+        "expected_output": "Rotation logs show every managed credential rotated within the policy interval; confirm rotate-after-use is enabled so a checked-out password is invalidated on check-in.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm rotate-after-checkin / one-time-use is configured specifically for the highest-value accounts (domain admin, cloud root) rather than only the schedule-based rotation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "High-value account platform shows exclusive-use / one-time-password / rotate-on-checkin enabled; checkout returns a credential invalidated immediately on release.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credential_rotation_max_days",
+    "attribute_name": "credential_rotation_max_days",
+    "option_description": "Maximum number of days a privileged credential may remain valid before automatic rotation; a hardened configuration keeps this within a 30-90 day window (<= 90).",
+    "security_impact": "Feeds the countermeasure \"credential_vaulting_rotation_and_secrets_management\" — the rotation-interval condition is satisfied when credential_rotation_max_days <= 90. A bounded interval caps how long a stolen secret stays useful (ATT&CK T1003/T1555, M1027).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured rotation interval on each managed-account platform (CyberArk platform `Rotation/MinValidityPeriod` and change frequency, Vault `rotation_period` / `max_ttl`, cloud Secrets Manager rotation interval) and record the longest interval in force across privileged platforms.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM console > Platform Management > rotation/change-frequency setting (or `vault read <mount>/config`)",
+        "expected_output": "Configured maximum rotation interval is a number of days; secure when at or below 90. Map the read value directly to the integer day count.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the rotation logs to confirm the configured interval is actually enforced (no credentials older than the stated maximum).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rotation history shows no managed credential exceeding the configured interval, confirming the stated max-days is real and enforced.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "60",
+      "90"
+    ]
+  },
+  {
+    "option_name": "secrets_in_secret_manager_not_repo",
+    "attribute_name": "secrets_in_secret_manager_not_repo",
+    "option_description": "No privileged credentials or secrets are hardcoded in source code or configuration files; secrets are resolved from the vault at runtime.",
+    "security_impact": "Satisfies the countermeasure \"credential_vaulting_rotation_and_secrets_management\" — one of its OR-conditions — firing when secrets_in_secret_manager_not_repo is true. Closes the hardcoded-secret path adversaries harvest from password stores and code (ATT&CK T1555, M1026).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan repository history and config/IaC/image layers for embedded secrets; any live hit indicates a hardcoded-secret gap the control must close.",
+        "command": "git log -p | grep -Ei 'aws_secret|api[_-]?key|password|BEGIN (RSA|OPENSSH) PRIVATE KEY' ; trufflehog filesystem .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No live secrets found embedded in repository history or config files; any hit indicates a hardcoded-secret gap the control must close.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the secrets inventory covers all microservices/service accounts, rotation logs meet the minimum rotation frequency, and access to each secret is audited and restricted to named principals (applications fetch at runtime).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secrets inventory covers all microservices/service accounts; rotation logs confirm every secret meets minimum rotation frequency; access to each secret is audited and restricted to named principals.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vault_at_rest_encryption_strength",
+    "attribute_name": "vault_at_rest_encryption_strength",
+    "option_description": "Encryption algorithm/strength protecting vault contents at rest; the secure state is AES_256. Enum: AES_256 | AES_128 | NONE.",
+    "security_impact": "Feeds the countermeasure \"credential_vaulting_rotation_and_secrets_management\" — the at-rest-encryption condition is satisfied when vault_at_rest_encryption_strength == AES_256. Strong at-rest encryption protects the consolidated secret store from offline theft (M1026).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the vault's at-rest encryption configuration and map it to the enum: CyberArk Vault server uses AES-256 for the metadata/object store (confirm in the FIPS/encryption settings); HashiCorp Vault seal uses AES-256-GCM (`vault status` / seal config); cloud Key Vault / Secrets Manager report the KMS key spec. If AES-256 → AES_256; AES-128 → AES_128; no/absent at-rest encryption → NONE.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vault server encryption/FIPS settings, or `vault status` (seal type) / KMS key spec in cloud console",
+        "expected_output": "Vault encryption standard validated (AES-256 or equivalent) at rest and TLS in transit; access to retrieve a credential gated by approval/time-bound workflow. Map AES-256 → AES_256, AES-128 → AES_128, none → NONE.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "AES_256",
+      "AES_128"
+    ]
+  },
+  {
+    "option_name": "no_standing_admin_privileges_jit_required",
+    "attribute_name": "no_standing_admin_privileges_jit_required",
+    "option_description": "Elevated privileges are granted just-in-time for a bounded task window and auto-revoked at task end/timeout, and no identity holds permanent membership in highly-privileged groups (Domain Admins, root, cloud Owner).",
+    "security_impact": "Satisfies the countermeasure \"just_in_time_zero_standing_privilege_elevation\" — the load-bearing trigger — firing when no_standing_admin_privileges_jit_required is true. Eliminates the standing-admin surface that escalation/abuse depends on (ATT&CK T1548/T1078, M1026/M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review elevation request logs (Azure PIM activation history, CyberArk JIT/ad-hoc access, Vault dynamic-secret leases): confirm each grant carries start/end timestamps and an approval, and test that privileges auto-revoke at session end and that expired/unused elevations are denied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD PIM > Privileged access > activation history, or PAM JIT elevation logs",
+        "expected_output": "Review elevation request logs: each grant has a start/end timestamp and an approval; test that privileges auto-revoke at session end and that unused/expired elevations are denied.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate current membership of highly-privileged groups outside any active JIT window and confirm no human account holds persistent membership.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AD `Get-ADGroupMember 'Domain Admins'`, cloud IAM Owner/Admin role assignments",
+        "expected_output": "Confirm no persistent membership in highly-privileged groups (Domain Admins, root, cloud Owner/Admin) for human accounts outside an active JIT window.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "max_elevation_window_hours",
+    "attribute_name": "max_elevation_window_hours",
+    "option_description": "Maximum lifetime in hours of a granted just-in-time elevation before automatic revocation; a bounded window (<= 4h) caps how long an elevated session can be abused.",
+    "security_impact": "Feeds the countermeasure \"just_in_time_zero_standing_privilege_elevation\" — the window condition is satisfied when max_elevation_window_hours <= 4. A short window limits the abuse value of any hijacked elevated session (ATT&CK T1134/T1548).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured maximum elevation lifetime in the JIT policy (Azure PIM role setting 'Maximum activation duration', CyberArk JIT session duration, Vault lease `max_ttl`). Record the value in hours.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD PIM > Roles > Role settings > Activation > Maximum duration, or PAM JIT policy",
+        "expected_output": "Configured maximum elevation duration shown in hours; secure when at or below 4 hours. Map the read value to the integer hour count.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm via elevation logs that grants actually auto-revoke at or before the configured maximum (no session outlives the stated window).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Elevation activation history shows every grant de-escalated at or before the configured maximum, confirming the window is enforced.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "2",
+      "4"
+    ]
+  },
+  {
+    "option_name": "periodic_privilege_recertification",
+    "attribute_name": "periodic_privilege_recertification",
+    "option_description": "Eligibility for privileged-access elevation is periodically recertified (e.g. quarterly) so stale entitlements are removed, and standing grants auto-revoke on expiry.",
+    "security_impact": "Satisfies two countermeasures — \"just_in_time_zero_standing_privilege_elevation\" and \"governed_approval_workflow_with_separation_and_break_glass_dual_control\" — firing when periodic_privilege_recertification is true. Trims privilege creep so the JIT eligibility set stays least-privilege (ATT&CK T1548, M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review access-review certifications (Azure AD Access Reviews, CyberArk/SailPoint recertification campaigns) for timeliness and confirm AC-6(7)-style periodic review reassigns or removes privileges no longer justified.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD > Identity Governance > Access reviews (or IGA recertification campaign records)",
+        "expected_output": "Confirm AC-6(7) periodic review of assigned privileges with reassignment/removal where no longer justified; review access-review certifications for timeliness.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Compare permissions assigned vs. permissions actually used (PAM entitlement analysis) and confirm over-provisioned rights are trimmed; confirm standing grants auto-revoke on expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compare permissions assigned vs. permissions actually used (PAM entitlement analysis) and confirm over-provisioned rights are trimmed.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bastion_mediates_all_admin_access",
+    "attribute_name": "bastion_mediates_all_admin_access",
+    "option_description": "All RDP/SSH/DB/cloud-CLI admin access is proxied through a central PAM gateway/jump host enforcing protocol and command filtering, AND direct-to-target admin network paths are blocked by segmentation so the broker cannot be bypassed.",
+    "security_impact": "Satisfies the countermeasure \"non_bypassable_session_brokering_with_phishing_resistant_mfa\" — firing when bastion_mediates_all_admin_access is true. A non-bypassable broker forces every privileged session through policy/MFA enforcement (ATT&CK T1078, M1026).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt a direct admin connection to a target while bypassing the broker; confirm it is denied because firewall/segmentation permits only the broker as source. Inspect the gateway rules per protocol.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Attempt a direct admin connection to a target bypassing the broker; confirm it is denied (firewall/segmentation only permits the broker as source). Inspect gateway rules per protocol.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm MFA is required at the broker entry point before any session is brokered and that command/protocol policy is enforced (run a prohibited-command test and confirm it is blocked).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm MFA is required at the broker entry point before any session is brokered and that command/protocol policy is enforced (prohibited-command test blocked).",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "attribute_name": "phishing_resistant_authenticator_required",
+    "option_description": "The broker requires phishing-resistant MFA (PIV/FIDO2/WebAuthn at AAL2/AAL3) bound per-user before any session begins, with no SMS/OTP/push fallback permitted.",
+    "security_impact": "Satisfies the countermeasure \"non_bypassable_session_brokering_with_phishing_resistant_mfa\" — one of its OR-conditions — firing when phishing_resistant_authenticator_required is true. Defeats AiTM/token-replay downgrade on privileged login (ATT&CK T1078/T1134, M1032).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Attempt broker access without valid MFA and confirm denial; confirm weak authenticators (SMS/OTP) are rejected or require a documented exception; check the MFA device inventory matches the active privileged-user population.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP/broker authentication policy (e.g. Azure AD Conditional Access authentication-strength = phishing-resistant MFA) and registered-authenticator report",
+        "expected_output": "Attempt broker access without valid MFA and confirm denial; confirm weak authenticators (SMS/OTP) are rejected or require documented exception; MFA device inventory matches the active privileged-user population.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm MFA for all administrative access accounts uses phishing-resistant authenticators bound to AAL2/AAL3 (CIS Control 6.5, NIST 800-63B).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MFA for ALL administrative access accounts confirmed (CIS Control 6.5) using phishing-resistant authenticators bound to AAL2/AAL3 per NIST 800-63B.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "provisioning_requires_approval",
+    "attribute_name": "provisioning_requires_approval",
+    "option_description": "Every privileged grant requires a formal request with business justification routed through a tiered approval workflow before access is provisioned, and access auto-revokes on expiry.",
+    "security_impact": "Satisfies the countermeasure \"governed_approval_workflow_with_separation_and_break_glass_dual_control\" — firing when provisioning_requires_approval is true. An enforced request-and-approve gate prevents ungoverned standing access (ATT&CK T1078/T1548, M1026/M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Sample recent access requests; confirm each has documented justification, an approver with appropriate authority, and that expired approvals auto-revoke. Confirm denied requests remain in the audit trail.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM/IGA request workflow records (Azure PIM approval history, ServiceNow access request tickets)",
+        "expected_output": "Sample recent access requests; confirm each has documented justification, an approver with appropriate authority, and that expired approvals auto-revoke. Denied requests remain in the audit trail.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the workflow is enforced (not advisory) — that access cannot be provisioned outside it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No path exists to provision privileged access bypassing the workflow; all grants trace to a recorded approval.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "segregation_of_duties_enforced",
+    "attribute_name": "segregation_of_duties_enforced",
+    "option_description": "Separation of duties is enforced on the approval path per AC-5: the requester cannot approve their own privileged grant, and the security-admin role is separated from the audit role.",
+    "security_impact": "Satisfies the countermeasure \"governed_approval_workflow_with_separation_and_break_glass_dual_control\" — one of its OR-conditions — firing when segregation_of_duties_enforced is true. Prevents single-actor abuse of the approval path (NIST AC-5, M1026).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm separation of duties: the requester/approver split is enforced (workflow rejects self-approval) and that security personnel administering access control do not also administer the audit function (AC-5).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Workflow approval-policy configuration and audit-admin role assignments",
+        "expected_output": "Confirm separation of duties: the requester/approver split and that security personnel administering access control do not also administer the audit function (AC-5).",
+        "source": "NIST SP 800-53 Rev 5 AC-5 Separation of Duties"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Test a self-approval attempt in the workflow and confirm it is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The workflow blocks a requester from approving their own grant; approval and oversight responsibilities sit with distinct principals.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "break_glass_dual_control_enforced",
+    "attribute_name": "break_glass_dual_control_enforced",
+    "option_description": "Emergency break-glass access is pre-defined, requires dual-control (two-person) activation, fires immediate alerts on use, is fully recorded, and mandates post-use review.",
+    "security_impact": "Satisfies the countermeasure \"governed_approval_workflow_with_separation_and_break_glass_dual_control\" — one of its OR-conditions — firing when break_glass_dual_control_enforced is true. Converts ungoverned shared emergency credentials into a governed, auditable path (ATT&CK T1078.001, M1026).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm break-glass accounts exist with credentials secured in the vault; test that activation requires two authorized administrators and immediately notifies security/audit. Review a recent activation for justification plus follow-up review.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM break-glass safe / emergency-access policy and activation alert records",
+        "expected_output": "Confirm break-glass accounts exist with credentials secured in the vault; test that activation requires two authorized administrators and immediately notifies security/audit. Review a recent activation for justification + follow-up review.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "break_glass_max_window_hours",
+    "attribute_name": "break_glass_max_window_hours",
+    "option_description": "Maximum lifetime in hours of a break-glass emergency access grant before it auto-expires; a short, bounded window (e.g. <= 4h) is the secure state.",
+    "security_impact": "Feeds the countermeasure \"governed_approval_workflow_with_separation_and_break_glass_dual_control\" — the break-glass-window condition is satisfied when break_glass_max_window_hours <= 4. A short auto-expiry stops emergency access becoming a silent persistent backdoor (ATT&CK T1078.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured break-glass grant lifetime in the emergency-access policy and confirm it auto-expires. Record the value in hours.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM emergency-access / break-glass policy > session or grant duration setting",
+        "expected_output": "Configured break-glass grant lifetime shown in hours; secure when it auto-expires at or below 4 hours. Map the read value to the integer hour count.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review a recent break-glass activation and confirm the grant was actually terminated at or before the configured window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Break-glass activation record shows the grant auto-expired at or before the configured maximum window.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "2",
+      "4"
+    ]
+  },
+  {
+    "option_name": "dedicated_attributable_admin_accounts_enforced",
+    "attribute_name": "dedicated_attributable_admin_accounts_enforced",
+    "option_description": "Privileged actions run only from dedicated, individually-attributable admin accounts — never the operator's daily-use account and never a shared/generic admin account — so every privileged action maps to exactly one identifiable human.",
+    "security_impact": "Satisfies the countermeasure \"dedicated_attributable_admin_accounts_with_discovery_and_dormant_disablement\" — firing when dedicated_attributable_admin_accounts_enforced is true. Makes every privileged action attributable and removes shared-credential abuse (ATT&CK T1078.002, M1026/M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm admin accounts are distinct from primary/daily accounts (AC-6(2)) and restricted to defined personnel (AC-6(5)); confirm no shared privileged credentials exist (each maps to one identity).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Directory account inventory — separate -adm/-admin account naming, and shared-account review",
+        "expected_output": "Confirm admin accounts are distinct from primary accounts (AC-6(2)) and restricted to defined personnel (AC-6(5)); confirm no shared privileged credentials (each maps to one identity).",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Validate against CIS Control 5.4 — administrator privileges restricted to dedicated administrator accounts; general computing performed from the non-privileged primary account.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Validate against CIS Control 5.4 — administrator privileges restricted to dedicated administrator accounts; general computing performed from the non-privileged primary account.",
+        "source": "CIS Controls v8 Control 5 — Account Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "service_account_inventory_governed",
+    "attribute_name": "service_account_inventory_governed",
+    "option_description": "All privileged and service accounts across Windows/Unix/DB/cloud/network estates are auto-discovered at least monthly, with newly-created privileged accounts detected within 24-48h, surfacing rogue or orphaned admin accounts.",
+    "security_impact": "Satisfies the countermeasure \"dedicated_attributable_admin_accounts_with_discovery_and_dormant_disablement\" — one of its OR-conditions — firing when service_account_inventory_governed is true. Surfaces rogue/orphaned privileged accounts used for persistence (ATT&CK T1098, M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the latest discovery scan and inventory; confirm coverage of all platform types and that newly-created privileged accounts are detected within 24-48h, with orphaned/rogue accounts carrying remediation plans.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM discovery module results (CyberArk Accounts Discovery, Delinea Discovery) / scan schedule",
+        "expected_output": "Review latest discovery scan and inventory; confirm coverage of all platform types and that newly-created privileged accounts are detected within 24-48h; orphaned/rogue accounts have remediation plans.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm AC-2(7) privileged accounts administered under a role scheme with monitored assignments, and that an inventory of all admin (CIS 5.1) and service accounts (CIS 5.5) is maintained.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm AC-2(7): privileged accounts administered under a role scheme, role assignments monitored, and revoked when no longer appropriate; maintain an inventory of all accounts incl. admin (CIS 5.1) and service accounts (CIS 5.5).",
+        "source": "NIST SP 800-53 Rev 5 AC-2 Account Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dormant_account_disable_window_days",
+    "attribute_name": "dormant_account_disable_window_days",
+    "option_description": "Maximum bounded inactivity window, in days, after which a dormant privileged account is auto-disabled; secure when <= 45 days.",
+    "security_impact": "Feeds the countermeasure \"dedicated_attributable_admin_accounts_with_discovery_and_dormant_disablement\" — the dormant-window condition is satisfied when dormant_account_disable_window_days <= 45. A bounded window stops dormant accounts persisting as latent footholds (ATT&CK T1098, M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured dormant-account auto-disable threshold (directory inactivity policy / PAM dormant-account rule) and confirm it is enforced by automation. Record the value in days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Directory/PAM inactivity-disable policy setting (AC-2(3) automation)",
+        "expected_output": "Configured dormant auto-disable threshold shown in days; secure when at or below 45 days and enforced by automation. Map the read value to the integer day count.",
+        "source": "NIST SP 800-53 Rev 5 AC-2 Account Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Validate AC-2(3) automatic disable of expired/orphaned/inactive accounts and CIS 5.3 disable of dormant accounts after 45 days; confirm via sample that inactive accounts were actually disabled within the window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Validate AC-2(3) automatic disable of expired/orphaned/inactive accounts and CIS 5.3 disable dormant accounts after 45 days.",
+        "source": "NIST SP 800-53 Rev 5 AC-2 Account Management"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "45"
+    ]
+  },
+  {
+    "option_name": "offboarding_credential_revocation_enforced",
+    "attribute_name": "offboarding_credential_revocation_enforced",
+    "option_description": "Privileged access for a departing person is revoked same-day on departure, closing the gap where an offboarded human's admin account could be retained or hijacked for persistence.",
+    "security_impact": "Satisfies the countermeasure \"dedicated_attributable_admin_accounts_with_discovery_and_dormant_disablement\" — one of its OR-conditions — firing when offboarding_credential_revocation_enforced is true. Removes the post-departure orphaned-admin persistence path (ATT&CK T1098, M1018).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Sample recent separations and confirm privileged access was revoked within 24h (same-day); confirm dormant accounts auto-disable per policy and that revoked accounts remain in audit history (not deleted).",
+        "command": null,
+        "file_path": null,
+        "navigation": "HR/IGA joiner-mover-leaver records vs. directory disable timestamps",
+        "expected_output": "Sample recent separations and confirm privileged access revoked within 24h; confirm dormant accounts auto-disable per policy and revoked accounts remain in audit history (not deleted).",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the offboarding procedure ties departure events to automatic same-day privileged-access revocation (PS-4/PS-5).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Offboarding workflow links HR departure to same-day revocation of all privileged access for the departing person.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "privileged_access_via_pam_with_session_recording",
+    "attribute_name": "privileged_access_via_pam_with_session_recording",
+    "option_description": "Every privileged session is fully recorded (screen, keystroke, and command capture) so privileged activity is reconstructable and non-repudiable.",
+    "security_impact": "Satisfies the countermeasure \"tamper_evident_privileged_session_recording_audit_logging_and_anomaly_monitoring\" — firing when privileged_access_via_pam_with_session_recording is true. Makes privileged activity reconstructable, supporting detection of account manipulation (ATT&CK T1098, M1047).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve sample session recordings from the PAM broker and confirm completeness (screen/keystroke/command); verify recordings are signed/encrypted and stored where the recorded admin cannot alter or delete them.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM session monitoring/recordings store (CyberArk PSM recordings, Delinea session monitoring)",
+        "expected_output": "Retrieve sample recordings and confirm completeness; verify recordings are signed/encrypted and stored where the recorded admin cannot alter or delete them.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm AU-9-style protection: session records stored on a physically separate system, write-once or cryptographically integrity-protected, with recording administration restricted to users distinct from those recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm AU-9-style protection: audit/session records stored on a physically separate system, write-once or cryptographically integrity-protected, with audit management restricted to a subset of users distinct from those audited.",
+        "source": "NIST SP 800-53 Rev 5 AU family — AU-9 Protection of Audit Information"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "identity_access_audit_logging_enabled",
+    "attribute_name": "identity_access_audit_logging_enabled",
+    "option_description": "Every privileged action is logged with full context to centralized, externally-stored audit logs that the recorded admin cannot alter or delete (AU-9 separation of audit administration from the audited).",
+    "security_impact": "Satisfies the countermeasure \"tamper_evident_privileged_session_recording_audit_logging_and_anomaly_monitoring\" — one of its OR-conditions — firing when identity_access_audit_logging_enabled is true. Non-repudiable centralized logging detects/attributes account manipulation (ATT&CK T1098, M1047).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Request recent privileged-activity logs; confirm all required fields (identity, source, resource, action, outcome, timestamp) are populated and that logs are forwarded to protected external storage (SIEM), signed/immutable, retained >=90d, and reviewed with documented findings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM privileged-activity index (e.g. Splunk/Sentinel) and forwarding config",
+        "expected_output": "Request recent privileged-activity logs; confirm all required fields populated and that logs are forwarded to protected external storage (SIEM), signed/immutable, retained >=90d, and reviewed with documented findings.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm AC-6(9) logs execution of privileged functions and AU-9(2) stores records on a physically different system so a compromise of the audited host cannot erase the only copy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm AC-6(9) logs execution of privileged functions and AU-9(2) stores records on a physically different system so a compromise of the audited host cannot erase the only copy.",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "attribute_name": "audit_log_tamper_evident",
+    "option_description": "Privileged audit/session logs are signed or otherwise immutable (WORM, hash-chained, or equivalent) so any alteration or deletion is detectable, preserving non-repudiation of privileged misuse.",
+    "security_impact": "Satisfies the countermeasure \"tamper_evident_privileged_session_recording_audit_logging_and_anomaly_monitoring\" — one of its OR-conditions — firing when audit_log_tamper_evident is true. Tamper-evidence preserves non-repudiation of privileged misuse (NIST AU-9, M1047).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify privileged audit and session logs are signed/immutable (WORM bucket, hash-chained, or cryptographic integrity protection) so any tampering is detectable; confirm administration of the log store is separated from the audited admins.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log-store immutability settings (S3 Object Lock / WORM, SIEM signing) and store-admin roles",
+        "expected_output": "Privileged audit and session logs are signed/immutable (WORM, hash-chained, or equivalent) so tampering is detectable.",
+        "source": "NIST SP 800-53 Rev 5 AU family — AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Attempt (in a test) to alter or delete a recorded session/log entry and confirm the change is rejected or detectable via the integrity mechanism.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Modification/deletion of a stored log entry is blocked or flagged by the WORM/hash-chain integrity mechanism.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "attribute_name": "log_retention_days",
+    "option_description": "Retention period in days for privileged session recordings and audit logs; >= 90 days ensures sufficient history for forensic reconstruction and persistence detection.",
+    "security_impact": "Feeds the countermeasure \"tamper_evident_privileged_session_recording_audit_logging_and_anomaly_monitoring\" — the retention condition is satisfied when log_retention_days >= 90. Sufficient history enables forensic reconstruction of slow-burn account-manipulation persistence (ATT&CK T1098, M1047).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Read the configured retention for privileged session recordings and audit logs (SIEM index retention, PAM recording-store retention policy, S3 lifecycle/Object Lock duration). Record the value in days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM index retention settings and PAM recording-store/S3 lifecycle policy",
+        "expected_output": "Configured retention for privileged session recordings and audit logs shown in days; secure when at or above 90 days. Map the read value to the integer day count.",
+        "source": "GSA/CISA Privileged Identity Playbook v1.2"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "privileged_session_anomaly_monitoring",
+    "attribute_name": "privileged_session_anomaly_monitoring",
+    "option_description": "Privileged sessions/accounts are monitored in real time for atypical usage (off-hours activity, mass account creation, unusual targets) with alerting, detecting account-manipulation persistence.",
+    "security_impact": "Satisfies the countermeasure \"tamper_evident_privileged_session_recording_audit_logging_and_anomaly_monitoring\" — one of its OR-conditions — firing when privileged_session_anomaly_monitoring is true. Real-time anomaly alerting detects account-manipulation persistence as it happens (ATT&CK T1098, NIST SI-4/AC-2(12)).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm AC-2(12) monitors accounts for atypical usage and reports it; test that alert rules fire on policy violations such as privilege escalation outside business hours or mass account creation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM/UEBA detection rules over privileged accounts (Sentinel/Splunk ES correlation searches)",
+        "expected_output": "Confirm AC-2(12) monitors accounts for atypical usage and reports it; test that alert rules fire on policy violations (e.g. privilege escalation outside business hours, mass account creation).",
+        "source": "NIST SP 800-53 Rev 5 AC-2 Account Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the alert history to confirm anomaly rules are active and have actually fired/been triaged, not merely defined.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alert history shows privileged-session anomaly rules firing and being triaged, confirming real-time monitoring is operational.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "attribute_name": "min_tls_version",
+    "option_description": "Minimum TLS protocol version negotiated on connections to the PAM broker and between broker and vault. Enum: SSLv3 | TLS1.0 | TLS1.1 | TLS1.2 | TLS1.3. Secure when TLS1.2 or TLS1.3 (SSLv3 and early-TLS disabled).",
+    "security_impact": "Feeds the countermeasure \"hardened_broker_transport_tls\" — the TLS-version condition is satisfied when min_tls_version is in [TLS1.2, TLS1.3]. Disabling SSLv3/early-TLS prevents on-path downgrade and interception of brokered credentials (NIST SP 800-52r2).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocol versions the broker (and the broker-to-vault endpoint) will negotiate and take the lowest one offered as the value; map it to the enum (e.g. lowest accepted = TLS 1.2 → TLS1.2, TLS 1.3 → TLS1.3, any SSLv3/TLS1.0/1.1 still accepted → that lower enum value).",
+        "command": "nmap --script ssl-enum-ciphers -p <broker_tls_port> <broker_host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLS 1.2/1.3 with FIPS-approved ECDHE+AEAD suites offered; no SSLv3/TLS1.0/1.1 or NULL/RC4/CBC-only suites. Set the enum to the lowest version still negotiated.",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Cross-check with testssl.sh or an openssl handshake forcing each legacy version to confirm SSLv3/TLS1.0/1.1 are refused on the broker transport.",
+        "command": "testssl.sh <broker_host>:<broker_tls_port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Legacy protocol probes (SSLv3/TLS1.0/1.1) are refused; only TLS1.2/TLS1.3 complete a handshake, confirming the minimum-version enum value.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3"
+    ]
+  },
+  {
+    "option_name": "cipher_suites_strong_only",
+    "attribute_name": "cipher_suites_strong_only",
+    "option_description": "Interpreted boolean: true when only strong AEAD cipher suites with ECDHE forward secrecy are permitted and weak suites (NULL/RC4/MD5/export/CBC-only) are disabled on the broker transport.",
+    "security_impact": "Feeds the countermeasure \"hardened_broker_transport_tls\" — the cipher condition is satisfied when cipher_suites_strong_only is true. Forward-secret AEAD-only ciphers prevent interception/downgrade of brokered credentials (NIST SP 800-52r2).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the cipher suites the broker offers and interpret as true only when AEAD+ECDHE forward-secrecy suites are exclusively permitted and weak suites (NULL/RC4/MD5/export/CBC-only) are disabled.",
+        "command": "nmap --script ssl-enum-ciphers -p <broker_tls_port> <broker_host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLS 1.2/1.3 with FIPS-approved ECDHE+AEAD suites offered; no SSLv3/TLS1.0/1.1 or NULL/RC4/CBC-only suites. true only if every offered suite is ECDHE+AEAD.",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm with testssl.sh that no weak/forbidden cipher categories appear in the broker's offered suites.",
+        "command": "testssl.sh <broker_host>:<broker_tls_port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "testssl.sh reports no weak ciphers (NULL/RC4/EXPORT/DES/3DES/CBC-only) and forward secrecy on all suites — interpret as true; any weak-cipher finding makes it false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "attribute_name": "server_certificate_validated",
+    "option_description": "The broker and broker-to-vault TLS endpoints present and validate server certificates (chain, hostname, expiry), preventing an adjacent attacker from impersonating the broker or vault on the brokered session.",
+    "security_impact": "Feeds the countermeasure \"hardened_broker_transport_tls\" — the certificate-validation condition is satisfied when server_certificate_validated is true. Validated certs stop broker/vault impersonation on the brokered session (NIST SP 800-52r2).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect the certificate the broker presents and confirm the chain, hostname, and expiry are validated rather than skipped; also confirm broker-to-vault TLS clients do not disable verification (no insecure/skip-verify flags).",
+        "command": "openssl s_client -connect <broker_host>:<broker_tls_port> -servername <broker_host> | openssl x509 -noout -subject -issuer -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Broker presents a valid CA-chained certificate matching its hostname with a current validity window; broker-to-vault client config performs full verification (no skip-verify).",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the broker and broker-to-vault TLS client configuration for any setting that disables certificate verification.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Broker TLS client config / vault connection settings (e.g. tls_skip_verify, insecure flags)",
+        "expected_output": "No certificate-verification-disabling flag is set; the broker validates the server certificate chain, hostname, and expiry on every connection.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

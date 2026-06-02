@@ -1,0 +1,9 @@
+{
+  "id": "cb7e1f14-416a-4b9d-8abb-3d9e07c58559",
+  "name": "Network Router",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A network router — also called a layer-3 router, gateway, routing appliance, or transit device — a process that forwards traffic between network segments and enforces routing and basic ACL policy. A junction between zones and a pivot point on the network. The place to look for the router, network gateway, layer-3 forwarding device, or the component routing traffic between segments.",
+  "category": "Networking",
+  "status": "draft"
+}

@@ -1,0 +1,800 @@
+[
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the LB's client-facing listener still negotiates any legacy TLS version (SSLv3 / TLS 1.0 / TLS 1.1). Interpreted from nginx ssl_protocols or the AWS ALB SslPolicy; a hardened listener offers only TLSv1.2/TLSv1.3.",
+    "security_impact": "One of the OR-triggers for the exposure \"Weak / legacy TLS termination on the client edge\" — fires when weak_tls_versions_enabled is true, since a negotiable TLS 1.0/1.1/SSLv3 listener lets an active attacker downgrade and decrypt client traffic (POODLE/BEAST/FREAK/LOGJAM, ATT&CK T1557/T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx listener TLS protocol floor; any line containing SSLv3/TLSv1/TLSv1.1 means weak versions are enabled.",
+        "command": "grep -E '^\\s*ssl_protocols' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3; (secure, FALSE) — any line containing SSLv3/TLSv1/TLSv1.1 is insecure (TRUE). Default since 1.23.4 is TLSv1.2 TLSv1.3.",
+        "source": "nginx ngx_http_ssl_module"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the SslPolicy on the ALB HTTPS listener; legacy policies still permit TLS 1.0/1.1.",
+        "command": "aws elbv2 describe-listeners --load-balancer-arn <arn> --query 'Listeners[?Protocol==`HTTPS`].SslPolicy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS13-1-2-* policy (TLS 1.2/1.3 only, FALSE/secure). ELBSecurityPolicy-2016-08 / -TLS-1-0-2015-04 allow TLS 1.0/1.1 (TRUE/insecure).",
+        "source": "AWS ALB security policies (describe-ssl-policies)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols actually offered on the wire at the client edge.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <lb-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 sections present, graded A (FALSE). Any TLSv1.0/TLSv1.1/SSLv3 section present is insecure (TRUE).",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The lowest TLS protocol version the LB's client-facing listener will negotiate (nginx ssl_protocols floor / AWS ALB SslPolicy floor). Shared-workspace enum so a dataFlow and this gateway use one value-set; secure floor is TLSv1.2 or higher.",
+    "security_impact": "One of the OR-triggers for \"Weak / legacy TLS termination on the client edge\" — its condition group fires when min_tls_version is in [SSLv3, TLSv1.0, TLSv1.1] (mapped to enum 'tls1_0_or_tls1_1_or_sslv3_accepted'), opening the POODLE/BEAST/FREAK/LOGJAM downgrade surface (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the nginx ssl_protocols floor on the client-facing listener.",
+        "command": "grep -E '^\\s*ssl_protocols' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3; maps to 'tls1_2_or_higher'. A line including SSLv3/TLSv1/TLSv1.1 maps to 'tls1_0_or_tls1_1_or_sslv3_accepted'.",
+        "source": "nginx ngx_http_ssl_module"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the ALB listener SslPolicy and map its protocol floor to the enum.",
+        "command": "aws elbv2 describe-listeners --load-balancer-arn <arn> --query 'Listeners[?Protocol==`HTTPS`].SslPolicy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS13-1-2-* policy -> 'tls1_2_or_higher'. ELBSecurityPolicy-2016-08 / -TLS-1-0-2015-04 -> 'tls1_0_or_tls1_1_or_sslv3_accepted'.",
+        "source": "AWS ALB security policies (describe-ssl-policies)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Determine the lowest version negotiable on the wire.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <lb-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lowest section shown is the floor: only TLSv1.2/TLSv1.3 -> 'tls1_2_or_higher'; any TLSv1.0/TLSv1.1/SSLv3 -> 'tls1_0_or_tls1_1_or_sslv3_accepted'.",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "weak_ciphers_allowed",
+    "option_description": "Whether the LB offers any non-forward-secret or broken cipher (RC4, 3DES/DES, CBC, EXPORT, static-RSA, aNULL/eNULL/NULL, MD5). Interpreted from nginx ssl_ciphers or the AWS ALB SslPolicy cipher set; a hardened listener offers only ECDHE + AES-GCM/CHACHA20.",
+    "security_impact": "One of the OR-triggers for \"Weak / legacy TLS termination on the client edge\" — fires when weak_ciphers_allowed is true, enabling cipher-downgrade MITM (RC4/3DES/CBC, no forward secrecy; ATT&CK T1557/T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx cipher string against the Mozilla Intermediate profile.",
+        "command": "grep -E '^\\s*ssl_ciphers' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "An ECDHE/GCM/CHACHA20 string matching the Mozilla Intermediate profile (FALSE/secure); presence of RC4/3DES/DES/EXPORT/NULL is insecure (TRUE).",
+        "source": "Mozilla SSL Configuration Generator (nginx)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the actual cipher suites and forward-secrecy posture on the wire.",
+        "command": "testssl.sh --severity HIGH https://<lb-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No weak/obsolete cipher findings; forward secrecy offered (FALSE/secure). RC4/3DES/CBC/export flagged HIGH if present (TRUE/insecure).",
+        "source": "testssl.sh"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "hsts_enforced",
+    "option_description": "Whether a long-lived HTTP Strict-Transport-Security header (max-age >= 31536000, includeSubDomains, sent on all responses) is enforced at the client-facing edge the LB terminates (nginx add_header ... always).",
+    "security_impact": "One of the OR-triggers for \"Weak / legacy TLS termination on the client edge\" — its condition group fires when hsts_enforced is_false, since an absent/short HSTS header enables SSL-strip / HTTPS-downgrade on the terminated edge (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the nginx HSTS header directive includes the 'always' flag so it is sent on error responses too.",
+        "command": "grep -i 'Strict-Transport-Security' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always; — the 'always' flag is required. Absent or short/zero max-age is insecure (FALSE).",
+        "source": "nginx ngx_http_headers_module"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Check the live response header at the client edge.",
+        "command": "curl -sI https://<lb-host> | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Strict-Transport-Security: max-age=63072000; includeSubDomains (TRUE/enforced). max-age REQUIRED; 31536000=1yr, preload floor 63072000. Header absent = FALSE.",
+        "source": "RFC 6797 HSTS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "back_end_traffic_reencrypted_after_tls_termination",
+    "option_description": "Whether, after terminating client TLS, the LB re-encrypts the proxied hop to the origin/backend (nginx proxy_pass https:// / ALB HTTPS target group) rather than forwarding plaintext (proxy_pass http://).",
+    "security_impact": "One of the OR-triggers for \"Plaintext / unverified backend re-encryption leg\" — its condition group fires when back_end_traffic_reencrypted_after_tls_termination is_false, leaving the internal hop sniffable/MITM-able and exposing credentials and PII (ATT&CK T1040/T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the nginx upstream scheme — proxy_pass https:// re-encrypts; proxy_pass http:// forwards plaintext.",
+        "command": "grep -E 'proxy_pass|proxy_ssl_verify|proxy_ssl_trusted_certificate' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_pass https://...; (TRUE/re-encrypted). proxy_pass http://...; means the backend leg is plaintext (FALSE).",
+        "source": "nginx ngx_http_proxy_module"
+      },
+      {
+        "type": "command",
+        "instruction": "For an ALB, confirm the target group protocol is HTTPS rather than HTTP.",
+        "command": "aws elbv2 describe-target-groups --load-balancer-arn <arn> --query 'TargetGroups[].Protocol'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTPS (TRUE/re-encrypted backend leg) vs HTTP (FALSE/plaintext to targets).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the LB validates the backend/origin server's TLS certificate when re-encrypting the post-termination hop (nginx proxy_ssl_verify on with proxy_ssl_trusted_certificate; ALB target TLS verification). nginx proxy_ssl_verify defaults to off.",
+    "security_impact": "One of the OR-triggers for \"Plaintext / unverified backend re-encryption leg\" — fires when server_certificate_validated is_false, since the LB then accepts any upstream cert and an adjacent adversary can MITM even an encrypted backend leg (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm proxy_ssl_verify is on with a trusted CA — it defaults to off, so the backend cert is NOT validated by default.",
+        "command": "grep -E 'proxy_pass|proxy_ssl_verify|proxy_ssl_trusted_certificate' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_ssl_verify on; plus a proxy_ssl_trusted_certificate (TRUE/validated). Absence or 'proxy_ssl_verify off' (the default) is insecure (FALSE).",
+        "source": "nginx ngx_http_proxy_module"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For an ALB HTTPS target group, confirm whether backend target certificate verification is configured/enforced for the post-termination hop.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that the upstream certificate is validated (TRUE); no validation / any-cert-accepted is insecure (FALSE).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "request_framing_normalized_front_back",
+    "option_description": "Attestation that the front-end LB and back-end agree on HTTP message framing — Content-Length vs Transfer-Encoding is parsed identically and ambiguous framing (CL.TE/TE.CL/TE.TE, H2.CL/H2.TE downgrade) is rejected rather than forwarded.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync between LB and backend\" — its condition group fires when request_framing_normalized_front_back is_false, letting an attacker smuggle a request past edge auth, poison the cache, or hijack sessions (ATT&CK T1190/T1071.001).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the front-end/back-end pair for CL.TE/TE.CL/TE.TE and H2 downgrade desync responses.",
+        "command": "python3 smuggler.py -u https://<lb-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No desync detected on any framing permutation (TRUE/normalized). A CL.TE/TE.CL/TE.TE or H2.CL/H2.TE positive indicates the edge and origin disagree (FALSE).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review that the edge and origin parse Content-Length / Transfer-Encoding identically and reject ambiguous framing end-to-end.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture/config review shows ambiguous framing is rejected on both hops (TRUE); a parser mismatch is insecure (FALSE).",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn (PortSwigger)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "desync_mitigation_strict",
+    "option_description": "Whether AWS ALB routing.http.desync_mitigation_mode is set to 'strictest' (only RFC 7230-compliant requests reach targets). 'monitor' lets all requests pass (logged only) and 'defensive' is the default.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync between LB and backend\" — fires when desync_mitigation_strict is_false (mode 'monitor' or 'defensive'), leaving a request-smuggling/desync window between the LB and the backend (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB desync mitigation mode attribute.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='routing.http.desync_mitigation_mode'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "strictest (TRUE/secure). 'defensive' is the default and 'monitor' only logs and forwards everything — both are FALSE for enforcement.",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For nginx/HAProxy (no equivalent attribute), confirm strict RFC-7230 request validation / smuggling rejection is configured at the edge.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of strict request-line/framing validation rejecting non-compliant requests (TRUE); none configured is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "drop_invalid_header_fields",
+    "option_description": "Whether AWS ALB routing.http.drop_invalid_header_fields.enabled strips HTTP headers whose names do not match [-A-Za-z0-9]+ before reaching targets — a desync/header-injection guard. Default is false.",
+    "security_impact": "One of the OR-triggers for \"HTTP request smuggling / desync between LB and backend\" — fires when drop_invalid_header_fields is_false (the default), routing invalid headers to backends and enabling header-confusion-based smuggling (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB drop-invalid-header-fields attribute.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='routing.http.drop_invalid_header_fields.enabled'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "true (TRUE/secure) vs false (default, FALSE/insecure).",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For nginx/HAProxy, confirm equivalent header-name validation that strips/rejects malformed header fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that invalid header fields are dropped/rejected (TRUE); none is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Whether upstream/volumetric DDoS protection (SYN-flood mitigation, connection surge bounds, an external scrubbing/CDN layer in front of the LB) is in place so volumetric floods are absorbed before reaching the chokepoint.",
+    "security_impact": "One of the OR-triggers for \"DDoS / connection-exhaustion of the chokepoint\" — fires when ddos_protection_in_place is_false, since the LB is the single point of contact and a SYN/HTTP flood saturates its connection/queue capacity and takes down all backends (ATT&CK T1498).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a volumetric-DDoS layer fronts the LB (e.g. AWS Shield Advanced, a CDN/scrubbing provider, SYN-flood mitigation, connection surge bounds).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a scrubbing/CDN/Shield layer absorbing floods before the LB (TRUE); the LB taking raw internet floods is FALSE.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS, check whether Shield Advanced protection is associated with the LB.",
+        "command": "aws shield list-protections",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A protection entry whose ResourceArn is the LB ARN (TRUE); no protection / no fronting layer is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether per-client request-rate limiting is enabled at the chokepoint (nginx limit_req_zone keyed on $binary_remote_addr + limit_req at the proxied location; HAProxy stick-table rate limiting).",
+    "security_impact": "One of the OR-triggers for \"DDoS / connection-exhaustion of the chokepoint\" — fires when rate_limiting_or_lockout_enabled is_false, since without a request-rate cap an HTTP flood drives unbounded volume through the LB to the backends, exhausting capacity (ATT&CK T1499.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm an nginx limit_req zone is defined and applied at the proxied location.",
+        "command": "grep -E 'limit_req_zone|limit_req ' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "limit_req_zone $binary_remote_addr zone=...:10m rate=10r/s; in http{}, and limit_req zone=... burst=...; in the location (TRUE). Absence = no rate limiting (FALSE).",
+        "source": "nginx ngx_http_limit_req_module"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, confirm a stick-table rate limit is configured.",
+        "command": "grep -E 'stick-table|http-request (deny|track-sc)' haproxy.cfg",
+        "file_path": "haproxy.cfg",
+        "navigation": null,
+        "expected_output": "A stick-table with an http_req_rate counter and a deny rule above threshold (TRUE); absence is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "connection_idle_timeout_bounded",
+    "option_description": "Whether the LB's connection idle timeout (AWS ALB idle_timeout.timeout_seconds; nginx/HAProxy keepalive/client timeouts) is bounded to a reasonable value rather than left excessively high so half-open/slow connections cannot accumulate.",
+    "security_impact": "One of the OR-triggers for \"DDoS / connection-exhaustion of the chokepoint\" — fires when connection_idle_timeout_bounded is_false, since an excessively high idle timeout lets idle connections pile up until connection capacity is exhausted (ATT&CK T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB idle timeout and judge it against an app-appropriate bound.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='idle_timeout.timeout_seconds'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default 60 (TRUE/bounded). A very large value increases exposure to connection-exhaustion (FALSE).",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx/HAProxy, inspect the keepalive/client idle timeouts.",
+        "command": "grep -E 'keepalive_timeout|client_body_timeout|timeout client' nginx.conf haproxy.cfg",
+        "file_path": "nginx.conf / haproxy.cfg",
+        "navigation": null,
+        "expected_output": "A bounded keepalive/client timeout (TRUE); absence or an excessively high value is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "request_header_timeout_bounded",
+    "option_description": "Whether the time a client may take to send the full request headers is bounded (HAProxy 'timeout http-request 10s'; nginx client_header_timeout 10s), defeating slowloris/slow-read held-open partial requests.",
+    "security_impact": "One of the OR-triggers for \"DDoS / connection-exhaustion of the chokepoint\" — fires when request_header_timeout_bounded is_false, since absence or a very large value enables slowloris held-open requests that exhaust the chokepoint's connection/queue capacity (ATT&CK T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the request-header timeout directive in HAProxy / nginx.",
+        "command": "grep -E 'timeout http-request|client_header_timeout' haproxy.cfg nginx.conf",
+        "file_path": "haproxy.cfg / nginx.conf",
+        "navigation": null,
+        "expected_output": "timeout http-request 10s (HAProxy) or client_header_timeout 10s (nginx) — 10s is generous for legitimate clients (TRUE). Absence/large value enables slowloris (FALSE).",
+        "source": "HAProxy hardening guide (timeout http-request slowloris)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm a held-open partial request is actively timed out at the edge.",
+        "command": "slowhttptest -c 200 -H -i 10 -r 200 -u https://<lb-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service stays available / partial connections dropped (TRUE/bounded). Connections held open until capacity exhausts indicates no bound (FALSE).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "http2_rapid_reset_mitigated",
+    "option_description": "Whether the LB's HTTP/2 stack mitigates rapid-reset and stream-multiplexing abuse — a build at/above the fix for CVE-2023-44487 and the CVE-2019-9511/9513 family, with concurrent-stream/reset-rate limits in effect (or HTTP/2 disabled).",
+    "security_impact": "One of the OR-triggers for \"DDoS / connection-exhaustion of the chokepoint\" — fires when http2_rapid_reset_mitigated is_false, since unmitigated stream-reset flooding/multiplexing abuse exhausts LB CPU/memory and takes down the chokepoint (ATT&CK T1499).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running version and compare against the HTTP/2 DoS advisories.",
+        "command": "nginx -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A version at/above the fix for the HTTP/2 DoS CVEs (CVE-2019-9511/9513, and CVE-2023-44487 per the vendor advisory) (TRUE). A pre-fix build is FALSE.",
+        "source": "nginx security advisories"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm concurrent-stream / reset-rate limits are in effect (or HTTP/2 disabled) for the listener.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Concurrent-stream and reset-rate limits configured, or HTTP/2 off (TRUE); no limits on a vulnerable build is FALSE. Confirm CVE-2023-44487 applicability against the vendor advisory.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "xff_client_ip_correctly_handled",
+    "option_description": "Whether the LB authoritatively establishes the client IP rather than trusting client-supplied X-Forwarded-For: the LB appends/overwrites the real last-hop IP (ALB xff_header_processing.mode=append/remove, not preserve) AND backends trust XFF only from the LB's address (nginx set_real_ip_from <lb-cidr>).",
+    "security_impact": "The sole trigger for \"X-Forwarded-For spoofing / client-IP forgery\" — fires when xff_client_ip_correctly_handled is_false, since a spoofable/over-trusted XFF lets a client forge its source IP to bypass IP allowlists, evade rate limits, and poison access logs (undermining downstream authz and audit).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB XFF header processing mode.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='routing.http.xff_header_processing.mode'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "append (default — ALB appends the real client IP, TRUE) or remove. 'preserve' forwards client-supplied XFF unchanged — risky if a backend trusts it (FALSE).",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the backend trusts X-Forwarded-For only from the LB's CIDR.",
+        "command": "grep -E 'set_real_ip_from|real_ip_recursive' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "set_real_ip_from <lb-cidr>; scoped to the LB address (TRUE). Trusting XFF from any source / no set_real_ip_from is spoofable (FALSE).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_header_routing_strict",
+    "option_description": "Whether the LB routes by strict, explicit Host-header matching and rejects unknown/ambiguous hosts (nginx default catch-all server returning 444; ALB listener host-rules routing ONLY known Host values with no permissive fall-through).",
+    "security_impact": "The sole trigger for \"Host-header routing confusion / misrouting\" — fires when host_header_routing_strict is_false, since ambiguous Host handling can route a request to an unintended backend or bypass virtual-host access controls (cache poisoning, cross-tenant/wrong-app access; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read whether the original Host is preserved to targets and confirm listener rules route only expected Host values.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='routing.http.preserve_host_header.enabled'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Value reflects whether the original Host is preserved; confirm via describe-rules that listener host conditions route only known hosts with no permissive default (TRUE). Permissive fall-through is FALSE.",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx, confirm explicit server_name blocks plus a default catch-all returning 444 for unknown Host values.",
+        "command": "grep -E 'server_name|return 444|default_server' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "Explicit server_name blocks and a default_server returning 444 for unknown Host (TRUE); a permissive default backend is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Whether the LB's admin/management plane (HAProxy stats socket, vendor GUI, or cloud control API) is reachable only from a restricted management network behind RBAC — not from untrusted/public networks.",
+    "security_impact": "One of the OR-triggers for \"Exposed management interface / data plane running as root\" — fires when control_plane_api_not_publicly_exposed is_false, since a publicly reachable admin/control endpoint permits config tampering, backend re-pointing, or LB deletion (ATT&CK T1190/T1578).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the HAProxy stats endpoint is bound to localhost / a management subnet rather than the public listener.",
+        "command": "grep -E 'stats socket|stats bind|bind .*:.*stats' haproxy.cfg",
+        "file_path": "haproxy.cfg",
+        "navigation": null,
+        "expected_output": "stats bound to 127.0.0.1 or a mgmt subnet behind auth (TRUE). A stats/admin endpoint on the public listener is FALSE.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, probe the admin/control endpoint to prove it is not reachable.",
+        "command": "nmap -p 80,443,1936,8404 <lb-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No admin/stats/control port reachable from outside the management network (TRUE); a reachable admin port from public is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "endpoint_runs_as_least_privileged_user",
+    "option_description": "Whether the LB worker/data-plane processes run as an unprivileged (non-root) account so a worker compromise does not yield host root (nginx 'user nobody;'; the master may bind privileged ports as root but workers must drop privilege).",
+    "security_impact": "One of the OR-triggers for \"Exposed management interface / data plane running as root\" — fires when endpoint_runs_as_least_privileged_user is_false, since workers running as root widen the blast radius of any data-plane compromise (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the nginx user directive for a non-root account.",
+        "command": "grep -E '^\\s*user ' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "user nobody; (or another unprivileged account, TRUE). Master binds privileged ports as root, but workers must drop privilege — root workers are FALSE.",
+        "source": "nginx ngx_core_module (user directive)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the running worker processes are not owned by root.",
+        "command": "ps -o user= -C nginx | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Worker rows owned by a non-root user (TRUE); workers owned by root are FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "deletion_protection_enabled",
+    "option_description": "Whether deletion protection is enabled on the LB, preventing accidental or malicious deletion of the traffic chokepoint. Maps to AWS ALB deletion_protection.enabled (default false).",
+    "security_impact": "One of the OR-triggers for \"Exposed management interface / data plane running as root\" — fires when deletion_protection_enabled is_false (the default), making destroying the chokepoint a one-call availability attack (ATT&CK T1578).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB deletion-protection attribute.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='deletion_protection.enabled'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "true (TRUE/secure) vs false (default, FALSE/insecure).",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For a self-managed nginx/HAProxy chokepoint, confirm an equivalent guard against single-call teardown (IaC drift-protection / restricted delete permissions).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence the chokepoint cannot be destroyed by a single unprotected call (TRUE); none is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether the LB produces connection/request access logs at the chokepoint (AWS ALB access_logs.s3.enabled / nginx access_log on). The LB sees all client traffic and is the prime audit point.",
+    "security_impact": "One of the OR-triggers for \"Silent chokepoint — disabled access logging / WAF fail-open\" — fires when access_audit_trail_enabled is_false (ALB default / nginx 'access_log off'), so attacks transiting the busiest edge leave no audit trail for detection or forensics (ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB access-logs attribute and confirm a destination bucket is set.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='access_logs.s3.enabled'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "true (TRUE/secure) — default is false. Confirm access_logs.s3.bucket is set.",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm nginx access logging is on (ideally to an off-box syslog target).",
+        "command": "grep -E '^\\s*access_log' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "access_log ... (TRUE). 'access_log off;' silences the audit trail (FALSE).",
+        "source": "nginx ngx_http_log_module"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether the access logs are shipped off-box to a separate/tamper-resistant system (SIEM, S3 bucket, nginx syslog: target) rather than kept only locally on the LB.",
+    "security_impact": "One of the OR-triggers for \"Silent chokepoint — disabled access logging / WAF fail-open\" — fires when logs_stored_on_separate_system is_false, since logs kept only locally can be wiped with the host or lost when the chokepoint is compromised (ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the nginx access_log target is an off-box destination (syslog:) rather than only a local file.",
+        "command": "grep -E '^\\s*access_log' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "access_log with a syslog: off-box target / shipping to a SIEM (TRUE). A local-file-only target is FALSE.",
+        "source": "nginx ngx_http_log_module"
+      },
+      {
+        "type": "command",
+        "instruction": "For an ALB, confirm logs land in a separate S3 bucket (and ideally are forwarded to a SIEM).",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='access_logs.s3.bucket'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A configured S3 bucket separate from the LB host (TRUE); empty / local-only is FALSE.",
+        "source": "AWS ALB load balancer attributes"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_active_blocking_on_public_web",
+    "option_description": "Whether a WAF fronting the public-facing LB listener is in active blocking mode (ModSecurity SecRuleEngine On / managed-rule Block action) rather than detection-only/count mode.",
+    "security_impact": "One of the OR-triggers for \"Silent chokepoint — disabled access logging / WAF fail-open\" — fires when waf_active_blocking_on_public_web is_false, since a detection-only WAF audits but never blocks, silently removing filtering at the edge (ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm ModSecurity is in blocking mode rather than DetectionOnly.",
+        "command": "grep -i 'SecRuleEngine' modsecurity.conf",
+        "file_path": "modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On (blocking, TRUE) — 'DetectionOnly' only audits and does not block (FALSE).",
+        "source": "OWASP ModSecurity Core Rule Set"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a benign attack probe through the public listener and confirm it is blocked, not merely logged.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' 'https://<lb-host>/?x=<script>alert(1)</script>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/406 (request blocked, TRUE). A 200 reaching the backend while the WAF only logs indicates detection-only or no enforcing WAF (FALSE).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_fails_open",
+    "option_description": "Whether the WAF-fronted LB fails open — forwarding requests unfiltered to targets when it cannot reach the WAF (AWS ALB waf.fail_open.enabled=true). Fail-open silently removes protection during a WAF outage.",
+    "security_impact": "One of the OR-triggers for \"Silent chokepoint — disabled access logging / WAF fail-open\" — fires when waf_fails_open is_true, since it leaves the edge unfiltered exactly when it matters (during a WAF outage; ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the ALB WAF fail-open attribute.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query \"Attributes[?Key=='waf.fail_open.enabled'].Value\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "false (FALSE/secure, fail closed) vs true (TRUE/insecure — forwards unfiltered if the WAF is unreachable).",
+        "source": "AWS ALB load balancer attributes"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For a self-managed WAF, confirm the failure behaviour is fail-closed when the engine is unreachable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that traffic is rejected when the WAF is down (FALSE/secure); unfiltered pass-through on WAF failure is TRUE/insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the LB software/firmware (nginx, HAProxy, or appliance build) is kept at/above the fixed release for all applicable vendor advisories within the patching SLA.",
+    "security_impact": "One of the OR-triggers for \"Unpatched LB software / firmware CVE\" — fires when edge_appliance_patched_within_sla is_false, since an EOL or pre-fix build on the internet-facing chokepoint is directly exploitable (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running version and compare it against the vendor advisory version-CVE map.",
+        "command": "nginx -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A version at/above the fix for all applicable advisories (e.g. CVE-2019-20372 fixed 1.17.7) — current/within SLA is TRUE; an EOL/pre-fix build is FALSE.",
+        "source": "nginx security advisories"
+      },
+      {
+        "type": "command",
+        "instruction": "For HAProxy, read the build version for the same advisory comparison.",
+        "command": "haproxy -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version line compared against the HAProxy advisory list — at/above the fix is TRUE; a pre-fix build is FALSE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the running LB build is affected by at least one known, unmitigated RCE or memory-corruption CVE in the vendor advisory (e.g. nginx resolver CVE-2021-23017, mp4 module CVE-2022-41741/41742) with no backport/virtual-patch in place.",
+    "security_impact": "One of the OR-triggers for \"Unpatched LB software / firmware CVE\" — fires when unpatched_known_rce_cve is_true, exposing the chokepoint to memory-corruption/protocol CVEs directly exploitable on the internet edge (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running version and match it against the vendor advisory RCE/memory-corruption CVE list.",
+        "command": "nginx -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version compared to the advisory list (CVE-2021-23017, CVE-2022-41741/41742): no exploitable CVE outstanding is FALSE/secure; an affected version with no backport is TRUE/insecure.",
+        "source": "nginx security advisories"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm whether any backport / virtual-patch (distro-backported fix, WAF virtual patch, disabled vulnerable module) mitigates an otherwise-affected version.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence a backport/virtual-patch neutralises the CVE (FALSE); an affected build with no mitigation is TRUE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "version_banner_disclosed",
+    "option_description": "Whether the LB leaks its software name/version in responses (nginx 'server_tokens on;' default, or an equivalent appliance banner), aiding attacker fingerprinting for version-specific CVE targeting.",
+    "security_impact": "One of the OR-triggers (a secondary trigger) for \"Unpatched LB software / firmware CVE\" — fires when version_banner_disclosed is_true, since version-banner disclosure enables targeted, version-specific CVE exploitation (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the nginx server_tokens directive — default is 'on', which leaks the version.",
+        "command": "grep -i 'server_tokens' nginx.conf",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "server_tokens off; (FALSE/secure) — default is 'on', which leaks the nginx version (TRUE).",
+        "source": "nginx ngx_http_core_module"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Inspect the live Server response header for a name/version banner.",
+        "command": "curl -sI https://<lb-host> | grep -i server",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server: nginx (no version, FALSE/suppressed). 'Server: nginx/1.x.y' or an appliance build string leaks the version (TRUE).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

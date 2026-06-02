@@ -1,0 +1,77 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes insecure",
+    "input": {
+      "ingress_default_deny_enforced": false,
+      "waf_active_blocking_on_public_web": false,
+      "remote_access_via_ztna_or_mfa_vpn": false,
+      "edge_appliance_patched_within_sla": false,
+      "edge_management_interfaces_not_internet_reachable": false,
+      "ddos_protection_in_place": false,
+      "egress_default_deny_enforced": false,
+      "dns_hardened": false,
+      "cloud_objects_not_anonymously_public": false,
+      "perimeter_crossings_logged_and_centralized": false
+    },
+    "expectedExposures": [
+      "Application-layer egress C2",
+      "External remote service compromise without MFA",
+      "Unpatched edge-appliance KEV chain",
+      "DNS hijack or subdomain takeover",
+      "Cloud-object anonymous exposure",
+      "Exploit of public-facing application",
+      "Network denial of service",
+      "Unmonitored perimeter crossings"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes secure - no fires",
+    "input": {
+      "ingress_default_deny_enforced": true,
+      "waf_active_blocking_on_public_web": true,
+      "remote_access_via_ztna_or_mfa_vpn": true,
+      "edge_appliance_patched_within_sla": true,
+      "edge_management_interfaces_not_internet_reachable": true,
+      "ddos_protection_in_place": true,
+      "egress_default_deny_enforced": true,
+      "dns_hardened": true,
+      "cloud_objects_not_anonymously_public": true,
+      "perimeter_crossings_logged_and_centralized": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment",
+    "input": {
+      "ingress_default_deny_enforced": true,
+      "waf_active_blocking_on_public_web": true,
+      "remote_access_via_ztna_or_mfa_vpn": true,
+      "edge_appliance_patched_within_sla": true,
+      "edge_management_interfaces_not_internet_reachable": true,
+      "ddos_protection_in_place": true,
+      "egress_default_deny_enforced": true,
+      "dns_hardened": true,
+      "cloud_objects_not_anonymously_public": true,
+      "perimeter_crossings_logged_and_centralized": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input - default handling",
+    "input": {},
+    "expectedExposures": [
+      "Application-layer egress C2",
+      "External remote service compromise without MFA",
+      "Unpatched edge-appliance KEV chain",
+      "DNS hijack or subdomain takeover",
+      "Cloud-object anonymous exposure",
+      "Exploit of public-facing application",
+      "Network denial of service",
+      "Unmonitored perimeter crossings"
+    ]
+  }
+]

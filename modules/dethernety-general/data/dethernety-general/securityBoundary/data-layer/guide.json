@@ -1,0 +1,601 @@
+[
+  {
+    "option_name": "data_store_publicly_routable",
+    "option_description": "Attestation that the data tier (DB instances, cache nodes, object stores) is NOT directly reachable from any untrusted/public network. Insecure when true.",
+    "security_impact": "Triggers exposure \"Direct public exposure of the data store\" (T1190) — one of its OR-conditions, firing when data_store_publicly_routable is true. Public reachability of a data-tier port lets an attacker target a service CVE without ever traversing the application-tier PEP.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a public/untrusted vantage point (not inside the VPC), port-scan the data-tier endpoints — relational DB port (5432/3306/1433), cache port (6379/11211), object-store port (9000), MongoDB (27017). Confirm every port filtered/closed.",
+        "command": "nmap -Pn -p 5432,3306,6379,27017,9000 <data-tier-host-or-VIP>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All data-tier ports show filtered/closed from public probe; no banner, no TCP handshake completion.",
+        "source": "NIST SP 800-41r1 Guidelines on Firewalls"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the cloud route tables and subnet associations for the data-tier subnet. Confirm no IGW / 0.0.0.0/0 default route and no public-IP assignment on any data-tier ENI/instance.",
+        "command": "aws ec2 describe-route-tables --filters Name=association.subnet-id,Values=<data-subnet>; aws rds describe-db-instances --query 'DBInstances[*].[DBInstanceIdentifier,PubliclyAccessible]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Route table contains only intra-VPC / NAT-egress entries (no IGW target); every RDS PubliclyAccessible flag is false.",
+        "source": "NIST SP 800-41r1 Guidelines on Firewalls"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review every security-group / NSG / firewall rule whose destination is a data-tier resource. Confirm no rule allows source 0.0.0.0/0 or ::/0 on a data port.",
+        "command": "aws ec2 describe-security-groups --group-ids <data-sg> --query 'SecurityGroups[*].IpPermissions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every ingress rule scopes source to an app-tier security-group ID or a private CIDR; no public CIDR appears.",
+        "source": "CIS Controls v8 Control 12 Network Infrastructure Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false
+    ]
+  },
+  {
+    "option_name": "data_tier_crossing_only_via_app_pep",
+    "option_description": "Attestation that every ingress path into the data tier transits the application-tier Policy Enforcement Point (API gateway, service-mesh sidecar, identity-aware proxy) — no alternate non-PEP path exists.",
+    "security_impact": "Triggers exposure \"Direct public exposure of the data store\" (T1190) — one of its OR-conditions, firing when data_tier_crossing_only_via_app_pep is false. An alternate path that skips the PEP voids per-request authn/authz on the crossing.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Reachability analysis: enumerate every principal (security-group, IAM role, peering, transit gateway, VPN, Direct Connect) that can reach the data-tier endpoints. Confirm each documented path lands at an app-tier PEP and that direct paths exist only for explicitly-approved break-glass.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Single approved ingress: data-tier security group accepts only from the app-tier service identity / mesh sidecar; break-glass channel is documented, PAM-gated, disabled-by-default.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an attacker-modelled foothold inside a non-app-tier workload (e.g., a CI runner, an unrelated service pod), attempt a TCP connect to the data-tier port. Repeat across each non-app-tier subnet/security-group.",
+        "command": "nc -zv <data-tier-host> 5432 ; nc -zv <data-tier-host> 6379",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All connections refused / filtered. Only sources inside the app-tier security group can complete a TCP handshake on a data port.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the service-mesh / API-gateway configuration (Istio AuthorizationPolicy, Envoy filter chain, AWS API Gateway resource policy) and confirm the only routes that reach a data-tier upstream are gated by an application-tier identity claim.",
+        "command": "kubectl get authorizationpolicy -A -o yaml | grep -A5 data-tier",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mesh policy explicitly requires the app-tier service-account principal on every route to a data-tier upstream; no allow-all or empty principal block.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Apps"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "per_workload_db_identity_used",
+    "option_description": "Attestation that each app workload authenticates to the data store with its own least-privilege service identity (IAM database auth, SPIFFE SVID, per-app DB role) — not a shared superuser credential.",
+    "security_impact": "Triggers exposure \"Anonymous/shared-credential crossing of the boundary\" (T1078) — one of its OR-conditions, firing when per_workload_db_identity_used is false. A single shared DB credential gives every leaked .env / image scan the blast radius of the entire data tier.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inventory the credentials each app workload uses to reach the data tier (IaC, Helm values, Kubernetes secrets, secret-manager mappings). Confirm each app maps to its own DB role / IAM identity / SVID — not a shared 'postgres' / 'sa' / 'root'.",
+        "command": "kubectl get secret -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{\"\\n\"}{end}' | grep -i db",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One role per app (app_orders, app_billing, ...) with distinct credentials and rotation/lease policy; no shared admin/root reused across services.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Apps"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample the data-tier auth log over a 24-hour window and group connections by authenticated principal. Confirm distinct principals per app rather than a single high-volume shared account.",
+        "command": "psql -c \"SELECT usename, count(*) FROM pg_stat_activity GROUP BY usename;\" ; aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=connect",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auth log shows N distinct app-role principals (one per app), absence of a single high-volume shared admin/root principal handling normal traffic.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "data_tier_credentials_short_lived",
+    "option_description": "Attestation that credentials crossing the data-tier boundary are short-lived / dynamically issued (Vault leases, IAM session tokens, X.509 SVIDs) — not long-lived static passwords pinned in config files.",
+    "security_impact": "Triggers exposure \"Anonymous/shared-credential crossing of the boundary\" (T1078) — one of its OR-conditions, firing when data_tier_credentials_short_lived is false. Long-lived pinned credentials survive image leaks, IaC commits, and engineer offboarding indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the secret-issuance configuration (Vault DB secrets engine, AWS Secrets Manager rotation, IAM RDS auth, SPIRE workload registration) and read each app's credential TTL / lease duration.",
+        "command": "vault read database/roles/app_orders ; aws secretsmanager describe-secret --secret-id <name> --query 'RotationRules'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each app role has a documented short TTL (typically <=24h for Vault leases, <=15min for IAM RDS auth tokens); rotation enabled with a defined interval.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Pick three application services at random and ask the operator to demonstrate where the DB password lives at runtime. Confirm it is fetched at startup (or per-connection) from a broker — not baked into a config file or environment variable that has lived for months.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Operator demonstrates a Vault/SecretsManager/IRSA fetch with a documented TTL; no long-lived static password exists in the deployment manifest.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "If using AWS IAM database authentication, confirm the engine has IAM auth enabled and that app workloads call GenerateDBAuthToken rather than supplying a pinned password.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[*].[DBInstanceIdentifier,IAMDatabaseAuthenticationEnabled]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IAMDatabaseAuthenticationEnabled is true for every in-scope instance; app code paths use GenerateDBAuthToken / RDS IAM SDK calls.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_db_account",
+    "option_description": "Attestation that the app-tier role's grants on the data store are scoped to per-query need — no ALL PRIVILEGES, no s3:*, no Redis ACL +@all ~*, no superuser/db_owner/consoleAdmin.",
+    "security_impact": "Triggers exposure \"Broken authorization at the crossing - over-privileged grants enabling bulk harvesting\" (T1213) — one of its OR-conditions, firing when least_privilege_db_account is false. Wildcard grants turn a successful SQLi or credential leak into a tenancy-wide scrape.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate the per-app role's grants on each data engine and confirm they list specific schemas/tables/buckets/key-patterns with the minimum verbs — never SUPERUSER, ALL PRIVILEGES, consoleAdmin, or +@all ~*.",
+        "command": "psql -c \"\\du\" -c \"SELECT * FROM information_schema.role_table_grants WHERE grantee='app_orders';\" ; mysql -e \"SHOW GRANTS FOR 'app'@'%';\" ; mc admin policy info ALIAS app-policy ; redis-cli ACL GETUSER app",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grants enumerate explicit schemas/tables/buckets/key-patterns and verbs (SELECT/INSERT/UPDATE on named objects); absence of SUPERUSER/ALL PRIVILEGES/consoleAdmin/+@all ~*.",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      },
+      {
+        "type": "command",
+        "instruction": "For S3/MinIO buckets backing the data tier, evaluate the bucket policy and IAM role policy together — confirm no Action: \"s3:*\" combined with Resource: \"arn:aws:s3:::*\".",
+        "command": "aws iam get-role-policy --role-name <app-role> --policy-name <inline> ; aws s3api get-bucket-policy --bucket <data-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy enumerates explicit object actions (s3:GetObject, s3:PutObject) on named bucket-and-prefix resources; no wildcard action or resource.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "bulk_read_volume_anomaly_alerted",
+    "option_description": "Attestation that volume/rate anomalies (rows-read-per-minute, full-table-scan bursts, large result-set transfers, mass S3 GetObject) emit alerts consistent with T1213 bulk-harvest detection.",
+    "security_impact": "Triggers exposure \"Broken authorization at the crossing - over-privileged grants enabling bulk harvesting\" (T1213) — one of its OR-conditions, firing when bulk_read_volume_anomaly_alerted is false. Without volume monitoring, an authorised identity scraping the entire dataset looks identical to normal traffic.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SIEM / monitoring rules for the data tier. Confirm explicit detections exist for: rows-read-per-minute per principal, full-table-scan bursts, large result-set transfers, S3 GetObject volume spikes per identity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM contains named correlation rules (e.g., 'bulk-read-T1213', 's3-mass-get') with explicit thresholds, owners, and on-call routing.",
+        "source": "MITRE ATT&CK T1213 Data from Information Repositories"
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS data tiers, confirm CloudWatch metric filters or GuardDuty findings cover S3 mass-download and RDS Performance Insights anomalies; confirm alarms route to an on-call destination.",
+        "command": "aws cloudwatch describe-alarms --query 'MetricAlarms[?contains(AlarmName,`bulk`) || contains(AlarmName,`exfil`)]' ; aws guardduty list-findings --finding-criteria '{\"Criterion\":{\"type\":{\"Eq\":[\"Exfiltration:S3/AnomalousBehavior\"]}}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named alarms exist with InsufficientDataActions/OKActions/AlarmActions routing to SNS pager; GuardDuty has S3 protection enabled.",
+        "source": "MITRE ATT&CK T1213 Data from Information Repositories"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the SOC operator to walk through the last bulk-read alert: time-to-page, principal, response action. Tabletop a synthetic full-table scan and confirm it triggers a page within the documented SLO.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SOC produces an incident ticket from a real bulk-read alert OR a tabletop run that fired within the SLO; clear ownership recorded.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "privileged_access_via_pam_with_session_recording",
+    "option_description": "Attestation that DBA / break-glass access transits a recorded PAM / jump host (Teleport, BeyondTrust, AWS Session Manager) with MFA, time-boxed approval, and session recording. Direct DBA credentials are not held on workstations.",
+    "security_impact": "Triggers exposure \"Boundary bypass via trusted DBA / management-path channel\" (T1199, T1599) — one of its OR-conditions, firing when privileged_access_via_pam_with_session_recording is false. A phished DBA workstation walks straight into the data tier on a path that bypasses every app-tier control.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Pull a sample of the last 10 DBA interventions from the ticketing system. Confirm each launched via the PAM portal with MFA, has a recorded session artefact, and originated from the PAM jump host's IP in the data-tier auth log — not a workstation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "100% of DBA activity transits PAM with a recording artefact and MFA assertion; no successful data-tier login from a non-PAM source for any DBA role.",
+        "source": "CIS Controls v8 Control 12 Network Infrastructure Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Grep the data-tier auth log for any DBA-role login whose source IP is not the PAM jump host's CIDR. Any hit is a finding.",
+        "command": "grep -E 'usename=(dba|admin|postgres|root)' /var/log/postgresql/postgresql-*.log | awk '{print $N}' # filter source IP not in PAM CIDR",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero hits — every DBA-role login arrives from the PAM jump host CIDR range.",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PAM platform's role configuration for the DBA path: confirm MFA-required, time-boxed approval workflow, mandatory session recording, and that the approval requires a second human.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DBA role on PAM platform has MFA enforced, recording=on, approval workflow with two-person rule, max session TTL <= 8h.",
+        "source": "MITRE ATT&CK T1021 Remote Services"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mgmt_paths_subject_to_same_pep_controls",
+    "option_description": "Attestation that every management-plane path (mgmt VLAN, DBaaS support tunnel, monitoring agent, replication link, backup agent) enforces the same authn/authz/inspection as the primary app-tier crossing.",
+    "security_impact": "Triggers exposure \"Boundary bypass via trusted DBA / management-path channel\" (T1199, T1599) — one of its OR-conditions, firing when mgmt_paths_subject_to_same_pep_controls is false. A replication or monitoring channel that bridges the boundary without per-request authn becomes the attacker's preferred path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "List every non-application path that reaches the data tier: monitoring agents (Datadog, Prometheus exporters), backup agents, replication links (cross-region, cross-account), DBaaS vendor support tunnels, management VLANs. For each, document the authn/authz, encryption, and audit posture.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every management path documented with explicit authn (per-agent identity, scoped IAM role) and audit destination; no path documented as 'trusted by network position'.",
+        "source": "MITRE ATT&CK T1599 Network Boundary Bridging"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a compromised-monitoring-agent perspective (simulate the agent's identity/network position), attempt to read or write outside the agent's narrow scope. Confirm the data tier refuses.",
+        "command": "psql -h <data-host> -U datadog -c 'SELECT * FROM customer;' # should fail with insufficient privilege",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Agent identity is scoped — read attempts outside its narrow grant (e.g., pg_stat_*) are rejected; cannot read business tables.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect replication-link configuration (e.g., AWS RDS read-replica IAM, MongoDB replica-set keyFile, MinIO site replication) and confirm the replication principal is scoped to replication verbs and audit-logged identically to app traffic.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[*].ReadReplicaSourceDBInstanceIdentifier' ; mongod --config /etc/mongod.conf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Replication principal is a dedicated, narrowly-scoped identity; replication channel TLS-encrypted; replication events appear in the same audit stream as app traffic.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "data_tier_ingress_scoped_per_workload_identity",
+    "option_description": "Attestation that data-tier ingress rules scope source to a per-app workload identity (per-service security-group, SPIFFE SVID, per-app IAM DB role) — no flat 'app-tier -> all-databases' allow rule.",
+    "security_impact": "Triggers exposure \"Lateral movement from a compromised peer workload\" (T1021) — its sole OR-condition, firing when data_tier_ingress_scoped_per_workload_identity is false. A flat allow rule lets RCE in one app pivot east-west into a peer's database.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From inside workload A's pod/instance, attempt a TCP connect to workload B's data-store endpoint. Repeat across the service matrix (A->B, A->C, B->C, ...).",
+        "command": "kubectl exec -it <pod-A> -- nc -zv <db-B-endpoint> 5432",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cross-service connections are refused / filtered; only A->A-store and B->B-store paths open the TCP socket.",
+        "source": "MITRE ATT&CK T1021 Remote Services"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Kubernetes NetworkPolicy / cloud security-group rules expressed in IaC. Confirm each data-store SG accepts only from the matching app's SG/service-account, not from a shared 'app-tier' SG.",
+        "command": "kubectl get networkpolicy -A -o yaml ; aws ec2 describe-security-groups --group-ids <db-sg> --query 'SecurityGroups[*].IpPermissions[*].UserIdGroupPairs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each data-store SG ingress lists only the matching app's SG ID (e.g., db-orders accepts from sg-app-orders only); no shared sg-app-tier appears.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Walk the IaC repository (Terraform/Pulumi/CloudFormation) for the data-tier networking module. Confirm the source-of-truth defines per-service ingress, not just runtime-observed behaviour.",
+        "command": "grep -r 'security_group' <iac-repo>/data-tier/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC declares per-service ingress with explicit source SG/role identifiers; no module-level for_each loop that produces a flat allow.",
+        "source": "OWASP Network Segmentation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "data_tier_transit_encrypted",
+    "option_description": "Attestation that app-to-data-store traffic crossing into the data tier is TLS-encrypted with a modern profile (TLS 1.2+, preferably 1.3); cleartext listeners are disabled.",
+    "security_impact": "Triggers exposure \"Cleartext intra-VPC capture\" (T1040) — its sole OR-condition, firing when data_tier_transit_encrypted is false. An attacker on any host with a path to the data-tier subnet sniffs credentials and queries from a private network that was assumed safe.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For each data engine, query the TLS configuration and confirm TLS is required (cleartext listeners disabled). PostgreSQL: SHOW ssl + pg_hba.conf hostssl. MySQL: require_secure_transport=ON. MongoDB: net.tls.mode=requireTLS. Redis: tls-port set + port=0. MinIO: --certs-dir populated.",
+        "command": "psql -c 'SHOW ssl;' ; mysql -e \"SHOW VARIABLES LIKE 'require_secure_transport';\" ; redis-cli CONFIG GET tls-port ; redis-cli CONFIG GET port",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ssl=on / require_secure_transport=ON / requireTLS / tls-port set and port=0. No engine has an open cleartext listener.",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run an OpenSSL handshake against each data-tier endpoint and capture the negotiated protocol and cipher.",
+        "command": "openssl s_client -connect <data-host>:5432 -starttls postgres ; openssl s_client -connect <data-host>:6380",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake negotiates TLS 1.2 or 1.3 with a modern cipher (e.g., TLS_AES_256_GCM_SHA384, ECDHE-RSA-AES256-GCM-SHA384). No SSLv3/TLS 1.0/1.1; no NULL or EXPORT ciphers.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For AWS RDS, confirm Force-SSL parameter group setting (rds.force_ssl=1 for Postgres, require_secure_transport=ON for MySQL) is attached and applied.",
+        "command": "aws rds describe-db-parameters --db-parameter-group-name <pg> --query 'Parameters[?ParameterName==`rds.force_ssl`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rds.force_ssl=1 (or require_secure_transport=ON) is present, ApplyStatus=in-sync, attached to every in-scope instance.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_destinations_in_approved_region_and_account",
+    "option_description": "Attestation that backups/snapshots are only written/copied/shared to pre-approved destinations within the boundary's trust scope — no public bucket, no untrusted cross-account share, no unrestricted region copy.",
+    "security_impact": "Triggers exposure \"Backup / snapshot exfiltration outside the boundary\" (T1552) — one of its OR-conditions, firing when backup_destinations_in_approved_region_and_account is false. A snapshot shared cross-account is silent data egress invisible to runtime controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate every snapshot and check for cross-account share permissions. Any non-self CreateVolumePermission or non-null AttributeValues principal is a finding.",
+        "command": "aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[?CreateVolumePermissions!=null]' ; aws rds describe-db-snapshots --query 'DBSnapshots[?AttributeValues!=null]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty array — no snapshot is shared with a non-trusted AWS account; no 'all' (public) principal anywhere.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the backup bucket's policy and ACL. Confirm no Principal:* and no public ACL grant; confirm bucket is in an approved region.",
+        "command": "aws s3api get-bucket-policy --bucket <backup-bucket> ; aws s3api get-bucket-acl --bucket <backup-bucket> ; aws s3api get-bucket-location --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bucket policy contains no Principal:* statement; ACL lists only the bucket owner; LocationConstraint matches the approved-region allowlist.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the AWS Backup vault access policy and confirm restore/copy/delete actions are scoped to the approved restore role and the destination region list is bounded.",
+        "command": "aws backup get-backup-vault-access-policy --backup-vault-name <vault> ; aws backup list-backup-vaults",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vault policy restricts backup:CopyIntoBackupVault and backup:StartRestoreJob to a dedicated restore-role ARN; destination regions enumerated, not wildcard.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      },
+      {
+        "type": "command",
+        "instruction": "For MinIO/S3-compatible object stores, confirm no anonymous read on the backup bucket.",
+        "command": "mc anonymous get ALIAS/backup-bucket",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output reads 'private' (or 'none') — no anonymous policy is attached to the backup bucket.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_egress_audited_separately",
+    "option_description": "Attestation that the backup/snapshot channel emits its own audit trail (snapshot share events, backup-vault policy changes, cross-region copies) to a tamper-resistant store outside data-tier admin scope.",
+    "security_impact": "Triggers exposure \"Backup / snapshot exfiltration outside the boundary\" (T1552) — one of its OR-conditions, firing when backup_egress_audited_separately is false. Without backup-channel audit, exfiltration via snapshot share is invisible to the primary data-tier monitoring.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm CloudTrail (or equivalent) is enabled, multi-region, and logging ModifySnapshotAttribute, ModifyDBSnapshotAttribute, CopySnapshot, and PutBackupVaultAccessPolicy events to a centralised log account.",
+        "command": "aws cloudtrail describe-trails --query 'trailList[*].[Name,IsMultiRegionTrail,S3BucketName]' ; aws cloudtrail get-event-selectors --trail-name <trail>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trail is multi-region with IsLogging=true; event selectors capture management events including snapshot-attribute and backup-vault changes; destination S3 bucket lives in a centralised log account.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "api",
+        "instruction": "Verify the centralised-log account S3 bucket policy denies write/delete from the data-tier account, and that object-lock or MFA-delete is enabled.",
+        "command": "aws s3api get-bucket-policy --bucket <log-bucket> ; aws s3api get-object-lock-configuration --bucket <log-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bucket policy denies s3:DeleteObject and s3:PutObject from the data-tier account; ObjectLockEnabled=Enabled with COMPLIANCE or GOVERNANCE retention.",
+        "source": "NIST SP 800-53 Rev 5 AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Walk the SIEM rule set for backup-channel events. Confirm explicit detections for: snapshot shared cross-account, backup-vault policy change, cross-region copy, deletion of backup recovery point.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM has named correlation rules for each backup-channel event class; ownership and on-call route documented.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "kms_admin_separated_from_db_admin",
+    "option_description": "Attestation that principals authorised for KMS key-admin actions (ScheduleKeyDeletion, DisableKey, PutKeyPolicy, key export) are disjoint from principals operating the data store.",
+    "security_impact": "Triggers exposure \"KMS / key-administrator compromise (no separation of duties)\" (T1552, T1485, T1078) — one of its OR-conditions, firing when kms_admin_separated_from_db_admin is false. A single identity that operates the DB and administers its KEK turns encryption-at-rest into decryption-at-will or a destructive ransom event.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the KMS key policy for every CMK wrapping data-tier storage. Enumerate the principals authorised for destructive actions (kms:ScheduleKeyDeletion, kms:DisableKey, kms:PutKeyPolicy, kms:Encrypt for re-wrap) and confirm they are disjoint from the DBA / data-tier operator role.",
+        "command": "aws kms get-key-policy --key-id <CMK> --policy-name default",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Statements granting key-admin actions list a separate key-admin role/group; statements granting kms:Decrypt to the data-tier role do NOT also grant kms:ScheduleKeyDeletion / DisableKey / PutKeyPolicy.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      },
+      {
+        "type": "api",
+        "instruction": "For each DBA / data-tier IAM role, evaluate effective KMS permissions across all attached and inline policies. Confirm no allow on destructive KMS actions.",
+        "command": "aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::<acct>:role/<dba-role> --action-names kms:ScheduleKeyDeletion kms:DisableKey kms:PutKeyPolicy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EvalDecision=implicitDeny (or explicitDeny) for every destructive KMS action against the data-tier CMK; only kms:Decrypt / kms:GenerateDataKey are allowed.",
+        "source": "OWASP Key Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Walk the org chart against IAM group membership. Confirm key-admins (security/cryptography team) and data-admins (platform/DBA team) are distinct humans, not just distinct roles assumed by the same person.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key-admin group and data-admin group have disjoint membership; documented separation-of-duties policy is signed off.",
+        "source": "OWASP Key Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "kms_key_protection_policy_enforced",
+    "option_description": "Attestation that the wrapping KMS/HSM key has automated rotation enabled per documented cryptoperiod AND multi-party approval / pause window for destructive lifecycle actions (scheduled deletion, disable, export).",
+    "security_impact": "Triggers exposure \"KMS / key-administrator compromise (no separation of duties)\" (T1552, T1485, T1078) — one of its OR-conditions, firing when kms_key_protection_policy_enforced is false. Without rotation + pause-window, a compromised key-admin schedules deletion and renders all data wrapped by the key permanently unrecoverable.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query KMS key rotation status and confirm automatic rotation is enabled on every CMK wrapping data-tier storage.",
+        "command": "aws kms get-key-rotation-status --key-id <CMK>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyRotationEnabled=true for every in-scope CMK; rotation cadence (annual default) documented.",
+        "source": "OWASP Key Management Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the key's pending-window for ScheduleKeyDeletion is set to the maximum (30 days) so a compromised key-admin's deletion call can be reversed within the multi-party-approval window. Also confirm a CloudWatch alarm/EventBridge rule fires on kms:ScheduleKeyDeletion to a separate on-call.",
+        "command": "aws kms describe-key --key-id <CMK> --query 'KeyMetadata.[PendingWindowInDays,DeletionDate]' ; aws events list-rules --query 'Rules[?contains(Name,`kms-delete`)]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PendingWindowInDays=30 (or maximum allowed); EventBridge rule exists routing kms:ScheduleKeyDeletion / kms:DisableKey / kms:PutKeyPolicy events to an out-of-band pager.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the key-policy and any SCP for a require-MFA condition (aws:MultiFactorAuthPresent) on destructive actions, and confirm the runbook documents multi-party approval for key disable/delete/export.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key policy / SCP carries Condition:{Bool:{aws:MultiFactorAuthPresent:true}} on destructive actions; runbook requires two named approvers; cryptoperiod and rotation interval explicitly stated.",
+        "source": "OWASP Key Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "data_tier_crossings_audit_logged_to_tamper_resistant_store",
+    "option_description": "Attestation that every data-tier crossing (successful connection, failed auth, DDL, DML at sensitivity threshold) is logged and ships to a tamper-resistant store outside DBA administrative scope.",
+    "security_impact": "Triggers exposure \"Unmonitored crossings - audit gap at the boundary\" (T1562, T1070) — one of its OR-conditions, firing when data_tier_crossings_audit_logged_to_tamper_resistant_store is false. Logs kept inside DBA scope can be wiped by an attacker who reaches that scope.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For each data engine, confirm connection + DDL/DML logging is enabled. PostgreSQL: log_connections / log_disconnections / log_statement / pgaudit config. MySQL: general_log + audit_log plugin. MongoDB: auditLog in db.getCmdLineOpts(). AWS RDS: EnabledCloudwatchLogsExports.",
+        "command": "psql -c \"SHOW log_connections;\" -c \"SHOW log_disconnections;\" -c \"SHOW log_statement;\" ; mongosh --eval 'db.getCmdLineOpts().parsed.auditLog' ; aws rds describe-db-instances --query 'DBInstances[*].EnabledCloudwatchLogsExports'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "log_connections=on, log_disconnections=on, log_statement=ddl (at minimum); pgaudit.log includes 'role,ddl,write'; RDS exports ['postgresql','upgrade'] or equivalent to CloudWatch.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the log destination is a centralised log account / SIEM outside the DBA's IAM scope. Confirm the destination bucket has object-lock or equivalent write-once protection.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-bucket> ; aws s3api get-bucket-policy --bucket <log-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Destination bucket lives in a log-archive account; ObjectLockEnabled=Enabled; bucket policy denies Put/Delete from the data-tier account.",
+        "source": "NIST SP 800-53 Rev 5 AU-9 Protection of Audit Information"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify with the DBA team that they cannot delete or alter shipped logs — they can read for diagnostics but cannot purge. Attempt a delete from a DBA principal as a falsification test.",
+        "command": "aws s3api delete-object --bucket <log-bucket> --key <test-key> # invoked under DBA principal",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AccessDenied — the DBA principal cannot delete from the log archive. Confirms tamper-resistance.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "failed_auth_and_admin_events_alerted",
+    "option_description": "Attestation that failed authentication attempts and privileged / admin events (role/grant changes, DDL, bulk-read anomalies) generate alerts on a defined path (SIEM, pager).",
+    "security_impact": "Triggers exposure \"Unmonitored crossings - audit gap at the boundary\" (T1562, T1070) — one of its OR-conditions, firing when failed_auth_and_admin_events_alerted is false. Logging without alerting means brute-force, privilege escalation, and DDL go unnoticed in real time.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SIEM detection rule set for the data tier. Confirm named rules for: failed-auth-burst-per-principal, GRANT/REVOKE/CREATE USER, DDL on production schemas, role membership change.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM produces a list of named correlation rules covering each event class above, with thresholds and on-call routing configured.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS-managed databases, confirm CloudWatch metric filters / alarms exist for FailedSQLServerAuthentications (or equivalent log-derived metric) and for IAM auth failures, routing to an SNS pager.",
+        "command": "aws logs describe-metric-filters --log-group-name /aws/rds/instance/<id>/postgresql ; aws cloudwatch describe-alarms --query 'MetricAlarms[?contains(AlarmName,`auth`) || contains(AlarmName,`failed`)]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Metric filters extract 'authentication failed' patterns; alarms fire on threshold breach with AlarmActions pointing at the on-call SNS topic.",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Tabletop: generate 20 failed-auth attempts against the data tier from a test workload. Confirm a page reaches the on-call within the documented SLO.",
+        "command": "for i in {1..20}; do PGPASSWORD=wrong psql -h <data-host> -U app_orders -c 'SELECT 1'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "On-call receives a page within the documented detection SLO (typically <=5 min); the alert names the principal and source IP.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

@@ -1,0 +1,314 @@
+[
+  {
+    "option_name": "segment_boundary_enforced",
+    "option_description": "Attests that the segment's edge has a default-deny Policy Enforcement Point — stateful firewall, AWS NACL+SG, Azure NSG, K8s NetworkPolicy, or service-mesh authz — that actively drops cross-segment traffic not on an explicit allow-list. Paper-only / routing-only segmentation does NOT satisfy.",
+    "security_impact": "Triggers exposure \"Drawn-but-not-enforced segmentation\" — its sole OR-condition — firing when segment_boundary_enforced is false (mapped to ATT&CK T1021 Lateral Movement). A false attestation means diagrams show zones but the wire does not enforce them, so any compromised host fans out unimpeded.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Walk the segment's edges with the network architect: for every adjacency, identify the concrete PEP (SG, NACL, NSG, firewall rule-set, NetworkPolicy CRD, mesh AuthorizationPolicy) and confirm its terminal/default action is DENY.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented enforcement point at every segment edge with a default-deny terminator; allow rules are explicit and bounded. A missing PEP or default-allow ruleset is insecure.",
+        "source": "NIST SP 800-41r1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a host inside the segment under test, scan a host in a peer segment to confirm only allow-listed ports respond and everything else is filtered.",
+        "command": "nmap -Pn -sS -p- <target-in-peer-segment>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only the explicitly-allowed destination ports respond; everything else times out (filtered). Open ports beyond the documented allow-list indicate the boundary is not enforced.",
+        "source": "PCI-DSS Guidance for Scoping and Network Segmentation"
+      },
+      {
+        "type": "api",
+        "instruction": "On AWS, enumerate the security-group rules and NACL entries guarding the segment's subnets and verify a default-deny posture with explicit allows.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[].IpPermissions' && aws ec2 describe-network-acls --filters Name=vpc-id,Values=<vpc-id> --query 'NetworkAcls[].Entries'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IpPermissions show narrowly-scoped allow rules; NACL entries terminate in a deny (rule 32767 *) with explicit numbered allows above. A 0.0.0.0/0 :: -1 allow anywhere fails the attestation.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "vlan_hopping_prevention",
+    "option_description": "Attests that, where the segment rides on Ethernet/VLAN infrastructure, L2 attacks (DTP-driven trunk negotiation, double-tagging on the native VLAN, switch-spoofing) are blocked: access ports are statically configured 'access' with DTP off, the native VLAN is an unused tag carrying no user traffic, and BPDU Guard / Root Guard / port-security are on. N/A on pure cloud-VPC realisations.",
+    "security_impact": "Triggers exposure \"VLAN hopping / L2 trust bypass\" — its sole OR-condition — firing when vlan_hopping_prevention is false (mapped to ATT&CK T1199 Trusted Relationship, attack vector ADJACENT). A false attestation lets an adversary on any access port escape the segment at L2 without ever crossing the L3 PEP.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On each access-layer switch, dump the running-config for every access port and check the L2 hardening primitives are in place.",
+        "command": "show running-config interface <iface>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each access port shows 'switchport mode access', 'switchport nonegotiate', 'spanning-tree bpduguard enable', and the trunk native VLAN is set to an unused, no-user-traffic VLAN. Ports left in dynamic/auto DTP mode, or carrying user traffic on the default native VLAN 1, fail this attestation.",
+        "source": "Cisco / CCNA L2 security guidance (VLAN hopping prevention)"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate trunk-port state across the switch fabric to confirm no access port has silently negotiated trunk mode.",
+        "command": "show interfaces trunk",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trunk list matches the documented uplink set only; no end-user access port appears as a trunk. Native VLAN column lists the unused, no-user-traffic VLAN ID on every trunk.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "If the segment is realised purely on a cloud-VPC / service mesh with no L2 trunking exposed to tenant workloads, mark this attestation N/A and record the rationale in the segment inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented architecture statement that the segment has no VLAN-trunked access ports under tenant control; attestation is not-applicable. A hybrid deployment with any on-prem L2 must still be evaluated above.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "east_west_within_segment_restricted",
+    "option_description": "Attests that inside the segment, workloads cannot freely talk to every peer — microsegmentation (host firewalls, NetworkPolicy default-deny intra-namespace, SG with no intra-SG allow, mesh authz) constrains east-west reach so one compromised pod/host cannot trivially fan out across the tier.",
+    "security_impact": "Triggers exposure \"Lateral movement on a flat tier\" — its sole OR-condition — firing when east_west_within_segment_restricted is false (mapped to ATT&CK T1021, attack vector ADJACENT). A flat tier means a single foothold reaches every peer on SMB/SSH/RDP/Redis/DB without further effort.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate Kubernetes NetworkPolicies across namespaces hosting segment workloads and confirm a default-deny baseline plus targeted allow policies.",
+        "command": "kubectl get networkpolicies -A -o yaml | grep -E 'podSelector|policyTypes|ingress|egress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Namespaces hosting segment workloads carry at least one default-deny NetworkPolicy (empty podSelector + policyTypes [Ingress,Egress] with no allow rules) plus targeted allow policies; namespaces with zero NetworkPolicy objects are flat and insecure.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify per-workload firewall / NetworkPolicy default-deny is in place and run a positive test that two peer workloads in the segment with no business reason to communicate cannot reach each other.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-workload firewall / NetworkPolicy default-deny is in place and a positive test shows that two peer workloads in the segment with no business reason to communicate cannot reach each other; a flat L2/L3 segment where every host can reach every other host fails this attestation.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From one workload inside the segment, attempt to reach a peer workload on a sensitive port that should not be permitted (e.g. 6379/Redis, 3306/MySQL, 22/SSH).",
+        "command": "nc -vz <peer-workload-ip> 22 6379 3306",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused / timeout on all probed ports between two workloads with no documented allow rule. A successful connection to a peer on an undocumented port indicates an unconstrained flat tier.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "inter_segment_traffic_filtered_by_identity",
+    "option_description": "Attests that inter-segment allow rules are scoped by workload identity — SG-to-SG references, K8s podSelector, Istio AuthorizationPolicy principals, SPIFFE IDs, mTLS-authenticated peers — rather than CIDR alone. CIDR-only ACLs implicitly trust any host that lands in the source range.",
+    "security_impact": "Triggers exposure \"Trusted-relationship abuse via CIDR-only allow rules\" — its sole OR-condition — firing when inter_segment_traffic_filtered_by_identity is false (mapped to ATT&CK T1199 Trusted Relationship). A false attestation lets an attacker who lands anywhere in a 'trusted' source CIDR inherit access to the destination segment without proving identity.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the inter-segment ruleset and confirm allow rules reference workload identifiers (SG-id source, K8s podSelector, Istio principals, SPIFFE IDs) and that the PEP authenticates that identity before authorising the crossing.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inter-segment rules reference workload identifiers (e.g. AWS SG-id source, K8s NetworkPolicy podSelector, Istio AuthorizationPolicy principals, SPIFFE IDs) and the PEP authenticates that identity before authorizing the crossing. Rule-sets keyed solely on broad CIDR blocks fail this attestation.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For cloud-native segments, verify that workload-identity infrastructure (SPIFFE/SPIRE, cloud workload identity, sidecar mTLS) is provisioned and that identity is verified at the boundary in addition to network parameters.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For cloud-native segments, sidecar/API-gateway/workload-identity infrastructure (SPIFFE/SPIRE, cloud workload-identity) is in place and verifiable; service identity is presented and verified at the boundary in addition to network parameters.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications"
+      },
+      {
+        "type": "api",
+        "instruction": "On AWS, sample security-group inter-segment allow rules and verify the source is a SG-id (UserIdGroupPairs) rather than a CIDR (IpRanges).",
+        "command": "aws ec2 describe-security-groups --group-ids <dst-sg-id> --query 'SecurityGroups[].IpPermissions[].{From:FromPort,To:ToPort,Cidrs:IpRanges,SrcSGs:UserIdGroupPairs}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inter-segment allow rules populate SrcSGs (SG-to-SG reference) and leave Cidrs empty (or limited to narrow management ranges). Allow rules keyed on broad IpRanges (e.g. 10.0.0.0/8) with no SG source fail the attestation.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "inter_segment_crossings_logged",
+    "option_description": "Attests that every accepted or denied crossing of the segment boundary is captured in flow logs / mesh access logs with adequate retention and tamper-resistance, so lateral-movement attempts and exfiltration remain observable and investigable.",
+    "security_impact": "Triggers exposure \"Unmonitored east-west and flow-log tampering\" — its sole OR-condition — firing when inter_segment_crossings_logged is false (mapped to ATT&CK T1562 Impair Defenses and T1070 Indicator Removal). A false attestation means lateral movement proceeds undetected because flow logs are off, under-retained, or never reviewed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check that AWS VPC Flow Logs are enabled and active for the VPC hosting the segment, logging both ACCEPT and REJECT to a retained destination.",
+        "command": "aws ec2 describe-flow-logs --filter Name=resource-id,Values=<vpc-id> --query 'FlowLogs[].{Id:FlowLogId,Status:FlowLogStatus,Traffic:TrafficType,Dest:LogDestination}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns at least one FlowLog entry with FlowLogStatus=ACTIVE and TrafficType=ALL (or both ACCEPT and REJECT logs) writing to a retained destination (CloudWatch Logs / S3). An empty array means VPC Flow Logs are not enabled for this VPC and the boundary is unobservable.",
+        "source": "AWS VPC Flow Logs — Work with flow logs"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM / log destination, locate a recent denied cross-segment 5-tuple end-to-end and confirm the retention window meets the declared policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow-log / mesh-access-log destination retains records of cross-segment 5-tuples (and identity, where available) for the declared retention window; a recent denied cross-segment attempt is locatable in the logs end-to-end. Logs covering only intra-segment traffic, or with retention <30 days, indicate a logging gap.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the flow-log destination has tamper-resistance controls (object-lock / log-archive account / write-only IAM) so an adversary with workload-level privilege cannot delete or alter records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log destination uses S3 Object Lock (compliance mode) or equivalent immutable storage, log writers have append-only IAM, and the destination lives in a separate account/subscription from the workloads. An IAM principal in the workload account that can DeleteLogStream / DeleteObject on the flow-log destination fails this attestation.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "segmentation_drift_detected",
+    "option_description": "Attests that the segment's enforcement rules (firewall ACLs, SGs, NetworkPolicies, NACLs) are managed as version-controlled IaC and continuously verified against that baseline; out-of-band console edits are detected, alerted, and reconciled.",
+    "security_impact": "Triggers exposure \"Segmentation drift via out-of-band changes\" — its sole OR-condition — firing when segmentation_drift_detected is false (mapped to ATT&CK T1599 Network Boundary Bridging). A false attestation lets emergency-change console edits accumulate cross-segment paths absent from the IaC baseline.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the IaC repo holding segment rules and the drift-detection job: confirm versioning, the schedule of the drift check, and that diffs raise alerts and are reconciled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Segmentation rules live in a versioned IaC repo (Terraform/Pulumi/K8s manifests); a drift-detection job (terraform plan, AWS Config rules, Argo CD sync-status, Checkov/tfsec policy gates) runs on a cadence and produces alerts on diff; rules edited only via the IaC pipeline. Manual console edits without baseline reconciliation fail this attestation.",
+        "source": "OWASP Infrastructure as Code Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Walk the SecCM evidence: documented baseline, change-control workflow, change monitoring, recoverability to known-good config.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration-management process per NIST SP 800-128 SecCM is in evidence: documented baseline, change-control workflow, monitoring for changes, recoverability to known-good config.",
+        "source": "NIST SP 800-128 Guide for Security-Focused Configuration Management"
+      },
+      {
+        "type": "command",
+        "instruction": "Run a drift-detection plan against the live state for the segment's IaC root and confirm zero diff.",
+        "command": "terraform plan -refresh=true -detailed-exitcode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exit code 0 (no changes). A non-zero exit code with pending changes to SG / NACL / NetworkPolicy resources indicates live drift from baseline; absent a regular schedule of this run, the attestation fails.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "private_link_for_managed_services",
+    "option_description": "Attests that when the segment must reach a managed cloud service (S3, RDS, KMS, vendor SaaS), the crossing uses PrivateLink / Private Endpoint / Private Service Connect rather than a public-internet endpoint, so the segment's egress allow-list need not open the public internet for the service.",
+    "security_impact": "Triggers exposure \"Data egress via public endpoint when PrivateLink absent\" — its sole OR-condition — firing when private_link_for_managed_services is false (mapped to ATT&CK T1567 Exfiltration Over Web Service). A false attestation forces public egress for managed-service consumption, broadening the exfiltration surface.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate VPC endpoints in the segment's VPC and verify each consumed managed service is present as an available Interface/Gateway endpoint.",
+        "command": "aws ec2 describe-vpc-endpoints --filters Name=vpc-id,Values=<vpc-id> --query 'VpcEndpoints[].{Svc:ServiceName,Type:VpcEndpointType,State:State}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Managed services consumed by the segment appear as VpcEndpoint entries in State=available (Interface or Gateway endpoint type). Services consumed via 0.0.0.0/0 egress to the public service endpoint with no corresponding VPC endpoint fail this attestation.",
+        "source": "AWS VPC documentation (VPC endpoints / PrivateLink)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-reference the segment's egress allow-list against the workload's managed-service consumption inventory: each managed service should be reached via its private endpoint, not the public FQDN.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inventory shows S3 / KMS / Secrets Manager / RDS reached via interface or gateway endpoints; the egress allow-list does not need a 443-to-internet rule for those services. Services still routed via NAT-gateway to the public endpoint fail the attestation.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workload in the segment, resolve the managed-service endpoint and confirm the returned address is a private (RFC1918) ENI address rather than the public service IP.",
+        "command": "dig +short <service>.<region>.amazonaws.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DNS resolves to the PrivateLink ENI's private IP inside the VPC (e.g. 10.x / 172.16-31.x / 192.168.x). A public address indicates traffic egresses the VPC to the public endpoint.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "segment_egress_scoped",
+    "option_description": "Attests that the segment's outbound traffic is allow-listed to explicit FQDNs/IPs/services with a default-deny terminator; the segment cannot freely reach the internet or peer segments. This blocks C2 beaconing and proxy-pivot via legitimately-allowed crossing hosts.",
+    "security_impact": "Triggers exposure \"Internal-proxy pivot through allowed crossing\" — its sole OR-condition — firing when segment_egress_scoped is false (mapped to ATT&CK T1090 Proxy). A false attestation lets an adversary use a legitimately-allowed crossing host (jump box, build runner) as an internal proxy to bridge segments not directly reachable from their foothold.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the segment's egress ruleset (SG outbound rules, NetworkPolicy egress, firewall egress ACL) and confirm an explicit allow-list with a default-deny terminator; corroborate with egress-proxy / NAT gateway logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Segment's egress ruleset (SG outbound rules, NetworkPolicy egress, firewall egress ACL) shows an explicit allow-list and a default-deny terminator; rules of the form 0.0.0.0/0 :: allow fail this attestation. Egress proxy / NAT gateway logs corroborate that traffic from the segment only hits allowed destinations.",
+        "source": "OWASP Network Segmentation Cheat Sheet"
+      },
+      {
+        "type": "api",
+        "instruction": "Enumerate egress rules on the segment's primary security group and confirm no 0.0.0.0/0 wildcard allow.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[].IpPermissionsEgress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IpPermissionsEgress shows narrow CIDR/SG/prefix-list destinations on specific ports. A rule with IpRanges 0.0.0.0/0 and IpProtocol '-1' fails the attestation.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workload inside the segment, attempt to reach an unrelated public destination (e.g. example.com on 443) and confirm the connection is blocked at the egress PEP.",
+        "command": "curl -v --max-time 5 https://example.com/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection times out or is refused at the egress proxy / NAT gateway; egress proxy logs record the denied attempt. A successful 200 response indicates unscoped egress.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,84 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "network_access_control_802_1x_enforced": false,
+      "managed_device_enrollment_enforced": false,
+      "rogue_unmanaged_device_detection_enabled": false,
+      "client_posture_check_enabled": false,
+      "third_party_devices_meet_same_posture_bar": false,
+      "dynamic_segment_assignment_by_identity_enabled": false,
+      "user_segment_isolated_from_production_tiers": false,
+      "quarantine_remediation_vlan_configured": false,
+      "centralized_aaa_enabled": false,
+      "nac_admission_events_audit_logged": false,
+      "non_bypassable_admission_no_alternate_path": false,
+      "mac_auth_bypass_exceptions_eliminated": false,
+      "radius_unreachable_fails_closed": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "network_access_control_802_1x_enforced": true,
+      "managed_device_enrollment_enforced": true,
+      "rogue_unmanaged_device_detection_enabled": true,
+      "client_posture_check_enabled": true,
+      "third_party_devices_meet_same_posture_bar": true,
+      "dynamic_segment_assignment_by_identity_enabled": true,
+      "user_segment_isolated_from_production_tiers": true,
+      "quarantine_remediation_vlan_configured": true,
+      "centralized_aaa_enabled": true,
+      "nac_admission_events_audit_logged": true,
+      "non_bypassable_admission_no_alternate_path": true,
+      "mac_auth_bypass_exceptions_eliminated": true,
+      "radius_unreachable_fails_closed": true
+    },
+    "expectedCountermeasures": [
+      "802.1X port/identity admission enforced",
+      "Managed-device enrollment + rogue-device denial enforced",
+      "Identity-based least-privilege segment assignment enforced",
+      "Guest/BYOD/IoT isolation from production tiers enforced",
+      "Non-bypassable admission — no alternate path",
+      "Device posture check gates admission",
+      "Centralized AAA backing + admission events audit-logged"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "network_access_control_802_1x_enforced": true,
+      "managed_device_enrollment_enforced": true,
+      "rogue_unmanaged_device_detection_enabled": true,
+      "client_posture_check_enabled": true,
+      "third_party_devices_meet_same_posture_bar": true,
+      "dynamic_segment_assignment_by_identity_enabled": true,
+      "user_segment_isolated_from_production_tiers": true,
+      "quarantine_remediation_vlan_configured": true,
+      "centralized_aaa_enabled": true,
+      "nac_admission_events_audit_logged": true,
+      "non_bypassable_admission_no_alternate_path": true,
+      "mac_auth_bypass_exceptions_eliminated": true,
+      "radius_unreachable_fails_closed": true
+    },
+    "expectedCountermeasures": [
+      "802.1X port/identity admission enforced",
+      "Managed-device enrollment + rogue-device denial enforced",
+      "Identity-based least-privilege segment assignment enforced",
+      "Guest/BYOD/IoT isolation from production tiers enforced",
+      "Non-bypassable admission — no alternate path",
+      "Device posture check gates admission",
+      "Centralized AAA backing + admission events audit-logged"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

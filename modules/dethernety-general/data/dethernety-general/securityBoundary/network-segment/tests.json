@@ -1,0 +1,71 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes insecure",
+    "input": {
+      "segment_boundary_enforced": false,
+      "vlan_hopping_prevention": false,
+      "east_west_within_segment_restricted": false,
+      "inter_segment_traffic_filtered_by_identity": false,
+      "inter_segment_crossings_logged": false,
+      "segmentation_drift_detected": false,
+      "private_link_for_managed_services": false,
+      "segment_egress_scoped": false
+    },
+    "expectedExposures": [
+      "VLAN hopping / L2 trust bypass",
+      "Lateral movement on a flat tier",
+      "Segmentation drift via out-of-band changes",
+      "Drawn-but-not-enforced segmentation",
+      "Trusted-relationship abuse via CIDR-only allow rules",
+      "Internal-proxy pivot through allowed crossing",
+      "Unmonitored east-west and flow-log tampering",
+      "Data egress via public endpoint when PrivateLink absent"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All secure - no fires",
+    "input": {
+      "segment_boundary_enforced": true,
+      "vlan_hopping_prevention": true,
+      "east_west_within_segment_restricted": true,
+      "inter_segment_traffic_filtered_by_identity": true,
+      "inter_segment_crossings_logged": true,
+      "segmentation_drift_detected": true,
+      "private_link_for_managed_services": true,
+      "segment_egress_scoped": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment",
+    "input": {
+      "segment_boundary_enforced": true,
+      "vlan_hopping_prevention": true,
+      "east_west_within_segment_restricted": true,
+      "inter_segment_traffic_filtered_by_identity": true,
+      "inter_segment_crossings_logged": true,
+      "segmentation_drift_detected": true,
+      "private_link_for_managed_services": true,
+      "segment_egress_scoped": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input",
+    "input": {},
+    "expectedExposures": [
+      "VLAN hopping / L2 trust bypass",
+      "Lateral movement on a flat tier",
+      "Segmentation drift via out-of-band changes",
+      "Drawn-but-not-enforced segmentation",
+      "Trusted-relationship abuse via CIDR-only allow rules",
+      "Internal-proxy pivot through allowed crossing",
+      "Unmonitored east-west and flow-log tampering",
+      "Data egress via public endpoint when PrivateLink absent"
+    ]
+  }
+]

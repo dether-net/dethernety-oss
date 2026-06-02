@@ -442,6 +442,19 @@ importers:
         specifier: ^8.59.3
         version: 8.59.3(eslint@10.3.0)(typescript@5.9.3)
 
+  modules/dethernety-general:
+    dependencies:
+      '@dethernety/dt-module':
+        specifier: workspace:*
+        version: link:../../packages/dt-module
+      '@nestjs/common':
+        specifier: ^11.1.18
+        version: 11.1.19(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.2
+        version: 25.7.0
+
   modules/dethernety-module:
     dependencies:
       '@dethernety/dt-module':

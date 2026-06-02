@@ -1,0 +1,9 @@
+{
+  "id": "50c9cddc-07a7-499a-8ea7-50c2f674b13f",
+  "name": "Message Queue",
+  "classType": "component",
+  "type": "STORE",
+  "description": "A message queue or broker — also called Kafka, RabbitMQ, SQS, a message bus, event stream, or pub/sub topic — that buffers and routes asynchronous messages between services. Decouples producers from consumers and carries event payloads in transit. The place to look for the message queue/broker, event bus, pub/sub, streaming topic, or async messaging between services.",
+  "category": "Messaging & Integration",
+  "status": "draft"
+}

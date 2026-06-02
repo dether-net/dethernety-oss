@@ -1,0 +1,1057 @@
+[
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Attestation that the broker's shipped default accounts (e.g. RabbitMQ guest:guest, vendor-default Kafka/ActiveMQ principals) have been deleted or re-credentialed rather than left usable.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Default / anonymous / weak broker authentication\" — fires when default_accounts_removed_or_changed is false, the default-credential foothold this rule covers (mapped to ATT&CK T1078.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List broker users and confirm no shipped default account (RabbitMQ 'guest') remains with its default credentials.",
+        "command": "rabbitmqctl list_users",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "should NOT list 'guest' (deleted) — if present, verify it is loopback-restricted",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm any surviving guest user is loopback-only so the default account cannot authenticate remotely.",
+        "command": "grep -E 'loopback_users' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "loopback_users = guest (secure: guest is loopback-only) — 'loopback_users = none' is INSECURE (guest can connect remotely)",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For Kafka/ActiveMQ deployments (no RabbitMQ guest account), confirm with the operator that no vendor-default principal or sample credential remains provisioned in the broker's identity store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no shipped default/sample principals usable; all accounts are deployment-provisioned",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "default_guest_remotely_reachable",
+    "option_description": "Whether the RabbitMQ built-in 'guest' user is present with its default password AND not restricted to loopback (loopback_users = none), so guest:guest can connect from remote networks.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Default / anonymous / weak broker authentication\" — fires when default_guest_remotely_reachable is true, the remote default-credential path this rule covers (ATT&CK T1078.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read loopback_users to determine whether guest is confined to loopback or remotely reachable.",
+        "command": "grep -E 'loopback_users' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "loopback_users = guest (secure: guest is loopback-only) — 'loopback_users = none' is INSECURE (guest can connect remotely)",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm whether the guest user still exists at all (deletion makes remote reachability moot).",
+        "command": "rabbitmqctl list_users",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "should NOT list 'guest' (deleted) — if present, verify it is loopback-restricted",
+        "source": "RabbitMQ Access Control documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "anonymous_access_allowed",
+    "option_description": "Whether clients can connect without credentials — RabbitMQ advertising ANONYMOUS in auth_mechanisms, or a Kafka listener accepting unauthenticated connections.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Default / anonymous / weak broker authentication\" — fires when anonymous_access_allowed is true, the no-credential connect path this rule covers (ATT&CK T1078.001 / T1071.005).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the RabbitMQ auth_mechanisms list for the ANONYMOUS SASL mechanism.",
+        "command": "grep -E 'auth_mechanisms|anonymous_login' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "auth_mechanisms.1 = PLAIN / .2 = AMQPLAIN (no ANONYMOUS) is secure; presence of ANONYMOUS is insecure",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kafka, confirm no listener accepts unauthenticated connections (a reachable PLAINTEXT listener is unauthenticated).",
+        "command": "grep -E '^listeners=|^advertised.listeners=' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "SSL/SASL_SSL listeners (secure); a reachable PLAINTEXT://:9092 is insecure",
+        "source": "Confluent Kafka security tutorial"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "kafka_authorizer_enabled",
+    "option_description": "Whether a Kafka authorizer is configured (authorizer.class.name set, e.g. StandardAuthorizer) so topic/group ACLs are actually enforced; false means no authorization at all.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Default / anonymous / weak broker authentication\" — fires when kafka_authorizer_enabled is false (no authorization enforced). Not applicable to RabbitMQ/ActiveMQ (assess as true there).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check server.properties for an authorizer class and the default-ACL flag.",
+        "command": "grep -E 'authorizer.class.name|allow.everyone.if.no.acl.found|super.users' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "StandardAuthorizer set + allow.everyone.if.no.acl.found = false (secure); true or missing authorizer is insecure (Confluent: production use of allow.everyone.if.no.acl.found strongly discouraged)",
+        "source": "Confluent Kafka authorization documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate ACLs to confirm the authorizer is live and enforcing per-principal rules.",
+        "command": "kafka-acls --bootstrap-server localhost:9093 --command-config admin.conf --list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "explicit per-principal/per-topic ACLs present; an empty ACL set combined with allow.everyone.if.no.acl.found=true means open access",
+        "source": "Confluent Kafka authorization documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "kafka_allow_everyone_if_no_acl_found",
+    "option_description": "The Kafka allow.everyone.if.no.acl.found flag — when true, any resource without an explicit ACL is world-accessible (default-allow), which Confluent discourages in production.",
+    "security_impact": "An OR-trigger of TWO policy exposures: \"Default / anonymous / weak broker authentication\" and \"Over-broad authorization / no per-topic least privilege\" — both fire when kafka_allow_everyone_if_no_acl_found is true (default-allow on un-ACL'd resources).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the default-ACL flag in server.properties.",
+        "command": "grep -E 'authorizer.class.name|allow.everyone.if.no.acl.found|super.users' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "StandardAuthorizer set + allow.everyone.if.no.acl.found = false (secure); true or missing authorizer is insecure (Confluent: production use of allow.everyone.if.no.acl.found strongly discouraged)",
+        "source": "Confluent Kafka authorization documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm explicit ACLs exist so that a true default-allow flag is not silently granting access to un-ACL'd resources.",
+        "command": "kafka-acls --bootstrap-server localhost:9093 --command-config admin.conf --list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "explicit per-principal/per-topic ACLs present; an empty ACL set combined with allow.everyone.if.no.acl.found=true means open access",
+        "source": "Confluent Kafka authorization documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether broker principals are scoped to least-privilege rights — RabbitMQ per-vhost configure/write/read regexes scoped per role, Kafka explicit per-principal/per-topic ACLs rather than super-user or default-allow.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Over-broad authorization / no per-topic least privilege\" — fires when least_privilege_access_enforced is false (broad/wildcard rights, confused-deputy risk; ATT&CK T1071.005).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect per-vhost permission regexes for each RabbitMQ user; producers should be write-only, consumers read-only, not '.*' on all three.",
+        "command": "rabbitmqctl list_user_permissions <username>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "scoped regexes per vhost (secure) vs '.*' across vhosts (over-privileged)",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "For Kafka, list ACLs and confirm principals hold scoped per-topic rights rather than super-user grants.",
+        "command": "kafka-acls --bootstrap-server localhost:9093 --command-config admin.conf --list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "explicit per-principal/per-topic ACLs present; an empty ACL set combined with allow.everyone.if.no.acl.found=true means open access",
+        "source": "Confluent Kafka authorization documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "wildcard_acls_used",
+    "option_description": "Whether any application principal is granted wildcard authorization — RabbitMQ configure/write/read all '.*', or Kafka resource/operation wildcards / super-user-equivalent grants. An interpreted boolean read from the raw permission regexes / ACL list.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Over-broad authorization / no per-topic least privilege\" — fires when wildcard_acls_used is true (a non-admin principal effectively holds all-resource rights; ATT&CK T1071.005).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the raw per-vhost permission regexes across users; '.*  .*  .*' for an application user is wildcard full access.",
+        "command": "rabbitmqctl list_permissions --vhost /",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "per-user configure/write/read regexes — '.*  .*  .*' for an application user indicates wildcard full access (insecure)",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "List Kafka ACLs and interpret whether any non-admin principal holds wildcard/all-resource rights.",
+        "command": "kafka-acls --bootstrap-server localhost:9093 --command-config admin.conf --list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "explicit per-principal/per-topic ACLs present; an empty ACL set combined with allow.everyone.if.no.acl.found=true means open access",
+        "source": "Confluent Kafka authorization documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "per_topic_acls_enforced",
+    "option_description": "Whether per-topic/per-queue authorization is actually enforced — Kafka authorizer set with allow.everyone.if.no.acl.found=false AND explicit ACLs; RabbitMQ scoped per-vhost permissions rather than a flat broad grant.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Over-broad authorization / no per-topic least privilege\" — fires when per_topic_acls_enforced is false (no per-topic least-privilege boundary; ATT&CK T1071.005).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm an authorizer is active with deny-by-default in server.properties.",
+        "command": "grep -E 'authorizer.class.name|allow.everyone.if.no.acl.found|super.users' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "StandardAuthorizer set + allow.everyone.if.no.acl.found = false (secure); true or missing authorizer is insecure (Confluent: production use of allow.everyone.if.no.acl.found strongly discouraged)",
+        "source": "Confluent Kafka authorization documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "For RabbitMQ, confirm scoped per-vhost permissions per principal rather than a single broad grant.",
+        "command": "rabbitmqctl list_user_permissions <username>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "scoped regexes per vhost (secure) vs '.*' across vhosts (over-privileged)",
+        "source": "RabbitMQ Access Control documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Whether broker transport (AMQP, Kafka client and inter-broker channels) runs over TLS rather than cleartext, vs a reachable plaintext listener (AMQP 5672 / Kafka PLAINTEXT 9092 / inter-broker PLAINTEXT).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Cleartext transport interception / MITM\" — fires when flow_tls_encrypted is false (credentials/payloads exposed to sniffing/MITM; ATT&CK T1040 / T1557 / T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify a RabbitMQ TLS (AMQPS 5671) listener is configured with verify_peer.",
+        "command": "grep -E 'listeners.ssl|ssl_options.verify|ssl_options.versions|ssl_options.ciphers' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "listeners.ssl.default = 5671, ssl_options.verify = verify_peer, ssl_options.versions.1 = tlsv1.3 (secure); verify_none or no TLS listener is insecure",
+        "source": "RabbitMQ TLS Support documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kafka, confirm listeners use SSL/SASL_SSL rather than a reachable PLAINTEXT listener.",
+        "command": "grep -E '^listeners=|^advertised.listeners=' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "SSL/SASL_SSL listeners (secure); a reachable PLAINTEXT://:9092 is insecure",
+        "source": "Confluent Kafka security tutorial"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm Kafka inter-broker replication is also encrypted.",
+        "command": "grep 'security.inter.broker.protocol' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "SSL / SASL_SSL (secure) vs PLAINTEXT (insecure)",
+        "source": "Confluent Kafka security tutorial"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether the broker accepts ONLY TLS-protected connections, with no externally reachable cleartext listener remaining alongside the TLS one (the downgrade surface).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Cleartext transport interception / MITM\" — fires when tls_only_transport is false (a reachable plaintext port allows downgrade onto cleartext; ATT&CK T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the broker host: confirm the AMQPS port handshakes and that no plaintext port is reachable from untrusted networks.",
+        "command": "openssl s_client -connect <broker>:5671 -tls1_3",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "successful TLS 1.3 handshake on AMQPS; a refused/plaintext 5672 should be the only reachable port from untrusted networks",
+        "source": "RabbitMQ TLS Support documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate listening ports and confirm any plaintext port (5672 / Kafka 9092) is firewalled or not bound on the reachable interface.",
+        "command": "ss -tlnp | grep -E ':(5672|5671|15672|15671|25672)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ports bound to 127.0.0.1 or a private address, not 0.0.0.0; verify management.tcp.port is not publicly routable",
+        "source": "RabbitMQ Networking documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the broker's TLS listener still permits legacy TLS (TLSv1.0/1.1) in addition to/instead of TLSv1.2/1.3 — an interpreted flag from the negotiable protocol set (RabbitMQ ssl_options.versions, Kafka ssl.enabled.protocols).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Cleartext transport interception / MITM\" — fires when weak_tls_versions_enabled is true (legacy TLS enables downgrade/MITM; ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the RabbitMQ negotiable TLS protocol versions.",
+        "command": "grep -E 'listeners.ssl|ssl_options.verify|ssl_options.versions|ssl_options.ciphers' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "listeners.ssl.default = 5671, ssl_options.verify = verify_peer, ssl_options.versions.1 = tlsv1.3 (secure); verify_none or no TLS listener is insecure",
+        "source": "RabbitMQ TLS Support documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the Kafka enabled protocol set.",
+        "command": "grep -E 'ssl.enabled.protocols|ssl.keystore.location|ssl.truststore.location' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "TLSv1.2/TLSv1.3 only with keystore/truststore paths set (secure)",
+        "source": "Confluent Kafka security tutorial"
+      },
+      {
+        "type": "network_test",
+        "instruction": "On the wire, enumerate negotiable protocols/ciphers on the TLS listener.",
+        "command": "nmap --script ssl-enum-ciphers -p 9093 <broker>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "only TLS 1.2/1.3 with strong (A-grade) ciphers; TLS 1.0/1.1 or weak ciphers indicate a weak listener",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether peer/certificate verification is enforced on the TLS connection (RabbitMQ ssl_options.verify = verify_peer; Kafka clients validate the broker via a configured truststore), vs verify_none accepting any presented certificate.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Cleartext transport interception / MITM\" — fires when server_certificate_validated is false (verify_none allows a forged-cert MITM even with TLS nominally on; ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the RabbitMQ peer-verification setting.",
+        "command": "grep -E 'listeners.ssl|ssl_options.verify|ssl_options.versions|ssl_options.ciphers' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "listeners.ssl.default = 5671, ssl_options.verify = verify_peer, ssl_options.versions.1 = tlsv1.3 (secure); verify_none or no TLS listener is insecure",
+        "source": "RabbitMQ TLS Support documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kafka, confirm a truststore is configured so clients validate the broker certificate chain.",
+        "command": "grep -E 'ssl.enabled.protocols|ssl.keystore.location|ssl.truststore.location' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "TLSv1.2/TLSv1.3 only with keystore/truststore paths set (secure)",
+        "source": "Confluent Kafka security tutorial"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "service_to_service_mtls_enforced",
+    "option_description": "Whether mutual TLS is enforced so the broker requires a client certificate and rejects certless/anonymous TLS clients (RabbitMQ ssl_options.fail_if_no_peer_cert = true with verify_peer; Kafka ssl.client.auth = required).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Cleartext transport interception / MITM\" — fires when service_to_service_mtls_enforced is false (certless peers connect, weakening impersonation/MITM resistance; ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the RabbitMQ peer-cert requirement for mTLS.",
+        "command": "grep 'fail_if_no_peer_cert' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "ssl_options.fail_if_no_peer_cert = true (secure mTLS) vs false (accepts certless clients)",
+        "source": "RabbitMQ TLS Support documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the Kafka client-auth mode.",
+        "command": "grep 'ssl.client.auth' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "required (secure mTLS); none/requested are weaker per Confluent guidance",
+        "source": "Confluent Kafka security tutorial"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_store_publicly_routable",
+    "option_description": "Whether the broker's data/messaging listeners (AMQP 5672/5671, Kafka 9092/9093, ActiveMQ OpenWire 61616) are bound to a publicly routable interface (0.0.0.0) and reachable from the internet rather than confined to a private/management network.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Internet-exposed broker / management plane\" — fires when data_store_publicly_routable is true (direct surface for credential abuse and known-CVE exploitation; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate listening sockets and confirm messaging ports are bound to a private/loopback address, not 0.0.0.0.",
+        "command": "ss -tlnp | grep -E ':(5672|5671|15672|15671|25672)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ports bound to 127.0.0.1 or a private address, not 0.0.0.0; verify management.tcp.port is not publicly routable",
+        "source": "RabbitMQ Networking documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, probe the broker's data ports to confirm they are not internet-reachable.",
+        "command": "nmap -Pn -p 5671,5672,9092,9093,61616 <broker-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ports filtered/closed from the internet; only reachable from the private/management network",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "management_ui_internet_exposed",
+    "option_description": "Whether the broker's administrative management plane — RabbitMQ management plugin HTTP API/UI on 15672 (15671 TLS) or an equivalent admin console — is listening on 0.0.0.0 and reachable from the internet.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Internet-exposed broker / management plane\" — fires when management_ui_internet_exposed is true (a high-value admin-takeover surface; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the management port binding (15672/15671) is on a private interface, not publicly routable.",
+        "command": "ss -tlnp | grep -E ':(5672|5671|15672|15671|25672)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ports bound to 127.0.0.1 or a private address, not 0.0.0.0; verify management.tcp.port is not publicly routable",
+        "source": "RabbitMQ Networking documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, attempt to reach the management UI/API to confirm it is firewalled off the internet.",
+        "command": "curl -sk -o /dev/null -w '%{http_code}' https://<broker-public-ip>:15672/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "connection refused/timed out from the internet; the management UI is reachable only from trusted CIDRs",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "segment_boundary_enforced",
+    "option_description": "Whether network segmentation confines the broker so it accepts connections only from a management/trusted network, enforced in both broker config and network policy / firewall / security group.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Internet-exposed broker / management plane\" — fires when segment_boundary_enforced is false (no segmentation isolates exposed listeners from untrusted networks; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm broker listeners are bound to private interfaces as the broker-config half of the boundary.",
+        "command": "ss -tlnp | grep -E ':(5672|5671|15672|15671|25672)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ports bound to 127.0.0.1 or a private address, not 0.0.0.0; verify management.tcp.port is not publicly routable",
+        "source": "RabbitMQ Networking documentation"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the firewall / security-group / network-policy rules confining the broker to the management/trusted network (the network-policy half of the boundary).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ingress to broker ports restricted to trusted CIDRs/SGs; no allow-all rule reaches messaging or management ports",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Whether the broker's control-plane / admin API surface (RabbitMQ HTTP management API, Kafka admin/inter-node control on 25672, ActiveMQ console) is confined to a private/management network rather than publicly exposed.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Internet-exposed broker / management plane\" — fires when control_plane_api_not_publicly_exposed is false (public control-plane API is a direct administrative surface; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the HTTP management API and inter-node port (25672) are bound to private interfaces.",
+        "command": "ss -tlnp | grep -E ':(5672|5671|15672|15671|25672)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ports bound to 127.0.0.1 or a private address, not 0.0.0.0; verify management.tcp.port is not publicly routable",
+        "source": "RabbitMQ Networking documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, probe the control-plane endpoints (management API, inter-node 25672, ActiveMQ console) to confirm they are unreachable.",
+        "command": "nmap -Pn -p 15672,15671,25672,8161 <broker-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "control-plane ports filtered/closed from the internet; reachable only from the private/management network",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "message_integrity_protected",
+    "option_description": "Whether messages carry per-message integrity protection (application-layer digital signature or MAC over the body). Brokers do not sign bodies natively, so producers must sign and consumers verify before acting.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Message tampering / malicious injection\" — fires when message_integrity_protected is false (forged/altered messages indistinguishable from legitimate traffic; ATT&CK T1659 / T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the producer/consumer application design: confirm producers attach a signature/MAC over the message body and consumers verify it before processing. Brokers do not provide this natively.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "documented signing/verification (e.g. HMAC or detached signature over the payload) in the producer and consumer code paths",
+        "source": "OpenStack Security Guide — Messaging security"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect a sample message envelope to confirm an integrity header (signature/MAC) is present and validated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "messages carry a verifiable integrity tag; consumers reject messages whose tag fails verification",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "producer_authentication_required",
+    "option_description": "Whether the broker requires authenticated producers before accepting a publish — no anonymous/guest write path (RabbitMQ guest deleted/loopback-only and ANONYMOUS removed; Kafka no reachable PLAINTEXT listener and an authorizer configured).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Message tampering / malicious injection\" — fires when producer_authentication_required is false (unauthenticated injection into a queue/topic; ATT&CK T1659 / T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm there is no anonymous RabbitMQ write path: guest deleted or loopback-only.",
+        "command": "rabbitmqctl list_users",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "should NOT list 'guest' (deleted) — if present, verify it is loopback-restricted",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm ANONYMOUS is not advertised in RabbitMQ auth_mechanisms.",
+        "command": "grep -E 'auth_mechanisms|anonymous_login' rabbitmq.conf",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "auth_mechanisms.1 = PLAIN / .2 = AMQPLAIN (no ANONYMOUS) is secure; presence of ANONYMOUS is insecure",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kafka, confirm no reachable PLAINTEXT listener offers an unauthenticated publish route.",
+        "command": "grep -E '^listeners=|^advertised.listeners=' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "SSL/SASL_SSL listeners (secure); a reachable PLAINTEXT://:9092 is insecure",
+        "source": "Confluent Kafka security tutorial"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "wildcard_publish_authorization",
+    "option_description": "Whether application principals hold wildcard/full publish authorization rather than scoped least-privilege write access — RabbitMQ write regex '.*', or Kafka allow.everyone.if.no.acl.found=true / no authorizer. An interpreted boolean over the real authorization config.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Message tampering / malicious injection\" — fires when wildcard_publish_authorization is true (any authenticated principal can write to any queue/topic, enabling forged-message injection; ATT&CK T1659 / T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read RabbitMQ write-permission regexes per principal; a write regex of '.*' is full publish authorization.",
+        "command": "rabbitmqctl list_user_permissions <username>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "scoped regexes per vhost (secure) vs '.*' across vhosts (over-privileged)",
+        "source": "RabbitMQ Access Control documentation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kafka, confirm an authorizer is set with deny-by-default so write access is not implicitly wildcard.",
+        "command": "grep -E 'authorizer.class.name|allow.everyone.if.no.acl.found|super.users' server.properties",
+        "file_path": "server.properties",
+        "expected_output": "StandardAuthorizer set + allow.everyone.if.no.acl.found = false (secure); true or missing authorizer is insecure (Confluent: production use of allow.everyone.if.no.acl.found strongly discouraged)",
+        "source": "Confluent Kafka authorization documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "consumer_idempotency_or_dedup_enforced",
+    "option_description": "Whether message consumers enforce idempotency or deduplication (dedup on a unique key, Kafka enable.idempotence/transactional producers, or an application-side processed-id store) so re-delivering a previously processed message produces no duplicate side-effect.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Message replay\" — fires when consumer_idempotency_or_dedup_enforced is false (a captured message can be replayed for duplicate side-effects such as repeated payments).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the consumer application: confirm it deduplicates on a unique message/business key or maintains a processed-id store so reprocessing is a no-op. The broker does not provide this natively.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "documented dedup/idempotency on a unique key, or Kafka enable.idempotence / transactional producers, with re-delivery producing no duplicate side-effect",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Where Kafka producers are used, check for idempotent/transactional producer settings.",
+        "command": "grep -E 'enable.idempotence|transactional.id' <producer-config>.properties",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "enable.idempotence=true and/or a transactional.id set on producers",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "message_freshness_nonce_bound",
+    "option_description": "Whether messages carry an anti-replay binding the consumer validates — a per-message nonce, monotonic sequence number, or signed timestamp enforced against a freshness/acceptance window — so a stale captured message is rejected on resubmission.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Message replay\" — fires when message_freshness_nonce_bound is false (previously captured messages remain indefinitely re-playable).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the message protocol/application design: confirm messages carry a nonce/sequence/signed-timestamp the consumer validates against a freshness window. Verified at the application layer, not a broker knob.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "documented anti-replay binding (nonce/sequence/signed-timestamp) with consumer-side freshness-window enforcement",
+        "source": "OpenStack Security Guide — Messaging security"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect a sample message envelope and confirm the freshness field is present and that resubmission of a stale message is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "stale/replayed messages rejected by the consumer; live messages within the window accepted",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether the broker's persisted message store (Kafka log.dirs segments, RabbitMQ mnesia/quorum-queue data) sits on a volume encrypted at rest (LUKS or cloud KMS/EBS, AES-256). Brokers do not encrypt bodies natively.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Sensitive payloads unencrypted at rest / unbounded retention\" — fires when encrypted_at_rest is false (cleartext PII/secrets persist on unencrypted disk).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the volume backing the broker data directory is encrypted (LUKS on-host or cloud-encrypted).",
+        "command": "lsblk -o NAME,FSTYPE,MOUNTPOINT | grep -iE 'crypt|luks'  # or cloud: aws ec2 describe-volumes --query 'Volumes[].Encrypted'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "the volume backing log.dirs / RABBITMQ_MNESIA_BASE is crypt/LUKS or cloud-Encrypted=true",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "retention_schedule_enforced",
+    "option_description": "Whether messages carry a bounded TTL/retention so sensitive payloads are not retained indefinitely (Kafka retention.ms/retention.bytes finite, not -1; RabbitMQ x-message-ttl / message-ttl policy).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Sensitive payloads unencrypted at rest / unbounded retention\" — fires when retention_schedule_enforced is false (unbounded retention lets cleartext PII/secrets accumulate and leak into backups).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the per-topic retention settings on Kafka (or the message-ttl policy on RabbitMQ).",
+        "command": "kafka-configs --bootstrap-server localhost:9093 --describe --entity-type topics --entity-name <topic>  # check retention.ms / retention.bytes",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a finite retention.ms (not -1/unbounded); for RabbitMQ check message-ttl policy via 'rabbitmqctl list_policies'",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "For RabbitMQ, confirm a message-ttl policy exists bounding queue message lifetime.",
+        "command": "rabbitmqctl list_policies",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a message-ttl (or max-length) policy is present, bounding retention; absence means unbounded",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether sensitive message payload fields (PII, credentials, tokens) are masked/redacted before message bodies are written to broker logs or persisted diagnostics.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Sensitive payloads unencrypted at rest / unbounded retention\" — fires when secrets_masked_in_logs is false (payloads leak verbatim into local logs, compounding the at-rest exposure).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect broker logs / diagnostics for any message-body content; confirm sensitive fields appear masked rather than verbatim.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no cleartext PII/credentials/tokens in log lines; sensitive fields redacted (e.g. ****)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the logging configuration / application logging policy to confirm message-body logging is disabled or routed through a redaction layer.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "documented redaction/masking of payload fields before any body is logged",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "queue_length_limit_enforced",
+    "option_description": "Whether a per-queue maximum length / overflow bound is enforced (RabbitMQ max-length / x-max-length-bytes / overflow policy with a dead-letter exchange, or Kafka per-topic retention.bytes) so an unbounded queue cannot exhaust memory/disk.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Queue flooding / resource-exhaustion DoS\" — fires when queue_length_limit_enforced is false (a flood grows the queue until resources are exhausted; ATT&CK T1499.001 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check RabbitMQ policies for a max-length / overflow bound.",
+        "command": "rabbitmqctl list_policies",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a max-length / x-max-length-bytes policy with overflow + dead-letter present; absence means unbounded (firing)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "For Kafka, confirm a finite per-topic retention.bytes caps the on-disk backlog.",
+        "command": "kafka-configs --bootstrap-server localhost:9093 --describe --entity-type topics --entity-name <topic>  # check retention.ms / retention.bytes",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a finite retention.ms (not -1/unbounded); for RabbitMQ check message-ttl policy via 'rabbitmqctl list_policies'",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "memory_disk_watermark_configured",
+    "option_description": "Whether broker memory/disk safety watermarks are configured to back-pressure or block publishers before resources are exhausted (RabbitMQ vm_memory_high_watermark and disk_free_limit; Kafka retention/quota equivalents).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Queue flooding / resource-exhaustion DoS\" — fires when memory_disk_watermark_configured is false (a flood drives OOM / disk-full; ATT&CK T1499.001 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the RabbitMQ memory/disk watermark knobs.",
+        "command": "grep -E 'vm_memory_high_watermark|disk_free_limit' rabbitmq.conf  # plus 'rabbitmqctl list_policies' for max-length",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "vm_memory_high_watermark and disk_free_limit set; queues have max-length / overflow policy and a dead-letter exchange",
+        "source": "RabbitMQ Networking documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether per-client connection/publish rate limiting or producer quotas are enforced (RabbitMQ per-connection/channel limits and credit flow, Kafka client producer quotas) so a single principal cannot saturate the broker.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Queue flooding / resource-exhaustion DoS\" — fires when rate_limiting_or_lockout_enabled is false (an abusive/compromised producer issues unbounded connections/messages; ATT&CK T1499.001 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check RabbitMQ for per-connection/channel limits bounding a single client's resource use.",
+        "command": "grep -E 'vm_memory_high_watermark|disk_free_limit' rabbitmq.conf  # plus 'rabbitmqctl list_policies' for max-length",
+        "file_path": "rabbitmq.conf",
+        "expected_output": "vm_memory_high_watermark and disk_free_limit set; queues have max-length / overflow policy and a dead-letter exchange",
+        "source": "RabbitMQ Networking documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "For Kafka, list configured client/producer quotas.",
+        "command": "kafka-configs --bootstrap-server localhost:9093 --describe --entity-type clients",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "per-client producer/consumer byte-rate quotas configured; no quotas means a single principal can saturate the broker",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Whether network/connection-level flood protection guards the broker's reachable listeners (connection limits, SYN/connection rate caps, upstream load-balancer or WAF/scrubbing, IP-based throttling).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Queue flooding / resource-exhaustion DoS\" — fires when ddos_protection_in_place is false (listeners directly exposed to flooding with no protective layer; ATT&CK T1499.001 / T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the network architecture for a protective layer in front of the broker's listeners (LB/scrubbing/WAF, connection or SYN rate caps, IP throttling).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "documented connection/SYN rate caps or upstream LB/scrubbing absorbing floods before they reach broker queues",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect host/firewall connection-rate controls in front of the broker ports.",
+        "command": "iptables -L -n -v | grep -E 'limit|connlimit'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "connection/rate-limit rules present on the broker's listener ports; none means no host-level flood protection",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the broker software is running a release affected by a known, publicly-exploited RCE CVE (e.g. ActiveMQ OpenWire deserialization RCE CVE-2023-46604, fixed in ActiveMQ Classic >= 5.15.16/5.16.7/5.17.6/5.18.3 or Artemis >= 2.31.2).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Unpatched broker RCE (ActiveMQ OpenWire)\" — fires when unpatched_known_rce_cve is true (the running build is below the advisory fixed release; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the deployed broker version and compare against the advisory fixed releases.",
+        "command": "activemq --version   # or check the deployed broker package/image tag",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a patched version per the advisory; older builds are exploitable and likely internet-exposed if 61616/OpenWire is reachable",
+        "source": "NVD CVE-2023-46604 detail"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the network-reachable broker software is kept current with security patches within the organisation's remediation SLA.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Unpatched broker RCE (ActiveMQ OpenWire)\" — fires when edge_appliance_patched_within_sla is false (the broker is behind on security updates and exposed to known-CVE exploitation; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the deployed broker version and check it against the patch SLA / latest advisory-fixed release.",
+        "command": "activemq --version   # or check the deployed broker package/image tag",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a patched version per the advisory; older builds are exploitable and likely internet-exposed if 61616/OpenWire is reachable",
+        "source": "NVD CVE-2023-46604 detail"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch-management record for the broker to confirm security updates are applied within the documented remediation SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "broker patch dates fall within the org's remediation SLA; no overdue advisories outstanding",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "native_deserialization_of_untrusted_data",
+    "option_description": "Whether the broker transport (e.g. ActiveMQ's OpenWire marshaller) deserializes attacker-influenced serialized class types from untrusted/unauthenticated network clients without a class allow-list.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"Unpatched broker RCE (ActiveMQ OpenWire)\" — fires when native_deserialization_of_untrusted_data is true (an unrestricted deserialization sink is reachable, enabling arbitrary-class instantiation / shell execution; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine the broker version (a patched OpenWire build constrains the deserialization sink) and whether the OpenWire transport is reachable.",
+        "command": "activemq --version   # or check the deployed broker package/image tag",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a patched version per the advisory; older builds are exploitable and likely internet-exposed if 61616/OpenWire is reachable",
+        "source": "NVD CVE-2023-46604 detail"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the transport config for a deserialization class allow-list and whether OpenWire is exposed to untrusted/unauthenticated peers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "a restrictive serialization allow-list is set, or the transport is not reachable by untrusted peers; an unrestricted sink open to untrusted clients is the firing state",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether the broker records an access/authentication audit trail (connection and auth attempts on AMQP/Kafka listeners) — RabbitMQ auth/connection event logging; Kafka authorizer.logger.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"No audit logging of connections / publish-consume / admin events\" — fires when access_audit_trail_enabled is false (anonymous access and credential abuse become undetectable; ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the broker logging config for auth/connection (RabbitMQ) or authorizer (Kafka) logging.",
+        "command": "grep -E 'log.level|log.file|authorizer.logger' server.properties  # Kafka; RabbitMQ: grep 'log.' rabbitmq.conf",
+        "file_path": "server.properties",
+        "expected_output": "authorizer logging enabled and logs forwarded off-box; verify a SIEM/forwarder consumes broker logs",
+        "source": "CIS Controls v8 Control 8 - Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Whether all security-relevant broker events are captured — including publish/consume operations and authorization (ACL) decisions, not just startup/error logs (Kafka authorizer logger; RabbitMQ auth/connection events).",
+    "security_impact": "One of the OR-conditions of the policy exposure \"No audit logging of connections / publish-consume / admin events\" — fires when security_events_fully_logged is false (tampering and publish/consume abuse leave no forensic trail; ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the authorizer/ACL-decision logger and connection logging are enabled (not just error/startup logs).",
+        "command": "grep -E 'log.level|log.file|authorizer.logger' server.properties  # Kafka; RabbitMQ: grep 'log.' rabbitmq.conf",
+        "file_path": "server.properties",
+        "expected_output": "authorizer logging enabled and logs forwarded off-box; verify a SIEM/forwarder consumes broker logs",
+        "source": "CIS Controls v8 Control 8 - Audit Log Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect the broker log stream to confirm publish/consume and ACL-decision events actually appear.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "log entries for authorization decisions and publish/consume operations are present, not only startup/error lines",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether broker logs are shipped off-box to a separate system / SIEM rather than retained only on the broker host.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"No audit logging of connections / publish-consume / admin events\" — fires when logs_stored_on_separate_system is false (an attacker who compromises the broker can erase the trail; ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a forwarder/SIEM pipeline ships broker logs off-box rather than local-only retention.",
+        "command": "grep -E 'log.level|log.file|authorizer.logger' server.properties  # Kafka; RabbitMQ: grep 'log.' rabbitmq.conf",
+        "file_path": "server.properties",
+        "expected_output": "authorizer logging enabled and logs forwarded off-box; verify a SIEM/forwarder consumes broker logs",
+        "source": "CIS Controls v8 Control 8 - Audit Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with operations that broker logs are received and retained in a separate SIEM/log store independent of the broker host.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "broker log events visible in the SIEM with adequate retention; not solely on the broker host",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "broker_admin_events_audited",
+    "option_description": "Whether broker administrative changes are audited — RabbitMQ vhost/user/permission (ACL) changes via rabbitmqctl, Kafka ACL/super.users/topic-config changes.",
+    "security_impact": "One of the OR-conditions of the policy exposure \"No audit logging of connections / publish-consume / admin events\" — fires when broker_admin_events_audited is false (privilege escalation and silent ACL loosening go unrecorded; ATT&CK T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm admin/ACL-change events are captured by the broker logging configuration.",
+        "command": "grep -E 'log.level|log.file|authorizer.logger' server.properties  # Kafka; RabbitMQ: grep 'log.' rabbitmq.conf",
+        "file_path": "server.properties",
+        "expected_output": "authorizer logging enabled and logs forwarded off-box; verify a SIEM/forwarder consumes broker logs",
+        "source": "CIS Controls v8 Control 8 - Audit Log Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect logs for administrative-change events (vhost/user/permission changes on RabbitMQ; ACL/super.users/topic-config changes on Kafka).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admin/ACL change events appear in the audit trail with actor and timestamp; absence means escalation is unrecorded",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

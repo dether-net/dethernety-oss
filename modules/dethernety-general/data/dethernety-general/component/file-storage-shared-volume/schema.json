@@ -1,0 +1,533 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "smbv1_enabled": {
+        "type": "boolean",
+        "title": "SMBv1 / CIFS Dialect Enabled",
+        "description": "Whether the legacy SMBv1/CIFS dialect is enabled on the file server (EnableSMB1Protocol). SMBv1 lacks signing, encryption, and pre-auth integrity and is the protocol exploited by the wormable EternalBlue / MS17-010 remote-code-execution flaw (WannaCry, NotPetya). Secure value: false (SMBv1 disabled/removed).",
+        "default": false
+      },
+      "min_smb_dialect": {
+        "type": "string",
+        "enum": [
+          "CIFS",
+          "SMB1",
+          "SMB1.0",
+          "SMB2",
+          "SMB2.0",
+          "SMB2.1",
+          "SMB3",
+          "SMB3.0",
+          "SMB3.0.2",
+          "SMB3.1.1"
+        ],
+        "title": "Minimum Negotiable SMB Dialect",
+        "description": "The minimum SMB dialect the server will negotiate with clients. A floor that still permits SMB1/CIFS leaves the EternalBlue surface reachable via protocol downgrade from hardened SMB3; Microsoft guidance is to force a SMB 3.1.1 minimum (which provides pre-auth integrity that blocks downgrade). Secure value: SMB3.1.1 (or any SMB3.x floor); insecure when the floor is CIFS/SMB1/SMB1.0."
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Shared-vocabulary attestation: the file-server / NAS appliance OS, firmware, and bundled apps are kept on current, vendor-supported versions and patched within the organisation's remediation SLA, including the MS17-010 SMBv1 RCE fix and CISA-KEV-listed CVEs (e.g. CVE-2021-28799 QNAP HBS 3, CVE-2022-27593 QNAP Photo Station). Secure value is true; the exposure fires when false (lagging firmware leaves the appliance on the brute-force / mass-exploit surface and gives ransomware a foothold). Reused across vectors that depend on edge-appliance patch hygiene.",
+        "default": false
+      },
+      "everyone_full_control_share": {
+        "type": "boolean",
+        "title": "Share Grants Everyone Full Control",
+        "description": "Interpreted boolean: at least one SMB share grants Everyone or Authenticated Users Full Control / Change on data. Modelled as an interpreted boolean rather than a raw ACL string because the security depends on interpreting the principal+right pair. Fires (true) on the over-broad, least-privilege-violating configuration; the hardened baseline scopes named groups to minimum rights (false).",
+        "default": false
+      },
+      "nfs_export_wildcard_rw": {
+        "type": "boolean",
+        "title": "NFS Export Wildcard Read-Write",
+        "description": "Interpreted boolean: at least one NFS export uses a wildcard client spec ('*' or 0.0.0.0/0) combined with blanket read-write (rw), so any reachable host can read/tamper with/mass-encrypt the export. Modelled as an interpreted boolean because the hazard is the host-scope + access-mode combination. Fires (true) on the over-broad export; the hardened baseline binds exports to explicit trusted subnets (false).",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Shared-workspace vocabulary attestation: least-privilege access control is enforced across the file store's shares/exports — principals receive only the minimum rights required (named groups, ro where writes are not needed) and no broad principal holds Full Control. Fires (is_false) when least privilege is NOT enforced, i.e. the store's access model is over-broad. The all-secure baseline sets it true (silent) and the all-insecure baseline false (fires).",
+        "default": false
+      },
+      "access_based_enumeration_disabled": {
+        "type": "boolean",
+        "title": "Access-Based Enumeration Disabled",
+        "description": "Interpreted boolean: Access-Based Enumeration (ABE) is disabled on shares (FolderEnumerationMode = Unrestricted), so all file/folder names are visible to any user regardless of permission, exposing sensitive names for reconnaissance. Named for the insecure state so it fires (is_true) when ABE is off; the hardened baseline enables ABE (false). Secondary exposure facet amplifying the over-broad-share weakness."
+      },
+      "insecure_guest_auth_allowed": {
+        "type": "boolean",
+        "title": "Insecure Guest Authentication Allowed",
+        "description": "Interpreted-secure boolean: true when the SMB client/server permits insecure guest logons (AllowInsecureGuestAuth=1 / EnableSecurityGuest). Guest logons require no password and disable SMB signing/encryption, permitting unauthenticated share enumeration and access. Secure value is false (AllowInsecureGuestAuth=0), so this exposure fires only on the insecure (true) config.",
+        "default": false
+      },
+      "null_session_access_allowed": {
+        "type": "boolean",
+        "title": "Anonymous Null-Session Access Allowed",
+        "description": "Interpreted-secure boolean: true when the SMB server permits anonymous null-session connections (RestrictNullSessAccess=0, RestrictAnonymous low, or named pipes/shares reachable without credentials), allowing unauthenticated enumeration of shares, users, and the host. Secure value is false (null sessions restricted), so this exposure fires only when null-session access is open (true).",
+        "default": false
+      },
+      "nfs_auth_sys_only": {
+        "type": "boolean",
+        "title": "NFS Relies on AUTH_SYS Only",
+        "description": "Interpreted-secure boolean: true when NFS exports carrying accessible data rely solely on AUTH_SYS (sec=sys / no sec= option) with no RPCSEC_GSS Kerberos flavor (krb5/krb5i/krb5p). AUTH_SYS trusts client-supplied UIDs with no cryptographic authentication, so any reachable client can mount and access exports by spoofing UIDs — effectively unauthenticated access. Secure value is false (krb5i/krb5p enforced on sensitive exports), so this exposure fires only on the insecure (sec=sys-only) config.",
+        "default": false
+      },
+      "smb_signing_required": {
+        "type": "boolean",
+        "title": "SMB Signing Required",
+        "description": "Whether the SMB server mandates SMB message signing (RequireSecuritySignature). Secure value is true (signing required). When false, signing is optional and an adjacent attacker can perform an SMB relay / signing-downgrade attack to tamper with sessions and steal credentials.",
+        "default": false
+      },
+      "smb3_encryption_required": {
+        "type": "boolean",
+        "title": "SMB3 Encryption Required",
+        "description": "Whether SMB3 end-to-end encryption (AES-128/256-GCM/CCM) is required for SMB traffic server-wide or per share (EncryptData). Secure value is true. When false, cleartext SMB transport is permitted and an adjacent attacker can sniff/MITM SMB traffic to steal credentials and data in transit.",
+        "default": false
+      },
+      "reject_unencrypted_access": {
+        "type": "boolean",
+        "title": "Reject Unencrypted Access",
+        "description": "When SMB encryption is enabled, whether the server rejects clients that cannot negotiate SMB3 encryption (RejectUnencryptedAccess, default true). Secure value is true. When false, non-SMB3 / SMB1/SMB2 clients are allowed onto encrypted shares, re-opening a cleartext downgrade path the AiTM attacker can force."
+      },
+      "smb_ntlm_blocked": {
+        "type": "boolean",
+        "title": "NTLM Blocked for SMB",
+        "description": "Whether NTLM authentication is blocked for SMB so Kerberos is enforced (BlockNTLM). Secure value is true (NTLM blocked, Kerberos-only). When false, NTLM is permitted and a negotiated downgrade from Kerberos to NTLM enables NTLM relay, pass-the-hash, and challenge-response leakage to a malicious/spoofed server."
+      },
+      "nfs_export_security_flavor": {
+        "type": "string",
+        "enum": [
+          "sys",
+          "krb5",
+          "krb5i",
+          "krb5p"
+        ],
+        "title": "NFS Export Security Flavor",
+        "description": "The RPCSEC_GSS authentication/integrity/privacy flavor for NFS exports (sec= in /etc/exports). Secure values are krb5i (integrity) or krb5p (Kerberos auth + integrity + on-the-wire encryption). The insecure value 'sys' (AUTH_SYS, the default when no sec= is set) trusts client-supplied UIDs with no cryptographic authentication and carries traffic in cleartext, allowing UID spoofing and sniffing/MITM of AUTH_SYS NFS traffic."
+      },
+      "nfs_no_root_squash_set": {
+        "type": "boolean",
+        "title": "NFS no_root_squash Set",
+        "description": "Interpreted from the NFS export options: true when any export carries the no_root_squash option, which trusts the client's root (UID 0) and lets a client-root attacker read/write server-side files as root (drop SUID binaries, alter ACLs, tamper with data) — a privilege-escalation/data-tampering exposure. The secure default is root_squash (client root mapped to anonymous nfsnobody), under which this is false.",
+        "default": false
+      },
+      "immutable_worm_snapshots_enabled": {
+        "type": "boolean",
+        "title": "Immutable WORM Snapshots Enabled",
+        "description": "Whether the store keeps immutable/WORM (read-only, retention-locked) point-in-time snapshots that ransomware cannot delete or encrypt. Insecure (false) when there are no snapshots, or snapshots are deletable/writable by an account ransomware can compromise — the core enabler of irrecoverable mass-encryption (Qlocker/DeadBolt/eCh0raix).",
+        "default": false
+      },
+      "offline_airgapped_backup_exists": {
+        "type": "boolean",
+        "title": "Offline / Air-Gapped Backup Exists",
+        "description": "Whether at least one backup copy is offline/air-gapped/immutable (3-2-1-1 style), unreachable from the production credentials/network. Insecure (false) when the only backups are online and reachable from the same credentials/network as production storage, so ransomware that reaches the store can also destroy the last-resort copy.",
+        "default": false
+      },
+      "ransomware_mass_change_detection_enabled": {
+        "type": "boolean",
+        "title": "Ransomware Mass-Change Detection Enabled",
+        "description": "Whether bulk-modify/rename/encrypt anomaly detection is in place to surface ransomware mass-encryption early (sudden high-volume file modification on shares). Insecure (false) when no write-rate/rename anomaly alerting exists, so mass-encryption proceeds unobserved until shares are already encrypted."
+      },
+      "config_backed_up_to_known_good": {
+        "type": "boolean",
+        "title": "Config Backed Up to Known-Good",
+        "description": "Shared workspace vocabulary: whether the store's configuration/data is captured in a known-good backup that can be restored after compromise. Insecure (false) when no known-good baseline exists to recover from, compounding ransomware impact."
+      },
+      "rollback_tested": {
+        "type": "boolean",
+        "title": "Rollback / Restore Tested",
+        "description": "Shared workspace vocabulary: whether recovery/restore from backup is periodically tested so a real ransomware event can actually be reversed. Insecure (false) when restores are untested — backups may exist but fail when needed, leaving recovery impossible."
+      },
+      "data_store_publicly_routable": {
+        "type": "boolean",
+        "title": "File Store Publicly Routable",
+        "description": "Shared-vocabulary attestation: whether the file-storage host is reachable from a public/internet-routable interface. True means the NAS/file server is exposed to the open internet (insecure); the secure state is a store reachable only from trusted internal networks (false).",
+        "default": false
+      },
+      "file_sharing_ports_internet_exposed": {
+        "type": "boolean",
+        "title": "File-Sharing Ports Internet-Exposed",
+        "description": "Whether the file-sharing service ports — SMB (TCP 445/139) and/or NFS (TCP/UDP 2049 + rpcbind 111) — are listening on a public interface or otherwise reachable from the internet. True is insecure; secure state firewalls 445/2049/111 to trusted client subnets only (false). Interpreted boolean — the assessor confirms reachability from an untrusted vantage rather than matching a raw port string.",
+        "default": false
+      },
+      "segment_boundary_enforced": {
+        "type": "boolean",
+        "title": "Segment Boundary Enforced",
+        "description": "Shared-vocabulary attestation: whether a network-segmentation boundary is enforced between the file-storage service and untrusted VLANs/segments, so file-sharing ports are not reachable from untrusted internal networks. The secure state is an enforced boundary (true); when no segmentation is enforced (false) the store is reachable from untrusted VLANs — the insecure condition this exposure fires on.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Volume Encrypted at Rest",
+        "description": "Whether the underlying file-storage volume is encrypted at rest (BitLocker, LUKS/dm-crypt, or NAS volume encryption) with keys held in a KMS/HSM/TPM separate from the data. SMB3/NFS in-transit encryption does NOT satisfy this. True = volume encrypted at rest (secure); false = plaintext volume so stolen, lost, or decommissioned disks leak sensitive files (exposure). Shared workspace vocabulary.",
+        "default": false
+      },
+      "media_sanitized_before_disposal": {
+        "type": "boolean",
+        "title": "Media Sanitized Before Disposal",
+        "description": "Whether drives/volumes are sanitized per NIST SP 800-88r2 (Clear/Purge/Destroy at the level matched to data confidentiality impact) before reuse or disposal, with sanitization records or certificates of destruction retained. True = a sanitization process is in place and evidenced (secure); false = drives reused or disposed without sanitization, leaving recoverable data remanence (exposure).",
+        "default": false
+      },
+      "secure_deletion_or_crypto_shred": {
+        "type": "boolean",
+        "title": "Secure Deletion / Crypto-Shred",
+        "description": "Whether retired media is rendered unrecoverable via cryptographic erase (destroying the at-rest encryption key so ciphertext is irrecoverable) or an equivalent Purge-level secure deletion. True = crypto-shred / secure-erase performed (secure); false = no secure-deletion mechanism, so residual data is recoverable from retired storage (exposure). Reinforces media_sanitized_before_disposal for the data-remanence facet. Shared workspace vocabulary."
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "File-Access Audit Trail Enabled",
+        "description": "Whether object/file-access audit logging is enabled on sensitive shares (Windows SACL 'Audit Object Access' / Linux auditd file watches) and shipped to a central SIEM. When false, abnormal bulk reads of files go unrecorded so exfiltration is neither detected nor attributable. Shared workspace vocabulary.",
+        "default": false
+      },
+      "dlp_egress_controls_enabled": {
+        "type": "boolean",
+        "title": "DLP Egress Controls Enabled",
+        "description": "Whether data-loss-prevention controls inspect and constrain sensitive files leaving the share (copy-off, sync, email) on egress paths. When false, sensitive files may be copied out at volume with no inspection or blocking, the compensating control for over-broad read access and insider/credential-theft exfiltration being absent. Shared workspace vocabulary.",
+        "default": false
+      },
+      "bulk_export_monitored_and_alerted": {
+        "type": "boolean",
+        "title": "Bulk Export Monitored and Alerted",
+        "description": "Whether abnormal high-volume / bulk read-and-copy activity against the share is monitored and alerted (read-rate / bulk-export anomaly detection, e.g. SIEM analytics or UEBA on the audit stream). When false, a large-scale copy of files does not trigger any alert, so exfiltration proceeds silently even where individual access is technically logged. Shared workspace vocabulary."
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Known-Exploited RCE CVE Present",
+        "description": "Interpreted boolean: the NAS appliance OS or a bundled app runs a firmware/app version carrying a known-exploited (CISA KEV) remote-code-execution or improper-authorization CVE — e.g. QNAP HBS 3 CVE-2021-28799 (Qlocker) or Photo Station CVE-2022-27593 (DeadBolt). True when any outstanding KEV-listed exploitable CVE applies. Secure (hardened) value is false. Shared workspace vocabulary.",
+        "default": false
+      },
+      "unnecessary_nas_apps_enabled": {
+        "type": "boolean",
+        "title": "Unnecessary NAS Apps Enabled",
+        "description": "Interpreted boolean: non-essential bundled NAS applications (e.g. Photo Station, Hybrid Backup Sync, media/web apps) are installed and enabled, expanding the appliance's exploitable attack surface beyond core file sharing. These bundled apps are the components most frequently carrying the mass-exploited KEV CVEs. Secure value is false; the exposure fires when true."
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting / Lockout Enabled",
+        "description": "Shared-vocabulary attestation: the store throttles failed authentication against its admin UIs and SMB/file shares via a server-side authentication rate limiter (SMB InvalidAuthenticationDelayTimeInMs non-zero, default 2000 ms on Windows Server 2025 / Windows 11 24H2) and/or account lockout, blunting high-rate online credential brute force. Secure value is true; the exposure fires when false (unthrottled brute force against exposed shares/admin).",
+        "default": false
+      }
+    },
+    "required": [
+      "smbv1_enabled",
+      "min_smb_dialect",
+      "edge_appliance_patched_within_sla",
+      "everyone_full_control_share",
+      "nfs_export_wildcard_rw",
+      "least_privilege_access_enforced",
+      "access_based_enumeration_disabled",
+      "insecure_guest_auth_allowed",
+      "null_session_access_allowed",
+      "nfs_auth_sys_only",
+      "smb_signing_required",
+      "smb3_encryption_required",
+      "reject_unencrypted_access",
+      "smb_ntlm_blocked",
+      "nfs_export_security_flavor",
+      "nfs_no_root_squash_set",
+      "immutable_worm_snapshots_enabled",
+      "offline_airgapped_backup_exists",
+      "ransomware_mass_change_detection_enabled",
+      "config_backed_up_to_known_good",
+      "rollback_tested",
+      "data_store_publicly_routable",
+      "file_sharing_ports_internet_exposed",
+      "segment_boundary_enforced",
+      "encrypted_at_rest",
+      "media_sanitized_before_disposal",
+      "secure_deletion_or_crypto_shred",
+      "access_audit_trail_enabled",
+      "dlp_egress_controls_enabled",
+      "bulk_export_monitored_and_alerted",
+      "unpatched_known_rce_cve",
+      "unnecessary_nas_apps_enabled",
+      "rate_limiting_or_lockout_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/insecure_guest_auth_allowed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_auth_sys_only"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/null_session_access_allowed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smb_ntlm_blocked"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/everyone_full_control_share"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_export_wildcard_rw"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_no_root_squash_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_based_enumeration_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/smb_signing_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smb3_encryption_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_export_security_flavor"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/reject_unencrypted_access"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/media_sanitized_before_disposal"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_deletion_or_crypto_shred"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_store_publicly_routable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/file_sharing_ports_internet_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segment_boundary_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unnecessary_nas_apps_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/immutable_worm_snapshots_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/offline_airgapped_backup_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_backed_up_to_known_good"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_tested"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_egress_controls_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_export_monitored_and_alerted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ransomware_mass_change_detection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Protocol Hardening",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_smb_dialect"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/smbv1_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

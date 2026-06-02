@@ -1,0 +1,9 @@
+{
+  "id": "b06b2138-5227-4774-befa-b6a96eeb4619",
+  "name": "External Cloud Service",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "An external cloud-provider service — managed compute, storage, database, queue, or platform API (AWS, Azure, GCP) consumed under a shared-responsibility model. A dependency outside the organization's trust boundary carrying data-residency and availability risk. The place to look for a managed cloud service, cloud provider dependency, *-as-a-service, or an external platform the system relies on.",
+  "category": "External Services",
+  "status": "draft"
+}

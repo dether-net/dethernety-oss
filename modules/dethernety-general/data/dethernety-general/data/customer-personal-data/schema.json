@@ -1,0 +1,480 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Attestation: an audit trail of access to customer/personal data is enabled and captured. Insecure (false) when no audit trail exists, leaving access events unrecorded.",
+        "default": false
+      },
+      "at_rest_encryption_strength": {
+        "type": "string",
+        "enum": [
+          "none",
+          "weak",
+          "strong"
+        ],
+        "title": "At-Rest Encryption Strength",
+        "description": "Strength category of the at-rest encryption applied to PII. 'none' means no encryption; 'weak' means deprecated algorithms / short keys / vendor-default keys with no rotation; 'strong' means modern AEAD (e.g. AES-256-GCM) with managed keys and rotation. Anything below 'strong' is treated as an exposure."
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper Evident",
+        "description": "Attestation: audit logs of PII access are tamper-evident — append-only / hash-chained / WORM storage — so post-hoc modification or deletion is detectable. Insecure (false) when logs can be silently altered, defeating breach attribution (NIST SP 800-53 AU-9).",
+        "default": false
+      },
+      "audit_management_restricted_to_privileged_subset": {
+        "type": "boolean",
+        "title": "Audit Management Restricted To Privileged Subset",
+        "description": "Attestation: management of audit logs (rotation, deletion, configuration) is restricted to a privileged subset disjoint from the data-plane principals who act on the PII — separation of duties per NIST SP 800-53 AU-9. Insecure (false) when data-plane admins can also manage audit logs, enabling self-cover-up.",
+        "default": false
+      },
+      "backups_encrypted": {
+        "type": "boolean",
+        "title": "Backups Encrypted",
+        "description": "Attestation that backups, snapshots, and exported datasets containing PII are encrypted. Backups are a frequent forgotten copy that re-exposes data even when the primary store is encrypted.",
+        "default": false
+      },
+      "bulk_export_monitored_and_alerted": {
+        "type": "boolean",
+        "title": "Bulk Export Monitored And Alerted",
+        "description": "Attestation that volumetric / bulk-export anomaly monitoring is in place on the PII store with alerting on threshold breaches (row count, byte volume, query cardinality), so that mass-pull behaviour by an authenticated or compromised principal trips a signal. Secure value: true.",
+        "default": false
+      },
+      "dlp_egress_controls_enabled": {
+        "type": "boolean",
+        "title": "DLP Egress Controls Enabled",
+        "description": "Attestation that DLP / egress-side controls are deployed and enforced on the PII data store's outbound paths (API, SQL, export), inspecting and blocking unauthorized bulk movement of customer/personal data. Secure value: true.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted At Rest",
+        "description": "Attestation that the PII data store applies cryptographic encryption to data persisted on durable storage (database files, object storage, file shares). When false, anyone with media-level or volume-level access reads cleartext records.",
+        "default": false
+      },
+      "field_level_protection_method": {
+        "type": "string",
+        "enum": [
+          "none",
+          "truncation",
+          "one_way_hash",
+          "tokenization",
+          "field_level_encryption",
+          "pseudonymization"
+        ],
+        "title": "Field-Level Protection Method",
+        "description": "The field-level protection mechanism applied to sensitive fields at rest. Fires (insecure) when 'none' — no masking, hashing, tokenization, encryption, or pseudonymization is applied; record-level compromise exposes plaintext sensitive data."
+      },
+      "governed_transfer_safeguards": {
+        "type": "boolean",
+        "title": "Governed Transfer Safeguards",
+        "description": "Attests that every cross-border transfer of PII to a non-adequate-decision country is governed by valid Article 46 GDPR safeguards — Standard Contractual Clauses (SCCs), Binding Corporate Rules, or equivalent — accompanied by a documented Transfer Impact Assessment (Schrems II). False when any transfer lacks these safeguards.",
+        "default": false
+      },
+      "hsts_enforced": {
+        "type": "boolean",
+        "title": "HSTS Enforced",
+        "description": "True when HSTS is enforced on browser-facing endpoints (Strict-Transport-Security with adequate max-age). False fires the exposure: a downgrade-back attack (sslstrip-style) can drop the client to HTTP and capture PII in cleartext."
+      },
+      "key_rotation_enabled": {
+        "type": "boolean",
+        "title": "Key Rotation Enabled",
+        "description": "True when a rotation cadence is configured for the data-encryption keys (automatic KMS rotation, scheduled re-wrap, or operator-driven rotation with a defined interval). When false, a single key compromise persists indefinitely and the window for offline cryptanalysis is unbounded.",
+        "default": false
+      },
+      "keys_derived_from_passphrase": {
+        "type": "boolean",
+        "title": "Keys Derived From Passphrase",
+        "description": "True when the key-encryption key (KEK) or data-encryption key is derived from a human-chosen passphrase or low-entropy secret (e.g. a config-file password fed through PBKDF2/scrypt with weak parameters), rather than generated as full-entropy random material by an HSM/KMS. Low-entropy KEKs are tractable to offline brute-force once any wrapped blob leaks.",
+        "default": false
+      },
+      "keys_managed_in_hsm_or_kms": {
+        "type": "boolean",
+        "title": "Keys Managed In HSM Or KMS",
+        "description": "True when the data-encryption keys protecting this dataset are managed by a dedicated HSM or KMS (hardware-backed or cloud-managed key store) with access mediated by IAM/policy, rather than held as raw material alongside the application. When false, key material is held in plaintext config, environment variables, or the same storage tier as the ciphertext — defeating the encryption-at-rest control on any privileged read.",
+        "default": false
+      },
+      "keys_stored_with_data": {
+        "type": "boolean",
+        "title": "Keys Stored With Data",
+        "description": "True when encryption keys are co-located with the ciphertext they protect — same database, same volume, same backup, or same blast radius. A single privileged read of the storage tier then yields both ciphertext and key, collapsing encryption-at-rest to no protection at all.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least Privilege Access Enforced",
+        "description": "True when access to the PII store is granted on a documented need-to-know basis, with role/service-account grants scoped to the minimum data each consumer requires (no broad blanket reads).",
+        "default": false
+      },
+      "pan_rendered_unreadable": {
+        "type": "boolean",
+        "title": "PAN Rendered Unreadable",
+        "description": "Attests that Primary Account Numbers (PAN) and equivalent high-sensitivity identifiers are rendered unreadable anywhere they are stored (PCI DSS Req 3.5). Fires (insecure) when false — PAN stored in clear, directly usable on compromise.",
+        "default": false
+      },
+      "pii_excluded_from_logs": {
+        "type": "boolean",
+        "title": "PII Excluded From Logs",
+        "description": "Attests that the application's logging, error-reporting, and tracing pipelines exclude raw PII / cardholder / health data from emitted log records, spans, and analytics events — preventing logs from becoming a shadow read of the primary data store (CWE-532).",
+        "default": false
+      },
+      "relies_on_disk_encryption_only": {
+        "type": "boolean",
+        "title": "Relies On Disk Encryption Only",
+        "description": "Attestation that the only at-rest protection for PII is full-disk / volume-level encryption (e.g. LUKS, BitLocker, EBS volume encryption). Volume crypto protects against physical media theft but is transparent to a live OS — a compromised application, DB account, or host reads cleartext. Application/column/tablespace-level encryption is the recommended additional layer."
+      },
+      "residency_confined_to_approved_regions": {
+        "type": "boolean",
+        "title": "Residency Confined To Approved Regions",
+        "description": "Attests that all PII storage locations (primary, backups, DR replicas, ad-hoc copies, caches, logs) are confined to the regions approved for the customer/contract/regulator (e.g., EU PII stays within EEA or adequacy-decision regions). False when any PII resides in or is processed from an unapproved region.",
+        "default": false
+      },
+      "retention_schedule_enforced": {
+        "type": "boolean",
+        "title": "Retention Schedule Enforced",
+        "description": "Whether a documented PII retention schedule is actively enforced across primary stores and backups (records purged at retention-end). When false, PII is retained indefinitely in violation of GDPR Art. 5(1)(e) storage-limitation and PCI DSS Req 3.2 retention discipline.",
+        "default": false
+      },
+      "row_or_column_level_restriction": {
+        "type": "boolean",
+        "title": "Row Or Column Level Restriction",
+        "description": "True when row-level and/or column-level access controls scope each consumer to only the records and fields they need (e.g. tenant-scoped row filters, PII column masking) — not just table-level grants.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked In Logs",
+        "description": "Attests that a masking/redaction pipeline is in place across log sinks (application logs, error reports, distributed-tracing spans, analytics events) that scrubs or tokenises sensitive fields before they are written or forwarded to centralised/archival systems.",
+        "default": false
+      },
+      "secure_deletion_or_crypto_shred": {
+        "type": "boolean",
+        "title": "Secure Deletion Or Crypto-Shred",
+        "description": "Whether retention-end deletion applies NIST SP 800-88 Rev. 2 sanitization (Clear/Purge/Destroy) or crypto-shredding of PII across primary stores AND backups. When false, supposedly-deleted PII remains recoverable.",
+        "default": false
+      },
+      "sensitive_fields_field_level_protected": {
+        "type": "boolean",
+        "title": "Sensitive Fields Field-Level Protected",
+        "description": "Attests that high-sensitivity fields (card numbers, SSNs, government identifiers) are protected at the field level by at least one of: truncation, one-way hash, tokenization, field-level encryption, or pseudonymization. Fires (insecure) when false — sensitive fields stored in clear at record level, violating PCI DSS Req 3.3-3.5; database compromise yields directly usable credentials.",
+        "default": false
+      },
+      "shared_admin_accounts": {
+        "type": "boolean",
+        "title": "Shared Admin Accounts",
+        "description": "True when administrative or service identities to the PII store are shared across people (no per-person attribution), so queries cannot be tied to an individual and a single credential compromise yields the whole dataset.",
+        "default": false
+      },
+      "soft_delete_leaves_recoverable_pii": {
+        "type": "boolean",
+        "title": "Soft Delete Leaves Recoverable PII",
+        "description": "Whether the deletion pattern is a soft-delete (tombstone / flag) that leaves recoverable PII rows in the underlying store. When true, 'deleted' PII is still present and reachable to operators, queries, or backups.",
+        "default": false
+      },
+      "storage_destinations_documented": {
+        "type": "boolean",
+        "title": "Storage Destinations Documented",
+        "description": "Attests that all PII storage destinations — including primary stores, backups, DR replicas, ad-hoc operational copies, and downstream processor locations — are inventoried and their geographic locations documented in the records of processing (GDPR Art. 30). False when storage destinations are unknown or undocumented.",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "True when PII is transmitted exclusively over TLS (no cleartext fallback / no plain HTTP listener). False fires the exposure: a cleartext channel is allowed, so a passive wire tap reads the data.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "True when the transport accepts weak TLS versions (TLS 1.0/1.1) or weak ciphers, enabling an active MITM to negotiate a downgraded session and read the PII. Modeled as an interpreted boolean to avoid the regex/substring trap on composite cipher strings.",
+        "default": false
+      }
+    },
+    "required": [
+      "access_audit_trail_enabled",
+      "at_rest_encryption_strength",
+      "audit_log_tamper_evident",
+      "audit_management_restricted_to_privileged_subset",
+      "backups_encrypted",
+      "bulk_export_monitored_and_alerted",
+      "dlp_egress_controls_enabled",
+      "encrypted_at_rest",
+      "field_level_protection_method",
+      "governed_transfer_safeguards",
+      "hsts_enforced",
+      "key_rotation_enabled",
+      "keys_derived_from_passphrase",
+      "keys_managed_in_hsm_or_kms",
+      "keys_stored_with_data",
+      "least_privilege_access_enforced",
+      "pan_rendered_unreadable",
+      "pii_excluded_from_logs",
+      "relies_on_disk_encryption_only",
+      "residency_confined_to_approved_regions",
+      "retention_schedule_enforced",
+      "row_or_column_level_restriction",
+      "secrets_masked_in_logs",
+      "secure_deletion_or_crypto_shred",
+      "sensitive_fields_field_level_protected",
+      "shared_admin_accounts",
+      "soft_delete_leaves_recoverable_pii",
+      "storage_destinations_documented",
+      "tls_only_transport",
+      "weak_tls_versions_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_admin_accounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_management_restricted_to_privileged_subset"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/row_or_column_level_restriction"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/at_rest_encryption_strength"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backups_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/field_level_protection_method"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pan_rendered_unreadable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_fields_field_level_protected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/relies_on_disk_encryption_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/governed_transfer_safeguards"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/residency_confined_to_approved_regions"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_schedule_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_deletion_or_crypto_shred"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/soft_delete_leaves_recoverable_pii"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_destinations_documented"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_derived_from_passphrase"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_managed_in_hsm_or_kms"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_stored_with_data"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_egress_controls_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_export_monitored_and_alerted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_excluded_from_logs"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

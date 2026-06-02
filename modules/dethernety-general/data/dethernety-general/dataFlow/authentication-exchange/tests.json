@@ -1,0 +1,111 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "pkce_required": false,
+      "code_single_use_enforced": false,
+      "authorization_code_ttl_seconds": 0,
+      "pkce_method_s256_required": false,
+      "code_challenge_method_plain_accepted": true,
+      "oidc_nonce_validated": false,
+      "oauth_state_bound_and_verified": false,
+      "redirect_uri_exact_match_enforced": false,
+      "post_login_returnto_allowlisted": false,
+      "saml_assertion_signature_verified": false,
+      "saml_audience_restriction_strict": false,
+      "saml_recipient_inresponseto_matched": false,
+      "saml_assertion_replay_cache_active": false,
+      "phishing_resistant_authenticator_required": false,
+      "sender_constrained": false,
+      "rate_limiting_or_lockout_enabled": false,
+      "breached_password_screening_enabled": false,
+      "transmitted_in_url_or_query": true,
+      "secrets_masked_in_logs": false,
+      "access_token_ttl_minutes": 0
+    },
+    "expectedExposures": [
+      "Phishing-driven MFA bypass via AiTM reverse proxy",
+      "SAML signature wrapping, replay, and audience confusion",
+      "Authorization code interception and replay",
+      "Bearer access token theft and replay from a different sender",
+      "Credential stuffing and online brute force",
+      "ID Token replay via missing or unchecked nonce",
+      "Login CSRF via missing or unbound state parameter",
+      "PKCE downgrade attack",
+      "redirect_uri pattern-match / open-redirect exploit",
+      "Secrets in URL leaking via Referer, logs, and browser history"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "pkce_required": true,
+      "code_single_use_enforced": true,
+      "authorization_code_ttl_seconds": 0,
+      "pkce_method_s256_required": true,
+      "code_challenge_method_plain_accepted": false,
+      "oidc_nonce_validated": true,
+      "oauth_state_bound_and_verified": true,
+      "redirect_uri_exact_match_enforced": true,
+      "post_login_returnto_allowlisted": true,
+      "saml_assertion_signature_verified": true,
+      "saml_audience_restriction_strict": true,
+      "saml_recipient_inresponseto_matched": true,
+      "saml_assertion_replay_cache_active": true,
+      "phishing_resistant_authenticator_required": true,
+      "sender_constrained": true,
+      "rate_limiting_or_lockout_enabled": true,
+      "breached_password_screening_enabled": true,
+      "transmitted_in_url_or_query": false,
+      "secrets_masked_in_logs": true,
+      "access_token_ttl_minutes": 0
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "pkce_required": true,
+      "code_single_use_enforced": true,
+      "authorization_code_ttl_seconds": 0,
+      "pkce_method_s256_required": true,
+      "code_challenge_method_plain_accepted": false,
+      "oidc_nonce_validated": true,
+      "oauth_state_bound_and_verified": true,
+      "redirect_uri_exact_match_enforced": true,
+      "post_login_returnto_allowlisted": true,
+      "saml_assertion_signature_verified": true,
+      "saml_audience_restriction_strict": true,
+      "saml_recipient_inresponseto_matched": true,
+      "saml_assertion_replay_cache_active": true,
+      "phishing_resistant_authenticator_required": true,
+      "sender_constrained": true,
+      "rate_limiting_or_lockout_enabled": true,
+      "breached_password_screening_enabled": true,
+      "transmitted_in_url_or_query": false,
+      "secrets_masked_in_logs": true,
+      "access_token_ttl_minutes": 0
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Phishing-driven MFA bypass via AiTM reverse proxy",
+      "SAML signature wrapping, replay, and audience confusion",
+      "Authorization code interception and replay",
+      "Bearer access token theft and replay from a different sender",
+      "Credential stuffing and online brute force",
+      "ID Token replay via missing or unchecked nonce",
+      "Login CSRF via missing or unbound state parameter",
+      "PKCE downgrade attack",
+      "redirect_uri pattern-match / open-redirect exploit",
+      "Secrets in URL leaking via Referer, logs, and browser history"
+    ]
+  }
+]

@@ -1,0 +1,478 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version Negotiated",
+        "description": "Lowest TLS/SSL protocol version the server will negotiate (ssl_protocols / SSLProtocol). Secure posture offers only TLS 1.2/1.3; if SSLv3/TLS1.0/TLS1.1 are still accepted ('tls1_0_or_tls1_1_or_sslv3_accepted') an on-path attacker can force a downgrade to a broken protocol (POODLE/BEAST) and decrypt. Fires on the deprecated-version value."
+      },
+      "strong_cipher_suite_enforced": {
+        "type": "boolean",
+        "title": "Strong Cipher Suite Enforced",
+        "description": "Interpreted assertion that the negotiated cipher suites exclude weak/legacy ciphers (RC4, DES/3DES, EXPORT, NULL, MD5, non-PFS) — i.e. only forward-secret AEAD suites (ECDHE+GCM/ChaCha20, Mozilla Intermediate/Modern) are offered (ssl_ciphers / SSLCipherSuite). Modelled as an interpreted boolean rather than a substring match on the raw cipher string because the secure list excludes weak tokens with '!' and would false-match a raw regex. Secure value true; fires when weak ciphers are NOT disabled.",
+        "default": false
+      },
+      "hsts_enabled": {
+        "type": "boolean",
+        "title": "HSTS Enabled",
+        "description": "Whether HTTP Strict-Transport-Security is served with an effective policy (max-age >= 2y, includeSubDomains), forcing HTTPS and defeating SSL-strip/downgrade (RFC 6797). Secure value true; fires when HSTS is absent or ineffective.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Valid",
+        "description": "Interpreted assertion that the served certificate is valid: CA-issued (not self-signed for public), unexpired, full chain, strong key (>=2048-bit RSA / 256-bit ECDSA) and SHA-256+ signature. An expired/self-signed/weak-key cert undermines authentication of the endpoint and enables AiTM. Secure value true; fires when the certificate is invalid.",
+        "default": false
+      },
+      "software_version_patched": {
+        "type": "boolean",
+        "title": "Server Software Patched Within SLA",
+        "description": "True when the server software (nginx/Apache/etc.) is running a current stable patched release within the patch SLA, not a version affected by an open advisory. Insecure (false) means the running version is behind a known RCE/DoS CVE (e.g. nginx HTTP/3 use-after-free CVE-2024-24990, TLS session-reuse CVE-2025-23419, HTTP/2 Rapid Reset CVE-2023-44487) — directly exploitable on an internet-facing server. Verified by comparing the version string (nginx -v / apachectl -v) against the vendor advisory page.",
+        "default": false
+      },
+      "days_since_last_security_patch": {
+        "type": "integer",
+        "title": "Days Since Last Security Patch",
+        "description": "Number of days since the server software was last patched/updated. Fires above the patch-SLA threshold (30 days): a long-unpatched internet-facing server accumulates exposure to newly-disclosed advisories. Secondary trigger reinforcing patch-currency."
+      },
+      "experimental_http3_quic_enabled": {
+        "type": "boolean",
+        "title": "Experimental HTTP/3 (QUIC) Listener Enabled",
+        "description": "True when the experimental HTTP/3 (QUIC) listener is enabled. Insecure-widening: enabling the experimental ngx_http_v3 listener expands the attack surface and was the vector for the CVE-2024-24990 use-after-free worker crash. Secure value is false (experimental QUIC off unless required); fires on is_true. Verified via nginx -T grep 'listen .* quic' / 'http3 on'."
+      },
+      "server_version_tokens_disabled": {
+        "type": "boolean",
+        "title": "Server Version Tokens Disabled",
+        "description": "True when version/banner disclosure is suppressed — nginx server_tokens off, Apache ServerTokens Prod + ServerSignature Off — so the Server header and error pages do not leak the exact product version. Default-insecure (nginx server_tokens on, Apache ServerTokens Full / ServerSignature On). When false, exact version tokens fingerprint the stack and ease targeted CVE selection (T1592.002 / accelerating T1190 exploitation). Consolidates the same concept previously expressed with opposite polarity across vectors."
+      },
+      "worker_process_runs_unprivileged": {
+        "type": "boolean",
+        "title": "Worker Process Runs Unprivileged",
+        "description": "Whether the web server worker processes run as a dedicated unprivileged user (e.g. nginx/www-data) rather than root. Secure value true. When false, workers run as root, so a worker compromise yields root and any dropped web shell executes with full privilege (nginx 'user' directive; ps -eo user,comm should show non-root workers).",
+        "default": false
+      },
+      "webroot_writable_by_server_user": {
+        "type": "boolean",
+        "title": "Webroot Writable by Server User",
+        "description": "Whether the webroot/code directories are writable by the serving (worker) user. INSECURE value true. Write+serve on the same path lets an attacker drop and then execute a server-side script (web shell, T1505.003); least privilege (AC-6) requires the serving user to have read-only access. Verified via ls -la /var/www and find -perm -0002.",
+        "default": false
+      },
+      "http_method_allow_list_enforced": {
+        "type": "boolean",
+        "title": "Dangerous HTTP Methods Disabled",
+        "description": "True when dangerous/unused HTTP write methods are disabled and only the needed verbs are exposed (GET/HEAD/POST as needed; TraceEnable Off; no PUT/DELETE/WebDAV PROPFIND/MKCOL unless required). When false, an enabled PUT/WebDAV method turns a write primitive into a web-shell upload path, and TRACE enables cross-site tracing — both expanding the attack and fingerprinting surface (OPTIONS Allow header reveals method support). Verified via curl -X OPTIONS Allow header.",
+        "default": false
+      },
+      "directory_autoindex_disabled": {
+        "type": "boolean",
+        "title": "Directory Autoindex Disabled",
+        "description": "True when automatic directory listing is disabled — nginx has no 'autoindex on;' (off is default), Apache uses 'Options -Indexes'. When false (autoindex on / Options Indexes), a request to a directory without an index file returns an 'Index of /' page exposing the full file tree (backups, configs, source), leaking the layout for targeted retrieval.",
+        "default": false
+      },
+      "sample_apps_and_default_content_removed": {
+        "type": "boolean",
+        "title": "Default / Sample Files Removed",
+        "description": "True when shipped default/sample/welcome files and demo pages are removed from the webroot. When false, vendor-default content (default index, sample apps, test pages) fingerprints the server product and version and may itself carry known vulnerabilities, aiding stack enumeration (T1592.002)."
+      },
+      "status_endpoints_access_restricted": {
+        "type": "boolean",
+        "title": "Status / Admin Endpoints Restricted",
+        "description": "True when built-in status/admin endpoints (nginx stub_status, Apache mod_status server-status, /admin) are IP-restricted (allow 127.0.0.1; deny all;) or disabled. When false, /server-status / /nginx_status are reachable from the internet and leak internal metrics, active connections, request paths, and config detail, providing reconnaissance for targeted attacks (T1595.002).",
+        "default": false
+      },
+      "dotfiles_and_vcs_metadata_blocked": {
+        "type": "boolean",
+        "title": "Dotfiles and VCS Metadata Blocked",
+        "description": "Attested true when the web server denies direct access to VCS metadata and dotfiles under webroot (e.g. nginx 'location ~ /\\.(git|svn|env) { deny all; }' or Apache equivalent), OR those files are kept entirely out of the served document root. Secure value is true; the exposure fires when false (e.g. GET /.git/config or /.env returns 200 with file contents instead of 403/404). Modeled as an interpreted boolean because the underlying config is a composite deny directive / file-presence fact, not a polarity-safe substring match.",
+        "default": false
+      },
+      "backup_and_swap_files_excluded_from_webroot": {
+        "type": "boolean",
+        "title": "Backup / Swap Files Excluded from Webroot",
+        "description": "Attested true when editor swap/backup and database/dump files (e.g. *.bak, *.old, *.swp, *.sql, config.php~) are either denied by server rules (e.g. nginx 'location ~* \\.(bak|old|swp|sql)$ { deny all; }') or absent from the served document root. Secure value is true; the exposure fires when false (e.g. GET /backup.sql or /config.php.bak returns 200 leaking source/credentials). Modeled as an interpreted boolean to keep polarity safe.",
+        "default": false
+      },
+      "path_traversal_protection_enabled": {
+        "type": "boolean",
+        "title": "Path-Traversal Protection Enabled",
+        "description": "Attested true when the server normalizes and rejects path-traversal sequences (e.g. ../, %2e%2e, encoded null/dot-segment tricks) so that sensitive files outside the intended served subtree cannot be reached via crafted URLs. Secure value is true; the exposure fires when false, since traversal can reach the same VCS metadata / env / backup files this vector concerns even when direct dotfile deny rules exist. Secondary trigger for the sensitive-file exposure surface."
+      },
+      "x_content_type_options_nosniff_set": {
+        "type": "boolean",
+        "title": "X-Content-Type-Options nosniff Set",
+        "description": "True when the server sends X-Content-Type-Options: nosniff on responses (including error responses via the 'always' flag), preventing browser MIME-type sniffing. Secure value is true; the exposure fires when this defense is absent.",
+        "default": false
+      },
+      "frame_ancestors_restricted": {
+        "type": "boolean",
+        "title": "Frame Ancestors Restricted",
+        "description": "True when framing is restricted to defeat clickjacking — either X-Frame-Options: deny/sameorigin or a CSP frame-ancestors directive scoping who may embed the content. Secure value is true; the exposure fires when no anti-framing control is present.",
+        "default": false
+      },
+      "referrer_policy_set": {
+        "type": "boolean",
+        "title": "Referrer-Policy Header Set",
+        "description": "True when the server emits a Referrer-Policy header (e.g. no-referrer or strict-origin-when-cross-origin) limiting referrer leakage to third parties. Secure value is true; the exposure fires when the header is absent and the default leaky referrer behavior applies."
+      },
+      "request_body_size_capped": {
+        "type": "boolean",
+        "title": "Request Body Size Capped",
+        "description": "Interpreted from nginx client_max_body_size / Apache LimitRequestBody. True when an explicit, bounded request-body size limit is configured (e.g. client_max_body_size 10m). False when bodies are unbounded (client_max_body_size 0) or sized so large that memory/disk can be exhausted by oversized uploads or slow-POST. The insecure (unbounded) state fires this exposure; the secure value is true.",
+        "default": false
+      },
+      "slowloris_timeouts_configured": {
+        "type": "boolean",
+        "title": "Connection / Request Timeouts Hardened",
+        "description": "Interpreted from nginx client_body_timeout / client_header_timeout / keepalive_timeout (or Apache equivalents). True when client/keepalive timeouts are tightened for an internet-facing server (e.g. 10s/10s/15s) so a slow client cannot hold worker/connection slots open. False when timeouts are left at slack defaults (60s/60s/75s) or disabled, which is the primary enabler of Slowloris / slow-POST connection-exhaustion DoS. The insecure (slack) state fires this exposure; the secure value is true.",
+        "default": false
+      },
+      "request_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Per-IP Rate / Connection Limit Set",
+        "description": "Interpreted from nginx limit_req_zone+limit_req / limit_conn (or Apache mod_ratelimit / mod_qos equivalents). True when per-IP request-rate and/or concurrent-connection limits are applied to internet-facing endpoints to blunt volumetric L7 floods and HTTP/2 Rapid Reset stream-reset abuse. False when no rate/connection limiting exists on a public endpoint. The insecure (no-limit) state fires this exposure; the secure value is true.",
+        "default": false
+      },
+      "request_framing_normalized_front_back": {
+        "type": "boolean",
+        "title": "Strict Request Framing Enforced",
+        "description": "Whether the server enforces a single, unambiguous request-framing interpretation consistent with its upstream — rejecting requests that present both Content-Length and Transfer-Encoding, or otherwise relying on a deterministic CL/TE precedence shared with the front-end. Secure value is true (strict framing enforced). When false, CL/TE disagreement between this server and an upstream proxy enables request smuggling/desync (cache poisoning, auth bypass, request hijacking). Assess via a desync test tool (Burp HTTP Request Smuggler / smuggler.py) showing no CL.TE/TE.CL/TE.TE desync, plus the server's framing/keep-alive config.",
+        "default": false
+      },
+      "ambiguous_length_headers_rejected": {
+        "type": "boolean",
+        "title": "Ambiguous Length Requests Rejected",
+        "description": "Whether the server rejects (rather than normalizes or forwards) requests with conflicting or duplicate length-determining headers (duplicate Content-Length, CL+TE together, or malformed chunked framing). Secure value is true (ambiguous requests rejected). When false, an attacker can craft a request that this server and the upstream parse differently, smuggling a hidden request past front-end controls. Interpreted from the framing-rejection posture, not a single raw directive.",
+        "default": false
+      },
+      "http2_downgrade_desync_mitigated": {
+        "type": "boolean",
+        "title": "HTTP/2 Downgrade Desync Mitigated",
+        "description": "Whether the server avoids unsafe HTTP/2-to-HTTP/1.1 downgrade translation to the upstream that re-introduces CL/TE ambiguity (H2.CL / H2.TE desync). Secure value is true (downgrade hardened or end-to-end HTTP/2 with validated framing). When false, the front-end's HTTP/2 framing is rewritten into ambiguous HTTP/1.1 framing the backend mis-parses, enabling smuggling. Assess from the proxy protocol-translation configuration and a downgrade-desync test.",
+        "default": false
+      },
+      "obsolete_transfer_encoding_tolerated": {
+        "type": "boolean",
+        "title": "Obsolete Transfer-Encoding Tolerated",
+        "description": "Whether the server tolerates obfuscated or obsolete Transfer-Encoding tokens (e.g. ' Transfer-Encoding: chunked' with whitespace tricks, duplicate TE headers, or 'Transfer-Encoding: identity') instead of strictly normalizing or rejecting them. Secure value is false (such requests are rejected). When true, TE.TE desync becomes possible where this server and the upstream disagree on which TE header is authoritative. Interpreted boolean so the secure baseline does not false-fire on substrings."
+      },
+      "affected_by_published_smuggling_cve": {
+        "type": "boolean",
+        "title": "Affected by Published Smuggling CVE",
+        "description": "Whether the running server version is affected by a known open request-smuggling/desync advisory (e.g. nginx CVE-2019-20372 error_page internal-redirect request smuggling). Secure value is false (version is past the relevant fixed release). When true, the framing weakness is exploitable regardless of other hardening. Derived from comparing the server version string against vendor desync-CVE advisories."
+      },
+      "access_logging_enabled": {
+        "type": "boolean",
+        "title": "Access and Error Logging Enabled",
+        "description": "Whether the web server has both access logging and error logging enabled (e.g. nginx access_log/error_log set to real paths, not 'off'). Secure (non-firing) value is true; when false, exploitation attempts and post-compromise activity go unrecorded.",
+        "default": false
+      },
+      "external_siem_forwarding_enabled": {
+        "type": "boolean",
+        "title": "Logs Forwarded to SIEM",
+        "description": "Whether access/error logs are forwarded to a central logging system / SIEM (syslog shipping, log agent) rather than kept local-only. Secure (non-firing) value is true; when false, logs live only on the host where an attacker can clear them, crippling detection and forensics.",
+        "default": false
+      }
+    },
+    "required": [
+      "min_tls_version",
+      "strong_cipher_suite_enforced",
+      "hsts_enabled",
+      "server_certificate_validated",
+      "software_version_patched",
+      "days_since_last_security_patch",
+      "experimental_http3_quic_enabled",
+      "server_version_tokens_disabled",
+      "worker_process_runs_unprivileged",
+      "webroot_writable_by_server_user",
+      "http_method_allow_list_enforced",
+      "directory_autoindex_disabled",
+      "sample_apps_and_default_content_removed",
+      "status_endpoints_access_restricted",
+      "dotfiles_and_vcs_metadata_blocked",
+      "backup_and_swap_files_excluded_from_webroot",
+      "path_traversal_protection_enabled",
+      "x_content_type_options_nosniff_set",
+      "frame_ancestors_restricted",
+      "referrer_policy_set",
+      "request_body_size_capped",
+      "slowloris_timeouts_configured",
+      "request_rate_limiting_enabled",
+      "request_framing_normalized_front_back",
+      "ambiguous_length_headers_rejected",
+      "http2_downgrade_desync_mitigated",
+      "obsolete_transfer_encoding_tolerated",
+      "affected_by_published_smuggling_cve",
+      "access_logging_enabled",
+      "external_siem_forwarding_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webroot_writable_by_server_user"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/worker_process_runs_unprivileged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/strong_cipher_suite_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_and_swap_files_excluded_from_webroot"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dotfiles_and_vcs_metadata_blocked"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/status_endpoints_access_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ambiguous_length_headers_rejected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/frame_ancestors_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/http_method_allow_list_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http2_downgrade_desync_mitigated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_framing_normalized_front_back"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/x_content_type_options_nosniff_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/experimental_http3_quic_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/obsolete_transfer_encoding_tolerated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/path_traversal_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/referrer_policy_set"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/software_version_patched"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/affected_by_published_smuggling_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_security_patch"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_body_size_capped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/slowloris_timeouts_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_siem_forwarding_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/directory_autoindex_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sample_apps_and_default_content_removed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_version_tokens_disabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

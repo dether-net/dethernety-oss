@@ -1,0 +1,491 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "vendor_security_attestations_reviewed": {
+        "type": "boolean",
+        "title": "Vendor Security Attestations Reviewed",
+        "description": "True when the third party holds a current, scope-relevant independent security attestation (SOC 2 Type II / ISO 27001) reviewed within the assessment cycle, with the consumed service in scope (CIS 15.5). False — no attestation, an expired report, or a report whose scope excludes the consumed service — means the consumer has no independent assurance the provider protects what it handles, the precondition for a trusted-relationship supply-chain pivot.",
+        "default": false
+      },
+      "service_provider_inventoried": {
+        "type": "boolean",
+        "title": "Service Provider Inventoried",
+        "description": "True when this third party is recorded in the maintained service-provider inventory with a data-sensitivity classification and a designated enterprise contact/owner (CIS 15.1/15.3). False — absent from inventory, or present without classification/owner — means the trust granted to this provider is unmanaged and unmonitored, so a compromise of the provider can pivot inward unnoticed.",
+        "default": false
+      },
+      "dpa_and_subprocessors_reviewed": {
+        "type": "boolean",
+        "title": "DPA and Sub-processors Reviewed",
+        "description": "True when the executed agreement with the provider embeds security-requirement clauses and, where personal data is shared, a Data Processing Addendum is on file (sub-processor, breach-notification, and data-location terms) (CIS 15.4; GDPR Art.28; NIST SA-9(3)/(4)). False — no security clauses / no DPA despite PII sharing — leaves the trust relationship contractually unbounded, with no breach-notification obligation to surface a provider compromise and no contractual control over how shared PII is handled.",
+        "default": false
+      },
+      "installed_integrations_reviewed_approved": {
+        "type": "boolean",
+        "title": "Installed Integrations Reviewed and Approved",
+        "description": "True when organizational oversight and user roles for the external service are documented and a pre-reliance risk assessment was performed and approved by designated authority before outsourcing the function (NIST SA-9 base / SA-9(1)). False — no defined owner, no approved pre-reliance risk assessment — means the trust was extended without evaluating the chain-of-trust confidence, widening the supply-chain pivot exposure."
+      },
+      "api_keys_stored_in_secret_manager": {
+        "type": "boolean",
+        "title": "API Keys Stored in Secret Manager",
+        "description": "Attestation that the third-party API credential resolves at runtime from a secrets manager / injected environment, never hard-coded in source or committed to the repository. Secure value is true; fires on false because a hard-coded or committed key is directly exfiltratable and replayable (e.g. git grep for sk_live_/api_key/bearer returns a hit).",
+        "default": false
+      },
+      "api_keys_rotated_regularly": {
+        "type": "boolean",
+        "title": "API Keys Rotated Regularly",
+        "description": "Attestation that the third-party API credential is rotated on a defined schedule and on staff offboarding. Secure value is true; fires on false because a never-rotated credential remains valid indefinitely once stolen, removing any natural blast-radius bound.",
+        "default": false
+      },
+      "third_party_app_scope_least_privilege": {
+        "type": "boolean",
+        "title": "Third-Party App Scope Least Privilege",
+        "description": "Attestation that the OAuth scopes / API-key permissions granted to the provider are constrained to the integration's actually-used endpoints (NIST AC-6, RFC 9700 narrowest-scope). Secure value is true; fires on false because broad or default scopes let a stolen or misused credential act with excessive privilege across the provider API.",
+        "default": false
+      },
+      "full_scope_allowed_clients": {
+        "type": "boolean",
+        "title": "Full Scope Allowed on a Client",
+        "description": "Attestation that the credential is an unrestricted full-access secret key / shared account / broad basic-auth credential rather than a restricted/least-privilege key or OAuth client_credentials with minimal scopes. Secure value is false (a restricted key); fires on true because a full-access key maximizes the blast radius when replayed."
+      },
+      "outbound_token_scope_breadth": {
+        "type": "string",
+        "enum": [
+          "least_privilege",
+          "read_only",
+          "scoped",
+          "write_all",
+          "full_access"
+        ],
+        "title": "Outbound Token Scope Breadth",
+        "description": "Classification of the breadth of scopes/permissions granted to the third-party token. Secure values (least_privilege / read_only / scoped) reflect minimized grants; insecure values (write_all / full_access) reflect broad or write-all OAuth scopes / key permissions granted by default that exceed the integration's need. Positive condition fires on the insecure complement so the recommended least-privilege baseline stays silent."
+      },
+      "api_credential_age_days": {
+        "type": "integer",
+        "title": "API Credential Age (days)",
+        "description": "Age in days of the currently-active third-party API credential since last rotation. Fires when greater than the 90-day rotation maximum; a long-lived static secret that is never refreshed stays exploitable for the full window after exfiltration."
+      },
+      "offboarding_credential_revocation_enforced": {
+        "type": "boolean",
+        "title": "Offboarding Credential Revocation Enforced",
+        "description": "Attestation that a documented decommissioning process revokes the integration credential and removes access on staff departure / relationship termination (CIS 15.7, NIST AC-2 lifecycle). Secure value is true; fires on false because lingering, unrevoked credentials remain an exploitable foothold after offboarding."
+      },
+      "webhook_signature_verified": {
+        "type": "boolean",
+        "title": "Webhook Signature Verified",
+        "description": "Whether the inbound callback/webhook handler cryptographically verifies the provider's signature header (HMAC over the RAW unmodified body) against the endpoint signing secret before acting on the payload, rejecting on mismatch. Secure value is true. When false, the endpoint accepts forged webhook payloads (e.g. a fake payment-success event), so this exposure fires.",
+        "default": false
+      },
+      "webhook_replay_timestamp_tolerance_enforced": {
+        "type": "boolean",
+        "title": "Webhook Replay Timestamp Tolerance Enforced",
+        "description": "Whether the inbound callback handler enforces a timestamp/replay window (e.g. validating the signed t= timestamp and rejecting stale or previously-seen events) so a once-valid signed payload cannot be replayed. Secure value is true. When false, a captured legitimate webhook can be replayed, so this exposure fires.",
+        "default": false
+      },
+      "saml_assertion_signature_verified": {
+        "type": "boolean",
+        "title": "Federation Assertion Signature Verified",
+        "description": "Where the third party is an identity-federation partner (SAML/OIDC IdP or RP), whether the relying party validates the assertion/token signature against the federation partner's pinned signing certificate, rejecting unsigned or wrong-signer assertions. Secure value is true. When false, forged (Golden SAML) assertions are accepted, so this exposure fires.",
+        "default": false
+      },
+      "audience_claim_validated": {
+        "type": "boolean",
+        "title": "Audience Claim Validated",
+        "description": "Whether the relying party validates the assertion AudienceRestriction / recipient (or OIDC aud claim) so a token minted for another service cannot be replayed against this one (audience-bound). Secure value is true. When false, a stolen or cross-audience token grants unauthorized cross-federation access, so this exposure fires.",
+        "default": false
+      },
+      "issuer_claim_validated": {
+        "type": "boolean",
+        "title": "Issuer Claim Validated",
+        "description": "Whether the relying party validates the assertion Issuer (or OIDC iss claim) against the expected federation partner identifier. Secure value is true. When false, an assertion from an unexpected or attacker-controlled issuer can be accepted, so this exposure fires."
+      },
+      "expiry_claim_validated": {
+        "type": "boolean",
+        "title": "Expiry Claim Validated",
+        "description": "Whether the relying party enforces assertion/token freshness (NotOnOrAfter / exp) so an expired or replayed assertion is rejected. Secure value is true. When false, expired or replayed assertions are honored, so this exposure fires."
+      },
+      "webhook_source_ip_allowlisted": {
+        "type": "boolean",
+        "title": "Webhook Source IP Allowlisted",
+        "description": "Whether the callback endpoint restricts source traffic to the provider's published IP egress ranges as defense-in-depth alongside (not instead of) signature verification. Secure value is true. Supporting context for the forged/replayed inbound exposure; the cryptographic verification facets are the load-bearing triggers."
+      },
+      "connection_encrypted": {
+        "type": "boolean",
+        "title": "Connection Encrypted in Transit",
+        "description": "Whether outbound calls to the third-party endpoint are made over TLS (https://) rather than plaintext (http://). The secure value is true (encrypted in transit); an insecure integration calls the provider over plaintext, exposing shared data and credentials to interception. Fires when false.",
+        "default": false
+      },
+      "upstream_tls_verification_enabled": {
+        "type": "boolean",
+        "title": "Upstream TLS Verification Enabled",
+        "description": "Whether the integration client validates the provider's TLS server certificate chain and hostname (verify=on / rejectUnauthorized:true) rather than disabling verification (verify=false, curl -k, rejectUnauthorized:false). Secure value is true. Disabled validation permits a man-in-the-middle to present a forged certificate and silently intercept or alter the channel. Fires when false.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Minimum TLS protocol version negotiated on the channel to the third-party provider. Workspace-canonical TLS-version enum (shared with gateway/dataFlow): secure value tls1_2_or_higher; the insecure value tls1_0_or_tls1_1_or_sslv3_accepted is downgrade-vulnerable and broken, enabling interception/alteration in transit. Fires on the insecure value."
+      },
+      "pii_minimized_to_purpose": {
+        "type": "boolean",
+        "title": "PII Minimized to Purpose",
+        "description": "Attested true when only the minimum necessary data (especially PII) is shared with the third-party provider, with sensitive fields excluded or tokenized where not functionally required (GDPR Art.5 data-minimisation, NIST SP 800-122). Fires the excessive-data-exposure vector when false (full records / unnecessary PII leave the boundary).",
+        "default": false
+      },
+      "subprocessor_list_reviewed": {
+        "type": "boolean",
+        "title": "Sub-processor List Reviewed",
+        "description": "Attested true when the provider's sub-processor list is disclosed and has been reviewed (DPA sub-processor terms, CSA CCM Supply Chain Management). Fires when false: undisclosed sub-processors extend data exposure to fourth parties outside the org's control."
+      },
+      "data_residency_restriction": {
+        "type": "string",
+        "enum": [
+          "restricted_documented",
+          "restricted_undocumented",
+          "unrestricted"
+        ],
+        "title": "Data Residency Restriction",
+        "description": "Whether the provider's processing/storage/service location is constrained per requirement (NIST SA-9(5) location restriction). Secure value restricted_documented; fires on the insecure value 'unrestricted' where data may leave the required jurisdiction, creating regulatory (GDPR/PII residency) exposure outside the org's control."
+      },
+      "request_timeout_configured": {
+        "type": "boolean",
+        "title": "Request Timeout Configured",
+        "description": "Whether outbound calls to the third-party provider are bounded by explicit connect/read timeouts. Secure value is true (timeouts set); fires when false — an unbounded call to a stalled provider blocks dependent threads and cascades the outage.",
+        "default": false
+      },
+      "circuit_breaker_enabled": {
+        "type": "boolean",
+        "title": "Circuit Breaker Enabled",
+        "description": "Whether calls to the third-party provider are wrapped in a circuit breaker (failure-rate threshold, sliding window, open-state wait) that trips to fail fast on sustained provider failure. Secure value is true; fires when false — a hard single-vendor dependency with no breaker lets a provider outage or rate-limit cascade into the dependent system.",
+        "default": false
+      },
+      "graceful_degradation_enabled": {
+        "type": "boolean",
+        "title": "Graceful Degradation Enabled",
+        "description": "Whether a fallback / graceful-degradation path exists so the dependent system continues in a reduced mode when the third-party provider is unavailable. Secure value is true; fires when false — with no fallback a provider outage or SLA breach halts the dependent system.",
+        "default": false
+      },
+      "third_party_interaction_logging_enabled": {
+        "type": "boolean",
+        "title": "Third-Party Interaction Logging Enabled",
+        "description": "Whether outbound calls to and inbound callbacks from the third party are logged with correlation IDs and retained per policy. Secure value is true; when false, third-party interactions are unlogged, blinding anomaly detection and incident response so credential abuse, forged callbacks, or provider compromise go undetected.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Logs",
+        "description": "Whether credentials (Authorization headers, API keys, tokens) are redacted from third-party interaction logs. Secure value is true; when false, secrets are logged in cleartext (CWE-532 sensitive-info-in-log), turning the log store into a credential-leak source.",
+        "default": false
+      },
+      "provider_security_monitoring_enabled": {
+        "type": "boolean",
+        "title": "Provider Security Monitoring Enabled",
+        "description": "Whether the provider's security advisories, release notes, and breach/dark-web signals are continuously monitored (CIS 15.6 continuous monitoring). Secure value is true; when false, provider incidents and known-vulnerable integration code go unnoticed."
+      }
+    },
+    "required": [
+      "vendor_security_attestations_reviewed",
+      "service_provider_inventoried",
+      "dpa_and_subprocessors_reviewed",
+      "installed_integrations_reviewed_approved",
+      "api_keys_stored_in_secret_manager",
+      "api_keys_rotated_regularly",
+      "third_party_app_scope_least_privilege",
+      "full_scope_allowed_clients",
+      "outbound_token_scope_breadth",
+      "api_credential_age_days",
+      "offboarding_credential_revocation_enforced",
+      "webhook_signature_verified",
+      "webhook_replay_timestamp_tolerance_enforced",
+      "saml_assertion_signature_verified",
+      "audience_claim_validated",
+      "issuer_claim_validated",
+      "expiry_claim_validated",
+      "connection_encrypted",
+      "upstream_tls_verification_enabled",
+      "min_tls_version",
+      "pii_minimized_to_purpose",
+      "subprocessor_list_reviewed",
+      "data_residency_restriction",
+      "request_timeout_configured",
+      "circuit_breaker_enabled",
+      "graceful_degradation_enabled",
+      "third_party_interaction_logging_enabled",
+      "secrets_masked_in_logs",
+      "provider_security_monitoring_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_assertion_signature_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_replay_timestamp_tolerance_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_signature_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/expiry_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/issuer_claim_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_app_scope_least_privilege"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/full_scope_allowed_clients"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/outbound_token_scope_breadth"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/connection_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/upstream_tls_verification_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_minimized_to_purpose"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_residency_restriction"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/subprocessor_list_reviewed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_keys_rotated_regularly"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/api_keys_stored_in_secret_manager"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_credential_age_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/offboarding_credential_revocation_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_source_ip_allowlisted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dpa_and_subprocessors_reviewed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_provider_inventoried"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vendor_security_attestations_reviewed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/installed_integrations_reviewed_approved"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/provider_security_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/circuit_breaker_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/graceful_degradation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_timeout_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_interaction_logging_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

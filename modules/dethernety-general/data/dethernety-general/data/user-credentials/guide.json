@@ -1,0 +1,541 @@
+[
+  {
+    "option_name": "passwords_one_way_hashed",
+    "option_description": "Whether stored passwords are held under a one-way KDF (hashed) rather than in plaintext or under a reversible cipher.",
+    "security_impact": "Drives \"Plaintext or reversibly-encrypted password storage\" — when false (passwords stored cleartext or reversibly encrypted) that exposure fires, yielding instant mass account takeover on disclosure of the store. Also an OR-condition of \"Weak / unsalted / fast password hashes\".",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the leading bytes of stored password hashes from the credential store to confirm an adaptive-KDF prefix rather than a raw digest or recoverable value.",
+        "command": "SELECT substring(password_hash for 12) FROM users LIMIT 5;",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each stored hash begins with an adaptive-KDF identifier — '$argon2id$' (secure, preferred), '$scrypt$', '$2a$'/'$2b$'/'$2y$' (bcrypt), or 'pbkdf2_sha256$' (Django-style). A 32-hex (MD5), 40-hex (SHA-1), or 64-hex (raw SHA-256) value with no algorithm prefix, or a value that decrypts back to the password, is INSECURE.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the source/config of the password-handling path to confirm no cleartext storage and no reversible cipher is applied to passwords.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source/config review confirms the hashing call uses Argon2id (m>=19 MiB, t>=2, p=1) or an approved equivalent; no code path stores or logs the cleartext password and no reversible cipher is applied to passwords.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "adaptive_memory_hard_hash_used",
+    "option_description": "Whether the password KDF is a memory-hard adaptive function (Argon2id preferred; scrypt/bcrypt/PBKDF2 acceptable) rather than a fast digest like MD5/SHA-1/raw SHA-256.",
+    "security_impact": "An OR-trigger of \"Weak / unsalted / fast password hashes\" — when false (a fast/unsalted digest is used) that exposure fires, permitting rapid offline GPU/rainbow-table cracking of the entire credential dump.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the stored-hash prefix to identify the KDF family in use.",
+        "command": "SELECT substring(password_hash for 12) FROM users LIMIT 5;",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each stored hash begins with an adaptive-KDF identifier — '$argon2id$' (secure, preferred), '$scrypt$', '$2a$'/'$2b$'/'$2y$' (bcrypt), or 'pbkdf2_sha256$' (Django-style). A 32-hex (MD5), 40-hex (SHA-1), or 64-hex (raw SHA-256) value with no algorithm prefix, or a value that decrypts back to the password, is INSECURE.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm in source/config review that the hashing call uses an approved memory-hard adaptive KDF.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source/config review confirms the hashing call uses Argon2id (m>=19 MiB, t>=2, p=1) or an approved equivalent; no code path stores or logs the cleartext password and no reversible cipher is applied to passwords.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "per_credential_salt_used",
+    "option_description": "Whether each stored password has a unique, sufficiently long salt so identical passwords produce different hashes and precomputed (rainbow) tables are defeated.",
+    "security_impact": "An OR-trigger of \"Weak / unsalted / fast password hashes\" — when false (no salt, a shared/global salt, or salt < 32 bits) that exposure fires, enabling rainbow-table and bulk offline cracking.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Self-join the credential table on equal hashes for distinct users to detect missing or shared salt.",
+        "command": "SELECT password_hash FROM users u1 JOIN users u2 ON u1.password_hash = u2.password_hash AND u1.id <> u2.id;",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Two accounts that set the same chosen password yield DIFFERENT stored hashes (proves per-credential salt); the join above should return NO rows for distinct users. Identical hashes for identical passwords indicate missing/shared salt — INSECURE.",
+        "source": "NIST SP 800-63B Section 5.1.1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "adequate_work_factor",
+    "option_description": "Whether the KDF cost parameters meet the OWASP minimum (Argon2id m>=19 MiB/t>=2/p=1; bcrypt cost>=10; PBKDF2-HMAC-SHA256>=600k) so the hash resists offline GPU/ASIC cracking.",
+    "security_impact": "An OR-trigger of \"Weak / unsalted / fast password hashes\" — when false (cost tuned for speed / below the minimum profile) that exposure fires, dropping the cost of offline cracking the credential dump.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the application password-hashing config for Argon2id cost parameters.",
+        "command": "grep -Ei 'argon2|memory_cost|time_cost|parallelism' <app-config>",
+        "file_path": "application password-hashing config",
+        "navigation": null,
+        "expected_output": "memory_cost >= 19456 KiB, time_cost (iterations) >= 2, parallelism = 1. Lower memory_cost is INSECURE.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "If bcrypt is in use, extract the cost field from a stored $2b$ hash.",
+        "command": "echo -n \"$2b$12$...\" | cut -d'$' -f3",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The cost field (the number between the 2nd and 3rd '$' in a $2b$ hash) is >= 10. A cost of 04-09 is INSECURE.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      },
+      {
+        "type": "config_file",
+        "instruction": "If PBKDF2 is in use (e.g. for FIPS), grep the config for the iteration count and PRF.",
+        "command": "grep -Ei 'pbkdf2|iterations|prf' <app-config>",
+        "file_path": "application password-hashing config",
+        "navigation": null,
+        "expected_output": "iterations >= 600000 with HMAC-SHA-256 (OWASP target). NIST SP 800-63B sets a floor of at least 10,000 'as large as server performance will allow'.",
+        "source": "OWASP Password Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_dedicated_secret_manager",
+    "option_description": "Whether API keys, SSH/private keys, and other long-lived machine credentials are held in a dedicated secret manager/vault and injected at runtime.",
+    "security_impact": "An OR-trigger of \"Hardcoded / unvaulted API, SSH and private keys\" — when false (keys not vaulted) that exposure fires, exposing long-lived keys to harvest from repos/artifacts for direct impersonation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan source and git history for embedded key material and API keys (a secret-scanner run should be clean).",
+        "command": "git log -p | grep -Ei 'AKIA[0-9A-Z]{16}|-----BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY-----|api[_-]?key\\s*[:=]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches in source/history. A secret-scanner (gitleaks/trufflehog) run is clean. Any hardcoded API key or private key block is INSECURE.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the team that machine credentials are sourced from a secret manager/KMS-backed store and injected at runtime rather than baked into images or config.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Keys are vaulted in a secret manager (e.g. Vault / cloud KMS-backed store) and injected at runtime; no hardcoded source, image-embedded, or committed-config secrets exist.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_hardcoded_in_config_or_iac",
+    "option_description": "Whether secrets (API/SSH/private keys, passwords) are hardcoded in source, baked into container images, or committed in plaintext config / IaC / .env to version control.",
+    "security_impact": "An OR-trigger of \"Hardcoded / unvaulted API, SSH and private keys\" — when true (secrets committed to config/IaC) that exposure fires; the hardcoded secrets are harvested from repos/artifacts and replayed for impersonation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan source, config, IaC, and git history for embedded key/secret material.",
+        "command": "git log -p | grep -Ei 'AKIA[0-9A-Z]{16}|-----BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY-----|api[_-]?key\\s*[:=]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches in source/history. A secret-scanner (gitleaks/trufflehog) run is clean. Any hardcoded API key or private key block is INSECURE.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether credentials are submitted and verified only over TLS — the login page and all authenticated endpoints are exclusively HTTPS, with no cleartext credential acceptance.",
+    "security_impact": "An OR-trigger of \"Credentials transmitted in cleartext\" — when false (credentials accepted over HTTP / a login form posting to an http:// action) that exposure fires, letting a network attacker sniff/MITM and replay the credential.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Request the login endpoint over plain HTTP and check for an HTTPS redirect and an https:// form action.",
+        "command": "curl -i http://<host>/login",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP is redirected (301/308) to HTTPS and the login form action is an https:// URL; an HSTS header is present on authenticated responses. A login form served or posting over http:// is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "hsts_enforced",
+    "option_description": "Whether HTTP Strict Transport Security is set on authenticated responses so browsers refuse to submit credentials over cleartext HTTP after first contact.",
+    "security_impact": "An OR-trigger of \"Credentials transmitted in cleartext\" — when false (no HSTS) a downgrade/strip attack can coerce the client onto HTTP, contributing to that exposure firing.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect the response headers from the login / authenticated endpoints for a Strict-Transport-Security header (and confirm the HTTP-to-HTTPS redirect).",
+        "command": "curl -i http://<host>/login",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP is redirected (301/308) to HTTPS and the login form action is an https:// URL; an HSTS header is present on authenticated responses. A login form served or posting over http:// is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether repeated failed authentication on an account is throttled or locked out (e.g. exponential backoff bound to the account, not just source IP) to blunt online brute force.",
+    "security_impact": "An OR-trigger of \"Online brute force and credential stuffing\" — when false (unlimited failed attempts with no delay or lockout) that exposure fires, letting attackers recover weak passwords by unbounded guessing.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit a burst of failed logins against one account and watch for throttling/lockout responses.",
+        "command": "for i in $(seq 1 20); do curl -s -o /dev/null -w '%{http_code}\\n' -d \"user=victim&pass=wrong$i\" https://<host>/login; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "After a small number of failures, responses change to throttled/locked (e.g. 429, escalating delay, or lockout message); consecutive failures never exceed 100. Constant 200/401 with no delay across many attempts is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "breached_password_screening_enabled",
+    "option_description": "Whether new/changed passwords are screened against known-breached and common-password corpuses (e.g. Pwned Passwords via the k-anonymity range API) and rejected if compromised.",
+    "security_impact": "An OR-trigger of \"Online brute force and credential stuffing\" — when false (no breach screening; previously-breached passwords accepted) that exposure fires, since reused breached passwords are replayed at scale and succeed.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Run the Pwned Passwords k-anonymity range flow for a known-breached password and confirm the registration/change flow rejects it.",
+        "command": "P=$(printf 'Password1' | openssl sha1 | tr a-f A-F | cut -d' ' -f2); curl -s https://api.pwnedpasswords.com/range/${P:0:5} | grep -i ${P:5}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The k-anonymity flow (send first 5 SHA-1 hex chars to /range/{prefix}, match the 35-char suffix in the response with its breach count) is what the app must run at password-set time and REJECT non-zero matches. Confirm the registration/change flow rejects a known-breached password like 'Password1'.",
+        "source": "Have I Been Pwned — Pwned Passwords Range API (k-anonymity)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mfa_available",
+    "option_description": "Whether a second authentication factor is available/enforced so that credential theft alone does not grant access.",
+    "security_impact": "An OR-trigger of \"Online brute force and credential stuffing\" — when false (password-only, no second factor) that exposure fires; OWASP cites MFA as stopping ~99.9% of account compromises, so its absence is the dominant credential-stuffing gap.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify MFA is offered and enforced for sensitive/privileged access by reviewing the authentication design and policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MFA (TOTP/WebAuthn/possession factor) is offered and enforced where appropriate; OWASP cites MFA would stop ~99.9% of account compromises. Password-only with no MFA option for privileged accounts is a gap.",
+        "source": "OWASP Credential Stuffing Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "max_consecutive_failed_attempts",
+    "option_description": "The configured cap on consecutive failed authentication attempts before lockout/throttling; NIST SP 800-63B requires this be <= 100.",
+    "security_impact": "Feeds \"Online brute force and credential stuffing\" — a cap above 100 (or effectively unbounded) is an OR-condition for that exposure, widening the online-guessing window against accounts.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Drive failed logins against one account and observe the attempt number at which throttle/lockout engages.",
+        "command": "for i in $(seq 1 20); do curl -s -o /dev/null -w '%{http_code}\\n' -d \"user=victim&pass=wrong$i\" https://<host>/login; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "After a small number of failures, responses change to throttled/locked (e.g. 429, escalating delay, or lockout message); consecutive failures never exceed 100. Constant 200/401 with no delay across many attempts is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the configured lockout/throttle threshold value against the NIST <=100 consecutive-failures ceiling.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The configured consecutive-failure threshold is at or below 100 (NIST SP 800-63B caps consecutive failed attempts at <=100); a threshold above 100 or 'no limit' is INSECURE.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      5,
+      10,
+      100
+    ]
+  },
+  {
+    "option_name": "generic_failure_responses",
+    "option_description": "Whether failed-login responses are identical (a single generic message) regardless of cause, so the credential store does not leak which usernames exist.",
+    "security_impact": "An OR-trigger of \"Username enumeration via differential responses\" — when false (distinct 'no such user' vs 'wrong password' messages) that exposure fires, letting attackers build a valid-username target list for brute force / stuffing.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit a login for a non-existent user and one for a real user with a wrong password, then compare the responses.",
+        "command": "curl -s -d 'user=nosuchuser&pass=x' https://<host>/login ; curl -s -d 'user=realuser&pass=wrong' https://<host>/login",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both requests return the SAME message and comparable timing. A 'no such user' vs 'wrong password' distinction (or measurable timing difference) is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "constant_time_login_responses",
+    "option_description": "Whether the login path takes comparable time for valid and invalid usernames (e.g. always running a dummy hash verification) so timing does not betray account existence.",
+    "security_impact": "An OR-trigger of \"Username enumeration via differential responses\" — when false (measurable timing difference between valid and invalid usernames) that exposure fires, enabling timing-based enumeration even when error text is generic.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Time the login response for a non-existent user versus a real user with a wrong password and compare latency.",
+        "command": "curl -s -d 'user=nosuchuser&pass=x' https://<host>/login ; curl -s -d 'user=realuser&pass=wrong' https://<host>/login",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both requests return the SAME message and comparable timing. A 'no such user' vs 'wrong password' distinction (or measurable timing difference) is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "password_min_length",
+    "option_description": "The minimum allowed password length; NIST/OWASP recommend >=8 with MFA, >=15 without MFA.",
+    "security_impact": "An OR-trigger of \"Weak credential-strength policy\" — when the minimum is too low (below 8, or below 15 with no MFA) that exposure fires, leaving accounts vulnerable to guessing/cracking.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the password policy/config for the enforced minimum length and the broader length/composition rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy/config shows min length >= 8 (>=15 without MFA), max >= 64, paste allowed, no composition mandates, and no scheduled expiry. NIST: 'Verifiers SHOULD NOT require memorized secrets to be changed arbitrarily (e.g., periodically).'",
+        "source": "NIST SP 800-63B Section 5.1.1.2"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      8,
+      12,
+      15
+    ]
+  },
+  {
+    "option_name": "password_max_length_cap_below_64",
+    "option_description": "Whether the policy caps maximum password length below 64 characters (which blocks long passphrases and is a NIST/OWASP anti-pattern).",
+    "security_impact": "An OR-trigger of \"Weak credential-strength policy\" — when true (max length capped below 64) that exposure fires, since a low cap weakens passphrase strength and often hints at storage that truncates or fails to hash properly.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the password policy/config for any maximum-length cap and confirm it permits at least 64 characters.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy/config shows min length >= 8 (>=15 without MFA), max >= 64, paste allowed, no composition mandates, and no scheduled expiry. NIST: 'Verifiers SHOULD NOT require memorized secrets to be changed arbitrarily (e.g., periodically).'",
+        "source": "NIST SP 800-63B Section 5.1.1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "composition_rules_or_forced_rotation_imposed",
+    "option_description": "Whether the policy imposes character-composition mandates or arbitrary periodic password expiry — both NIST anti-patterns that push users toward predictable patterns.",
+    "security_impact": "An OR-trigger of \"Weak credential-strength policy\" — when true (composition rules or scheduled forced rotation) that exposure fires, as NIST states verifiers SHOULD NOT impose composition rules or require periodic rotation absent evidence of compromise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the password policy/config for character-composition mandates and any scheduled/periodic expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy/config shows min length >= 8 (>=15 without MFA), max >= 64, paste allowed, no composition mandates, and no scheduled expiry. NIST: 'Verifiers SHOULD NOT require memorized secrets to be changed arbitrarily (e.g., periodically).'",
+        "source": "NIST SP 800-63B Section 5.1.1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "key_rotation_enabled",
+    "option_description": "Whether API/SSH/machine keys have a defined periodic rotation lifecycle rather than being static long-lived secrets.",
+    "security_impact": "An OR-trigger of \"No rotation or revocation on compromise\" — when false (static, never-rotated keys) that exposure fires, extending an attacker's window indefinitely after a key is stolen.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with operations that a documented key-rotation schedule and immediate-revoke capability exist for API/SSH keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm an operational runbook/control exists to revoke and reissue a leaked credential or key, and that password reset is forced on evidence of compromise (NIST: rotate only when 'there is evidence of compromise'). API/SSH keys have a rotation schedule and immediate-revoke capability.",
+        "source": "OWASP Key Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "forced_reset_or_revocation_on_compromise",
+    "option_description": "Whether a documented path exists to force password reset / revoke and reissue a credential or key promptly on evidence of compromise.",
+    "security_impact": "An OR-trigger of \"No rotation or revocation on compromise\" — when false (no revocation path, no forced reset on breach) that exposure fires, leaving a stolen credential usable after a known compromise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify an operational runbook/control covers revoke-and-reissue of a leaked credential or key and forced password reset on compromise.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm an operational runbook/control exists to revoke and reissue a leaked credential or key, and that password reset is forced on evidence of compromise (NIST: rotate only when 'there is evidence of compromise'). API/SSH keys have a rotation schedule and immediate-revoke capability.",
+        "source": "OWASP Key Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether passwords, API keys, and private keys are redacted and never written to application logs, error traces, or telemetry.",
+    "security_impact": "An OR-trigger of \"Credentials leaked to logs or URLs\" — when false (credentials written to logs/traces) that exposure fires, creating a secondary harvestable copy of the secret outside the protected store.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep application and access logs for password/key values and Authorization headers.",
+        "command": "grep -REi 'password=|passwd|api[_-]?key=|-----BEGIN .*PRIVATE KEY-----|authorization: (basic|bearer)' /var/log/<app>/",
+        "file_path": "application & access logs",
+        "navigation": null,
+        "expected_output": "No matches. Any logged password value, API key, private-key block, or Basic-auth credential — or a credential present in an access-log URL query string — is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "transmitted_in_url_or_query",
+    "option_description": "Whether credentials ever appear in request URLs or query strings (where they land in access logs, browser history, and referrers).",
+    "security_impact": "An OR-trigger of \"Credentials leaked to logs or URLs\" — when true (credentials placed in URL/query) that exposure fires, since the secret is captured in access logs and proxies as a harvestable copy.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep access logs for credential values in URL query strings (and check the app's request patterns).",
+        "command": "grep -REi 'password=|passwd|api[_-]?key=|-----BEGIN .*PRIVATE KEY-----|authorization: (basic|bearer)' /var/log/<app>/",
+        "file_path": "application & access logs",
+        "navigation": null,
+        "expected_output": "No matches. Any logged password value, API key, private-key block, or Basic-auth credential — or a credential present in an access-log URL query string — is INSECURE.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether read access to the credential/hash table and the secret store is restricted to the minimum set of principals (only the auth service identity), so ordinary app roles cannot dump hashes or the pepper.",
+    "security_impact": "An OR-trigger of \"Over-broad access to the credential store\" — when false (broad read access across roles/services) that exposure fires, multiplying the principals who could exfiltrate the hash column or secret store.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate grants on the credential table (and the secret store) to confirm only the auth service principal can read the hash column.",
+        "command": "\\dp users",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only the authentication service principal can read the password-hash column and the pepper/secret store; broad SELECT or shared service accounts with read access are INSECURE. (PostgreSQL \\dp; use SHOW GRANTS on other engines.)",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pepper_stored_separately",
+    "option_description": "Whether an optional server-side secret (pepper) is applied in addition to the per-credential salt and held in a separate secret store/HSM, so a database-only leak does not enable cracking.",
+    "security_impact": "Strengthens resistance under \"Weak / unsalted / fast password hashes\" and \"Over-broad access to the credential store\" — when false (no pepper, or pepper stored alongside the hashes) a DB-only leak suffices to crack hashes, an OR-condition contributing to those exposures.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm via design review that a secret-salt/pepper is applied and sourced from a secret store separate from the password database.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Design review confirms a secret-salt/pepper of >= 112-bit security strength is applied via an additional KDF/HMAC step and is sourced from a secret store separate from the password database (NIST: 'salt value that is secret and known only to the verifier').",
+        "source": "NIST SP 800-63B Section 5.1.1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "d510217f-769b-44af-a690-8b2d98a78282",
+  "name": "Identity Provider",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "An identity provider (IdP) — also called an SSO provider, OAuth/OIDC or SAML authority, Okta/Auth0/Entra ID/Keycloak, or token issuer — that authenticates principals and issues tokens or assertions consumed across the system. The hub of federated trust and single sign-on. The place to look for the IdP, SSO/federation authority, OAuth/OIDC/SAML provider, or the service that authenticates users and issues tokens.",
+  "category": "Identity & Access",
+  "status": "draft"
+}

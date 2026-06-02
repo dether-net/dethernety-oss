@@ -1,0 +1,731 @@
+[
+  {
+    "option_name": "managed_core_ruleset_deployed",
+    "option_description": "Whether a maintained managed/core ruleset (OWASP CRS or a vendor baseline such as AWSManagedRulesCommonRuleSet) is attached and active on the live WAF policy.",
+    "security_impact": "Satisfies \"Managed core ruleset deployed and current\" — fires when a managed baseline is present — providing OWASP-Top-10 signature coverage that blunts Exploitation of public-facing application (T1190) before requests reach app logic (M1050 Exploit Protection). The protection is absent when no managed group is attached.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS WAFv2, list the managed rule groups attached to the Web ACL and confirm a baseline group is present.",
+        "command": "aws wafv2 get-web-acl --name <acl> --scope REGIONAL --id <id> --query 'WebACL.Rules[].Statement.ManagedRuleGroupStatement.Name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List includes AWSManagedRulesCommonRuleSet (secure); empty/absent means no managed baseline (insecure)",
+        "source": "AWS WAF — Using managed rule groups / AWS Managed Rules list"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity+CRS, confirm the CRS rule files and crs-setup.conf are Included in the engine config.",
+        "command": "grep -RiE 'Include .*REQUEST-9[0-9]{2}|crs-setup.conf' /etc/modsecurity* /etc/nginx/modsec*",
+        "file_path": "modsecurity.conf / crs-setup.conf / nginx modsec include",
+        "navigation": null,
+        "expected_output": "CRS rule files (REQUEST-9xx) and crs-setup.conf are Included (secure); no CRS include present (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ruleset_covers_owasp_top10",
+    "option_description": "Whether the attached managed/core ruleset's coverage of the OWASP Top 10 injection/XSS/RCE/LFI/RFI/SSRF classes is intact, with no critical paranoia/category groups disabled.",
+    "security_impact": "One of the OR-conditions of \"Managed core ruleset deployed and current\" — the protection holds when Top-10 category coverage is intact — mitigating Cross-site scripting and other injection (OWASP A03 / T1059). Coverage lapses if SQLi/XSS/RCE groups or the operative paranoia level are disabled.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity+CRS, read the deliberately-set paranoia level that governs how many Top-10 detection rules are active, and check no REQUEST-9xx category file is commented out.",
+        "command": "grep -iE 'paranoia_level' crs-setup.conf",
+        "file_path": "crs-setup.conf",
+        "navigation": null,
+        "expected_output": "setvar:tx.blocking_paranoia_level=N (>=1, commonly 2 for real-user data) and tx.detection_paranoia_level>=N present and intentional — confirms Top-10 categories active",
+        "source": "OWASP CRS — Paranoia Levels"
+      },
+      {
+        "type": "command",
+        "instruction": "On AWS WAFv2, inspect per-rule RuleActionOverrides / ExcludedRules on the managed group to confirm no Top-10 sub-rules are disabled.",
+        "command": "aws wafv2 get-web-acl --name <acl> --scope REGIONAL --id <id> --query 'WebACL.Rules[].Statement.ManagedRuleGroupStatement.RuleActionOverrides'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No SQLi/XSS/RCE sub-rules set to Allow/Count (secure); critical Top-10 sub-rules excluded (insecure)",
+        "source": "AWS WAF — Using managed rule groups / AWS Managed Rules list"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "crs_ruleset_updated",
+    "option_description": "Whether the managed/core ruleset is kept on a current/auto-updating version so newly-disclosed exploit signatures are picked up.",
+    "security_impact": "One of the OR-conditions of \"Managed core ruleset deployed and current\" — fires when the ruleset is current — closing WAF rule/decoding-bypass exposure (T1027) from stale signatures (M1050). A pinned, stale version leaves the baseline blind to recent CVEs.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare the deployed managed-group/CRS version against the latest available release.",
+        "command": "aws wafv2 list-available-managed-rule-group-versions --vendor-name AWS --name AWSManagedRulesCommonRuleSet --scope REGIONAL; (CRS) cat /path/to/coreruleset/VERSION",
+        "file_path": "coreruleset VERSION",
+        "navigation": null,
+        "expected_output": "Deployed version equals current/latest (secure); an outdated pinned version (insecure)",
+        "source": "AWS WAF — Using managed rule groups / AWS Managed Rules list"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm automatic managed-ruleset version updates are enabled, or that a documented process keeps the deployed version current with vendor/CRS releases.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auto-update enabled or a documented currency cadence with tracked CRS releases (secure); no update process (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "waf_engine_mode",
+    "option_description": "The active enforcement mode of the WAF rule engine — BLOCKING (SecRuleEngine On / Prevention mode, no managed group forced to Count), DETECTION_ONLY, or COUNT. Only BLOCKING drops matching malicious traffic before it reaches the origin.",
+    "security_impact": "One of the OR-conditions of \"Blocking prevention mode at a tuned anomaly threshold\" — the protection holds only when mode is BLOCKING — actively dropping injection/XSS/RCE (T1190, M1050). DETECTION_ONLY/COUNT merely log, so exploitation still reaches the origin.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity, read the engine directive and map: On => BLOCKING, DetectionOnly/Off => DETECTION_ONLY/COUNT.",
+        "command": "grep -i '^SecRuleEngine' /etc/modsecurity/modsecurity.conf",
+        "file_path": "modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On => map to BLOCKING (secure); SecRuleEngine DetectionOnly or Off => DETECTION_ONLY/COUNT (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      },
+      {
+        "type": "command",
+        "instruction": "On AWS WAFv2, confirm no managed rule group is overridden to Count (which masks blocks); Azure equivalent is policy mode Prevention vs Detection.",
+        "command": "aws wafv2 get-web-acl --name <acl> --scope REGIONAL --id <id> --query 'WebACL.Rules[].OverrideAction'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No managed group with OverrideAction=Count => BLOCKING (secure); OverrideAction=Count masking blocks => COUNT (insecure)",
+        "source": "AWS WAF — Using managed rule groups / AWS Managed Rules list"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "BLOCKING",
+      "DETECTION_ONLY",
+      "COUNT"
+    ]
+  },
+  {
+    "option_name": "waf_anomaly_threshold_effective",
+    "option_description": "Whether the anomaly-scoring inbound/outbound threshold and paranoia level have been deliberately tuned for this application rather than left at a default that over-blocks or sets the block bar so high real attacks fall below it.",
+    "security_impact": "One of the OR-conditions of \"Blocking prevention mode at a tuned anomaly threshold\" — fires when the threshold is effective — making blocking mode actually catch attacks (M1050). An untuned shakedown value (e.g. 10000) blocks almost nothing even in BLOCKING mode.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity+CRS, read the inbound/outbound anomaly-score thresholds and verify they reflect a tuned steady state, not a high shakedown value.",
+        "command": "grep -i 'anomaly_score_threshold' crs-setup.conf",
+        "file_path": "crs-setup.conf",
+        "navigation": null,
+        "expected_output": "setvar:tx.inbound_anomaly_score_threshold=5 and tx.outbound_anomaly_score_threshold=4 (tuned, secure); an unusually high value like 10000 (insecure shakedown)",
+        "source": "OWASP CRS — Anomaly Scoring"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the blocking/detection paranoia level was set deliberately for this app (higher PL catches more, with FP management).",
+        "command": "grep -iE 'paranoia_level' crs-setup.conf",
+        "file_path": "crs-setup.conf",
+        "navigation": null,
+        "expected_output": "setvar:tx.blocking_paranoia_level=N (commonly 2) and tx.detection_paranoia_level>=N present and intentional (secure); PL at minimum with no tuning record (insecure)",
+        "source": "OWASP CRS — Paranoia Levels"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "false_positive_tuning_process",
+    "option_description": "Whether a deliberate, documented false-positive management process exists (exception/allow-list rules, staged tuning, before/after metrics) so blocking mode is sustained operationally instead of being downgraded to detection-only the first time a legitimate request is blocked.",
+    "security_impact": "One of the OR-conditions of \"Blocking prevention mode at a tuned anomaly threshold\" — fires when an FP process keeps the engine enforcing — sustaining M1050 Exploit Protection over time. Without it, operators roll the WAF back to detection-only ad hoc, silently disabling the protection.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented FP-management workflow exists — staged tuning, exception/allow-list rules, and monitored before/after block metrics — so blocking mode is not rolled back ad hoc.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented FP workflow with staged tuning and exception rules and tracked metrics (secure); no process / ad hoc detection-only downgrades (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Look for evidence the process is operationalized: a custom exclusion/allow-list ruleset (e.g. CRS REQUEST-900 exclusions or per-rule RuleActionOverrides) maintained alongside the baseline.",
+        "command": "grep -RiE 'ctl:ruleRemoveById|SecRuleUpdateTargetById|REQUEST-900' /etc/modsecurity*",
+        "file_path": "modsecurity custom exclusion includes",
+        "navigation": null,
+        "expected_output": "Scoped, dated exclusion rules tied to documented FPs (secure); blanket rule-disabling or none (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "virtual_patching_custom_rules_maintained",
+    "option_description": "Whether app-specific and emerging-CVE custom rules (a virtual-patching layer) are deployed alongside the managed/core ruleset to block targeted exploit patterns and zero-day signatures the baseline does not yet cover until the application is patched.",
+    "security_impact": "Satisfies \"Virtual patching custom rules maintained\" — fires when a maintained virtual-patch layer is present — providing compensating coverage for Cross-site scripting and other injection (OWASP A03 / T1059) and app-specific exploits (M1050). Absent, only generic baseline coverage exists for emerging CVEs.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a custom/exclusion ruleset exists for app-specific paths and recent CVEs, with a documented process to add virtual patches for new CVEs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a custom ruleset plus a documented virtual-patching process for new CVEs (secure); only the generic managed ruleset (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Enumerate deployed custom rules (ModSecurity SecRule files outside the CRS baseline, or AWS WAF custom RegexPatternSet/ByteMatch rules) and confirm they target app paths and named CVE patterns.",
+        "command": "ls -l /etc/modsecurity/custom-rules/ ; grep -RiE '^SecRule' /etc/modsecurity/custom-rules/",
+        "file_path": "WAF custom rule files",
+        "navigation": null,
+        "expected_output": "Custom SecRule/managed-custom rules present blocking known exploit patterns (secure); none beyond the baseline (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "custom_rule_review_cadence_days",
+    "option_description": "Maximum interval in days between scheduled reviews of the custom virtual-patching rule set, ensuring the layer is kept current against newly-disclosed CVEs and stale rules are retired. A cadence at or under 90 days indicates an actively-maintained layer.",
+    "security_impact": "One of the OR-conditions of \"Virtual patching custom rules maintained\" — the protection holds when the cadence is small (<=90 days) — keeping the virtual-patch layer current against emerging CVEs (M1050). A long or unset cadence indicates a set-and-forgotten layer.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine the scheduled review interval for custom rules from the change-management/ticketing record; the secure threshold is <=90 days (smaller is better), confirming an actively-maintained virtual-patch layer.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented review cadence <=90 days (secure floor; e.g. 30) with timestamped review records; >90 days or none (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Cross-check the cadence against actual recency: inspect last-modified timestamps / commit history of the custom rule files.",
+        "command": "git -C /etc/modsecurity/custom-rules log -1 --format=%cs ; stat -f '%Sm' /etc/modsecurity/custom-rules/*",
+        "file_path": "WAF custom rule files",
+        "navigation": null,
+        "expected_output": "Most recent review/edit within the attested cadence window (secure); months/years stale (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      60,
+      90
+    ]
+  },
+  {
+    "option_name": "tls_inspection_enabled",
+    "option_description": "Whether the WAF terminates/decrypts inbound HTTPS at the edge so request payloads are inspected in cleartext rather than passed through encrypted.",
+    "security_impact": "One of the OR-conditions of \"Inbound TLS termination enables payload inspection\" — fires when the WAF decrypts inbound traffic — letting every rule see decrypted bodies/headers so injection/RCE (T1190) is inspectable (M1050). Without termination, attacks ride uninspected inside the TLS tunnel.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the WAF listener to confirm it terminates TLS (presents its own cert) rather than passing encrypted traffic through to the origin.",
+        "command": "openssl s_client -connect <waf-vip>:443 -tls1_2 ; nmap --script ssl-enum-ciphers -p443 <waf-vip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WAF presents its own cert/terminates TLS and inspects cleartext (secure); passthrough with no WAF cert / no payload inspection (insecure)",
+        "source": "NIST SP 800-52r2 (TLS baseline); CRS works on decrypted request bodies (SecRequestBodyAccess)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity, confirm request-body access is on so the decrypted payload is actually parsed once TLS is terminated upstream.",
+        "command": "grep -i '^SecRequestBodyAccess' /etc/modsecurity/modsecurity.conf",
+        "file_path": "modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRequestBodyAccess On (secure); Off means decrypted payload is not inspected (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The minimum TLS protocol version the WAF negotiates on the inbound listener. The secure baseline is tls1_2_or_higher (TLS 1.2/1.3); TLS 1.0/1.1/SSLv3 must be rejected.",
+    "security_impact": "One of the OR-conditions of \"Inbound TLS termination enables payload inspection\" — the protection holds when the floor is tls1_2_or_higher — keeping the decryption-for-inspection point on a modern handshake. Accepting tls1_0_or_tls1_1_or_sslv3 weakens the transport-crypto floor under the WAF.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols the inbound listener will negotiate and map: TLS 1.2/1.3 only => tls1_2_or_higher; any TLS 1.0/1.1/SSLv3 accepted => tls1_0_or_tls1_1_or_sslv3_accepted.",
+        "command": "nmap --script ssl-enum-ciphers -p443 <waf-vip> ; testssl.sh <waf-vip>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 offered => tls1_2_or_higher (secure); TLSv1.0/1.1/SSLv3 accepted => tls1_0_or_tls1_1_or_sslv3_accepted (insecure)",
+        "source": "NIST SP 800-52r2 (TLS baseline); CRS works on decrypted request bodies (SecRequestBodyAccess)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm a deprecated handshake is actively refused by attempting a TLS 1.0 connection.",
+        "command": "openssl s_client -connect <waf-vip>:443 -tls1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake fails / alert (secure, tls1_2_or_higher); successful TLS 1.0 handshake (insecure)",
+        "source": "NIST SP 800-52r2 (TLS baseline); CRS works on decrypted request bodies (SecRequestBodyAccess)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "cipher_suites_strong_only",
+    "option_description": "Whether the inbound TLS listener is restricted to strong AEAD/forward-secret cipher suites only (no export, RC4, 3DES, CBC-with-SHA1 or other legacy ciphers). Secure value is aead_with_forward_secrecy_only.",
+    "security_impact": "One of the OR-conditions of \"Inbound TLS termination enables payload inspection\" — the protection holds when ciphers are aead_with_forward_secrecy_only — keeping the termination handshake on forward-secret authenticated encryption. Any legacy CBC/RC4/3DES/NULL/export suite accepted weakens that crossing.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the cipher suites the inbound listener will negotiate and map: only AEAD+ECDHE/DHE => aead_with_forward_secrecy_only; any weak suite present => the legacy value.",
+        "command": "nmap --script ssl-enum-ciphers -p443 <waf-vip> ; testssl.sh <waf-vip>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only ECDHE/DHE AEAD suites (AES-GCM/CHACHA20) offered => aead_with_forward_secrecy_only (secure); any RC4/3DES/CBC-SHA1/NULL/EXPORT suite => any_legacy_cbc_rc4_3des_null_or_export_suite_accepted (insecure)",
+        "source": "NIST SP 800-52r2 (TLS baseline); CRS works on decrypted request bodies (SecRequestBodyAccess)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "aead_with_forward_secrecy_only",
+      "any_legacy_cbc_rc4_3des_null_or_export_suite_accepted"
+    ]
+  },
+  {
+    "option_name": "request_rate_limiting_enabled",
+    "option_description": "Whether rate-based rules are attached to the WAF policy to throttle abusive request volume per client over a time window on traffic-bearing endpoints (login, search, API).",
+    "security_impact": "One of the OR-conditions of \"Rate limiting and anti-automation enforced\" — fires when a rate-based rule is attached — blunting Application-layer DoS / abusive automation (T1499) and Brute force / credential stuffing (T1110) (M1031 Network Intrusion Prevention). Absent, login/search/API take unlimited request volume.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS WAFv2, confirm a RateBasedStatement is attached to the Web ACL with a configured Limit; Azure/Cloudflare have equivalent rate-limit custom rules; ModSecurity uses collection thresholds.",
+        "command": "aws wafv2 get-web-acl --name <acl> --scope REGIONAL --id <id> --query 'WebACL.Rules[].Statement.RateBasedStatement'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A RateBasedStatement with a Limit present and scoped to traffic-bearing endpoints (secure); none (insecure)",
+        "source": "AWS WAF — Using rate-based rule statements"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the rate-based rule is actually applied to the high-value endpoints (login/search/API), not just present on a low-traffic path.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rate rule scope statement covers login/search/API paths (secure); rule present but not covering sensitive endpoints (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bot_mitigation_enabled",
+    "option_description": "Whether anti-automation / bot-mitigation controls are attached to the WAF policy (e.g. AWS Bot Control managed rule group, vendor bot management, JS/device challenge) to distinguish automated abuse from legitimate clients.",
+    "security_impact": "One of the OR-conditions of \"Rate limiting and anti-automation enforced\" — fires when bot mitigation is active — complementing rate limiting against credential stuffing/scraping (T1110, T1499) (M1031). Absent, automated abuse that stays under raw rate limits is unmitigated.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS WAFv2, confirm the Bot Control managed rule group is attached; on Cloudflare/Azure confirm Bot Management / JS-challenge is enabled.",
+        "command": "aws wafv2 get-web-acl --name <acl> --scope REGIONAL --id <id> --query 'WebACL.Rules[].Statement.ManagedRuleGroupStatement.Name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List includes AWSManagedRulesBotControlRuleSet (or vendor bot group/JS challenge enabled) (secure); none (insecure)",
+        "source": "AWS WAF — Using rate-based rule statements"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Cloudflare/Azure consoles, confirm a bot-management / JS or device challenge policy is enabled and active for the application.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF/Security console > Bot management (Cloudflare) or WAF policy > Custom/Bot rules (Azure)",
+        "expected_output": "Bot management or managed challenge enabled and active (secure); disabled/none (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limit_action",
+    "option_description": "The action applied when a rate-based or bot-mitigation rule matches. Only an enforcing action (block, captcha, challenge) actually throttles abuse; count/allow/none merely observe.",
+    "security_impact": "One of the OR-conditions of \"Rate limiting and anti-automation enforced\" — the protection holds only when the action is enforcing (block/captcha/challenge) — actually stopping flooding/stuffing (T1499, T1110) (M1031). count/allow/none observe without throttling, so the abuse continues.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS WAFv2, read the Action on the rate-based/bot rule and map: Block/Captcha/Challenge => enforcing; Count/Allow => observe-only.",
+        "command": "aws wafv2 get-web-acl --name <acl> --scope REGIONAL --id <id> --query 'WebACL.Rules[?Statement.RateBasedStatement].Action'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Action is Block/Captcha/Challenge => block|captcha|challenge (secure); Count/Allow => count|allow|none (insecure)",
+        "source": "AWS WAF — Using rate-based rule statements"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Cloudflare/Azure, read the rate-limit/bot rule's configured action in the console.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF console > rate-limiting rule > Action (Block / Managed Challenge / JS Challenge vs Log)",
+        "expected_output": "Block / Challenge / CAPTCHA selected (secure); Log/Count only (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "block",
+      "captcha",
+      "challenge",
+      "count"
+    ]
+  },
+  {
+    "option_name": "waf_request_body_inspection_enabled",
+    "option_description": "Whether WAF request-body access/inspection is enabled so payloads (POST bodies, multipart uploads) are parsed and screened rather than passed through uninspected.",
+    "security_impact": "One of the OR-conditions of \"Body inspection and protocol validation active\" — fires when body access is on — letting content rules screen POST/upload payloads against Web shell upload (T1505.003) and injection (T1190) (M1021 Restrict Web-Based Content). When off, oversized bodies and web-shell payloads bypass content rules.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity, confirm request-body access is on and a body limit is set; AWS/Azure expose body inspection via the managed group's body component / OversizeHandling.",
+        "command": "grep -iE 'SecRequestBodyAccess|SecRequestBodyLimit' /etc/modsecurity/modsecurity.conf",
+        "file_path": "modsecurity.conf / crs-setup.conf",
+        "navigation": null,
+        "expected_output": "SecRequestBodyAccess On + SecRequestBodyLimit set (secure); disabled/unset (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "file_upload_limits_enforced",
+    "option_description": "Whether request-body size limits and content-type allow-lists are enforced on inspected bodies (max body/upload size, permitted MIME types), constraining oversized-upload abuse and disallowed file types.",
+    "security_impact": "One of the OR-conditions of \"Body inspection and protocol validation active\" — fires when upload limits are enforced — constraining Web shell upload / deployment (T1505.003) (M1021). When off, large or arbitrary-content uploads reach the origin.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity+CRS, confirm the file-size and argument bounds are set in crs-setup.conf alongside the body limit.",
+        "command": "grep -iE 'max_file_size|combined_file_sizes|max_num_args|arg_length' crs-setup.conf",
+        "file_path": "modsecurity.conf / crs-setup.conf",
+        "navigation": null,
+        "expected_output": "tx.max_file_size / tx.combined_file_sizes / tx.max_num_args / tx.arg_length bounded (secure); unset/unrestricted (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a content-type allow-list constrains permitted upload MIME types (not just size).",
+        "command": "grep -iE 'tx.allowed_request_content_type' crs-setup.conf",
+        "file_path": "crs-setup.conf",
+        "navigation": null,
+        "expected_output": "tx.allowed_request_content_type allow-list present and scoped (secure); all content types allowed (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "http_protocol_validation_enabled",
+    "option_description": "Whether HTTP protocol-enforcement rules are active — including an allowed-method allow-list — rejecting malformed or non-conforming requests at the WAF.",
+    "security_impact": "One of the OR-conditions of \"Body inspection and protocol validation active\" — fires when protocol enforcement is on — rejecting anomalous methods/protocol violations (CRS REQUEST-920) that feed HTTP request smuggling (T1071.001) (M1021). When off, malformed requests are forwarded to the origin.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity+CRS, confirm the allowed-method allow-list is restricted and the REQUEST-920 protocol-enforcement group is enabled.",
+        "command": "grep -iE \"tx.allowed_methods|tx.allowed_request_content_type\" crs-setup.conf",
+        "file_path": "crs-setup.conf",
+        "navigation": null,
+        "expected_output": "setvar:tx.allowed_methods=GET HEAD POST OPTIONS and an allowed_request_content_type allow-list present, REQUEST-920 included (secure); all methods allowed / 920 disabled (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example; CWE-444 (HTTP request smuggling)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_smuggling_protection_enabled",
+    "option_description": "Whether the WAF rejects requests with ambiguous or conflicting framing (e.g. simultaneous/duplicate Content-Length and Transfer-Encoding headers), defending against HTTP request smuggling (CWE-444).",
+    "security_impact": "One of the OR-conditions of \"Body inspection and protocol validation active\" — fires when ambiguous CL/TE framing is rejected — defending against HTTP request smuggling (CWE-444 / T1071.001) (M1021). When off, CL.TE/TE.CL desync can poison the request stream past the WAF.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On ModSecurity+CRS, confirm the protocol-enforcement group (REQUEST-920) is enabled — it rejects conflicting Content-Length/Transfer-Encoding framing.",
+        "command": "grep -iE \"tx.allowed_methods|REQUEST-920\" crs-setup.conf /etc/modsecurity*",
+        "file_path": "crs-setup.conf",
+        "navigation": null,
+        "expected_output": "REQUEST-920 PROTOCOL-ENFORCEMENT included and active (secure); group disabled / ambiguous CL+TE tolerated (insecure)",
+        "source": "OWASP CRS — crs-setup.conf.example; CWE-444 (HTTP request smuggling)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a crafted request carrying both Content-Length and Transfer-Encoding: chunked and confirm the WAF rejects it.",
+        "command": "printf 'POST / HTTP/1.1\\r\\nHost: <host>\\r\\nContent-Length: 6\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n0\\r\\n\\r\\n' | openssl s_client -quiet -connect <waf-vip>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WAF rejects with 400/403 on conflicting CL+TE (secure); request accepted/forwarded (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "direct_to_origin_blocked",
+    "option_description": "Whether the origin server's IP is unreachable directly from the internet — the origin's network/security-group rules deny inbound HTTP(S) except from the WAF/edge — so an attacker who discovers the origin IP cannot route around the WAF.",
+    "security_impact": "One of the OR-conditions of \"WAF non-bypassable with direct-to-origin blocked\" — fires when direct-to-origin is blocked — closing WAF bypass via direct-to-origin (T1190), the load-bearing non-bypassability facet (M1050). If the origin IP is publicly reachable, every edge protection is moot.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Force a request to the origin IP while sending the production hostname (bypassing DNS/edge) and confirm it is refused.",
+        "command": "curl -sk --resolve <hostname>:443:<origin-ip> https://<hostname>/ -o /dev/null -w '%{http_code}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Direct-to-origin refused/blocked (connection refused, 403, or mTLS failure) (secure); 200 served by the app bypassing the WAF (insecure)",
+        "source": "Cloudflare — WAF bypass via origin IP / Authenticated Origin Pulls"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the origin's security group / firewall ingress rules to confirm inbound 80/443 is restricted to the WAF/edge ranges, not 0.0.0.0/0.",
+        "command": "aws ec2 describe-security-groups --group-ids <origin-sg> --query 'SecurityGroups[].IpPermissions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inbound 443 source restricted to WAF/edge prefix list or managed-prefix (secure); 0.0.0.0/0 on 443 (insecure)",
+        "source": "Cloudflare — WAF bypass via origin IP / Authenticated Origin Pulls"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "origin_access_restricted_to_waf",
+    "option_description": "Whether the only sanctioned path to the origin is through the WAF, enforced by an authenticated channel: authenticated origin pulls / origin mTLS, an allow-list of WAF egress IPs, or a private origin fronted by OAI/OAC.",
+    "security_impact": "One of the OR-conditions of \"WAF non-bypassable with direct-to-origin blocked\" — fires when origin access is cryptographically/network-restricted to the WAF — closing WAF bypass via direct-to-origin (T1190) (M1050). Without it, requests reaching the origin IP route around all WAF rules.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm a request not bearing the WAF's client certificate / not from a WAF egress IP is refused by the origin (authenticated origin pull / mTLS proof).",
+        "command": "curl -sk --resolve <hostname>:443:<origin-ip> https://<hostname>/ -o /dev/null -w '%{http_code}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Origin rejects (mTLS handshake failure / 403) for requests not proven to come from the WAF (secure); served directly (insecure)",
+        "source": "Cloudflare — WAF bypass via origin IP / Authenticated Origin Pulls"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm which authenticated mechanism is in force — authenticated origin pulls/mTLS, WAF egress-IP allow-list, or private OAI/OAC origin — and that IP allow-listing alone is treated as defence-in-depth, not the sole control.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An authenticated channel (mTLS/origin pull or private OAI/OAC) enforces WAF-only access (secure); IP allow-list alone or none (weaker/insecure)",
+        "source": "Cloudflare — WAF bypass via origin IP / Authenticated Origin Pulls"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "origin_access_enforcement_mechanism",
+    "option_description": "Which mechanism enforces WAF-only origin access, recorded for assessor context: authenticated_origin_pull_mtls, waf_egress_ip_allowlist, private_origin_oai_oac, or none.",
+    "security_impact": "Contextual evidence for \"WAF non-bypassable with direct-to-origin blocked\" — not itself a trigger (the booleans direct_to_origin_blocked and origin_access_restricted_to_waf carry the polarity); it records which enforcement mechanism backs the non-bypassability claim, with authenticated_origin_pull_mtls / private_origin_oai_oac the strongest and none indicating no enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine and record which mechanism enforces WAF-only origin access by reviewing the origin/edge architecture and config.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One of authenticated_origin_pull_mtls / waf_egress_ip_allowlist / private_origin_oai_oac (enforcement present) vs none (no enforcement)",
+        "source": "Cloudflare — WAF bypass via origin IP / Authenticated Origin Pulls"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS/CloudFront, confirm whether the origin is private behind OAI/OAC (S3) or source-IP restricted to the managed CloudFront prefix list; for Cloudflare, confirm Authenticated Origin Pull is enabled.",
+        "command": "aws cloudfront get-distribution-config --id <dist-id> --query 'DistributionConfig.Origins.Items[].{Origin:DomainName,OAC:OriginAccessControlId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OriginAccessControlId present (private_origin_oai_oac) or mTLS/IP-allowlist evidence => the matching enum; nothing => none",
+        "source": "Cloudflare — WAF bypass via origin IP / Authenticated Origin Pulls"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "authenticated_origin_pull_mtls",
+      "private_origin_oai_oac",
+      "waf_egress_ip_allowlist"
+    ]
+  },
+  {
+    "option_name": "waf_audit_logging_enabled",
+    "option_description": "Whether WAF block/allow events — matched rule id, client IP, request URI, action taken — are emitted and shipped to a central SIEM rather than discarded or retained only locally.",
+    "security_impact": "One of the OR-conditions of \"Event logging to SIEM with fail-closed posture\" — fires when WAF logging is forwarded to the SIEM — making attacks detectable/investigable (M1047 Audit) and supporting network monitoring (CIS Control 13). Without it, blocks/allows are invisible to detection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a logging destination is configured: AWS WAF logging configuration to S3/Kinesis/CloudWatch, or ModSecurity audit engine on.",
+        "command": "aws wafv2 get-logging-configuration --resource-arn <web-acl-arn>; grep -i '^SecAuditEngine' /etc/modsecurity/modsecurity.conf",
+        "file_path": "modsecurity.conf",
+        "navigation": null,
+        "expected_output": "A LoggingConfiguration with a destination present and SecAuditEngine On/RelevantOnly (secure); none/Off (insecure)",
+        "source": "CIS Controls v8 Control 8 (centralize, retain >=90d); NIST SP 800-92 (log management); CIS Control 13 (network monitoring)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, confirm WAF events actually arrive and carry matched rule id, client IP, URI, and action.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent WAF block/allow events present in the SIEM with rule id / client IP / URI / action fields (secure); no events ingested (insecure)",
+        "source": "CIS Controls v8 Control 8 (centralize, retain >=90d); NIST SP 800-92 (log management); CIS Control 13 (network monitoring)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether WAF event logs are aggregated into the workspace's central log/SIEM platform so they are correlatable across components and queryable for investigation, rather than siloed per-edge.",
+    "security_impact": "One of the OR-conditions of \"Event logging to SIEM with fail-closed posture\" — fires when events reach central aggregation — enabling cross-component correlation (M1047 Audit; CIS Control 8). Siloed per-edge logs cannot be correlated for investigation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Trace the WAF log destination through to the central aggregation pipeline (e.g. CloudWatch/Kinesis Firehose subscription to the SIEM, or ModSecurity audit log shipped by the log forwarder).",
+        "command": "aws wafv2 get-logging-configuration --resource-arn <web-acl-arn> --query 'LoggingConfiguration.LogDestinationConfigs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Destination feeds the workspace SIEM/central aggregation pipeline (secure); local-only or unconnected destination (insecure)",
+        "source": "CIS Controls v8 Control 8 (centralize, retain >=90d); NIST SP 800-92 (log management); CIS Control 13 (network monitoring)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the central SIEM to confirm this specific WAF component's events are ingested and tagged to the workspace, not missing.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "This component's WAF events queryable in the central SIEM (secure); absent / only on the edge appliance (insecure)",
+        "source": "CIS Controls v8 Control 8 (centralize, retain >=90d); NIST SP 800-92 (log management); CIS Control 13 (network monitoring)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Number of days WAF/SIEM event logs are retained. A retention horizon of at least 90 days makes slow-burn and historical attacks investigable after the fact.",
+    "security_impact": "One of the OR-conditions of \"Event logging to SIEM with fail-closed posture\" — the protection holds when retention is >=90 days — supporting after-the-fact investigation (M1047 Audit; CIS Control 8 retention floor). Short retention discards the evidence needed to reconstruct slow-burn attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the retention setting on the WAF log store / SIEM index and compare against the 90-day secure floor.",
+        "command": "aws logs describe-log-groups --query 'logGroups[?contains(logGroupName,`waf`)].{n:logGroupName,r:retentionInDays}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "retentionInDays >= 90 (secure floor); <90 or never-expires-without-policy gaps below 90 (insecure)",
+        "source": "CIS Controls v8 Control 8 (centralize, retain >=90d); NIST SP 800-92 (log management); CIS Control 13 (network monitoring)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm the SIEM retention/lifecycle policy for WAF events matches the configured horizon and that the oldest retrievable event is at least 90 days back.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Oldest queryable WAF event >=90 days old and lifecycle policy set accordingly (secure); events aged out before 90 days (insecure)",
+        "source": "CIS Controls v8 Control 8 (centralize, retain >=90d); NIST SP 800-92 (log management); CIS Control 13 (network monitoring)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      90,
+      180,
+      365
+    ]
+  },
+  {
+    "option_name": "waf_fails_closed_on_error",
+    "option_description": "Whether the WAF's behaviour when the inspection engine is unavailable is a deliberate, documented decision to fail CLOSED (deny traffic) rather than silently passing uninspected requests to the origin — the expected posture for high-assurance apps.",
+    "security_impact": "One of the OR-conditions of \"Event logging to SIEM with fail-closed posture\" — fires when the fail-closed posture is configured and documented — preventing a WAF outage from silently exposing the origin uninspected (default-deny posture, NIST SP 800-41r1; M1050). An undocumented fail-open silently bypasses all inspection during an outage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the engine-unavailable behaviour is a documented decision matching the app's risk (fail-closed/deny for high-risk apps) and was verified in a failure-injection test.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented fail-open/fail-closed decision matching app risk, verified by failure-injection (secure); no decision / silent fail-open (insecure)",
+        "source": "NIST SP 800-41r1 (firewall policy default-deny posture); operational WAF hardening guidance"
+      },
+      {
+        "type": "network_test",
+        "instruction": "In a maintenance window, simulate WAF/engine unavailability and observe whether traffic is denied (fail-closed) or flows uninspected to the origin (fail-open).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Requests denied (5xx/refused) while the engine is down for a high-risk app (secure, fail-closed); requests served uninspected (insecure, fail-open)",
+        "source": "NIST SP 800-41r1 (firewall policy default-deny posture); operational WAF hardening guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

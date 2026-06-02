@@ -1,0 +1,632 @@
+[
+  {
+    "option_name": "office_macro_execution_blocked",
+    "option_description": "Whether Office VBA macros originating from the internet are blocked by policy (macro-block GPO / Defender ASR) so a phishing attachment cannot auto-execute a macro on open.",
+    "security_impact": "One of the OR-triggers of the exposure \"Phishing-driven user execution (initial access)\" — fires when macros are enabled by default (office_macro_execution_blocked false) and a malicious attachment can run a macro on open (ATT&CK T1204/T1059).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the PowerShell execution policy (the macro/script policy surface) and confirm the macro-block GPO/Defender ASR rule for internet-sourced Office documents is deployed.",
+        "command": "Get-ExecutionPolicy -List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Machine/CurrentUser policy AllSigned or RemoteSigned with a macro-block GPO in place (secure); Unrestricted/Bypass or no macro-block policy (insecure).",
+        "source": "CIS Controls v8 Control 10 — Malware Defenses"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the GPO/Intune setting 'Block macros from running in Office files from the Internet' (or the equivalent ASR rule GUID) is enforced for the Office apps in scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Group Policy / Intune: Office macro settings — 'Block macros from running in Office files from the Internet' set to Enabled.",
+        "expected_output": "Internet-sourced macros blocked by policy (secure); macros allowed/enabled by default (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "script_execution_constrained",
+    "option_description": "Whether script/command-interpreter execution is constrained (PowerShell Constrained Language mode plus AllSigned/RemoteSigned execution policy, signed-only scripts), cutting the phishing-to-execution path via PowerShell/VBA/shell.",
+    "security_impact": "One of the OR-triggers of the exposure \"Phishing-driven user execution (initial access)\" — fires when interpreters can run arbitrary unsigned payloads (script_execution_constrained false), enabling ATT&CK T1059 command/scripting abuse.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "List the effective PowerShell execution policy at each scope on the macro/script policy surface.",
+        "command": "Get-ExecutionPolicy -List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Machine/CurrentUser policy AllSigned or RemoteSigned (secure); Unrestricted/Bypass (insecure).",
+        "source": "CIS Controls v8 Control 10 — Malware Defenses"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm PowerShell runs in Constrained Language mode (typically enforced by WDAC/AppLocker).",
+        "command": "$ExecutionContext.SessionState.LanguageMode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ConstrainedLanguage (secure); FullLanguage with no allowlisting (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "application_allowlisting_enforced",
+    "option_description": "Whether application/script allowlisting is enforced (WDAC/AppLocker on Windows; Gatekeeper assessments on macOS) so only approved, signed binaries may execute, blocking unsigned/unknown phishing payloads.",
+    "security_impact": "One of the OR-triggers of the exposure \"Phishing-driven user execution (initial access)\" — fires when any downloaded binary may run (application_allowlisting_enforced false), the on-host execution step of ATT&CK T1204.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On macOS check Gatekeeper assessment state; on Windows confirm a WDAC/AppLocker policy is deployed.",
+        "command": "spctl --status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "macOS: \"assessments enabled\" (Gatekeeper on, secure); \"assessments disabled\" (insecure). Windows: confirm WDAC/AppLocker policy deployed.",
+        "source": "CIS Controls v8 Control 2 — Inventory and Control of Software Assets; Control 10"
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate effective AppLocker policy to confirm allowlisting rules are present and enforcing.",
+        "command": "Get-AppLockerPolicy -Effective -Xml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enforcing rule collections for Exe/Script/Msi (secure); no policy or AuditOnly (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "web_dns_content_filtering_enabled",
+    "option_description": "Whether protective DNS plus web/email content filtering is active on the endpoint to block known-malicious domains and phishing-payload download/callback.",
+    "security_impact": "One of the OR-triggers of the exposure \"Phishing-driven user execution (initial access)\" — fires when arbitrary domains are resolvable and no web/email filtering blocks the lure (web_dns_content_filtering_enabled false).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the endpoint resolves through protective DNS and that web/email content-filtering policy is applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint resolves via protective DNS and web filtering policy is applied (secure); unfiltered resolution (insecure).",
+        "source": "CIS Controls v8 Control 9/13 — content filtering and network monitoring"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to resolve a known test/blocked malicious domain from the endpoint to confirm protective DNS sinkholes it.",
+        "command": "nslookup <known-blocked-test-domain>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resolution blocked/sinkholed by protective DNS (secure); domain resolves normally (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "behavior_monitoring_enabled",
+    "option_description": "Whether EDR/AV behavior-based monitoring is active on the endpoint so post-click payload execution and fileless/behavior-only malware are detected and blocked.",
+    "security_impact": "An OR-trigger of both \"Phishing-driven user execution (initial access)\" and \"Malware execution with disabled or stale endpoint protection\" — fires when behavior monitoring is off (behavior_monitoring_enabled false) and a payload executes undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Defender antimalware status object and inspect BehaviorMonitorEnabled (or the equivalent EDR console flag).",
+        "command": "Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BehaviorMonitorEnabled : True (secure); False indicates behavior monitoring is disabled (insecure).",
+        "source": "Get-MpComputerStatus (Defender) Microsoft Learn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edr_av_present",
+    "option_description": "Endpoint anti-malware (EDR/AV) is installed and its service is running (Get-MpComputerStatus AMServiceEnabled and AntivirusEnabled both True). The core malware-defense control on the endpoint.",
+    "security_impact": "An OR-trigger of the exposure \"Malware execution with disabled or stale endpoint protection\" — fires when the core malware-defense control is absent (edr_av_present false) and malware executes unimpeded.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Defender antimalware status object and confirm the service is enabled and antivirus is active (or that the EDR sensor service is installed and running).",
+        "command": "Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AMServiceEnabled : True and AntivirusEnabled : True (secure); either False indicates the agent is absent/disabled (insecure).",
+        "source": "Get-MpComputerStatus (Defender) Microsoft Learn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "realtime_protection_enabled",
+    "option_description": "Real-time / on-access scanning is active (Get-MpComputerStatus RealTimeProtectionEnabled and OnAccessProtectionEnabled True) so files are inspected on access and boot/logon autostart persistence is observed.",
+    "security_impact": "An OR-trigger of both \"Malware execution with disabled or stale endpoint protection\" and \"Boot-level persistence / firmware bootkit\" — fires when real-time protection is off (realtime_protection_enabled false), so files execute without on-access inspection and persistence goes unmonitored.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Defender antimalware status object and inspect RealTimeProtectionEnabled and OnAccessProtectionEnabled (or the equivalent EDR flag).",
+        "command": "Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RealTimeProtectionEnabled : True and OnAccessProtectionEnabled : True (secure); either False indicates real-time protection is disabled (insecure).",
+        "source": "Get-MpComputerStatus (Defender) Microsoft Learn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edr_tamper_protection_enabled",
+    "option_description": "Tamper protection prevents malware or a local actor from disabling AV/EDR or altering its settings (Get-MpComputerStatus IsTamperProtected True).",
+    "security_impact": "An OR-trigger of the exposure \"Malware execution with disabled or stale endpoint protection\" — fires when tamper protection is off (edr_tamper_protection_enabled false), letting an Impair-Defenses actor (ATT&CK T1562) silently disable the agent.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Defender antimalware status object and inspect IsTamperProtected (or the EDR console tamper-protection toggle).",
+        "command": "Get-MpComputerStatus | Select-Object IsTamperProtected",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IsTamperProtected : True (secure) — protection settings cannot be silently disabled; False (insecure).",
+        "source": "Protect security settings with tamper protection — Microsoft Defender for Endpoint, Microsoft Learn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "antivirus_signature_age_days",
+    "option_description": "Age in days of the anti-malware signature/definition package (Get-MpComputerStatus AntivirusSignatureAge). Stale signatures miss known threats.",
+    "security_impact": "An OR-trigger of the exposure \"Malware execution with disabled or stale endpoint protection\" — fires when above the freshness threshold (>3 days), because stale signatures miss known threats; secure endpoints sit at or near 0.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Defender signature-currency fields (or the EDR last-definition-update timestamp converted to days).",
+        "command": "Get-MpComputerStatus | Select-Object AntivirusSignatureAge,AntivirusSignatureLastUpdated,AntivirusSignatureVersion,AntispywareSignatureAge",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AntivirusSignatureAge near 0 with a recent AntivirusSignatureLastUpdated timestamp (secure); a large age value (insecure).",
+        "source": "Get-MpComputerStatus (Defender) Microsoft Learn"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "7"
+    ]
+  },
+  {
+    "option_name": "removable_media_control_enabled",
+    "option_description": "Removable-media device control restricts USB mass-storage write/execute via policy.",
+    "security_impact": "An OR-trigger of the exposure \"Malware execution with disabled or stale endpoint protection\" — fires when device control is off (removable_media_control_enabled false), letting removable media seed a malware payload (ATT&CK T1091 Replication Through Removable Media).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a deployed MDM/GPO device-control policy restricts removable-storage read/write/execute.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MDM/GPO device-control policy restricts removable storage (secure); no policy / full access (insecure).",
+        "source": "CIS Controls v8 Control 10 — Malware Defenses (auto-run/removable media); Control 13"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "os_patch_current",
+    "option_description": "True when the OS and third-party client software (browser, document readers) have no missing critical/important security updates per the org patch SLA.",
+    "security_impact": "An OR-trigger of the exposure \"Exploitation of unpatched OS / third-party client software\" — fires when patches are missing (os_patch_current false), leaving known-vulnerable client software exploitable via web or document content (ATT&CK T1203).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List the most recently installed hotfixes/cumulative updates and cross-check the latest InstalledOn date against the vendor patch SLA.",
+        "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A recent InstalledOn date for the latest cumulative update (secure); a months-old last patch (insecure).",
+        "source": "CIS Controls v8 Control 4 / Control 2 — patch and software currency"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "automatic_updates_enabled",
+    "option_description": "True when automatic OS and software updates are enabled so security fixes install without manual intervention within the SLA window.",
+    "security_impact": "An OR-trigger of the exposure \"Exploitation of unpatched OS / third-party client software\" — fires when auto-update is disabled (automatic_updates_enabled false), since the endpoint drifts out of date and remains exploitable (ATT&CK T1203).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm patches are being applied automatically by inspecting recent install cadence; cross-check the OS/MDM auto-update policy.",
+        "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Regular recent InstalledOn dates indicating auto-update applies fixes within SLA (secure); stale cadence (insecure).",
+        "source": "CIS Controls v8 Control 4 / Control 2 — patch and software currency"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the Windows Update / MDM update policy (or package-manager auto-update) is set to install OS and managed third-party security updates automatically.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auto-update policy enabled for OS and managed software (secure); manual/disabled (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "days_since_last_security_patch",
+    "option_description": "Number of days since the most recent security patch / cumulative update was installed (latest InstalledOn date via Get-HotFix or equivalent).",
+    "security_impact": "An OR-trigger of the exposure \"Exploitation of unpatched OS / third-party client software\" — fires when it exceeds 30 days, indicating the patch SLA has lapsed (ATT&CK T1203); a hardened endpoint stays near 0.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Find the latest InstalledOn date and compute days between today and that date (or use the OS/software last-update timestamp).",
+        "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A recent latest InstalledOn date yielding a small day count (secure); a months-old date yielding >30 days (insecure).",
+        "source": "CIS Controls v8 Control 4 / Control 2 — patch and software currency"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "5",
+      "14"
+    ]
+  },
+  {
+    "option_name": "credential_guard_enabled",
+    "option_description": "Windows Defender Credential Guard is running (Win32_DeviceGuard SecurityServicesRunning includes 1), isolating LSASS-derived secrets (NTLM hashes, Kerberos TGTs, cached domain credentials) in a VBS-protected container.",
+    "security_impact": "An OR-trigger of the exposure \"Local credential theft and reuse\" — fires when Credential Guard is off (credential_guard_enabled false) and LSASS secrets are harvestable for reuse (ATT&CK T1552 Unsecured Credentials).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Win32_DeviceGuard and inspect which security services are actually running.",
+        "command": "Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\\Microsoft\\Windows\\DeviceGuard | Select-Object SecurityServicesRunning",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SecurityServicesRunning includes 1 (Credential Guard running) (secure); empty/0 (insecure).",
+        "source": "NIST SP 800-53 Rev 5 AC-6; MITRE ATT&CK T1552 Unsecured Credentials (mitigation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "lsa_protection_enabled",
+    "option_description": "LSA protection (RunAsPPL — LSASS runs as a Protected Process Light) is enabled, blocking unprivileged/userland tools from opening LSASS to dump credential material.",
+    "security_impact": "An OR-trigger of the exposure \"Local credential theft and reuse\" — fires when LSASS is unprotected (lsa_protection_enabled false) and credential-dumping tooling can read secrets directly (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the LSA RunAsPPL registry value to confirm LSASS runs as a Protected Process Light.",
+        "command": "Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name RunAsPPL",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RunAsPPL = 1 (or 2 for UEFI-locked) (secure); missing or 0 (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the RunAsPPL setting is enforced via GPO/Intune across the fleet, not just set locally.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RunAsPPL enforced centrally (secure); unmanaged / not configured (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "endpoint_runs_as_least_privileged_user",
+    "option_description": "Interactive day-to-day user accounts are standard users and the local Administrators group is limited to authorized admin accounts (least privilege, NIST AC-6).",
+    "security_impact": "An OR-trigger of the exposure \"Local credential theft and reuse\" — fires when the everyday user holds local admin rights (endpoint_runs_as_least_privileged_user false), granting the elevation needed to access LSASS, the SAM, and cached secrets (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate the local Administrators group and confirm only authorized admin/service accounts are members.",
+        "command": "Get-LocalGroupMember -Group Administrators",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only authorized admin/service accounts listed (secure); the everyday interactive user present (insecure).",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege; CIS Controls v8 Control 5/6"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, read the admin group membership and confirm the daily user is not a member.",
+        "command": "dscl . -read /Groups/admin GroupMembership",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "macOS: only authorized admins in the admin group (secure); standard daily user present (insecure).",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_mfa_enabled",
+    "option_description": "Device/identity sign-in and resource access enforce phishing-resistant MFA (FIDO2/WebAuthn, Windows Hello for Business, or certificate) rather than password-only or phishable OTP/push.",
+    "security_impact": "An OR-trigger of the exposure \"Local credential theft and reuse\" — fires when password-only/phishable auth is used (phishing_resistant_mfa_enabled false), so stolen endpoint credentials can be replayed to move laterally (ATT&CK T1078 Valid Accounts).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the Conditional Access / login policy to confirm phishing-resistant authenticators are enforced for device and resource access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Login policy shows phishing-resistant authenticators (FIDO2/WHfB/cert) enforced (secure); password-only or SMS/push (insecure).",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet; NIST SP 800-63B"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "endpoint_full_disk_encryption_on",
+    "option_description": "Full-disk encryption is on and complete for the system volume (BitLocker: VolumeStatus=FullyEncrypted, ProtectionStatus=On, EncryptionPercentage=100; FileVault: 'FileVault is On.').",
+    "security_impact": "An OR-trigger of the exposure \"Lost or stolen device data exposure\" — fires when the disk is unencrypted or the protector is suspended (endpoint_full_disk_encryption_on false), leaving local data and cached credentials readable to an offline attacker (ATT&CK T1052).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, read the BitLocker volume status for the system volume.",
+        "command": "Get-BitLockerVolume -MountPoint C: | Format-List VolumeStatus,ProtectionStatus,EncryptionPercentage,EncryptionMethod,KeyProtector",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VolumeStatus=FullyEncrypted, ProtectionStatus=On, EncryptionPercentage=100 (secure). FullyDecrypted / ProtectionStatus=Off (insecure).",
+        "source": "Get-BitLockerVolume (BitLocker) Microsoft Learn"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, read FileVault status.",
+        "command": "fdesetup status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"FileVault is On.\" (secure) or \"FileVault is Off.\" (insecure).",
+        "source": "Managing macOS FileVault 2 with fdesetup (Der Flounder); Apple fdesetup"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tpm_present_and_ready",
+    "option_description": "A TPM is present and ready (TpmPresent=True and TpmReady=True via Get-Tpm, TPM 2.0 expected) to anchor boot/credential integrity and the disk-encryption key.",
+    "security_impact": "An OR-trigger of both \"Lost or stolen device data exposure\" and \"Boot-level persistence / firmware bootkit\" — fires when no ready TPM is available (tpm_present_and_ready false), so the encryption key is more readily extractable offline and boot integrity is not hardware-anchored.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read TPM presence and readiness via Get-Tpm (TPM 2.0 expected); where disk encryption is in use also confirm the BitLocker KeyProtector includes Tpm.",
+        "command": "Get-Tpm",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TpmPresent : True and TpmReady : True (secure). TpmPresent : False (insecure / unsupported).",
+        "source": "Confirm-SecureBootUEFI / TPM guidance, Microsoft Learn (tpm.msc, Get-Tpm)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "screen_lock_timeout_minutes",
+    "option_description": "Inactivity timeout in minutes after which the device automatically locks and requires a password/biometric to wake.",
+    "security_impact": "An OR-trigger of the exposure \"Lost or stolen device data exposure\" — fires when the timeout exceeds 15 minutes, widening the window during which a lost or unattended device exposes an unlocked, decrypted session.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the machine-inactivity / require-password-after-screen-saver setting and confirm a short timeout with password required on wake.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Windows: Settings > Accounts > Sign-in options / GPO 'Interactive logon: Machine inactivity limit'. macOS: System Settings > Lock Screen + 'Require password after screen saver begins'.",
+        "expected_output": "Inactivity timeout set short (<= 15 min) and password required on wake (secure); disabled or very long (insecure).",
+        "source": "CIS Controls v8 Control 4 — Secure Configuration of Enterprise Assets and Software"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "5",
+      "10",
+      "15"
+    ]
+  },
+  {
+    "option_name": "remote_wipe_enabled",
+    "option_description": "The organization can remotely lock/wipe this endpoint via MDM/UEM (an available, tested Wipe/Retire/Lock action in the MDM console).",
+    "security_impact": "An OR-trigger of the exposure \"Lost or stolen device data exposure\" — fires when there is no remote-wipe capability (remote_wipe_enabled false), so a lost or stolen device cannot be remediated, prolonging exposure of local data and cached credentials (NIST SP 800-124 Rev. 2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a Wipe/Retire/Lock action is available (and tested) for the device in the MDM/UEM console.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MDM console shows the device with available Wipe/Retire/Lock actions (secure); device not actionable (insecure).",
+        "source": "NIST SP 800-124 Rev. 2 — Guidelines for Managing the Security of Mobile Devices in the Enterprise"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secure_boot_enabled",
+    "option_description": "UEFI Secure Boot is enabled so only signed bootloaders/firmware run, preventing boot-level persistence and bootkits (verified via Confirm-SecureBootUEFI).",
+    "security_impact": "An OR-trigger of the exposure \"Boot-level persistence / firmware bootkit\" — fires when Secure Boot is disabled (secure_boot_enabled false), leaving the boot chain open to unsigned/tampered boot components (ATT&CK T1547).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm UEFI Secure Boot state via PowerShell (or the firmware/UEFI Secure Boot setting).",
+        "command": "Confirm-SecureBootUEFI",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "True (Secure Boot enabled, secure). False (disabled, insecure). Error if BIOS/non-UEFI.",
+        "source": "Confirm-SecureBootUEFI (SecureBoot) Microsoft Learn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "managed_device_enrollment_enforced",
+    "option_description": "The endpoint is enrolled and compliant in the org MDM/UEM (Intune/Jamf) so policy, patch, and configuration are centrally enforced and remote wipe is possible.",
+    "security_impact": "An OR-trigger of the exposure \"Unmanaged / unmonitored endpoint with network exposure\" — fires when the device is unenrolled/unmanaged/non-compliant (managed_device_enrollment_enforced false), escaping central control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the device is Azure AD joined and MDM-enrolled on Windows (or check macOS enrollment).",
+        "command": "dsregcmd /status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Windows: AzureAdJoined : YES and MDM enrollment URLs present (secure); not joined / not enrolled (insecure). macOS: 'profiles status -type enrollment'.",
+        "source": "NIST SP 800-124 Rev. 2 — Guidelines for Managing the Security of Mobile Devices in the Enterprise"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "endpoint_audit_logs_centralised",
+    "option_description": "Endpoint security/EDR alerts and OS security logs are forwarded to a central SIEM/EDR cloud so detections and incident evidence survive a compromised host.",
+    "security_impact": "An OR-trigger of the exposure \"Unmanaged / unmonitored endpoint with network exposure\" — fires when logs are local-only or forwarding is broken (endpoint_audit_logs_centralised false), so a compromise goes undetected.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the endpoint appears as an active/reporting sensor in the EDR/SIEM console with recent events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint appears as an active/reporting sensor with recent events (secure); host missing or stale (insecure).",
+        "source": "CIS Controls v8 Control 8 — Audit Log Management; CIS Control 13 — Network Monitoring and Defense"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_firewall_enabled",
+    "option_description": "The host-based firewall is enabled on ALL profiles (Domain/Private/Public) to limit inbound exposure and lateral movement.",
+    "security_impact": "An OR-trigger of the exposure \"Unmanaged / unmonitored endpoint with network exposure\" — fires when any profile is disabled (host_firewall_enabled false), exposing inbound surface and lateral-movement opportunity.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, read the firewall profile state for all three profiles.",
+        "command": "Get-NetFirewallProfile | Select-Object Name,Enabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enabled : True for Domain, Private, and Public profiles (secure). Any False (insecure).",
+        "source": "CIS Controls v8 Control 4 — Secure Configuration of Enterprise Assets and Software"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, read the application-firewall global state.",
+        "command": "/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "macOS: \"Firewall is enabled. (State = 1)\" (secure); State = 0 (insecure).",
+        "source": "CIS Controls v8 Control 4 — Secure Configuration of Enterprise Assets and Software"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_ztna_posture_gating_enabled",
+    "option_description": "Off-network access to corporate systems is enforced through VPN/ZTNA with device-compliance/posture gating rather than direct internet exposure.",
+    "security_impact": "An OR-trigger of the exposure \"Unmanaged / unmonitored endpoint with network exposure\" — fires when there is direct internet exposure or no posture check (vpn_ztna_posture_gating_enabled false), giving off-network exposure of corporate resources.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm remote access to corporate resources is enforced via VPN/ZTNA with a device-posture/compliance policy in the access-broker/VPN/ZTNA console.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote access enforced via VPN/ZTNA with device posture (secure); split/no enforcement (insecure).",
+        "source": "NIST SP 800-46 Rev. 2 — Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

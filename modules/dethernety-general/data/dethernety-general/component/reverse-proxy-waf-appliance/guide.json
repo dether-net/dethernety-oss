@@ -1,0 +1,1262 @@
+[
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Lowest TLS/SSL protocol version the proxy will negotiate when terminating client connections (the nginx ssl_protocols floor on the client-facing listener).",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when the negotiated floor is a legacy version (SSLv3/TLSv1.0/TLSv1.1), enabling downgrade and BEAST/POODLE-class attacks (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the nginx ssl_protocols directive on the client-facing listener and record the lowest protocol version still offered.",
+        "command": "grep -R 'ssl_protocols' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3; (secure floor) — any SSLv3/TLSv1/TLSv1.1 present is a legacy floor; default since nginx 1.23.4 is TLSv1.2 TLSv1.3",
+        "source": "nginx ngx_http_ssl_module — TLS termination directives"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocol versions the live listener actually negotiates to confirm the floor on the wire.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <proxy-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2 and TLSv1.3 sections present; no TLSv1.0/1.1/SSLv3 sections — the lowest section is the effective floor",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2",
+      "TLSv1.3"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Interpreted assessment of the full nginx ssl_protocols set: true when it still includes any of SSLv3/TLSv1.0/TLSv1.1 (the hardened config lists only 'TLSv1.2 TLSv1.3').",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires (true) when any of SSLv3/TLSv1.0/TLSv1.1 remains enabled, the downgrade/SSL-strip precondition (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the complete ssl_protocols set and interpret it — true if any of SSLv3/TLSv1.0/TLSv1.1 remains.",
+        "command": "grep -R 'ssl_protocols' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3; (so weak_tls_versions_enabled=false) — a list including SSLv3/TLSv1/TLSv1.1 sets it true",
+        "source": "nginx ngx_http_ssl_module — TLS termination directives"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the live listener for any legacy protocol section to confirm whether weak versions actually negotiate.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <proxy-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No TLSv1.0/1.1/SSLv3 sections (false); presence of any legacy section means true",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "strong_cipher_suite_enforced",
+    "option_description": "Interpreted assessment of nginx ssl_ciphers: true when the offered list aligns with Mozilla intermediate/modern and excludes NULL/MD5/RC4/3DES/EXPORT/anonymous (aNULL) suites.",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when strong ciphers are NOT enforced (is_false), permitting RC4/3DES/export/anonymous suites (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the nginx ssl_ciphers directive and interpret it against Mozilla intermediate/modern — note '!' exclusions mean the named weak suites are removed, not offered.",
+        "command": "grep -R 'ssl_ciphers' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "An intermediate/modern cipher list with !aNULL:!MD5:!RC4 (true); default is HIGH:!aNULL:!MD5",
+        "source": "nginx ngx_http_ssl_module — TLS termination directives"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Scan the live endpoint for weak/CBC/RC4/3DES cipher findings to confirm the enforced suite set.",
+        "command": "testssl.sh --severity HIGH https://<proxy-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No weak/CBC/RC4/3DES findings flagged HIGH; matches Mozilla intermediate baseline (true)",
+        "source": "Mozilla Server Side TLS — Recommended Configurations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "hsts_enabled",
+    "option_description": "Whether the proxy emits an HTTP Strict-Transport-Security response header with a long max-age (nginx 'add_header Strict-Transport-Security ... always'), forcing clients onto HTTPS per RFC 6797.",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when HSTS is absent (is_false), leaving clients exposed to SSL-strip/downgrade (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Look for an add_header Strict-Transport-Security directive with a long max-age and the 'always' flag on fronted responses.",
+        "command": "grep -R 'Strict-Transport-Security' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;",
+        "source": "nginx ngx_http_headers_module — add_header for security headers"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the header is actually present on a live response.",
+        "command": "curl -sI https://<proxy-host> | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Strict-Transport-Security: max-age=... present (true) or absent (false)",
+        "source": "RFC 6797 HTTP Strict Transport Security (HSTS)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the proxy presents a currently-valid (not expired, correctly-chained, hostname-matching) server certificate on the client-facing TLS leg, with OCSP stapling enabling revocation checking.",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when the served certificate is invalid/expired or revocation cannot be checked (is_false).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm OCSP stapling is configured (ssl_stapling/ssl_stapling_verify on with a resolver) alongside the certificate directives.",
+        "command": "grep -R 'ssl_stapling' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_stapling on; ssl_stapling_verify on; with a resolver configured — default for both is off",
+        "source": "nginx ngx_http_ssl_module — TLS termination directives"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the served certificate chain (expiry, chain, hostname match) and confirm a stapled OCSP response is returned on the live connection.",
+        "command": "openssl s_client -connect <proxy-host>:443 -status </dev/null 2>/dev/null | grep -A2 'OCSP Response Status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OCSP Response Status: successful (stapling active); cert chain validates with matching hostname and future expiry",
+        "source": "Mozilla Server Side TLS — Recommended Configurations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_blocking_mode_enabled",
+    "option_description": "True only when ModSecurity SecRuleEngine is 'On' so the WAF executes disruptive/blocking actions; false for 'DetectionOnly' (logs but never blocks — fail-open) or 'Off' (engine disabled).",
+    "security_impact": "One of the OR-triggers of \"WAF disabled / detection-only / fail-open\" — fires when SecRuleEngine is not 'On' (is_false), letting attacks reach fronted apps unblocked (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the ModSecurity SecRuleEngine directive and interpret it — true only for 'On'.",
+        "command": "grep -R 'SecRuleEngine' /etc/modsecurity/ /etc/nginx/",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On (blocking, true). 'DetectionOnly' = process rules but never block; 'Off' = disabled (both false)",
+        "source": "ModSecurity Reference Manual (v3.x) — Configuration Directives"
+      },
+      {
+        "type": "command",
+        "instruction": "Send a benign CRS-tripping probe (e.g. an obvious SQLi pattern) and confirm the appliance returns a 403 rather than passing it through, proving blocking mode is live.",
+        "command": "curl -so /dev/null -w '%{http_code}\\n' \"https://<proxy-host>/?id=1%20OR%201=1--\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403 (blocking active) — a 200/upstream response indicates DetectionOnly/Off",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_request_body_inspection_enabled",
+    "option_description": "True only when ModSecurity SecRequestBodyAccess is 'On', so POST/JSON/multipart request bodies are buffered and inspected; false ('Off') lets body payloads bypass the WAF even with the engine on.",
+    "security_impact": "One of the OR-triggers of \"WAF disabled / detection-only / fail-open\" — fires when SecRequestBodyAccess is not 'On' (is_false), letting request-body injection/XSS bypass inspection (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the ModSecurity SecRequestBodyAccess directive; true only when 'On'.",
+        "command": "grep -R 'SecRequestBodyAccess' /etc/modsecurity/",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRequestBodyAccess On (true) — Off lets request-body payloads bypass inspection",
+        "source": "ModSecurity Reference Manual (v3.x) — Configuration Directives"
+      },
+      {
+        "type": "command",
+        "instruction": "POST an obvious attack payload in the body and confirm it is blocked, proving body inspection is active.",
+        "command": "curl -so /dev/null -w '%{http_code}\\n' -X POST -d \"q=1' OR '1'='1\" https://<proxy-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403 (body inspected and blocked) — a passthrough response indicates bodies are not inspected",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_anomaly_threshold_effective",
+    "option_description": "True only when OWASP CRS is deployed AND its anomaly scoring is tuned to actually block — paranoia level set (tx.blocking_paranoia_level >= 1) and the inbound block threshold (tx.inbound_anomaly_score_threshold, default 5) low enough that malicious requests trip it.",
+    "security_impact": "One of the OR-triggers of \"WAF disabled / detection-only / fail-open\" — fires (is_false) when CRS is absent or the threshold/paranoia level is set so scores never trip a block — a neutered ruleset (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the CRS paranoia-level setvar (rule id 900000) and interpret whether a paranoia level >= 1 is active.",
+        "command": "grep -RE 'tx.blocking_paranoia_level|setvar:tx.paranoia_level' /etc/modsecurity/ /etc/nginx/",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "navigation": null,
+        "expected_output": "SecAction id:900000 ... setvar:tx.blocking_paranoia_level=1 (default 1, secure baseline)",
+        "source": "OWASP CRS — Paranoia Levels documentation / crs-setup.conf.example"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the CRS inbound anomaly-score block threshold (rule id 900110) and judge whether it is low enough that malicious requests reach it.",
+        "command": "grep -RE 'tx.inbound_anomaly_score_threshold' /etc/modsecurity/",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "navigation": null,
+        "expected_output": "SecAction id:900110 ... setvar:tx.inbound_anomaly_score_threshold=5 (default/secure); a very high value neuters blocking (false)",
+        "source": "OWASP CRS — Paranoia Levels documentation / crs-setup.conf.example"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_fails_closed_on_error",
+    "option_description": "True only when the appliance fails CLOSED on a WAF/engine error — a ModSecurity processing error, body-size/parse limit, or connector fault denies the request rather than forwarding it unfiltered.",
+    "security_impact": "One of the OR-triggers of \"WAF disabled / detection-only / fail-open\" — fires (is_false) when the proxy fails OPEN, forwarding unfiltered traffic to the backend whenever the WAF errors out (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the appliance error-handling posture — ModSecurity SecRequestBodyLimitAction / SecResponseBodyLimitAction and the nginx-connector fault handling — to determine whether an over-limit or engine error rejects rather than processes-partial/passes.",
+        "command": "grep -RE 'SecRequestBodyLimitAction|SecResponseBodyLimitAction|SecRequestBodyLimit' /etc/modsecurity/",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRequestBodyLimitAction Reject (fails closed, true) — 'ProcessPartial' / passthrough on error indicates fail-open (false)",
+        "source": "ModSecurity Reference Manual (v3.x) — Configuration Directives"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the appliance operators how the proxy behaves when the WAF engine/connector faults (denied vs forwarded unfiltered), since fail-open posture is partly operational rather than a single directive.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented behaviour that a WAF/connector fault denies the request (fail-closed); any 'pass traffic through on WAF failure' answer is fail-open",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ambiguous_length_headers_rejected",
+    "option_description": "Whether the proxy rejects/normalizes requests carrying conflicting message-length framing (both Content-Length and Transfer-Encoding, duplicate CL, or an unhonoured TE) rather than forwarding an ambiguously-framed request to the backend.",
+    "security_impact": "One of the OR-triggers of \"HTTP request smuggling / desync\" — fires (is_false) when CL/TE conflicts are accepted, the precondition for CL.TE / TE.CL smuggling (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send crafted requests with both Content-Length and Transfer-Encoding (and a duplicate CL) and observe whether the proxy 400s/normalizes or forwards them ambiguously.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Proxy returns 400 / normalizes to a single framing (true); forwarding the conflicting request to the backend means false",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm merge_slashes and strict URI/body handling are at secure defaults, since loose request handling contributes to ambiguous framing acceptance.",
+        "command": "grep -R 'merge_slashes' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "merge_slashes on; or absent (default on, secure) — 'off' weakens request normalization",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "http_parsing_strict_consistent",
+    "option_description": "Whether the proxy and the backend it fronts parse HTTP identically and strictly — same handling of bare LF vs CRLF, leading/trailing header whitespace, duplicate headers, chunk-extension/trailer edge cases, and nginx error_page-redirect URI handling (CVE-2019-20372).",
+    "security_impact": "One of the OR-triggers of \"HTTP request smuggling / desync\" — fires (is_false) when proxy and upstream parse differently, enabling desync where one hop sees a request the other does not (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send requests exercising bare-LF line endings, header whitespace, and duplicate headers and compare how the proxy and backend each interpret them for any boundary divergence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Proxy and upstream agree on a single strict canonical parse (true); divergent interpretation of any case means false",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the running nginx build is past the error_page request-smuggling fix (CVE-2019-20372), a known proxy/backend parse-divergence path.",
+        "command": "nginx -v 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nginx version at/above the CVE-2019-20372 fix; pre-fix builds are vulnerable to error_page-redirect desync",
+        "source": "nginx security advisories — version-CVE mapping"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "http2_downgrade_desync_mitigated",
+    "option_description": "Whether HTTP/2 (or HTTP/3) terminated from clients and forwarded to the backend over HTTP/1.1 is sanitized on downgrade — validating pseudo-headers, rejecting injected CR/LF and smuggled CL/TE in HTTP/2 header values, and bounding chunked re-encoding.",
+    "security_impact": "One of the OR-triggers of \"HTTP request smuggling / desync\" — fires (is_false) when raw HTTP/2 header content is re-emitted into HTTP/1.1 unchecked (H2.CL / H2.TE desync) (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Over an HTTP/2 connection, inject CR/LF and embedded CL/TE into header values and observe whether the proxy rejects/normalizes them before downgrading to HTTP/1.1.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pseudo-headers validated and injected CR/LF / smuggled CL/TE rejected (true); unchecked re-emission into HTTP/1.1 means false",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the running nginx build is current so it carries the HTTP/2 framing fixes relevant to downgrade desync.",
+        "command": "nginx -v 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nginx version at/above the latest HTTP/2-related advisory fixes per the security advisory list",
+        "source": "nginx security advisories — version-CVE mapping"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "affected_by_published_smuggling_cve",
+    "option_description": "Interpreted from the running nginx/ModSecurity build: true when the appliance runs a version affected by a published request-smuggling/desync advisory (notably nginx CVE-2019-20372) or an open CISA KEV smuggling entry — i.e. below the relevant fix version.",
+    "security_impact": "One of the OR-triggers of \"HTTP request smuggling / desync\" — fires (is_true) when the build is a pre-fix or EoL build affected by a smuggling advisory (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running nginx and ModSecurity build versions and cross-check them against published smuggling advisories (e.g. CVE-2019-20372) and CISA KEV.",
+        "command": "nginx -v 2>&1; (nginx -V 2>&1 | tr ' ' '\\n' | grep -i modsec)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nginx version at/above the highest relevant smuggling-advisory fix version (false); a pre-fix/EoL build sets it true",
+        "source": "nginx security advisories — version-CVE mapping"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm against the CISA KEV catalog whether any open smuggling entry maps to the deployed build.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No open KEV smuggling entry applies to the running version (false); a matching open KEV entry sets it true",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "upstream_tls_verification_enabled",
+    "option_description": "Whether the proxy validates the upstream (backend) HTTPS server certificate on the proxy-to-backend leg (nginx proxy_ssl_verify on, with proxy_ssl_trusted_certificate at the backend CA bundle and proxy_ssl_name set).",
+    "security_impact": "One of the OR-triggers of \"Unverified upstream trust & SSRF\" — fires when verification is absent (is_false), leaving the proxy-to-backend leg unauthenticated and MITM-able (MITRE T1090).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read proxy_ssl_verify / proxy_ssl_trusted_certificate / proxy_ssl_name and interpret whether upstream cert validation is on.",
+        "command": "grep -RE 'proxy_ssl_verify|proxy_ssl_trusted_certificate|proxy_ssl_name' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_ssl_verify on; proxy_ssl_trusted_certificate <ca>; (true) — default is off, no upstream cert validation (false)",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the proxy-to-upstream protocol floor is not downgrading the backend leg.",
+        "command": "grep -R 'proxy_ssl_protocols' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_ssl_protocols TLSv1.2 TLSv1.3; or absent (default TLSv1.2 TLSv1.3, secure)",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backend_only_reachable_via_proxy",
+    "option_description": "Whether the backend application servers are reachable ONLY through the reverse proxy / WAF (segmentation / firewall / security-group rules make the proxy the sole ingress path).",
+    "security_impact": "One of the OR-triggers of \"Unverified upstream trust & SSRF\" — fires (is_false) when backends are directly internet-reachable, letting clients bypass WAF inspection and TLS/access policy (MITRE T1090).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, attempt to reach the backend application servers directly (bypassing the proxy) to prove no alternate ingress path exists.",
+        "command": "nmap -Pn -p <backend-ports> <backend-host-or-range>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backend ports filtered/unreachable from untrusted networks; only the proxy's listener answers (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the firewall / security-group / network-policy rules to confirm only the proxy is permitted to reach the backend tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingress rules to backend ports allow only the proxy's address(es) — default-deny from elsewhere (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ssrf_protection_on_proxied_requests",
+    "option_description": "Whether the proxy constrains where proxied/redirected requests may go (proxy_pass bound to fixed trusted upstreams, no open-forwarding, redirect/Location handling validated, internal address ranges blocked) so it cannot be coerced into reaching internal endpoints.",
+    "security_impact": "One of the OR-triggers of \"Unverified upstream trust & SSRF\" — fires (is_false) when permissive/attacker-influenced proxying enables SSRF to internal services the proxy is meant to gate (MITRE T1090).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect proxy_pass targets and any dynamic-resolution / redirect handling — confirm upstreams are fixed trusted values, not derived from request input.",
+        "command": "grep -RE 'proxy_pass|proxy_redirect|resolver' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_pass points at fixed named upstreams; no attacker-influenced/variable targets or open-forwarding (true)",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to coerce the proxy toward internal address ranges via request input or redirect following and confirm such targets are refused.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Requests cannot be steered to internal/loopback ranges; redirect/Location handling blocks them (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "forwarded_headers_sanitized",
+    "option_description": "True when the proxy strips/overwrites client-supplied X-Forwarded-For / X-Forwarded-Proto / X-Real-IP with trusted server-side values rather than passing attacker-controlled copies to the backend.",
+    "security_impact": "One of the OR-triggers of \"Forwarded-header spoofing / Host attacks\" — fires (is_false) when spoofable forwarded headers reach the upstream, enabling client-IP spoofing, IP-allowlist bypass, and auth/logging confusion (MITRE T1071).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the proxy_set_header directives for X-Forwarded-*/X-Real-IP and confirm they overwrite (not append) with trusted server-side values.",
+        "command": "grep -RE 'proxy_set_header (X-Forwarded|X-Real-IP|Host)' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; X-Forwarded-Proto $scheme; present and authoritative (true)",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a request with a forged X-Forwarded-For and confirm the value reaching the backend/logs is the proxy-set value, not the attacker's.",
+        "command": "curl -s -H 'X-Forwarded-For: 1.2.3.4' https://<proxy-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backend/log sees the real client IP appended by the proxy, not the spoofed 1.2.3.4 alone (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_header_validated",
+    "option_description": "True when the proxy validates/normalizes the inbound Host header and sets it to a trusted server-side value (proxy_set_header Host $host; with a default-deny server_name / explicit virtual-host match) so untrusted Host values cannot reach the backend.",
+    "security_impact": "One of the OR-triggers of \"Forwarded-header spoofing / Host attacks\" — fires (is_false) when an attacker-supplied Host passes through, enabling Host-header injection, cache poisoning, and password-reset poisoning (MITRE T1071).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a default-deny / explicit server_name match exists and proxy_set_header Host is set to a trusted value.",
+        "command": "grep -RE 'server_name|proxy_set_header Host' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Explicit server_name vhosts (no catch-all that forwards arbitrary Host) and proxy_set_header Host $host; (true)",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a request with an arbitrary Host header and confirm the proxy rejects it or normalizes it rather than routing it to the backend.",
+        "command": "curl -s -H 'Host: evil.example' https://<proxy-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Untrusted Host rejected / served by default-deny vhost — not forwarded to the backend (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "trusted_proxy_chain_configured",
+    "option_description": "True when the appliance defines an explicit trusted upstream-proxy set (nginx set_real_ip_from / real_ip_header / real_ip_recursive) so only X-Forwarded-* values from known intermediaries are honored for the real client IP.",
+    "security_impact": "A secondary OR-trigger of \"Forwarded-header spoofing / Host attacks\" — fires (is_false) when the proxy trusts forwarded headers from any source, so a directly-connecting attacker can forge the apparent client IP (MITRE T1071).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read set_real_ip_from / real_ip_header / real_ip_recursive and confirm an explicit trusted-intermediary set is defined rather than a wildcard.",
+        "command": "grep -RE 'set_real_ip_from|real_ip_header|real_ip_recursive' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "set_real_ip_from <known-intermediary-CIDRs>; real_ip_header X-Forwarded-For; (true) — absent or 0.0.0.0/0 is false",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the configured trusted-hop set actually matches the deployment's real intermediaries (CDN/LB egress ranges) and nothing broader.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trusted CIDRs correspond to the documented upstream intermediaries only (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_version_tokens_disabled",
+    "option_description": "True when the proxy suppresses its software/version banner in the Server header and error pages (nginx 'server_tokens off;'); the default 'on' leaks 'nginx/1.x.y'.",
+    "security_impact": "One of the OR-triggers of \"Information leakage & missing response hardening\" — fires (is_false) when version tokens are exposed, aiding version-specific exploit targeting (MITRE T1592).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the server_tokens directive.",
+        "command": "grep -R 'server_tokens' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "server_tokens off; (true) — default is on, which leaks the version (false)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the live Server header carries no version.",
+        "command": "curl -sI https://<proxy-host> | grep -i '^Server:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server: nginx (no version, true) vs Server: nginx/1.x.y (false)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "security_response_headers_enforced",
+    "option_description": "True when the proxy adds hardening response headers to fronted responses — X-Content-Type-Options: nosniff, X-Frame-Options/frame-ancestors CSP, and Referrer-Policy — via add_header ... always.",
+    "security_impact": "One of the OR-triggers of \"Information leakage & missing response hardening\" — fires (is_false) when these headers are absent, exposing clients to MIME-sniffing, clickjacking, and referrer leakage (MITRE T1592).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Look for add_header directives (with the 'always' flag) emitting the hardening headers on fronted responses.",
+        "command": "grep -RiE 'add_header (X-Content-Type-Options|X-Frame-Options|Content-Security-Policy|Referrer-Policy)' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header X-Content-Type-Options nosniff always; plus frame-ancestors/X-Frame-Options and Referrer-Policy (true)",
+        "source": "nginx ngx_http_headers_module — add_header for security headers"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the headers appear on a live response.",
+        "command": "curl -sI https://<proxy-host> | grep -iE 'x-content-type-options|x-frame-options|content-security-policy|referrer-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All three hardening headers present (true); any missing means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "error_responses_sanitized",
+    "option_description": "True when error/error_page responses are generic rather than verbose output that leaks internal paths, upstream identity, stack traces, or directory listings (autoindex off).",
+    "security_impact": "One of the OR-triggers of \"Information leakage & missing response hardening\" — fires (is_false) when error responses leak internal detail aiding reconnaissance and appliance-bypass (MITRE T1592).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm custom generic error_page handlers are configured and autoindex is off across the config tree.",
+        "command": "grep -RE 'error_page|autoindex' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "error_page maps to generic pages and autoindex off (true) — default upstream errors / autoindex on is false",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "command",
+        "instruction": "Trigger an error (e.g. a non-existent path or oversized request) and confirm the response body is generic with no internal paths, upstream identity, or stack traces.",
+        "command": "curl -s https://<proxy-host>/nonexistent-$(date +%s)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Generic 404/error page with no internal path, upstream name, or stack trace (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backend_identifying_headers_stripped",
+    "option_description": "True when the proxy strips backend-identifying response headers (Server, X-Powered-By, X-AspNet-Version, upstream framework banners) via proxy_hide_header before relaying to the client.",
+    "security_impact": "One of the OR-triggers of \"Information leakage & missing response hardening\" — fires (is_false) when backend identity headers are relayed unchanged, leaking backend stack/version detail (MITRE T1592).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the proxy_hide_header directives and confirm backend banner headers are stripped.",
+        "command": "grep -R 'proxy_hide_header' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "proxy_hide_header X-Powered-By; proxy_hide_header Server; etc. covering upstream banners (true)",
+        "source": "nginx ngx_http_proxy_module — upstream TLS verification"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect a live proxied response for residual backend banner headers.",
+        "command": "curl -sI https://<proxy-host> | grep -iE 'x-powered-by|x-aspnet-version|^Server:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No X-Powered-By / X-AspNet-Version and no backend Server banner relayed (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "request_rate_limiting_enabled",
+    "option_description": "True when the proxy enforces L7 per-client request-rate limiting — a limit_req_zone declared in http{} and limit_req applied to sensitive/all locations with a sane rate+burst.",
+    "security_impact": "One of the OR-triggers of \"L7 rate-limit & DoS gaps\" — fires (is_false) when no rate zone is configured, leaving an unbounded request rate to backends (MITRE T1498).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a limit_req_zone is declared and limit_req is applied.",
+        "command": "grep -RE 'limit_req_zone|limit_req ' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "limit_req_zone $binary_remote_addr ...; in http{} and limit_req zone=...; applied in server/location (true)",
+        "source": "nginx ngx_http_limit_req_module — request rate limiting"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Burst requests beyond the configured rate and confirm the proxy returns 503/429 once the limit is exceeded.",
+        "command": "for i in $(seq 1 50); do curl -so /dev/null -w '%{http_code} ' https://<proxy-host>/; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rate-limited responses (503/429) appear after the burst budget is exhausted (true); all 200 with no limit means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "connection_limits_enforced",
+    "option_description": "True when the proxy caps concurrent per-client connections — a limit_conn_zone declared and limit_conn applied — so a single source cannot exhaust the connection pool.",
+    "security_impact": "One of the OR-triggers of \"L7 rate-limit & DoS gaps\" — fires (is_false) when no connection cap exists, letting one source exhaust the pool (MITRE T1498).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a limit_conn_zone is declared and limit_conn is applied.",
+        "command": "grep -RE 'limit_conn_zone|limit_conn ' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "limit_conn_zone $binary_remote_addr ...; and limit_conn zone=... <n>; applied (true)",
+        "source": "nginx ngx_http_limit_req_module — request rate limiting"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the configured per-client connection cap is sane for the application and matched to expected client concurrency.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bounded per-source connection limit is documented and applied (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "slowloris_timeouts_configured",
+    "option_description": "True when slowloris/slow-POST-mitigating client timeouts are tightened — client_header_timeout, client_body_timeout, and send_timeout set to short app-appropriate values rather than left unbounded.",
+    "security_impact": "One of the OR-triggers of \"L7 rate-limit & DoS gaps\" — fires (is_false) when timeouts are loose/unbounded, letting a slow client hold connections open (MITRE T1498).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the client timeout directives and judge whether they are tightened versus the 60s/60s/75s defaults.",
+        "command": "grep -RE 'client_body_timeout|client_header_timeout|keepalive_timeout|send_timeout' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "client_body_timeout/client_header_timeout tightened (e.g. 10-15s) rather than left at large defaults (true)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Open a connection and drip headers/body slowly to confirm the proxy times the connection out promptly.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Slow/partial requests are dropped after the short timeout (true); held open indefinitely means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "request_size_limits_enforced",
+    "option_description": "True when request body/header size caps are in place — client_max_body_size sized to the app (not 0/unbounded) and large_client_header_buffers at a sane bound — to prevent memory-exhaustion DoS and oversized-header abuse.",
+    "security_impact": "One of the OR-triggers of \"L7 rate-limit & DoS gaps\" — fires (is_false) when client_max_body_size is 0/unbounded without justification (MITRE T1498).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read client_max_body_size and large_client_header_buffers and confirm they are bounded.",
+        "command": "grep -RE 'client_max_body_size|large_client_header_buffers' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "client_max_body_size sized to the app (e.g. 1m, default); large_client_header_buffers at a sane bound (4 8k default) (true) — 0/unbounded is false",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "command",
+        "instruction": "POST an oversized body and confirm the proxy returns 413 Request Entity Too Large.",
+        "command": "head -c 50M /dev/zero | curl -so /dev/null -w '%{http_code}\\n' --data-binary @- https://<proxy-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "413 once the size cap is exceeded (true); a 200/passthrough indicates an unbounded limit (false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "True when upstream/edge L7 DoS protection fronts the appliance (a scrubbing/CDN/WAF DoS tier) so the proxy is not the sole line of defense against volumetric and application-layer floods.",
+    "security_impact": "One of the OR-triggers of \"L7 rate-limit & DoS gaps\" — fires (is_false) when no upstream DoS protection exists and the appliance can be overwhelmed directly (MITRE T1498).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the operators whether a scrubbing/CDN/WAF DoS tier fronts the appliance and review its volumetric + application-layer flood-protection configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An upstream DoS-protection tier is documented and active in front of the proxy (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Resolve the public hostname and confirm traffic transits a scrubbing/CDN edge rather than hitting the appliance IP directly.",
+        "command": "dig +short <proxy-host>; curl -sI https://<proxy-host> | grep -iE 'via|server|cf-ray|x-cache'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Edge/CDN markers present and the origin appliance IP is not directly resolvable (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "status_endpoints_access_restricted",
+    "option_description": "True when the proxy's introspection/status surface (nginx stub_status, ModSecurity/metrics endpoints) is gated to trusted networks or authenticated admins via an allow/deny ACL or auth, not reachable from untrusted networks.",
+    "security_impact": "One of the OR-triggers of \"Exposed admin/status surface & excess privilege\" — fires (is_false) when stub_status/metrics answer untrusted/internet clients (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the location blocks serving /status, /nginx_status, /metrics for an allow/deny ACL or auth.",
+        "command": "grep -RnE 'stub_status|location .*(status|metrics)' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "stub_status locations carry allow <trusted>; deny all; (or auth) and are not on a public listener (true)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, request the status endpoints and confirm they are refused.",
+        "command": "curl -so /dev/null -w '%{http_code}\\n' https://<proxy-host>/nginx_status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/404 from untrusted source (true); a 200 stub_status page means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "True when the appliance's administrative/configuration interfaces (admin/config UI and any out-of-band management listener) are confined to a management network or VPN and not reachable from the public internet.",
+    "security_impact": "An OR-trigger of both \"Exposed admin/status surface & excess privilege\" and \"Unverified upstream trust & SSRF\" — fires (is_false) when the proxy admin/config interface is internet-exposed (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From the public internet, attempt to reach the appliance admin/config UI and any management listener to prove they are not exposed.",
+        "command": "nmap -Pn -p <admin-mgmt-ports> <proxy-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management/admin ports filtered/unreachable from the public internet (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm via network-policy review that admin/OOB management listeners are bound only to a management network/VPN.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin/config interfaces documented as management-network/VPN-only (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "True when the appliance's control-plane/configuration API is not bound to or reachable from public/untrusted networks.",
+    "security_impact": "One of the OR-triggers of \"Exposed admin/status surface & excess privilege\" — fires (is_false) when the management/config API answers untrusted callers, broadening attack surface beyond the data-plane path (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted network, attempt to reach the control-plane/config API endpoint and confirm it is refused.",
+        "command": "curl -so /dev/null -w '%{http_code}\\n' https://<proxy-public-ip>:<api-port>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused/filtered from untrusted networks (true); a reachable API endpoint means false",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the API listener bind address and firewall rules to confirm it is not bound to a public interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Control-plane API bound to a private/management interface only (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "worker_process_runs_unprivileged",
+    "option_description": "True when nginx worker processes drop to a dedicated unprivileged account (the `user` directive set to e.g. nginx/www-data) rather than running as root; only the master may be root.",
+    "security_impact": "One of the OR-triggers of \"Exposed admin/status surface & excess privilege\" — fires (is_false) when workers run as root / not least-privilege, amplifying the blast radius of a proxy compromise (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the nginx `user` directive.",
+        "command": "grep -R '^user' /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "user nginx; (or www-data) — workers run unprivileged (true)",
+        "source": "nginx ngx_core_module — worker process privilege (user directive)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the running worker processes are not root.",
+        "command": "ps -o user= -C nginx | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "root only for the master; worker rows show the unprivileged user, never root (true)",
+        "source": "nginx ngx_core_module — worker process privilege (user directive)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "True when the appliance enforces least-privilege for its own runtime and operators (no excess OS capabilities, scoped admin roles, no broad ambient privilege).",
+    "security_impact": "One of the OR-triggers of \"Exposed admin/status surface & excess privilege\" — fires (is_false) when the appliance runs with excess privilege that magnifies a control-surface compromise (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the appliance runtime's granted OS capabilities (e.g. systemd unit hardening or container capability set) for excess ambient privilege.",
+        "command": "systemctl show nginx -p CapabilityBoundingSet -p AmbientCapabilities -p User 2>/dev/null; getpcaps $(pgrep -f 'nginx: worker' | head -1) 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A minimal capability set scoped to what nginx needs; no broad ambient privilege (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review operator/admin roles for the appliance to confirm they are scoped (no shared broad-admin accounts).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Operator roles are least-privilege and scoped per duty (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "config_file_permissions_restricted",
+    "option_description": "True when the proxy/WAF configuration files (nginx.conf, /etc/nginx/, /etc/modsecurity/, CRS setup) are owned by root/admin and not group/world-writable, with restrictive modes (e.g. 0640/0644, dirs 0750).",
+    "security_impact": "One of the OR-triggers of \"Exposed admin/status surface & excess privilege\" — fires (is_false) when config integrity/permissions are weak (world- or service-account-writable config) (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a permissions sweep over the config tree to find any group/world/service-account-writable files.",
+        "command": "find /etc/nginx /etc/modsecurity -type f \\( -perm -o+w -o -perm -g+w \\) -ls; stat -c '%a %U %G %n' /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "No world/group-writable config files; files root-owned at 0640/0644, dirs 0750 (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the ModSecurity/CRS config tree is likewise root-owned and not writable by service accounts.",
+        "command": "find /etc/modsecurity -type d -perm -o+w -ls; stat -c '%a %U %G %n' /etc/modsecurity/crs/crs-setup.conf",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "navigation": null,
+        "expected_output": "CRS/ModSecurity config root-owned, not service-account- or world-writable (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_logging_enabled",
+    "option_description": "True when nginx access logging is enabled to a collected destination with a SIEM-suitable log_format (client IP, request line, status, upstream) — the access_log directive must not be 'access_log off;'.",
+    "security_impact": "One of the OR-triggers of \"Logging gaps & blinded detection\" — fires (is_false) when proxied requests, including attacks reaching the appliance, leave no record.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the access_log and log_format directives and confirm logging is on with a complete format.",
+        "command": "grep -RE 'access_log|log_format' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "access_log /var/log/nginx/access.log <format>; (true) — 'access_log off;' is insecure for a security appliance (false)",
+        "source": "nginx ngx_http_log_module — access logging"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm new entries actually appear in the access log when requests are made.",
+        "command": "tail -n 5 /var/log/nginx/access.log",
+        "file_path": "/var/log/nginx/access.log",
+        "navigation": null,
+        "expected_output": "Recent request lines with client IP, request, status, and upstream fields (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "waf_audit_logging_enabled",
+    "option_description": "True when ModSecurity transaction audit logging is active — SecAuditEngine RelevantOnly (or On) with SecAuditLog pointed at a collected path.",
+    "security_impact": "One of the OR-triggers of \"Logging gaps & blinded detection\" — fires (is_false) when SecAuditEngine is Off / SecAuditLog unset, so blocked/flagged WAF events are never captured.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read SecAuditEngine and SecAuditLog and confirm audit logging is on to a collected path.",
+        "command": "grep -RE 'SecAuditEngine|SecAuditLog' /etc/modsecurity/",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecAuditEngine RelevantOnly and SecAuditLog /var/log/modsec_audit.log (true) — Off/unset is false",
+        "source": "ModSecurity Reference Manual (v3.x) — Configuration Directives"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm a flagged transaction actually produces an audit-log entry.",
+        "command": "tail -n 20 /var/log/modsec_audit.log",
+        "file_path": "/var/log/modsec_audit.log",
+        "navigation": null,
+        "expected_output": "Audit entries for flagged/blocked transactions present (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "True when the appliance's access and WAF audit logs are shipped off-host to a SIEM or separate log-collection system rather than kept only on the appliance.",
+    "security_impact": "One of the OR-triggers of \"Logging gaps & blinded detection\" — fires (is_false) when logs are local-only and lost/tampered with on a proxy compromise, with no central correlation.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the host's log-forwarding configuration (rsyslog/syslog-ng/Fluent Bit/agent) for the nginx and ModSecurity log paths.",
+        "command": "grep -RnE 'nginx|modsec' /etc/rsyslog.conf /etc/rsyslog.d/ /etc/fluent-bit/ 2>/dev/null",
+        "file_path": "/etc/rsyslog.d/",
+        "navigation": null,
+        "expected_output": "A forwarding rule shipping access/audit logs to a remote SIEM/collector (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the SIEM/log-platform team that the appliance's logs arrive and are retained centrally.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Appliance access + WAF audit logs visible and retained in the central system (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "blocked_request_alerting_enabled",
+    "option_description": "True when alerting is configured to notify on blocked or anomalous requests (WAF deny events / anomaly-score spikes raise a SIEM alert) rather than leaving captured events unread.",
+    "security_impact": "One of the OR-triggers of \"Logging gaps & blinded detection\" — fires (is_false) when even captured attack events sit unread, so adversary activity goes unnoticed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the SIEM/alerting configuration for rules that fire on WAF deny events or anomaly-score spikes from this appliance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active alert rules on WAF deny / anomaly spikes with a defined recipient (true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm a recent block event produced a corresponding alert/notification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A recent WAF block correlates with a delivered alert (true); blocks with no alert means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "True when the running nginx and/or libModSecurity/CRS build is affected by a published, exploitable advisory (e.g. CVE-2019-20372 and later) that has NOT been patched on the internet-facing appliance.",
+    "security_impact": "One of the OR-triggers of \"Unpatched / EoL proxy or WAF engine\" — fires (is_true) when a known, patchable RCE/critical CVE remains open (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running nginx and ModSecurity build and cross-check against the nginx advisory list and CISA KEV.",
+        "command": "nginx -v 2>&1; (nginx -V 2>&1 | tr ' ' '\\n' | grep -i modsec)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nginx version at/above all relevant advisory fix versions (false); a build below a known RCE/critical fix sets it true",
+        "source": "nginx security advisories — version-CVE mapping"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm against CISA KEV whether any open known-exploited entry maps to the deployed nginx/ModSecurity/CRS build.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No open KEV RCE/critical entry applies (false); a matching open KEV entry sets it true",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "proxy_engine_supported_version",
+    "option_description": "True when the nginx and ModSecurity v3 build in production is a vendor-supported, non-end-of-life release still receiving security fixes (nginx -v resolves to a current supported branch; libModSecurity is a maintained v3 build).",
+    "security_impact": "One of the OR-triggers of \"Unpatched / EoL proxy or WAF engine\" — fires (is_false) when the engine is an EoL/unsupported build that no longer receives advisory fixes (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running nginx version and ModSecurity build and confirm both are on supported, non-EoL branches.",
+        "command": "nginx -v 2>&1; (nginx -V 2>&1 | tr ' ' '\\n' | grep -i modsec)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nginx resolves to a current supported branch and libModSecurity is a maintained v3 build (true)",
+        "source": "nginx security advisories — version-CVE mapping"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the resolved version against the vendor support/EoL lifecycle to confirm it still receives security fixes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version is within the supported lifecycle window (true); an EoL branch means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "crs_ruleset_updated",
+    "option_description": "True when the OWASP CRS rule set deployed under ModSecurity is on a current maintained release and refreshed on a defined cadence, so new attack signatures and rule fixes are present.",
+    "security_impact": "Contributes to \"Unpatched / EoL proxy or WAF engine\" — combined with a missed patch SLA, stale signatures plus an unpatched engine fire the exposure (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the deployed CRS version from its setup file / version marker.",
+        "command": "grep -RiE 'OWASP_CRS|crs.?version|setvar:tx.crs_setup_version' /etc/modsecurity/crs/",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "navigation": null,
+        "expected_output": "A current maintained CRS release version (e.g. CRS 4.x) (true)",
+        "source": "OWASP CRS — crs-setup.conf.example"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a defined cadence exists for refreshing CRS and when it was last updated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented CRS refresh cadence with a recent update (true); stale/unmaintained ruleset means false",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "True when security patches for this internet-facing edge appliance (nginx, libModSecurity, CRS, and OS) are applied within the organization's remediation SLA — e.g. KEV-listed and critical CVEs patched within the mandated window.",
+    "security_impact": "Contributes to \"Unpatched / EoL proxy or WAF engine\" — fires (is_false) when patching lags the SLA and the CRS ruleset is also stale (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch/vulnerability-management records for this appliance against the org's remediation SLA for KEV/critical CVEs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nginx/libModSecurity/CRS/OS patches applied within the mandated window (true); overdue items mean false",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Check the OS package state and update history for the proxy/WAF packages to corroborate patch currency.",
+        "command": "apt-get -s upgrade 2>/dev/null | grep -iE 'nginx|modsec'; rpm -qa --last 2>/dev/null | grep -iE 'nginx|modsec'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No pending security updates for nginx/ModSecurity; recent install dates within SLA (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

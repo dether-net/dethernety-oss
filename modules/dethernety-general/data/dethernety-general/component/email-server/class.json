@@ -1,0 +1,9 @@
+{
+  "id": "da203bc0-2d0b-43e4-980d-bd0ea50b6ae8",
+  "name": "Email Server",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "An email server — also called a mail server, SMTP/IMAP gateway, mail relay, Exchange, or mail transfer agent (MTA) — that sends, receives, and relays mail for the organization. The primary external messaging channel and notification path. The place to look for the email/mail server, SMTP relay, mail gateway, or the system handling inbound and outbound email.",
+  "category": "Communication Services",
+  "status": "draft"
+}

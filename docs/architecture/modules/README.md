@@ -19,6 +19,7 @@ The Dethernety module system provides an extensible architecture for adding thre
 | Module | Description |
 |--------|-------------|
 | `dethernety-module` | Core threat modeling classes with OPA/Rego policies |
+| `dethernety-general` | General-purpose threat-model classes — components, controls, data flows, data assets, and security boundaries — with OPA/Rego policies (`DtFileOpaModule`) |
 | `mitre-frameworks` | MITRE ATT&CK and D3FEND data ingestion |
 
 Additional analysis and custom modules can be developed using the DTModule interface (see [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md)).

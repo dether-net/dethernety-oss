@@ -1,0 +1,615 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "authz_enforced_server_side_centrally": {
+        "type": "boolean",
+        "title": "Authorization Enforced Server-Side Centrally",
+        "description": "Attested true when access decisions are made server-side through a single reusable deny-by-default enforcement layer covering function-level and request-method (POST/PUT/DELETE) authorization, never trusting client-supplied role/flag values (cookies, hidden fields). False (client-side-only or scattered per-handler authz) fires broken access control — missing function-level authorization (CWE-862/863) — and metadata-tampering privilege escalation.",
+        "default": false
+      },
+      "object_level_authz_ownership_enforced": {
+        "type": "boolean",
+        "title": "Object-Level Authorization Ownership Enforced",
+        "description": "Attested true when every record access verifies the authenticated principal owns / is entitled to the specific object id (queries scoped by subject, e.g. WHERE owner_id = :current_user), never accepting a user-controlled key as proof of authorization. False fires IDOR/BOLA (CWE-639) — one principal reading/modifying another's records by id.",
+        "default": false
+      },
+      "authn_enforced_on_every_endpoint": {
+        "type": "boolean",
+        "title": "Authentication Enforced On Every Endpoint",
+        "description": "Attested true when every non-public route requires an authenticated principal before business logic runs, with default-deny on unmatched/protected routes (global filter / per-route guard) and an explicit small public allowlist. False (ad-hoc per-handler auth with gaps) lets privileged routes be reached by forced-browsing without a session/token.",
+        "default": false
+      },
+      "access_control_failures_logged_and_alerted": {
+        "type": "boolean",
+        "title": "Access-Control Failures Logged And Alerted",
+        "description": "Attested true when repeated access-control / authorization failures (403/authz-denied) are emitted to the log/SIEM and trigger alerting on anomalous volume. False fires the detectability gap — automated abuse such as forced browsing and IDOR/BOLA scanning goes unobserved."
+      },
+      "bindable_field_allowlist_enforced": {
+        "type": "boolean",
+        "title": "Bindable-Field Allowlist Enforced",
+        "description": "Attests that HTTP request parameters are bound onto domain objects through an explicit bindable-field allow-list / strong-parameters / DTO layer, so privileged fields (isAdmin/role) cannot be over-posted (mass assignment). Secure=true; the exposure fires when false (whole request body bound wholesale to a privilege-bearing entity).",
+        "default": false
+      },
+      "jwt_signature_verified": {
+        "type": "boolean",
+        "title": "JWT Signature Verified",
+        "description": "The service cryptographically verifies the JWT signature against a server-pinned expected algorithm and key (not the token-declared header alg), and validates exp/iss/aud — so a caller cannot forge or tamper token (including role) claims. When false, forged/unverified/tampered tokens are trusted, enabling token-forgery privilege escalation and authentication bypass. Insecure value: false.",
+        "default": false
+      },
+      "accepts_alg_none": {
+        "type": "boolean",
+        "title": "Accepts alg=none Tokens",
+        "description": "The token verifier accepts the unsecured 'alg':'none' JWT (no signature) as valid. Interpreted from the verifier configuration; true means unsigned tokens are honored, enabling trivial token forgery. Insecure value: true.",
+        "default": false
+      },
+      "rs256_to_hs256_confusion_possible": {
+        "type": "boolean",
+        "title": "RS256-to-HS256 Confusion Possible",
+        "description": "The verifier trusts the token-declared algorithm and would accept an HS256-signed token verified against the RSA public key (RS256->HS256 key-confusion). Interpreted boolean; true means an attacker can forge tokens using the public key as an HMAC secret. Insecure value: true.",
+        "default": false
+      },
+      "cookie_secure_flag": {
+        "type": "boolean",
+        "title": "Session Cookie Secure Flag Set",
+        "description": "Session cookies are issued with the Secure attribute so they are only transmitted over TLS. When false, the session cookie can leak over cleartext and be hijacked. Insecure value: false.",
+        "default": false
+      },
+      "cookie_httponly_flag": {
+        "type": "boolean",
+        "title": "Session Cookie HttpOnly Flag Set",
+        "description": "Session cookies are issued with the HttpOnly attribute so they are inaccessible to client-side script. When false, XSS can exfiltrate the session cookie. Insecure value: false.",
+        "default": false
+      },
+      "samesite_attribute_set": {
+        "type": "boolean",
+        "title": "Session Cookie SameSite Attribute Set",
+        "description": "Session cookies set a SameSite attribute (Strict/Lax, and Secure when None) to constrain cross-site transmission. When false, the cookie is exposed to cross-site request contexts. Insecure value: false."
+      },
+      "session_id_regenerated_on_auth": {
+        "type": "boolean",
+        "title": "Session ID Regenerated On Authentication",
+        "description": "The session identifier is regenerated on authentication and on privilege change. When false, a pre-authentication session id persists, enabling session fixation. Insecure value: false.",
+        "default": false
+      },
+      "server_side_revocation_supported": {
+        "type": "boolean",
+        "title": "Server-Side Session/Token Revocation Supported",
+        "description": "Sessions / JWTs can be invalidated server-side on logout or compromise (server-side session store or short-lived-plus-revocable tokens). When false, issued tokens/sessions remain valid until expiry and cannot be killed on logout. Insecure value: false."
+      },
+      "parameterized_queries_used": {
+        "type": "boolean",
+        "title": "Parameterized Queries Used",
+        "description": "Interpreted attestation: all data-store access uses parameterized/prepared statements or safe ORM bindings. Secure value true. Fires the injection exposure (is_false) when query construction is NOT consistently parameterized — the primary A03:2021 SQLi/NoSQLi defect.",
+        "default": false
+      },
+      "dynamic_query_string_concatenation": {
+        "type": "boolean",
+        "title": "Dynamic Query-String Concatenation Used",
+        "description": "Interpreted attestation: user-controlled input is concatenated/interpolated into query strings (raw SQL/NoSQL/LDAP filter construction with request data). Secure value false. Fires the injection exposure (is_true) — the direct SQLi/NoSQLi/LDAP-injection sink that parameterization eliminates.",
+        "default": false
+      },
+      "user_input_in_shell_command_string": {
+        "type": "boolean",
+        "title": "User Input In Shell Command String",
+        "description": "Interpreted attestation: user data is embedded into an OS shell command string (Runtime.exec(string), subprocess shell=True, child_process.exec). Secure value false. Fires the injection exposure (is_true) — the OS-command-injection sink.",
+        "default": false
+      },
+      "os_commands_avoided_or_arg_array_used": {
+        "type": "boolean",
+        "title": "OS Commands Avoided Or Arg-Array Used",
+        "description": "Interpreted attestation: OS command execution is avoided in favour of native libraries, or where unavoidable the argument-array form is used so user data never becomes part of a shell string. Secure value true. Fires (is_false) when commands are built as shell strings — the OS-command-injection defect.",
+        "default": false
+      },
+      "server_side_allowlist_validation": {
+        "type": "boolean",
+        "title": "Server-Side Allowlist Validation Applied",
+        "description": "Interpreted attestation: untrusted input is validated server-side at the trust boundary with allow-lists (type, length, charset, range). Secure value true. Fires (is_false) when no server-side allow-list validation gates input feeding queries/commands.",
+        "default": false
+      },
+      "validation_is_client_side_only": {
+        "type": "boolean",
+        "title": "Validation Is Client-Side Only",
+        "description": "Interpreted attestation: input validation is performed only client-side (UI) and not re-enforced server-side, so an attacker bypassing the UI submits unvalidated input. Secure value false. Fires (is_true) — client-only validation provides no real boundary protection against injection."
+      },
+      "denylist_filtering_used": {
+        "type": "boolean",
+        "title": "Denylist Filtering Used",
+        "description": "Interpreted attestation: input is filtered with deny-lists / blacklist-of-bad-characters rather than allow-lists. Secure value false. Fires (is_true) — deny-list filtering is bypassable (encoding, alternate syntax) and is the insecure A03:2021 input-handling pattern."
+      },
+      "outbound_fetch_destination_allowlisted": {
+        "type": "boolean",
+        "title": "Outbound-Fetch Destination Allowlisted",
+        "description": "True when the service validates user-influenced outbound fetch destinations against an allow-list of hosts/schemes/ports (post-DNS-resolution) before issuing the request. False means the user-supplied URL is passed straight to the HTTP client, allowing SSRF to internal services.",
+        "default": false
+      },
+      "private_and_metadata_targets_blocked": {
+        "type": "boolean",
+        "title": "Private/Metadata Targets Blocked",
+        "description": "True when the service rejects outbound fetches resolving to RFC1918 private ranges, loopback (127.0.0.0/8), and link-local (169.254.0.0/16) after DNS resolution (defeating DNS-rebinding/redirect-to-internal). False permits SSRF pivots into the internal network and link-local services.",
+        "default": false
+      },
+      "cloud_metadata_endpoint_blocked": {
+        "type": "boolean",
+        "title": "Cloud Metadata Endpoint Blocked",
+        "description": "True when outbound fetches to the cloud instance metadata endpoint (169.254.169.254, and equivalents such as fd00:ec2::254) are explicitly blocked so user-influenced requests cannot harvest workload IAM credentials. False allows credential theft via the metadata API (ATT&CK T1552.005).",
+        "default": false
+      },
+      "native_deserialization_of_untrusted_data": {
+        "type": "boolean",
+        "title": "Native Deserialization Of Untrusted Data",
+        "description": "Interpreted: the service natively deserializes attacker-controlled bytes (Java ObjectInputStream.readObject, Python pickle.load, PyYAML yaml.load without SafeLoader, Ruby Marshal.load, PHP unserialize) on untrusted input. True = insecure: such a deserialization sink on untrusted data triggers gadget chains leading to RCE. False = secure: untrusted data flows only through pure-data parsers (JSON / yaml.safe_load).",
+        "default": false
+      },
+      "deserialization_class_allowlist_or_signed_payloads": {
+        "type": "boolean",
+        "title": "Deserialization Class Allowlist Or Signed Payloads",
+        "description": "Interpreted: where serialized objects are unavoidable, payloads are integrity-protected (HMAC/signature verified before deserializing) AND deserialization is type-constrained to a strict class allow-list (look-ahead/resolveClass filter, ObjectInputFilter, SafeConstructor). True = secure: a tampered or unexpected-type payload is rejected before any gadget can be constructed. False = insecure: deserialization is unauthenticated and unconstrained.",
+        "default": false
+      },
+      "contextual_output_encoding_applied": {
+        "type": "boolean",
+        "title": "Contextual Output Encoding Applied",
+        "description": "Whether untrusted data is contextually output-encoded via framework auto-escaping (HTML/attribute/JS/URL context) before rendering. Secure when true. When false, reflected/stored/DOM XSS executes attacker script in victim browsers.",
+        "default": false
+      },
+      "unsafe_html_sinks_used": {
+        "type": "boolean",
+        "title": "Unsafe HTML Sinks Used",
+        "description": "Whether raw-HTML escape-hatches that bypass auto-escaping are present and fed untrusted data (e.g. dangerouslySetInnerHTML, innerHTML=, v-html, bypassSecurityTrust, Jinja |safe, render_template_string). Secure when false. Fires (is_true) when an XSS injection sink is in use.",
+        "default": false
+      },
+      "content_security_policy_enforced": {
+        "type": "boolean",
+        "title": "Content-Security-Policy Enforced",
+        "description": "Whether the service emits an enforcing Content-Security-Policy response header (e.g. default-src 'self') as defense-in-depth against script injection. Secure when true; when false there is no CSP backstop limiting injected-script execution."
+      },
+      "csp_allows_unsafe_inline_or_eval": {
+        "type": "boolean",
+        "title": "CSP Allows unsafe-inline Or unsafe-eval",
+        "description": "Whether the deployed CSP weakens script protection by permitting 'unsafe-inline' and/or 'unsafe-eval' script sources, which nullifies CSP's XSS mitigation. Secure when false. Fires (is_true) when the policy admits inline/eval script."
+      },
+      "secrets_hardcoded_in_config_or_iac": {
+        "type": "boolean",
+        "title": "Secrets Hardcoded In Config Or IaC",
+        "description": "Interpreted boolean: true when credentials/keys are baked into source/config files or IaC templates (Terraform/Helm/Compose) rather than pulled from a secret manager and injected at runtime. Fires the exposure when true — hardcoded secrets are harvested from the repo/artifact and reused against downstream stores (OWASP Secrets Management Cheat Sheet).",
+        "default": false
+      },
+      "least_privilege_service_identity": {
+        "type": "string",
+        "enum": [
+          "scoped_per_workload",
+          "shared_admin_or_root"
+        ],
+        "title": "Least-Privilege Service Identity",
+        "description": "Whether the workload identity and downstream credentials are least-privilege and scoped per workload (scoped_per_workload, secure) versus a shared superuser/root/standing-admin credential reused across services (shared_admin_or_root, insecure). A shared admin identity turns any foothold into broad downstream compromise."
+      },
+      "downstream_tls_enforced_and_validated": {
+        "type": "string",
+        "enum": [
+          "tls_validated",
+          "plaintext_or_skip_verify"
+        ],
+        "title": "Downstream TLS Enforced And Validated",
+        "description": "Whether calls to data stores and downstream services use TLS 1.2+ with certificate validation (tls_validated, secure) versus cleartext or insecure_skip_verify / rejectUnauthorized:false / sslmode=disable (plaintext_or_skip_verify, insecure). Cleartext or skip-verify downstream TLS lets harvested or in-flight credentials be intercepted, compounding the secrets exposure."
+      },
+      "debug_and_verbose_errors_disabled_in_prod": {
+        "type": "boolean",
+        "title": "Debug And Verbose Errors Disabled In Prod",
+        "description": "Attests that production returns generic error responses with debug mode off — stack traces, framework debug pages, and detailed internal messages (paths, queries, versions) are not exposed to clients. Insecure (false) when verbose errors or a debug console are reachable in production, leaking internals that aid further attack (A05:2021).",
+        "default": false
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed Or Changed",
+        "description": "Attests that all default/sample accounts and default passwords shipped with the platform, framework, or appliance have been removed or had their credentials changed. Insecure (false) when any default account/password remains, giving attackers a trivial compromise path (A05:2021).",
+        "default": false
+      },
+      "unnecessary_services_disabled": {
+        "type": "boolean",
+        "title": "Unnecessary Services Disabled",
+        "description": "Attests that unnecessary features, sample applications, admin consoles, debug endpoints, unused ports, and superfluous services are disabled or removed, minimizing the attack surface. Insecure (false) when sample apps / unused features / exposed admin consoles remain enabled (A05:2021).",
+        "default": false
+      },
+      "hardened_baseline_documented": {
+        "type": "boolean",
+        "title": "Hardened Baseline Documented",
+        "description": "Attests that the service configuration follows a documented, reviewed, version-controlled secure baseline (NIST CM-2/CM-6), so hardening is repeatable and drift is detectable. Insecure (false) when configuration is ad hoc / undocumented / not version-controlled, allowing silent misconfiguration drift (A05:2021)."
+      },
+      "dependency_vulnerability_scanning_enabled": {
+        "type": "boolean",
+        "title": "Dependency Vulnerability Scanning Enabled",
+        "description": "Attests that Software Composition Analysis (SCA) runs continuously in CI against all direct and nested dependencies, producing a current component inventory checked against CVE/NVD (e.g. osv-scanner, npm audit, OWASP Dependency-Check, retire.js, pip-audit). Insecure (false) when dependency versions are un-inventoried and no automated vulnerability scanning is in place (A06:2021).",
+        "default": false
+      },
+      "known_vulnerable_dependencies_present": {
+        "type": "boolean",
+        "title": "Known-Vulnerable Dependencies Present",
+        "description": "Interpreted finding: true when one or more direct or nested dependencies (OS packages, runtimes, libraries, app/web server, DBMS, APIs) are known-vulnerable, unsupported, or out-of-date with unremediated CVEs, or are unmaintained. Fires on true — each is a ready exploit path (A06:2021, CWE-1035/CWE-1104).",
+        "default": false
+      },
+      "artifact_supply_chain_signed_provenance_verified": {
+        "type": "boolean",
+        "title": "Artifact Supply-Chain Signed Provenance Verified",
+        "description": "Attests that deployed artifacts/images are obtained from official sources over secure (TLS) links and their signatures/provenance (SLSA in-toto / cosign / signed packages) are verified against a pinned identity before deployment. Insecure (false) when artifacts are pulled unsigned/unverified, permitting malicious substitution (A06:2021, SLSA v1.0)."
+      }
+    },
+    "required": [
+      "authz_enforced_server_side_centrally",
+      "object_level_authz_ownership_enforced",
+      "authn_enforced_on_every_endpoint",
+      "access_control_failures_logged_and_alerted",
+      "bindable_field_allowlist_enforced",
+      "jwt_signature_verified",
+      "accepts_alg_none",
+      "rs256_to_hs256_confusion_possible",
+      "cookie_secure_flag",
+      "cookie_httponly_flag",
+      "samesite_attribute_set",
+      "session_id_regenerated_on_auth",
+      "server_side_revocation_supported",
+      "parameterized_queries_used",
+      "dynamic_query_string_concatenation",
+      "user_input_in_shell_command_string",
+      "os_commands_avoided_or_arg_array_used",
+      "server_side_allowlist_validation",
+      "validation_is_client_side_only",
+      "denylist_filtering_used",
+      "outbound_fetch_destination_allowlisted",
+      "private_and_metadata_targets_blocked",
+      "cloud_metadata_endpoint_blocked",
+      "native_deserialization_of_untrusted_data",
+      "deserialization_class_allowlist_or_signed_payloads",
+      "contextual_output_encoding_applied",
+      "unsafe_html_sinks_used",
+      "content_security_policy_enforced",
+      "csp_allows_unsafe_inline_or_eval",
+      "secrets_hardcoded_in_config_or_iac",
+      "least_privilege_service_identity",
+      "downstream_tls_enforced_and_validated",
+      "debug_and_verbose_errors_disabled_in_prod",
+      "default_accounts_removed_or_changed",
+      "unnecessary_services_disabled",
+      "hardened_baseline_documented",
+      "dependency_vulnerability_scanning_enabled",
+      "known_vulnerable_dependencies_present",
+      "artifact_supply_chain_signed_provenance_verified"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepts_alg_none"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authn_enforced_on_every_endpoint"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_httponly_flag"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_secure_flag"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/jwt_signature_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rs256_to_hs256_confusion_possible"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_id_regenerated_on_auth"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/samesite_attribute_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_revocation_supported"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authz_enforced_server_side_centrally"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bindable_field_allowlist_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/object_level_authz_ownership_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/downstream_tls_enforced_and_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_service_identity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_hardcoded_in_config_or_iac"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_metadata_endpoint_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/outbound_fetch_destination_allowlisted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_and_metadata_targets_blocked"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deserialization_class_allowlist_or_signed_payloads"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_query_string_concatenation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/native_deserialization_of_untrusted_data"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/os_commands_avoided_or_arg_array_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/parameterized_queries_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_allowlist_validation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/user_input_in_shell_command_string"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/denylist_filtering_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/validation_is_client_side_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_vulnerability_scanning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/known_vulnerable_dependencies_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_supply_chain_signed_provenance_verified"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_control_failures_logged_and_alerted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/debug_and_verbose_errors_disabled_in_prod"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unnecessary_services_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hardened_baseline_documented"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Output Handling",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/contextual_output_encoding_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unsafe_html_sinks_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/content_security_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/csp_allows_unsafe_inline_or_eval"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

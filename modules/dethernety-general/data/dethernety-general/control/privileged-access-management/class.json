@@ -1,0 +1,9 @@
+{
+  "id": "e300fc74-f7ac-4271-b2bf-b669c91790cf",
+  "name": "Privileged Access Management",
+  "classType": "control",
+  "type": "Privileged Access Management",
+  "description": "Privileged access management (PAM) — also called a credential vault, secrets/privileged-session management, just-in-time access, CyberArk/HashiCorp Vault, or break-glass control — brokers, vaults, and time-bounds administrative credentials to constrain the blast radius of privileged-account abuse. The place to look for PAM, credential vaulting, just-in-time admin access, privileged session brokering, or securing high-privilege accounts.",
+  "category": "Access Control",
+  "status": "draft"
+}

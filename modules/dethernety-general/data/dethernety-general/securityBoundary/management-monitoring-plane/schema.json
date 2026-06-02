@@ -1,0 +1,241 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mfa_enforced_at_boundary_crossing": {
+        "type": "boolean",
+        "title": "Phishing-Resistant MFA Enforced at Admin Boundary Crossing",
+        "description": "Phishing-resistant MFA (FIDO2/WebAuthn, cert-bound) enforced for every admin sign-in crossing into mgmt plane; no SMS/voice/OTP fallback.",
+        "default": false
+      },
+      "session_binding_or_short_session_lifetime": {
+        "type": "boolean",
+        "title": "Admin Sessions Device-Bound or Short-Lived",
+        "description": "Admin sessions device-bound (DPoP/mTLS) OR short-lived (<1h idle with CAE)."
+      },
+      "no_standing_admin_privileges_jit_required": {
+        "type": "boolean",
+        "title": "No Standing Admin Privileges (JIT/PIM Required)",
+        "description": "Zero standing admin privileges; admin role activation JIT/PIM, time-bounded, gated by approval+MFA, auto-revoked.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "IAM Grants Scoped (No Wildcard Actions)",
+        "description": "Privileged IAM policies scoped to specific Actions/Resources; no wildcard Action/Resource; no long-lived admin service-principal keys.",
+        "default": false
+      },
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": {
+        "type": "boolean",
+        "title": "Per-Environment CI/CD Workload Identity",
+        "description": "Each pipeline uses per-environment workload identity (OIDC/SPIFFE federation); no shared/long-lived deploy keys across environments.",
+        "default": false
+      },
+      "secrets_stored_in_dedicated_secret_manager": {
+        "type": "boolean",
+        "title": "CI/CD Secrets Vaulted, Scoped Per Environment",
+        "description": "CI/CD secrets in dedicated secret manager, scoped per env, bounded TTL, audit-logged; no plaintext secrets in repo/IaC/logs; secret scanning mandatory."
+      },
+      "artifact_supply_chain_signed_provenance_verified": {
+        "type": "boolean",
+        "title": "Signed SLSA Provenance Verified at Admission",
+        "description": "Container images and packages carry signed SLSA provenance verified at admission (cosign/sigstore + SLSA attestation policy gate).",
+        "default": false
+      },
+      "control_plane_access_mediated_by_pam_with_recording": {
+        "type": "boolean",
+        "title": "Control-Plane Access Mediated by PAM with Session Recording",
+        "description": "Interactive admin sessions traverse PAM/bastion (CyberArk/Teleport/SSM/Bastion) with credential brokering, MFA+approval, session recording. No direct admin-protocol from laptops/data plane.",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control-Plane API Not Publicly Exposed",
+        "description": "Control-plane APIs reachable only from mgmt network or ZTNA-restricted path; no wildcard 0.0.0.0/0 to control-plane ports.",
+        "default": false
+      },
+      "telemetry_pipeline_isolated_from_workload": {
+        "type": "boolean",
+        "title": "Telemetry Pipeline Isolated from Observed Workloads",
+        "description": "Telemetry collectors run in separate trust scope from observed workloads; forwarding lands in tamper-resistant WORM/immutable store in different account; workload identity has no write/delete on log store.",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Control-Plane Audit Complete and Tamper-Evident",
+        "description": "Every control-plane action logged with who/what/when/from-where in immutable file-integrity-validated store; audit-management restricted (AU-9(4)) to subset disjoint from actor.",
+        "default": false
+      },
+      "management_plane_isolated_from_data_plane": {
+        "type": "boolean",
+        "title": "Management Plane Network-Segmented from Data Plane",
+        "description": "Mgmt network L3-segmented from data plane by default-deny firewall; no flat VPN or over-broad peering/SGs bridging. Workloads cannot initiate into mgmt plane.",
+        "default": false
+      },
+      "paw_required_for_control_plane_access": {
+        "type": "boolean",
+        "title": "Privileged Access Workstation Required for Control-Plane Access",
+        "description": "All admin actions against control plane performed from dedicated PAW; productivity (email/web) and admin work never share endpoint. Conditional Access filters admin portals to compliant PAW only.",
+        "default": false
+      },
+      "admin_endpoint_health_attested_at_elevation": {
+        "type": "boolean",
+        "title": "Admin Endpoint Health Attested at Privilege Elevation",
+        "description": "Every privileged-role activation gated on fresh MDM/EDR device-compliance signal (managed, FDE, EDR healthy, patched, risk low) re-evaluated at elevation."
+      }
+    },
+    "required": [
+      "mfa_enforced_at_boundary_crossing",
+      "session_binding_or_short_session_lifetime",
+      "no_standing_admin_privileges_jit_required",
+      "least_privilege_access_enforced",
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys",
+      "secrets_stored_in_dedicated_secret_manager",
+      "artifact_supply_chain_signed_provenance_verified",
+      "control_plane_access_mediated_by_pam_with_recording",
+      "control_plane_api_not_publicly_exposed",
+      "telemetry_pipeline_isolated_from_workload",
+      "audit_log_tamper_evident",
+      "management_plane_isolated_from_data_plane",
+      "paw_required_for_control_plane_access",
+      "admin_endpoint_health_attested_at_elevation"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_access_mediated_by_pam_with_recording"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_at_boundary_crossing"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/paw_required_for_control_plane_access"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_endpoint_health_attested_at_elevation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_binding_or_short_session_lifetime"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/no_standing_admin_privileges_jit_required"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_dedicated_secret_manager"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_plane_isolated_from_data_plane"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_supply_chain_signed_provenance_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cicd_pipeline_identity_per_environment_no_long_lived_keys"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/telemetry_pipeline_isolated_from_workload"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

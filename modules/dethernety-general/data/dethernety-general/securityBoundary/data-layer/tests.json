@@ -1,0 +1,97 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values - maximum exposures should fire",
+    "input": {
+      "data_store_publicly_routable": true,
+      "data_tier_crossing_only_via_app_pep": false,
+      "per_workload_db_identity_used": false,
+      "data_tier_credentials_short_lived": false,
+      "least_privilege_db_account": false,
+      "bulk_read_volume_anomaly_alerted": false,
+      "privileged_access_via_pam_with_session_recording": false,
+      "mgmt_paths_subject_to_same_pep_controls": false,
+      "data_tier_ingress_scoped_per_workload_identity": false,
+      "data_tier_transit_encrypted": false,
+      "backup_destinations_in_approved_region_and_account": false,
+      "backup_egress_audited_separately": false,
+      "kms_admin_separated_from_db_admin": false,
+      "kms_key_protection_policy_enforced": false,
+      "data_tier_crossings_audit_logged_to_tamper_resistant_store": false,
+      "failed_auth_and_admin_events_alerted": false
+    },
+    "expectedExposures": [
+      "Lateral movement from a compromised peer workload",
+      "Cleartext intra-VPC capture",
+      "Direct public exposure of the data store",
+      "Anonymous/shared-credential crossing of the boundary",
+      "Boundary bypass via trusted DBA / management-path channel",
+      "Broken authorization at the crossing - over-privileged grants enabling bulk harvesting",
+      "Backup / snapshot exfiltration outside the boundary",
+      "KMS / key-administrator compromise (no separation of duties)",
+      "Unmonitored crossings - audit gap at the boundary"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values - no exposures should fire",
+    "input": {
+      "data_store_publicly_routable": false,
+      "data_tier_crossing_only_via_app_pep": true,
+      "per_workload_db_identity_used": true,
+      "data_tier_credentials_short_lived": true,
+      "least_privilege_db_account": true,
+      "bulk_read_volume_anomaly_alerted": true,
+      "privileged_access_via_pam_with_session_recording": true,
+      "mgmt_paths_subject_to_same_pep_controls": true,
+      "data_tier_ingress_scoped_per_workload_identity": true,
+      "data_tier_transit_encrypted": true,
+      "backup_destinations_in_approved_region_and_account": true,
+      "backup_egress_audited_separately": true,
+      "kms_admin_separated_from_db_admin": true,
+      "kms_key_protection_policy_enforced": true,
+      "data_tier_crossings_audit_logged_to_tamper_resistant_store": true,
+      "failed_auth_and_admin_events_alerted": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment",
+    "input": {
+      "data_store_publicly_routable": false,
+      "data_tier_crossing_only_via_app_pep": true,
+      "per_workload_db_identity_used": true,
+      "data_tier_credentials_short_lived": true,
+      "least_privilege_db_account": true,
+      "bulk_read_volume_anomaly_alerted": true,
+      "privileged_access_via_pam_with_session_recording": true,
+      "mgmt_paths_subject_to_same_pep_controls": true,
+      "data_tier_ingress_scoped_per_workload_identity": true,
+      "data_tier_transit_encrypted": true,
+      "backup_destinations_in_approved_region_and_account": true,
+      "backup_egress_audited_separately": true,
+      "kms_admin_separated_from_db_admin": true,
+      "kms_key_protection_policy_enforced": true,
+      "data_tier_crossings_audit_logged_to_tamper_resistant_store": true,
+      "failed_auth_and_admin_events_alerted": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input - tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Lateral movement from a compromised peer workload",
+      "Cleartext intra-VPC capture",
+      "Anonymous/shared-credential crossing of the boundary",
+      "Direct public exposure of the data store",
+      "Boundary bypass via trusted DBA / management-path channel",
+      "Broken authorization at the crossing - over-privileged grants enabling bulk harvesting",
+      "Backup / snapshot exfiltration outside the boundary",
+      "KMS / key-administrator compromise (no separation of duties)",
+      "Unmonitored crossings - audit gap at the boundary"
+    ]
+  }
+]

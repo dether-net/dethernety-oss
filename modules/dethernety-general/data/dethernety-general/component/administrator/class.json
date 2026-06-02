@@ -1,0 +1,9 @@
+{
+  "id": "4eb36223-154f-4fa2-9965-bdb6d67dca35",
+  "name": "Administrator",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "A privileged human operator — also called an admin, sysadmin, root, superuser, operator, or DevOps/SRE/platform engineer — who manages infrastructure, configuration, and accounts. Acts through the management and control plane with the broadest authority of any actor. The place to look for the administrator, operator, privileged insider, or super-user persona who configures and runs the system.",
+  "category": "External Actors",
+  "status": "draft"
+}

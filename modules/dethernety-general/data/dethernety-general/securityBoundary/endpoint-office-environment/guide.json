@@ -1,0 +1,461 @@
+[
+  {
+    "option_name": "email_phishing_defenses_layered",
+    "option_description": "Whether the email perimeter enforces layered phishing defenses — DMARC in enforce mode (p=reject/quarantine), URL rewriting / safe-links, attachment sandboxing/detonation, and browser safe-browsing on managed endpoints — so the canonical initial-access channel meets a documented control stack.",
+    "security_impact": "One of the OR-triggers of the exposure \"Phishing-driven initial access\" (MITRE T1566) — the rule fires when email_phishing_defenses_layered is false. Layered email defenses are the boundary's first cut at the spearphishing initial-access path.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the email-security console (Microsoft Defender for Office 365 / Proofpoint TAP / Google Workspace security / Mimecast), inspect anti-phish, safe-links, and safe-attachments policy coverage across the in-scope user population.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Defender XDR > Email & collaboration > Policies & rules > Threat policies (Anti-phishing, Safe Links, Safe Attachments)",
+        "expected_output": "Anti-phishing, link-rewriting, and attachment-sandboxing policies are present and scoped to all corporate mailboxes; recent (last 30 days) detection events exist and are triaged.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Query the published DMARC record for the corporate domain and confirm enforcement (p=reject or p=quarantine) plus an rua aggregate-reports address.",
+        "command": "dig +short TXT _dmarc.<corp-domain>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a TXT record like \"v=DMARC1; p=reject; rua=mailto:dmarc@<corp-domain>; ...\"; p=none indicates monitor-only (not enforcing).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the most recent phishing-simulation campaign report and verify the click/report rate is tracked over time and feeds back into training cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented simulation runs in the last quarter with measured click-rate trend; high-risk repeat clickers are routed to follow-up training.",
+        "source": "MITRE ATT&CK T1566 — Phishing"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "user_awareness_training_current",
+    "option_description": "Whether security-awareness training (with measurable phish-resistance signal) has been completed by the workforce within the last 12 months and is paired with ongoing phishing simulations that produce a trend rather than a one-off attestation.",
+    "security_impact": "One of the OR-triggers of the exposure \"Phishing-driven initial access\" (MITRE T1566) — the rule fires when user_awareness_training_current is false. Human-layer defense against the canonical initial-access path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Pull the training-system completion report (KnowBe4 / Proofpoint Security Awareness / Hoxhunt / Infosec IQ) for the in-scope user population and reconcile against the HR-active-employee list.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": ">=95% of active employees show completion of mandatory security-awareness training within the last 12 months; new-hire training tied to onboarding.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the phishing-simulation platform reporting and observe campaign cadence + measured click/report rate trend over the last 6-12 months.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Simulation platform > Reports > Campaign history",
+        "expected_output": "Regular (>=quarterly) simulation campaigns; click-rate trend visible and improving or stable-low; report-rate also tracked.",
+        "source": "MITRE ATT&CK T1566 — Phishing"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "managed_device_enrollment_enforced",
+    "option_description": "Whether every device permitted onto the corporate network or into corporate SaaS is enrolled in MDM/UEM with an organization-issued device identity, so the boundary's principal is a verified device + user pair rather than an anonymous BYOD host.",
+    "security_impact": "One of the OR-triggers of the exposure \"Unmanaged-device crossing without posture check\" (MITRE T1190) — the rule fires when managed_device_enrollment_enforced is false. Establishes the device-as-principal property required by NIST SP 800-207 ZTA and SP 800-46r2 tiered remote access.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inventory reconciliation: every entry in the HR-active-employee list maps to >=1 enrolled device in MDM (Intune/Jamf/Workspace ONE/Kandji); count of unmanaged devices observed on corp wifi/wired in last 30 days should be 0 outside the explicit guest VLAN.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inventory reconciliation: every entry in the HR-active-employee list maps to >=1 enrolled device in MDM (Intune/Jamf/Workspace ONE/Kandji); count of unmanaged devices observed on corp wifi/wired in last 30 days should be 0 outside the explicit guest VLAN.",
+        "source": "CIS Controls v8 Control 1 — Inventory and Control of Enterprise Assets"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Intune/Jamf admin console: 'Enrolled devices' count vs identity-provider active-user count; any 'Personal' enrollments are explicitly allowed by BYOD policy and segmented.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune > Devices > All devices (or Jamf > Devices > Inventory); compare to Entra/Okta active-user count",
+        "expected_output": "In Intune/Jamf admin console: 'Enrolled devices' count vs identity-provider active-user count; any 'Personal' enrollments are explicitly allowed by BYOD policy and segmented.",
+        "source": "NIST SP 800-124 Rev. 2 — Mobile Device Security in the Enterprise"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "network_access_control_802_1x_enforced",
+    "option_description": "Whether corporate wired switch ports and wifi SSIDs enforce 802.1X (or equivalent NAC) with certificate-based device auth, so only devices presenting a valid org-issued certificate and compliant posture get a corp-network address; rogue devices land on quarantine or guest only.",
+    "security_impact": "One of the OR-triggers of the exposure \"Unmanaged-device crossing without posture check\" (MITRE T1190) — the rule fires when network_access_control_802_1x_enforced is false. CIS Control 13 port-level access control via 802.1X.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Plug a non-domain-joined laptop into a corp wall port (or attempt to join corp SSID with no client cert) and observe DHCP / authorization behavior.",
+        "command": "Plug a non-domain-joined laptop into a corp wall port (or attempt to join corp SSID with no client cert) and observe DHCP / authorization behavior.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port stays in unauthorized state / SSID rejects auth; no corp IP issued; auth attempt logged in NAC (Cisco ISE / Aruba ClearPass / Forescout).",
+        "source": "CIS Controls v8 Control 13 — Network Monitoring and Defense"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the NAC console (Cisco ISE / Aruba ClearPass / Forescout) and review the deployment coverage dashboard and recent failed-auth events.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAC console > Dashboard / Policy > Authentication policies",
+        "expected_output": "NAC dashboard shows >=95% of switch ports / SSIDs configured for 802.1X-required; failed-auth events from unknown devices in the last 7 days.",
+        "source": "NIST SP 800-46 Rev. 2 — Telework/Remote Access/BYOD"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "user_segment_isolated_from_production_tiers",
+    "option_description": "Whether the user/endpoint VLAN is firewalled from production data tiers — endpoints reach data only via authenticated application gateways/jump hosts, never via direct L3 routes — so a single endpoint compromise cannot pivot to a database.",
+    "security_impact": "One of the OR-triggers of the exposure \"Lateral movement from owned endpoint to internal services\" (MITRE T1021) — the rule fires when user_segment_isolated_from_production_tiers is false. Contains the lateral-movement blast radius of a single endpoint compromise.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a representative user-VLAN host, scan the prod data-tier IP range on the canonical database / admin ports and confirm the segmentation firewall denies, not 'open'.",
+        "command": "nmap -Pn -p 22,3389,1433,3306,5432,6379,9000 <prod-data-tier-IPs>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All scanned ports filtered/blocked by the segmentation firewall, not 'open'. Connections appear in the firewall deny-log.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Architecture diagram + ACL exports show explicit allow rules only for documented app/jump-host crossings; admin access uses a dedicated Privileged Access Workstation per CIS Control 12 Safeguard 12.8.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagram + ACL exports show explicit allow rules only for documented app/jump-host crossings; admin access uses a dedicated Privileged Access Workstation per CIS Control 12 Safeguard 12.8.",
+        "source": "CIS Controls v8 Control 12 — Network Infrastructure Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_protocols_require_pam_and_mfa",
+    "option_description": "Whether administrative remote-access protocols (RDP/SMB/WinRM/SSH/VNC) terminate at a PAM-mediated jump host that enforces MFA and session recording, instead of being directly reachable from user endpoints.",
+    "security_impact": "One of the OR-triggers of the exposure \"Lateral movement from owned endpoint to internal services\" (MITRE T1021) — the rule fires when admin_protocols_require_pam_and_mfa is false. Defends the T1021 protocols whose use is legitimate and thus cannot simply be blocked.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the PAM platform (CyberArk / Delinea / BeyondTrust / HashiCorp Boundary / Teleport) configuration and confirm all admin RDP/SSH/WinRM sessions are brokered through it with MFA and session recording.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PAM policy shows admin protocols accessible only via the broker; MFA step-up required; session recordings exist for a recent sample of admin sessions.",
+        "source": "MITRE ATT&CK T1021 — Remote Services"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a user-VLAN endpoint, attempt direct RDP/SSH to a production server and confirm the segmentation firewall + PAM enforce rejection of the direct path.",
+        "command": "nmap -Pn -p 22,3389,5985 <prod-server-IPs> ; ssh <prod-server>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Direct attempts blocked at the firewall; the only working path is via the PAM broker FQDN with MFA challenge.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_access_scoped_and_audited",
+    "option_description": "Whether contractor / MSP / partner access into the corporate environment is time-boxed, scope-limited (per-app / per-resource, not flat VPN), and audit-logged end-to-end so a partner compromise does not become an unmonitored insider.",
+    "security_impact": "One of the OR-triggers of the exposure \"Trusted-relationship / supply-chain access abuse\" (MITRE T1199) — the rule fires when third_party_access_scoped_and_audited is false. Defends the trusted-relationship initial-access path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Pull the list of active third-party / vendor identities from the IdP and reconcile each against an approved access-request record with a documented expiry, sponsoring owner, and scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every active third-party identity has a current sponsor + expiry within policy (typically <=90 days rolling); stale accounts are disabled.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, query authentication and access events for third-party identity groups across the last 30-90 days and confirm complete logging coverage and routine review.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All sign-ins, app accesses, and privileged actions by third-party identities are present in SIEM; an analyst review cadence (weekly/monthly) is evidenced.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_devices_meet_same_posture_bar",
+    "option_description": "Whether vendor / contractor endpoints crossing the boundary meet the same MDM enrollment, EDR coverage, and patch-posture bar as employee-owned corporate devices, rather than being allowed in as unmanaged BYOD.",
+    "security_impact": "One of the OR-triggers of the exposure \"Trusted-relationship / supply-chain access abuse\" (MITRE T1199) — the rule fires when third_party_devices_meet_same_posture_bar is false. Closes the unmanaged-third-party-device variant of supply-chain risk.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the third-party access policy and confirm it requires either an org-issued (MDM-enrolled, EDR-covered) device, or a virtual-desktop / browser-isolation path that prevents direct device access; sample a few active vendors to confirm.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented policy + sampled evidence: vendor users either use org-issued endpoints or connect via VDI / Cloudflare Browser Isolation / Citrix; no raw VPN-from-unmanaged-laptop path remains.",
+        "source": "NIST SP 800-46 Rev. 2 — Telework/Remote Access/BYOD"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IdP conditional-access policy console, confirm third-party identity groups are subject to a compliant-device or VDI-only grant control.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Protection > Conditional Access > Policies (filter on vendor groups)",
+        "expected_output": "Conditional-access policy for vendor groups requires compliant device or restricts to VDI app; no broad allow-from-any-device exists.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "endpoint_full_disk_encryption_on",
+    "option_description": "Whether every corporate endpoint enforces full-disk encryption (BitLocker / FileVault / dm-crypt-LUKS) with recovery keys escrowed centrally, so a lost or stolen device cannot leak data and can be remotely revoked.",
+    "security_impact": "One of the OR-triggers of the exposure \"Stolen device with cleartext data and live session cookies\" (MITRE T1539) — the rule fires when endpoint_full_disk_encryption_on is false. Converts physical theft from a data breach into a billable replacement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a sampled endpoint, query the OS-native FDE status command and confirm encryption is fully complete and protection is on.",
+        "command": "manage-bde -status  (Windows) / fdesetup status (macOS) / lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT and cryptsetup status (Linux)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Windows: 'Conversion Status: Fully Encrypted, Protection On'. macOS: 'FileVault is On.'. Linux: device shown as TYPE=crypt under LUKS.",
+        "source": "NIST SP 800-124 Rev. 2 — Mobile Device Security in the Enterprise"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the MDM console, pull the encryption-status report across the full enrolled fleet and verify recovery-key escrow.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune > Devices > Monitor > Encryption report (or Jamf > Computers > Smart Groups > FileVault enabled)",
+        "expected_output": "MDM 'Encryption status' report: 100% encrypted; recovery keys escrowed and rotated.",
+        "source": "NIST SP 800-46 Rev. 2 — Telework/Remote Access/BYOD"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "remote_wipe_and_lost_device_response_tested",
+    "option_description": "Whether MDM/UEM remote-wipe capability exists AND the lost-device response runbook has been exercised end-to-end (selective wipe for BYOD, full wipe for corp-owned) within the last 12 months, so the control is known to work — not merely configured.",
+    "security_impact": "One of the OR-triggers of the exposure \"Stolen device with cleartext data and live session cookies\" (MITRE T1539) — the rule fires when remote_wipe_and_lost_device_response_tested is false. Verifies the data-at-rest protection has an exercised recovery path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Evidence of a tabletop or live test of remote-wipe within the last 12 months (ticket / runbook execution log); wiped device confirmed re-enrollment-locked and FDE-revoked.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a tabletop or live test of remote-wipe within the last 12 months (ticket / runbook execution log); wiped device confirmed re-enrollment-locked and FDE-revoked.",
+        "source": "NIST SP 800-124 Rev. 2 — Mobile Device Security in the Enterprise"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the MDM console, confirm the Wipe / Retire / Selective Wipe actions are available against an enrolled device and audit the action log for recent test executions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune > Devices > <device> > Wipe / Retire (or Jamf > Computers > Management > Wipe Computer)",
+        "expected_output": "Wipe action visible to authorised admins; action history shows test wipes performed against pilot devices within the last 12 months.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edr_agent_active_with_tamper_protection",
+    "option_description": "Whether every in-scope endpoint runs a centrally-managed EDR/XDR agent that is healthy, streaming telemetry off-box to a central SIEM, and tamper-protected so a local admin (or attacker who escalated to one) cannot silently disable it.",
+    "security_impact": "One of the OR-triggers of the exposure \"Endpoint ransomware impact across user segment\" (MITRE T1486 / T1021) — the rule fires when edr_agent_active_with_tamper_protection is false. Also covers the credential-capture detection surface.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console (CrowdStrike Falcon / SentinelOne / Microsoft Defender for Endpoint / Sophos Central), pull the coverage and health report across the enrolled fleet.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console > Sensors / Endpoints > Coverage report",
+        "expected_output": "EDR console coverage report: agent-installed % = MDM-enrolled %; last-seen <24h for all assets; tamper-protection ON; SIEM ingestion confirms recent events from the host.",
+        "source": "CIS Controls v8 Control 10 — Malware Defenses"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, count distinct endpoints sending EDR telemetry in the last 24 hours and compare to the MDM-enrolled count; flag any host silent for >72h.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM query: count of distinct endpoints sending EDR events in last 24h matches MDM enrolled count (>=95%); zero hosts with stale (>72h) telemetry without a ticketed reason.",
+        "source": "CIS Controls v8 Control 13 — Network Monitoring and Defense"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "endpoint_to_endpoint_smb_rdp_restricted",
+    "option_description": "Whether SMB / RDP / WinRM between user-segment endpoints is blocked or tightly restricted by host firewall + microsegmentation, so a single ransomware infection cannot fan out across the user VLAN over flat L2.",
+    "security_impact": "One of the OR-triggers of the exposure \"Endpoint ransomware impact across user segment\" (MITRE T1486 / T1021) — the rule fires when endpoint_to_endpoint_smb_rdp_restricted is false. Caps the blast radius of a single endpoint infection.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From one user-VLAN endpoint, scan another user-VLAN endpoint on SMB/RDP/WinRM and confirm the host firewall (or microsegmentation policy) denies.",
+        "command": "nmap -Pn -p 139,445,3389,5985 <peer-endpoint-IP>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports filtered/closed; connection refused or no route; the host firewall logs the inbound deny.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the MDM/endpoint-policy console, inspect the host firewall / Windows Defender Firewall (or microsegmentation product such as Illumio / Cisco Secure Workload) rule set for peer-to-peer SMB/RDP.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune > Endpoint security > Firewall (or microsegmentation console > Policy)",
+        "expected_output": "Policy explicitly blocks inbound 445/3389/5985 from peer endpoints; admin paths from designated PAW source ranges are the only exceptions.",
+        "source": "MITRE ATT&CK T1021 — Remote Services"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "endpoint_runs_as_least_privileged_user",
+    "option_description": "Whether day-to-day interactive user accounts on endpoints are non-admin; local-admin rights require a separate elevation account or a PAM-mediated request (LAPS / JIT), defeating one-click malware persistence and disabling-of-EDR by a phished user.",
+    "security_impact": "One of the OR-triggers of the exposure \"Credential and session capture on endpoint\" (MITRE T1056 / T1539) — the rule fires when endpoint_runs_as_least_privileged_user is false. Without least-privilege, malware inherits admin tokens and trivially bypasses EDR tamper-protection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a sampled endpoint, enumerate the local administrators / sudo / wheel group and confirm the interactive user is not a member.",
+        "command": "Windows: net localgroup Administrators  (and Get-LocalGroupMember -Group 'Administrators'). macOS: dseditgroup -o checkmember -m <user> admin. Linux: getent group sudo wheel",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interactive user account is NOT a member of the local Administrators / admin / sudo / wheel group on standard endpoints; only break-glass accounts and the LAPS-managed local admin appear.",
+        "source": "CIS Controls v8 Control 4 — Secure Configuration of Enterprise Assets and Software"
+      },
+      {
+        "type": "gui",
+        "instruction": "MDM/AD policy report: 'Standard user' set on >=95% of devices; local-admin elevations recorded in audit log.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune > Devices > Configuration profiles (Local user / LAPS policy) ; or AD GPO RSoP",
+        "expected_output": "MDM/AD policy report: 'Standard user' set on >=95% of devices; local-admin elevations recorded in audit log.",
+        "source": "NIST SP 800-46 Rev. 2 — Telework/Remote Access/BYOD"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "session_binding_or_short_session_lifetime",
+    "option_description": "Whether SSO sessions are cryptographically bound to the device (DPoP / mTLS / WebAuthn-bound tokens, Entra continuous-access evaluation, token-protection / token-binding) OR short-lived (<=24h) with conditional-access re-evaluation, so a stolen browser cookie cannot replay indefinitely from an attacker host.",
+    "security_impact": "One of the OR-triggers of the exposure \"Credential and session capture on endpoint\" (MITRE T1056 / T1539) — the rule fires when session_binding_or_short_session_lifetime is false. Directly addresses the infostealer-then-cookie-replay attack pattern that defeats plain MFA.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the IdP, review the conditional-access policies and session-control settings (Entra: Sign-in frequency, Persistent browser session, Token protection / CAE; Okta: Session lifetime, Persistent cookies).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Protection > Conditional Access > Policies > Session (or Okta > Security > Authentication policies)",
+        "expected_output": "Sign-in frequency <=24h for sensitive apps OR token-protection / CAE / DPoP / WebAuthn-bound is enabled; persistent browser sessions disabled for high-risk apps.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the application access tokens issued by the IdP — confirm token TTL <=24h and refresh-token revocation is honoured on conditional-access re-eval.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token TTL documented and short; CAE / continuous-access events visible in sign-in logs invalidating sessions on policy violation.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "endpoint_audit_logs_centralised",
+    "option_description": "Whether security-relevant endpoint events (sign-ins, privilege escalation, EDR detections, USB insertion, policy drift) ship off-box to a central SIEM with >=90 days hot retention, so a host compromise cannot erase its tracks and insider activity is reviewable.",
+    "security_impact": "The sole OR-trigger of the exposure \"Unmonitored crossing - endpoint audit gap\" (MITRE T1562 / T1070) — the rule fires when endpoint_audit_logs_centralised is false. Defends against defense-evasion (disable/clear logs) by holding tamper-evident off-box copies.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "SIEM holds endpoint sign-in (4624/4625), privilege-elevation, and EDR-detect events from a sample of 5 endpoints for the past 90+ days; gaps correlate to documented downtime only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM holds endpoint sign-in (4624/4625), privilege-elevation, and EDR-detect events from a sample of 5 endpoints for the past 90+ days; gaps correlate to documented downtime only.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM (Sentinel / Splunk / Elastic / Chronicle), inspect data-source health for the endpoint log sources (Windows Security, Sysmon, macOS Unified Log, EDR telemetry) and the configured retention policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM > Data sources / Connectors > Endpoint log forwarders; Settings > Retention",
+        "expected_output": "All endpoint log sources reporting Healthy; retention configured for >=90 days hot, >=12 months archive; recent ingestion-lag alerts are zero or triaged.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

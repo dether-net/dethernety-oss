@@ -1,0 +1,491 @@
+[
+  {
+    "option_name": "mfa_enforced_for_admin",
+    "option_description": "Attestation that every administrative/privileged login is gated by multi-factor authentication (not a password alone), enforced via the IdP/SSO directory with no admin-role exclusions or break-glass bypass left enabled.",
+    "security_impact": "One of the OR-triggers of the exposure \"Weak / non-phishing-resistant admin authentication\" (fires when mfa_enforced_for_admin is_false) and of \"Compromise / abuse of valid privileged credentials\" (also fires when is_false). Without MFA a stolen admin password alone yields a valid session — the primary enabler of credential stuffing and valid-credential abuse.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP/SSO access policy to confirm an MFA requirement is scoped to all admin/privileged roles with no exclusions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Identity-provider / SSO policy shows an MFA requirement scoped to all admin/privileged roles (CIS 6.5: 'Require MFA for all administrative access accounts, where supported, on all enterprise assets'). Absence of such a policy, or admin roles excluded from it, is insecure.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management (6.5)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IdP admin console, inspect the Conditional Access / sign-on policy targeting the privileged-role group.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console (e.g. Entra ID > Conditional Access, or Okta > Security > Authentication Policies) > policy targeting the privileged-role group",
+        "expected_output": "A sign-on/Conditional-Access policy requiring MFA targets the privileged-role group with no exclusions; enforcing MFA via the directory/SSO provider satisfies the safeguard.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management (6.3/6.5)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Attempt a password-only admin login to confirm it is rejected and MFA is prompted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin login portal > sign in with a valid admin password",
+        "expected_output": "The password-only login is rejected / a second factor is demanded before a session is granted; a successful password-only login indicates MFA is not enforced.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "option_description": "Whether the admin MFA factor is phishing-resistant (FIDO2/WebAuthn or PKI/PIV, origin-bound, AAL2/AAL3) rather than a phishable shared-secret factor (SMS, voice, TOTP, push).",
+    "security_impact": "One of the OR-triggers of \"Weak / non-phishing-resistant admin authentication\" and of \"Compromise / abuse of valid privileged credentials\" — both fire when phishing_resistant_authenticator_required eq \"sms_otp_or_push\". The insecure value lets an AiTM proxy relay the captured OTP/push approval to mint a valid session.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the authenticator policy for privileged accounts to confirm only phishing-resistant factors are permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authenticator policy for privileged accounts permits only FIDO/WebAuthn or PKI (PIV/CAC); SMS, voice, TOTP, and push are disabled or downgraded for admin roles. Only FIDO/WebAuthn and PKI qualify as phishing-resistant per CISA.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm admin authentication is mapped to AAL2/AAL3 with an origin-bound, verifier-impersonation-resistant authenticator.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin authentication is mapped to AAL2/AAL3 with a phishing-resistant (origin-bound, verifier-impersonation-resistant) authenticator per NIST SP 800-63B; password-only or shared-secret OTP for admins is insecure.",
+        "source": "NIST SP 800-63B Rev 4 — Digital Identity Guidelines: Authentication"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "fido2_or_piv",
+      "sms_otp_or_push"
+    ]
+  },
+  {
+    "option_name": "admin_credential_hygiene",
+    "option_description": "Whether the residual password factor for admin accounts is strong, unique, screened against breached-password datasets, with lockout/throttling bound to the account.",
+    "security_impact": "A secondary OR-trigger of both \"Weak / non-phishing-resistant admin authentication\" and \"Compromise / abuse of valid privileged credentials\" — fires when admin_credential_hygiene is_false. Reused/short/breached admin passwords make the password leg stuffable even where MFA exists.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the admin password policy for uniqueness and minimum length requirements.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Unique passwords for all enterprise assets; at minimum 8 chars when paired with MFA, 14 chars without MFA (CIS 5.2). Reused or short admin passwords are insecure.",
+        "source": "CIS Controls v8 Control 5 — Account Management (5.2)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm new/changed admin passwords are screened against breached-password datasets and that per-account lockout/throttling is in place.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "New/changed admin passwords are screened against breached-password datasets (Pwned Passwords) and account lockout/throttling is bound to the account; MFA remains the primary defense against credential stuffing (~99.9% of account-takeover stopped).",
+        "source": "OWASP Credential Stuffing Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "no_shared_privileged_credentials",
+    "option_description": "Attestation that every privileged action is attributable to one named human operator — no shared/generic admin logins in routine use.",
+    "security_impact": "One of the OR-triggers of \"Compromise / abuse of valid privileged credentials\" and of \"Non-attributable / unlogged privileged actions\" — both fire when no_shared_privileged_credentials is_false. A shared credential broadens who can present 'valid' credentials and makes privileged actions non-attributable even when a log exists.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the account inventory to confirm one privileged identity per operator and no generic/shared admin login in routine human use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Account inventory (CIS 5.1, covering both user and administrator accounts) shows one privileged identity per operator; no generic/shared admin account is in routine human use. A shared credential means actions are non-attributable.",
+        "source": "CIS Controls v8 Control 5 — Account Management (5.1)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm privileged accounts are administered under a role/attribute scheme with monitored role assignments, and any breakglass accounts are vaulted and individually checked out.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged user accounts are established/administered under a role- or attribute-based scheme with monitored role assignments (AC-2(7)); breakglass/shared accounts, if any, are vaulted, individually checked-out, and session-recorded rather than statically shared.",
+        "source": "NIST SP 800-53 Rev 5 AC-2(7) Privileged User Accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "privileged_session_anomaly_monitoring",
+    "option_description": "Attestation that privileged accounts are monitored for atypical usage (off-hours login, impossible travel, atypical resource access) so abuse of valid admin credentials is detected.",
+    "security_impact": "An OR-trigger of \"Compromise / abuse of valid privileged credentials\" — fires when privileged_session_anomaly_monitoring is_false. Without it an adversary using stolen valid credentials blends into normal traffic undetected.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm privileged/system accounts are monitored for atypical usage and that atypical events are reported to defined personnel.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "System accounts are monitored for atypical usage and atypical events are reported to defined personnel (AC-2(12)); privileged-role/attribute changes are monitored (AC-2(7)). No behavioral monitoring on admin accounts is insecure.",
+        "source": "NIST SP 800-53 Rev 5 AC-2(12) Account Monitoring for Atypical Usage"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify alerting exists for valid-account abuse patterns and that coverage extends to all admin accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting exists for valid-account abuse patterns (off-hours admin login, impossible travel, privileged access to resources the operator does not normally touch) — the documented detection for T1078 Valid Accounts.",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "no_standing_admin_privileges_jit_required",
+    "option_description": "Attestation that privileged access is just-in-time (requested, justified, approved, time-bounded, auto-revoked) toward Zero Standing Privileges, rather than standing/always-on admin role assignments.",
+    "security_impact": "One of the OR-triggers of \"Standing / over-broad privilege exploited for lateral movement\" — fires when no_standing_admin_privileges_jit_required is_false. Always-on standing admin rights are something an attacker can ride for lateral movement after a single foothold.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm privileged elevation is brokered just-in-time toward Zero Standing Privileges with no persistent always-on privileged role.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged elevation is brokered just-in-time toward Zero Standing Privileges: each elevation is requested, justified, approved, time-bounded, and automatically revoked; no persistent always-on privileged role assignment. Standing admin = the antidote pattern is absent.",
+        "source": "BeyondTrust — Zero Standing Privileges (ZSP) glossary"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the PAM/PIM tool, confirm privileged roles are assigned as 'eligible' rather than 'active', requiring activation with justification and expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM / PIM tool (e.g. Entra PIM > Roles, or CyberArk) > privileged role assignments",
+        "expected_output": "Privileged roles are 'eligible' rather than 'active', requiring activation with justification and an expiry; permanently active privileged assignments are the insecure state.",
+        "source": "BeyondTrust — Zero Standing Privileges (ZSP) glossary"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_admin_scoping",
+    "option_description": "Attestation that each admin holds only the minimum privileges required for their role via documented RBAC, rather than blanket global-admin / root-everywhere.",
+    "security_impact": "One of the OR-triggers of \"Standing / over-broad privilege exploited for lateral movement\" — fires when least_privilege_admin_scoping is_false. Over-broad superuser scope lets a compromised operator pivot across the whole trust zone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review documented RBAC and confirm operators are assigned scoped roles rather than blanket superuser.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented role-based access control defines the access rights necessary for each role (CIS 6.8); operators are assigned scoped roles, not blanket superuser. Global-admin granted by default to all operators is insecure.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management (6.8)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm least privilege is enforced and privileged accounts are restricted to defined personnel/roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Least privilege (AC-6) is enforced: each privileged user is authorized only the accesses necessary for assigned tasks, and privileged accounts are restricted to defined personnel/roles (AC-6(5)).",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege / AC-6(5) Privileged Accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "privileged_access_via_pam_with_session_recording",
+    "option_description": "Attestation that privileged access is brokered through a PAM/bastion that vaults credentials and records sessions, so operators do not hold raw long-lived secrets and access is centrally monitored.",
+    "security_impact": "One of the OR-triggers of \"Standing / over-broad privilege exploited for lateral movement\" and of \"Shared / un-vaulted privileged credentials\" — both fire when privileged_access_via_pam_with_session_recording is_false. Without the broker, operators connect directly with raw credentials and sessions are unvaulted/unrecorded, widening the lateral-movement surface.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm privileged sessions traverse a PAM/jump-host that vaults credentials and records sessions, and that operators hold no long-lived raw secrets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged sessions traverse a PAM/jump-host that vaults credentials and records sessions; operators do not hold long-lived raw secrets. AC-2(7) requires privileged accounts be administered and monitored centrally.",
+        "source": "NIST SP 800-53 Rev 5 AC-2(7) Privileged User Accounts"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the SSH/admin entry point is a hardened bastion and that direct operator SSH to internal hosts bypassing it is blocked.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSH/admin entry point is a hardened bastion: password auth and root login disabled, public-key (Ed25519/RSA>=3072) required, internal hosts reachable only from the bastion, keys inventoried and rotated. Direct operator SSH to internal hosts bypassing the bastion is insecure.",
+        "source": "OpenSSH bastion / jump host hardening practice (Teleport)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "periodic_privilege_recertification",
+    "option_description": "Attestation that privileged entitlements are reviewed on a defined recurring frequency and excess/stale rights are reassigned or removed.",
+    "security_impact": "One of the OR-triggers of \"Privilege creep / dormant admin accounts\" — fires when periodic_privilege_recertification is_false. Without recurring review, entitlements accumulate as unreviewed standing access (privilege creep).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm privileges assigned to roles/classes are reviewed on a defined frequency and reassigned/removed where no longer justified.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileges assigned to defined roles/classes are reviewed on a defined frequency and reassigned/removed where no longer justified (AC-6(7)). No recurring privilege review = accumulated standing access.",
+        "source": "NIST SP 800-53 Rev 5 AC-6(7) Review of User Privileges"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify an inventory of all user and administrator accounts is maintained and used to drive recertification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An inventory of all user and administrator accounts is maintained (CIS 5.1) and used to drive recertification; orphaned or unreviewed admin accounts surface as gaps.",
+        "source": "CIS Controls v8 Control 5 — Account Management (5.1)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dormant_admin_accounts_disabled",
+    "option_description": "Attestation that unused/dormant privileged accounts are disabled or removed within a defined window and that admin access is revoked promptly on termination/role change.",
+    "security_impact": "One of the OR-triggers of \"Privilege creep / dormant admin accounts\" — fires when dormant_admin_accounts_disabled is_false. Terminated or role-changed operators retain admin access and dormant privileged accounts linger as quiet footholds for re-entry.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm dormant accounts are disabled/deleted after the defined inactivity window and that admin accounts are disabled immediately on termination.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dormant accounts are deleted/disabled after 45 days of inactivity (CIS 5.3); admin accounts are disabled immediately upon termination (CIS 6.2). Lingering enabled-but-unused admin accounts are insecure.",
+        "source": "CIS Controls v8 Control 5 — Account Management (5.3) / Control 6 (6.2)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify accounts are disabled within a defined period when inactive/expired/orphaned, ideally via automated mechanisms.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts are disabled within a defined period when inactive, expired, or no longer associated with a user (AC-2(3)), ideally via automated mechanisms (AC-2(1)).",
+        "source": "NIST SP 800-53 Rev 5 AC-2(3) Disable Accounts / AC-2(1) Automated Account Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "shared_admin_accounts",
+    "option_description": "Insecure-firing attestation: a generic/role 'admin' login is shared by multiple operators in routine human use, so privileged actions are non-attributable. TRUE when such a shared admin credential exists.",
+    "security_impact": "An OR-trigger of \"Shared / un-vaulted privileged credentials\" — fires when shared_admin_accounts is_true (opposite polarity to no_shared_privileged_credentials, which fires is_false). A shared admin credential makes actions non-attributable and broadens who can present valid privileged credentials.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the account inventory for any generic/role admin login shared across operators in routine use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Account inventory (CIS 5.1, covering both user and administrator accounts) shows one privileged identity per operator; if a generic/shared 'admin' login is in routine human use the attribute is TRUE (insecure).",
+        "source": "CIS Controls v8 Control 5 — Account Management (5.1)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm any breakglass/shared account is vaulted and individually checked out rather than statically shared in routine use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged user accounts are administered under a role/attribute scheme with monitored role assignments (AC-2(7)); breakglass/shared accounts, if any, are vaulted, individually checked-out, and session-recorded — a statically shared admin password sets this attribute TRUE.",
+        "source": "NIST SP 800-53 Rev 5 AC-2(7) Privileged User Accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "operators_hold_raw_longlived_admin_secrets",
+    "option_description": "Insecure-firing attestation: operators hold raw, long-lived privileged secrets (static passwords, persistent SSH keys, API tokens) outside a vault rather than checking out short-lived brokered credentials. TRUE when such secrets are held.",
+    "security_impact": "An OR-trigger of \"Shared / un-vaulted privileged credentials\" — fires when operators_hold_raw_longlived_admin_secrets is_true. Raw long-lived privileged secrets outside a vault multiply the credential-theft surface (the un-vaulted half of this vector).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether operators retain raw long-lived privileged secrets outside a vault rather than checking out short-lived brokered credentials.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged sessions traverse a PAM/jump-host that vaults credentials; operators do not hold long-lived raw secrets (AC-2(7) requires privileged accounts be administered and monitored centrally). Operators retaining static passwords, persistent SSH keys, or API tokens outside a vault sets this attribute TRUE.",
+        "source": "NIST SP 800-53 Rev 5 AC-2(7) Privileged User Accounts"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify privileged SSH keys are inventoried, rotated, and not held statically by operators on general-purpose endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Public-key access is brokered through a hardened bastion with keys inventoried and rotated; long-lived operator-held private keys/tokens that bypass the broker set this attribute TRUE (insecure).",
+        "source": "OpenSSH bastion / jump host hardening practice (Teleport)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Attestation that the admin/management network path (admin console, SSH/RDP, control-plane API) is reachable only from internal/trusted networks rather than directly from the public internet.",
+    "security_impact": "One of the OR-triggers of \"Internet-exposed admin / management interface\" — fires when control_plane_api_not_publicly_exposed is_false. An internet-exposed management plane is an External Remote Services (T1133) initial-access surface frequently entered with valid creds and no exploit signature.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an external vantage point, confirm management/admin endpoints are unreachable directly from the internet.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management/admin endpoints (console, SSH, RDP, API control plane) are reachable only from internal networks / via VPN or ZTNA, not directly from the internet; an internet-exposed admin interface is an external-remote-services initial-access surface (T1133).",
+        "source": "MITRE ATT&CK T1133 External Remote Services"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network/firewall rules to confirm remote admin access requires MFA and no unauthenticated or single-factor remote management path exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote admin access requires MFA on all remote network access (CIS 6.4); unauthenticated or single-factor remote management is insecure.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management (6.4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "remote_admin_access_requires_mfa",
+    "option_description": "Attestation that all remote administrative/management network access (VPN, ZTNA, bastion, direct console) is gated by multi-factor authentication.",
+    "security_impact": "One of the OR-triggers of \"Internet-exposed admin / management interface\" — fires when remote_admin_access_requires_mfa is_false. Single-factor or unauthenticated remote management means a reachable management plane can be entered with valid creds alone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm every remote management entry path enforces MFA; reject any path accepting single-factor or unauthenticated access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote admin access requires MFA on all remote network access (CIS 6.4); unauthenticated or single-factor remote management is insecure.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management (6.4)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the VPN/ZTNA/bastion access policy, verify MFA is required for all remote admin entry paths and attempt a single-factor connect to confirm it is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "VPN/ZTNA/bastion admin console > remote-access authentication policy",
+        "expected_output": "Every remote management entry path (VPN, ZTNA, bastion, direct console) enforces MFA; a single-factor connect attempt is rejected. Any remote admin path accepting single-factor/unauthenticated access is insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "remote_access_via_ztna_or_mfa_vpn",
+    "option_description": "Attestation that operators reach the control plane only through a brokered access path (ZTNA or an MFA-gated VPN/bastion) rather than connecting directly to an internet-facing management endpoint.",
+    "security_impact": "One of the OR-triggers of \"Internet-exposed admin / management interface\" — fires when remote_access_via_ztna_or_mfa_vpn is_false. A direct internet-to-control-plane path bypasses a brokered, identity-aware ingress (T1133).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm the only ingress path to the control plane is a brokered, identity-aware channel (ZTNA or MFA-gated VPN/bastion) and that no direct internet-to-management connection succeeds.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management/admin endpoints are reachable only via VPN or ZTNA, not directly from the internet; a direct internet-to-management connection that bypasses the brokered channel is an external-remote-services initial-access surface (T1133) and is insecure.",
+        "source": "MITRE ATT&CK T1133 External Remote Services"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the remote-access architecture to confirm ZTNA / MFA-gated VPN is the sole sanctioned ingress and direct management exposure is prohibited.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote admin access requires MFA on all remote network access (CIS 6.4) routed through a brokered ingress; any direct internet-to-management path is insecure.",
+        "source": "CIS Controls v8 Control 6 — Access Control Management (6.4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Attestation that all privileged actions are logged to a centralized, tamper-resistant store (admins cannot modify or delete their own audit trail) with sufficient detail for forensic reconstruction.",
+    "security_impact": "One of the OR-triggers of \"Non-attributable / unlogged privileged actions\" — fires when audit_log_tamper_evident is_false. Missing or admin-modifiable audit logs make malicious privileged actions undetectable and unreconstructable.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm execution of privileged functions is logged and admin actions appear in the audit trail attributable to a named identity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Execution of privileged functions is logged (AC-6(9)); admin actions appear in the audit trail attributable to a named identity. Privileged actions that produce no audit record are insecure.",
+        "source": "NIST SP 800-53 Rev 5 AC-6(9) Log Use of Privileged Functions"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify logs are centrally collected and protected from modification (append-only/WORM or separate-account forwarding), covering all root/administrator actions and access to audit logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per PCI DSS Req 10.2, all individual access to sensitive data, all root/administrator actions, and access to audit logs are logged; logs are centrally collected and protected from modification (CIS 8.2/8.3). Admin-modifiable or local-only logs are insecure.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

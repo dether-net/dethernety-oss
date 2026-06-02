@@ -1,0 +1,92 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values - maximum exposures should fire",
+    "input": {
+      "email_phishing_defenses_layered": false,
+      "user_awareness_training_current": false,
+      "managed_device_enrollment_enforced": false,
+      "network_access_control_802_1x_enforced": false,
+      "user_segment_isolated_from_production_tiers": false,
+      "admin_protocols_require_pam_and_mfa": false,
+      "third_party_access_scoped_and_audited": false,
+      "third_party_devices_meet_same_posture_bar": false,
+      "endpoint_full_disk_encryption_on": false,
+      "remote_wipe_and_lost_device_response_tested": false,
+      "edr_agent_active_with_tamper_protection": false,
+      "endpoint_to_endpoint_smb_rdp_restricted": false,
+      "endpoint_runs_as_least_privileged_user": false,
+      "session_binding_or_short_session_lifetime": false,
+      "endpoint_audit_logs_centralised": false
+    },
+    "expectedExposures": [
+      "Lateral movement from owned endpoint to internal services",
+      "Unmanaged-device crossing without posture check",
+      "Credential and session capture on endpoint",
+      "Unmonitored crossing - endpoint audit gap",
+      "Trusted-relationship / supply-chain access abuse",
+      "Endpoint ransomware impact across user segment",
+      "Phishing-driven initial access",
+      "Stolen device with cleartext data and live session cookies"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes secure - no exposures fire",
+    "input": {
+      "email_phishing_defenses_layered": true,
+      "user_awareness_training_current": true,
+      "managed_device_enrollment_enforced": true,
+      "network_access_control_802_1x_enforced": true,
+      "user_segment_isolated_from_production_tiers": true,
+      "admin_protocols_require_pam_and_mfa": true,
+      "third_party_access_scoped_and_audited": true,
+      "third_party_devices_meet_same_posture_bar": true,
+      "endpoint_full_disk_encryption_on": true,
+      "remote_wipe_and_lost_device_response_tested": true,
+      "edr_agent_active_with_tamper_protection": true,
+      "endpoint_to_endpoint_smb_rdp_restricted": true,
+      "endpoint_runs_as_least_privileged_user": true,
+      "session_binding_or_short_session_lifetime": true,
+      "endpoint_audit_logs_centralised": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment",
+    "input": {
+      "email_phishing_defenses_layered": true,
+      "user_awareness_training_current": true,
+      "managed_device_enrollment_enforced": true,
+      "network_access_control_802_1x_enforced": true,
+      "user_segment_isolated_from_production_tiers": true,
+      "admin_protocols_require_pam_and_mfa": true,
+      "third_party_access_scoped_and_audited": true,
+      "third_party_devices_meet_same_posture_bar": true,
+      "endpoint_full_disk_encryption_on": true,
+      "remote_wipe_and_lost_device_response_tested": true,
+      "edr_agent_active_with_tamper_protection": true,
+      "endpoint_to_endpoint_smb_rdp_restricted": true,
+      "endpoint_runs_as_least_privileged_user": true,
+      "session_binding_or_short_session_lifetime": true,
+      "endpoint_audit_logs_centralised": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input - tests default handling",
+    "input": {},
+    "expectedExposures": [
+      "Lateral movement from owned endpoint to internal services",
+      "Unmanaged-device crossing without posture check",
+      "Credential and session capture on endpoint",
+      "Unmonitored crossing - endpoint audit gap",
+      "Trusted-relationship / supply-chain access abuse",
+      "Endpoint ransomware impact across user segment",
+      "Phishing-driven initial access",
+      "Stolen device with cleartext data and live session cookies"
+    ]
+  }
+]

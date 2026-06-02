@@ -1,0 +1,9 @@
+{
+  "id": "d9b2b3c1-7e8c-4ff9-bb6b-e4342bdb63d9",
+  "name": "Encryption in Transit",
+  "classType": "control",
+  "type": "Encryption in Transit",
+  "description": "Encryption in transit — also called TLS/SSL, HTTPS, mTLS, transport encryption, or in-flight protection — a control that protects data flows so intercepted traffic cannot be read or altered. The place to look for in-transit encryption, TLS/HTTPS, mutual TLS, wire/transport security, or protecting data as it moves between components.",
+  "category": "Data Security",
+  "status": "draft"
+}

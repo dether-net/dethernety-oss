@@ -1,0 +1,9 @@
+{
+  "id": "6d723569-dc75-47dd-8f77-aa679dba1d54",
+  "name": "API Gateway",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "An API gateway — also called an API management layer, edge gateway, or BFF front door (Kong, Apigee, AWS API Gateway, Azure API Management) — a managed entry point that routes, authenticates, rate-limits, and validates API traffic before it reaches backend services. Sits at the edge in front of microservices and centralizes edge policy. The place to look for the API gateway, API front door, edge routing/throttling tier, or the managed entry point for API traffic.",
+  "category": "Edge & Traffic",
+  "status": "draft"
+}

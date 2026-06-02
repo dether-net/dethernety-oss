@@ -1,0 +1,94 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "artifact_supply_chain_signed_provenance_verified": false,
+      "commits_signed": false,
+      "required_signatures_enforced_on_deploy_ref": false,
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": false,
+      "deploy_ref_protected_branch_only": false,
+      "deploy_required_reviewers_configured": false,
+      "secrets_injected_at_runtime_not_baked_in": false,
+      "secret_scanning_enabled": false,
+      "flow_tls_encrypted": false,
+      "server_certificate_validated": false,
+      "artifact_references_immutable_digest_pinned": false,
+      "centralized_log_aggregation": false,
+      "audit_log_tamper_evident": false,
+      "drift_detection_enabled": false,
+      "running_config_matches_baseline": false
+    },
+    "expectedExposures": [
+      "Cleartext or downgraded TLS on registry/apiserver channel",
+      "Shared long-lived CI key compromises all environments",
+      "Unsigned/unverified artifact admitted (SLSA bypass)",
+      "Unsigned commits reach deploy branch",
+      "Secrets baked into artifact instead of runtime-injected",
+      "Out-of-band drift in running config undetected",
+      "Mutable tag swap after verification (no digest pinning)",
+      "Deploy triggered from unprotected branch / fork",
+      "No central audit of deploy events"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "artifact_supply_chain_signed_provenance_verified": true,
+      "commits_signed": true,
+      "required_signatures_enforced_on_deploy_ref": true,
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": true,
+      "deploy_ref_protected_branch_only": true,
+      "deploy_required_reviewers_configured": true,
+      "secrets_injected_at_runtime_not_baked_in": true,
+      "secret_scanning_enabled": true,
+      "flow_tls_encrypted": true,
+      "server_certificate_validated": true,
+      "artifact_references_immutable_digest_pinned": true,
+      "centralized_log_aggregation": true,
+      "audit_log_tamper_evident": true,
+      "drift_detection_enabled": true,
+      "running_config_matches_baseline": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "artifact_supply_chain_signed_provenance_verified": true,
+      "commits_signed": true,
+      "required_signatures_enforced_on_deploy_ref": true,
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": true,
+      "deploy_ref_protected_branch_only": true,
+      "deploy_required_reviewers_configured": true,
+      "secrets_injected_at_runtime_not_baked_in": true,
+      "secret_scanning_enabled": true,
+      "flow_tls_encrypted": true,
+      "server_certificate_validated": true,
+      "artifact_references_immutable_digest_pinned": true,
+      "centralized_log_aggregation": true,
+      "audit_log_tamper_evident": true,
+      "drift_detection_enabled": true,
+      "running_config_matches_baseline": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Cleartext or downgraded TLS on registry/apiserver channel",
+      "Shared long-lived CI key compromises all environments",
+      "Unsigned/unverified artifact admitted (SLSA bypass)",
+      "Unsigned commits reach deploy branch",
+      "Secrets baked into artifact instead of runtime-injected",
+      "Out-of-band drift in running config undetected",
+      "Mutable tag swap after verification (no digest pinning)",
+      "Deploy triggered from unprotected branch / fork",
+      "No central audit of deploy events"
+    ]
+  }
+]

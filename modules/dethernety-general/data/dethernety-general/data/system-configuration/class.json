@@ -1,0 +1,9 @@
+{
+  "id": "e57ffaaa-62d3-4860-b556-8bb1f1769c69",
+  "name": "System Configuration",
+  "classType": "data",
+  "type": "data",
+  "description": "System configuration — also called config, infrastructure-as-code (IaC), Terraform/Ansible state, environment settings, secrets, or .env/config files — the settings and definitions governing how systems run. Tampering or leakage of it undermines every other control. The place to look for configuration, IaC/Terraform, environment and app settings, secrets, or the data defining how the system is set up.",
+  "category": "System Foundation",
+  "status": "draft"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "3d3ad894-5bc9-4d20-a4fb-22369be67868",
+  "name": "Web Application Firewall Rules",
+  "classType": "control",
+  "type": "Web Application Firewall Rules",
+  "description": "Web application firewall rules — also called WAF rules/signatures, OWASP CRS, managed rule sets, or HTTP filtering policy — signature and behavior rules that filter malicious HTTP traffic before it reaches application logic. The configured policy, distinct from the WAF appliance enforcing it. The place to look for WAF rules, OWASP Core Rule Set, HTTP attack signatures, or the policy blocking web-layer attacks.",
+  "category": "Application Security",
+  "status": "draft"
+}

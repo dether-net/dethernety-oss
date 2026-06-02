@@ -1,0 +1,902 @@
+[
+  {
+    "option_name": "authz_enforced_server_side_centrally",
+    "option_description": "Attests that access decisions are made server-side through a single reusable deny-by-default enforcement layer covering function-level and request-method (POST/PUT/DELETE) authorization, never trusting client-supplied role/flag values.",
+    "security_impact": "One of the OR-triggers of \"Broken access control (IDOR / BOLA / missing function-level authz)\" (fires when authz_enforced_server_side_centrally is_false) and of \"Privilege escalation via metadata/parameter tampering & mass assignment\" (also fires is_false). Client-side-only or scattered per-handler authz fires both exposures (CWE-862/863, T1190/T1548).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Code/design review confirms authorization checks live in a shared component invoked on every protected action, deny-by-default; client-side-only checks or scattered per-handler logic = insecure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code/design review confirms authorization checks live in a shared component invoked on every protected action, deny-by-default; client-side-only checks or scattered per-handler logic = insecure.",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Issue a privileged request with a low-privilege token and confirm a function-level authorization denial.",
+        "command": "curl -i -X DELETE -H 'Authorization: Bearer <low-priv-token>' https://<service>/admin/<resource>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403 for a principal lacking the function-level right (secure); 200/204 success = missing function-level authorization (insecure).",
+        "source": "OWASP API Security Top 10 2023 — API8 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "object_level_authz_ownership_enforced",
+    "option_description": "Attests that every record access verifies the authenticated principal owns / is entitled to the specific object id (queries scoped by subject), never accepting a user-controlled key as proof of authorization.",
+    "security_impact": "One of the OR-triggers of \"Broken access control (IDOR / BOLA / missing function-level authz)\" — fires when object_level_authz_ownership_enforced is_false, yielding IDOR/BOLA (CWE-639, T1190) where one principal reads/modifies another's records by id.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Request another user's object id with a different user's token and confirm access is denied.",
+        "command": "curl -i -H 'Authorization: Bearer <userA-token>' https://<service>/api/orders/<userB-object-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/404 when accessing another tenant's/user's object id (secure ownership check); 200 returning userB's data = IDOR/BOLA (insecure).",
+        "source": "OWASP API Security Top 10 — Broken Object Property Level Authorization"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect record-fetch code paths for subject-scoped queries.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data-access queries are scoped by the authenticated subject (e.g. WHERE owner_id = :current_user), not by the raw client-supplied id alone.",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authn_enforced_on_every_endpoint",
+    "option_description": "Attests that every non-public route requires an authenticated principal before business logic runs, with default-deny on unmatched/protected routes (global filter / per-route guard) and an explicit small public allowlist.",
+    "security_impact": "One of the OR-triggers of both \"Broken access control (IDOR / BOLA / missing function-level authz)\" and \"Broken authentication / session hijacking & weak JWT validation\" — fires when authn_enforced_on_every_endpoint is_false, allowing forced-browsing to privileged routes without a session/token (T1190/T1539).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the route/middleware map for global default-deny authentication coverage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review route/middleware map: a global authentication filter or per-route guard covers all non-allowlisted endpoints; the public allowlist is explicit and small. Insecure: auth applied per-handler ad hoc with gaps.",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach a privileged route unauthenticated.",
+        "command": "curl -i https://<service>/<privileged-path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401/403 without a valid session/token (secure); 200 with protected content returned unauthenticated (insecure — forced browsing).",
+        "source": "OWASP ASVS V13 — API and Web Service (5.0)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_control_failures_logged_and_alerted",
+    "option_description": "Attests that repeated access-control / authorization failures (403/authz-denied) are emitted to the log/SIEM and trigger alerting on anomalous volume.",
+    "security_impact": "One of the OR-triggers of \"Broken access control (IDOR / BOLA / missing function-level authz)\" — fires when access_control_failures_logged_and_alerted is_false, opening the detectability gap where forced-browsing and IDOR/BOLA scanning go unobserved.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm authz-denied events reach the log/SIEM and that anomalous-volume alerting is configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/authz-denied events are emitted to the log/SIEM and admins are alerted on anomalous volume. No authz-failure telemetry = insecure.",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm logged security events carry timeline metadata and no leaked secrets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs contain authn/authz/validation-failure events with who/what/when; they contain no plaintext passwords, session tokens, full PAN, or PII (CWE-532). Absent security events or leaked secrets = insecure.",
+        "source": "OWASP ASVS V7 — Error Handling and Logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bindable_field_allowlist_enforced",
+    "option_description": "Attests that HTTP request parameters are bound onto domain objects through an explicit bindable-field allow-list / strong-parameters / DTO layer, so privileged fields (isAdmin/role) cannot be over-posted.",
+    "security_impact": "One of the OR-triggers of \"Privilege escalation via metadata/parameter tampering & mass assignment\" — fires when bindable_field_allowlist_enforced is_false (whole request body bound wholesale to a privilege-bearing entity), enabling mass-assignment privilege escalation (T1068).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm request binding uses an explicit allow-list / strong-parameters / DTO mapping.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Request binding uses explicit field allow-lists / strong parameters / DTOs. Insecure: whole request body bound directly to an entity that has privilege fields.",
+        "source": "OWASP Mass Assignment Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to over-post a privileged field and confirm it is ignored/rejected.",
+        "command": "curl -i -X PATCH -H 'Authorization: Bearer <user-token>' -d '{\"isAdmin\":true}' https://<service>/api/users/me",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged field ignored/rejected (secure); response reflects elevated role = mass-assignment/over-posting (insecure).",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "jwt_signature_verified",
+    "option_description": "Attests that the service cryptographically verifies the JWT signature against a server-pinned expected algorithm and key (not the token-declared header alg) and validates exp/iss/aud.",
+    "security_impact": "One of the OR-triggers of both \"Broken authentication / session hijacking & weak JWT validation\" and \"Privilege escalation via metadata/parameter tampering & mass assignment\" — fires when jwt_signature_verified is_false, allowing forged/tampered tokens (including role claims) to be trusted (T1550.004/T1068).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the token verifier for pinned-algorithm signature verification and claim checks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verifier pins algorithm and validates exp/iss/aud; library is configured to reject alg=none and key-confusion. Insecure: trusts token-declared alg or skips claim checks.",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "accepts_alg_none",
+    "option_description": "Whether the token verifier accepts the unsecured 'alg':'none' JWT (no signature) as valid; true means unsigned tokens are honored.",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when accepts_alg_none is_true, enabling trivial token forgery (T1550.004).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit an alg=none token to the verifier and confirm it is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An alg=none (unsigned) token is rejected (secure, accepts_alg_none=false); if it is accepted as authenticated, accepts_alg_none=true (insecure).",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the verifier's allowed-algorithm configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verifier pins algorithm and validates exp/iss/aud; library is configured to reject alg=none and key-confusion. Insecure: trusts token-declared alg or skips claim checks.",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "rs256_to_hs256_confusion_possible",
+    "option_description": "Whether the verifier trusts the token-declared algorithm and would accept an HS256-signed token verified against the RSA public key (RS256->HS256 key-confusion); true means tokens can be forged using the public key as an HMAC secret.",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when rs256_to_hs256_confusion_possible is_true, enabling token forgery via algorithm confusion (T1550.004).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit an HS256 token signed with the RSA public key and confirm it is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An HS256 token signed with the RSA public key is rejected because the verifier pins the expected algorithm (secure, confusion not possible); acceptance = insecure.",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the verifier pins the expected algorithm rather than trusting the header alg.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verifier pins algorithm and validates exp/iss/aud; library is configured to reject alg=none and key-confusion. Insecure: trusts token-declared alg or skips claim checks.",
+        "source": "RFC 8725 — JSON Web Token Best Current Practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cookie_secure_flag",
+    "option_description": "Whether session cookies are issued with the Secure attribute so they are only transmitted over TLS.",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when cookie_secure_flag is_false, allowing the session cookie to leak over cleartext and be hijacked (T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect the Set-Cookie header for the session cookie's attributes.",
+        "command": "curl -i https://<service>/login -d 'user=...&pass=...' | grep -i set-cookie",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie carries Secure; HttpOnly; SameSite=Strict|Lax (secure). Missing Secure/HttpOnly or SameSite=None-without-Secure = insecure.",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cookie_httponly_flag",
+    "option_description": "Whether session cookies are issued with the HttpOnly attribute so they are inaccessible to client-side script.",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when cookie_httponly_flag is_false, letting XSS exfiltrate the session cookie (T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect the Set-Cookie header for the session cookie's HttpOnly attribute.",
+        "command": "curl -i https://<service>/login -d 'user=...&pass=...' | grep -i set-cookie",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie carries Secure; HttpOnly; SameSite=Strict|Lax (secure). Missing Secure/HttpOnly or SameSite=None-without-Secure = insecure.",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "samesite_attribute_set",
+    "option_description": "Whether session cookies set a SameSite attribute (Strict/Lax, and Secure when None) to constrain cross-site transmission.",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when samesite_attribute_set is_false, exposing the cookie to cross-site request contexts.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect the Set-Cookie header for the session cookie's SameSite attribute.",
+        "command": "curl -i https://<service>/login -d 'user=...&pass=...' | grep -i set-cookie",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie carries Secure; HttpOnly; SameSite=Strict|Lax (secure). Missing Secure/HttpOnly or SameSite=None-without-Secure = insecure.",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "session_id_regenerated_on_auth",
+    "option_description": "Whether the session identifier is regenerated on authentication and on privilege change.",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when session_id_regenerated_on_auth is_false, where a pre-authentication session id persists and enables session fixation (T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Compare the session id before and after login and confirm it changes.",
+        "command": "curl -i https://<service>/login -d 'user=...&pass=...' | grep -i set-cookie",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A fresh session id is issued post-login (Set-Cookie differs from the pre-auth id), and again on privilege elevation (secure); an unchanged id = session fixation (insecure).",
+        "source": "OWASP Session Management Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm session id regeneration on authentication and role change in code/design review.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session id is regenerated post-authentication and on role change; logout invalidates server-side session / short-lived-or-revoked JWT.",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_side_revocation_supported",
+    "option_description": "Whether sessions / JWTs can be invalidated server-side on logout or compromise (server-side session store or short-lived-plus-revocable tokens).",
+    "security_impact": "One of the OR-triggers of \"Broken authentication / session hijacking & weak JWT validation\" — fires when server_side_revocation_supported is_false, where issued tokens/sessions remain valid until expiry and cannot be killed on logout.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logout/compromise can invalidate active sessions/tokens server-side.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session id is regenerated post-authentication and on role change; logout invalidates server-side session / short-lived-or-revoked JWT.",
+        "source": "OWASP Top 10 A01:2021 Broken Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "parameterized_queries_used",
+    "option_description": "Attests that all data-store access uses parameterized/prepared statements or safe ORM bindings.",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when parameterized_queries_used is_false, the primary A03:2021 SQLi/NoSQLi defect (T1190/T1505.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep data-access code for concatenated request data and confirm prepared-statement/bind usage.",
+        "command": "grep -rEn \"(\\\"|')\\s*\\+\\s*(req|request|params|input|user)\" <src> ; grep -rni 'PreparedStatement\\|parameteriz\\|bind' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query construction uses placeholders/bind variables throughout; any string-concatenated SQL with request data is an injection finding.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dynamic_query_string_concatenation",
+    "option_description": "Attests that user-controlled input is concatenated/interpolated into query strings (raw SQL/NoSQL/LDAP filter construction with request data).",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when dynamic_query_string_concatenation is_true, the direct SQLi/NoSQLi/LDAP-injection sink that parameterization eliminates (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep data-access code for string concatenation/interpolation of request data into queries.",
+        "command": "grep -rEn \"(\\\"|')\\s*\\+\\s*(req|request|params|input|user)\" <src> ; grep -rni 'PreparedStatement\\|parameteriz\\|bind' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query construction uses placeholders/bind variables throughout; any string-concatenated SQL with request data is an injection finding (sets this true).",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "user_input_in_shell_command_string",
+    "option_description": "Attests that user data is embedded into an OS shell command string (Runtime.exec(string), subprocess shell=True, child_process.exec).",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when user_input_in_shell_command_string is_true, the OS-command-injection sink (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for shell-command execution built from request data.",
+        "command": "grep -rniE 'Runtime.exec|ProcessBuilder|os\\.system|subprocess.*shell=True|child_process\\.exec\\b|`.*\\$' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No shell-string command built from user input; calls use argument arrays (e.g. ProcessBuilder(args[]), subprocess with shell=False). shell=True / exec(string) with user data sets this true.",
+        "source": "OWASP OS Command Injection Defense Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "os_commands_avoided_or_arg_array_used",
+    "option_description": "Attests that OS command execution is avoided in favour of native libraries, or where unavoidable the argument-array form is used so user data never becomes part of a shell string.",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when os_commands_avoided_or_arg_array_used is_false (commands built as shell strings), the OS-command-injection defect (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm OS commands are avoided or invoked via argument-array APIs, not a shell string.",
+        "command": "grep -rniE 'Runtime.exec|ProcessBuilder|os\\.system|subprocess.*shell=True|child_process\\.exec\\b|`.*\\$' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No shell-string command built from user input; calls use argument arrays (e.g. ProcessBuilder(args[]), subprocess with shell=False). shell=True / exec(string) with user data = injection risk.",
+        "source": "OWASP OS Command Injection Defense Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_side_allowlist_validation",
+    "option_description": "Attests that untrusted input is validated server-side at the trust boundary with allow-lists (type, length, charset, range).",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when server_side_allowlist_validation is_false (no server-side allow-list gates input feeding queries/commands).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm each input has a server-side allow-list schema enforced even when the UI also validates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each input has a server-side schema/allow-list (type, length, charset, range); validation is enforced server-side even when the UI also validates.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "validation_is_client_side_only",
+    "option_description": "Attests that input validation is performed only client-side (UI) and not re-enforced server-side, so an attacker bypassing the UI submits unvalidated input.",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when validation_is_client_side_only is_true; client-only validation provides no real boundary protection.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm input validation is re-enforced server-side rather than existing only in the UI.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each input has a server-side schema/allow-list (type, length, charset, range); validation is enforced server-side even when the UI also validates. Validation existing only in the UI sets this true.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "denylist_filtering_used",
+    "option_description": "Attests that input is filtered with deny-lists / blacklist-of-bad-characters rather than allow-lists.",
+    "security_impact": "One of the OR-triggers of \"Injection (SQLi / NoSQLi / OS command / LDAP)\" — fires when denylist_filtering_used is_true; deny-list filtering is bypassable (encoding, alternate syntax), the insecure A03:2021 input-handling pattern.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review input-filtering logic for reliance on deny-lists / bad-character blacklists rather than allow-lists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each input has a server-side allow-list (type, length, charset, range); reliance on deny-lists / bad-character blacklists instead sets this true.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "outbound_fetch_destination_allowlisted",
+    "option_description": "Attests that the service validates user-influenced outbound fetch destinations against an allow-list of hosts/schemes/ports (post-DNS-resolution) before issuing the request.",
+    "security_impact": "One of the OR-triggers of \"Server-side request forgery (SSRF)\" — fires when outbound_fetch_destination_allowlisted is_false (user-supplied URL passed straight to the HTTP client), allowing SSRF to internal services (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the outbound-fetch code path for allow-list enforcement on the resolved destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound-fetch code resolves and validates the destination against an allow-list and blocks RFC1918/loopback/link-local + 169.254.169.254 after DNS resolution. Insecure: passes user URL straight to the HTTP client.",
+        "source": "OWASP Server Side Request Forgery Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "private_and_metadata_targets_blocked",
+    "option_description": "Attests that the service rejects outbound fetches resolving to RFC1918 private ranges, loopback (127.0.0.0/8), and link-local (169.254.0.0/16) after DNS resolution.",
+    "security_impact": "One of the OR-triggers of \"Server-side request forgery (SSRF)\" — fires when private_and_metadata_targets_blocked is_false, permitting SSRF pivots into the internal network and link-local services (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the outbound-fetch path rejects private/loopback/link-local destinations after DNS resolution.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound-fetch code resolves and validates the destination against an allow-list and blocks RFC1918/loopback/link-local + 169.254.169.254 after DNS resolution. Insecure: passes user URL straight to the HTTP client.",
+        "source": "OWASP Server Side Request Forgery Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cloud_metadata_endpoint_blocked",
+    "option_description": "Attests that outbound fetches to the cloud instance metadata endpoint (169.254.169.254, and equivalents such as fd00:ec2::254) are explicitly blocked.",
+    "security_impact": "One of the OR-triggers of \"Server-side request forgery (SSRF)\" — fires when cloud_metadata_endpoint_blocked is_false, allowing workload IAM credential theft via the metadata API (T1552.005).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm outbound fetches to the cloud instance metadata endpoint are explicitly blocked in the egress controls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Outbound-fetch code resolves and validates the destination against an allow-list and blocks RFC1918/loopback/link-local + 169.254.169.254 after DNS resolution. Insecure: passes user URL straight to the HTTP client.",
+        "source": "OWASP Server Side Request Forgery Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "native_deserialization_of_untrusted_data",
+    "option_description": "Attests that the service natively deserializes attacker-controlled bytes (Java ObjectInputStream.readObject, Python pickle.load, PyYAML yaml.load without SafeLoader, Ruby Marshal.load, PHP unserialize) on untrusted input.",
+    "security_impact": "One of the OR-triggers of \"Insecure deserialization & RCE\" — fires when native_deserialization_of_untrusted_data is_true, triggering gadget chains leading to RCE (T1190/T1059).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for native deserialization sinks and confirm none operate on attacker-controlled bytes.",
+        "command": "grep -rniE 'ObjectInputStream|readObject|pickle.load|yaml.load\\(|Marshal.load|unserialize\\(' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No native deserialization of attacker-controlled bytes (Java readObject, Python pickle.load, yaml.load without SafeLoader, PHP unserialize). Insecure if any operate on untrusted input (sets this true).",
+        "source": "OWASP Deserialization Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "deserialization_class_allowlist_or_signed_payloads",
+    "option_description": "Attests that where serialized objects are unavoidable, payloads are integrity-protected (HMAC/signature verified before deserializing) AND deserialization is type-constrained to a strict class allow-list (look-ahead/resolveClass filter, ObjectInputFilter, SafeConstructor).",
+    "security_impact": "One of the OR-triggers of \"Insecure deserialization & RCE\" — fires when deserialization_class_allowlist_or_signed_payloads is_false (deserialization unauthenticated and unconstrained) (T1190/T1059).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a class allow-list / object-input filter and an HMAC-or-signature check guard every deserialization entry point.",
+        "command": "grep -rniE 'ObjectInputStream|readObject|pickle.load|yaml.load\\(|Marshal.load|unserialize\\(' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No native deserialization of attacker-controlled bytes; where serialization is required, payloads are integrity-protected (HMAC) and type-constrained (class allow-list / ObjectInputFilter / SafeConstructor) before deserializing. Unauthenticated/unconstrained deserialization sets this false.",
+        "source": "OWASP Deserialization Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "contextual_output_encoding_applied",
+    "option_description": "Whether untrusted data is contextually output-encoded via framework auto-escaping (HTML/attribute/JS/URL context) before rendering.",
+    "security_impact": "One of the OR-triggers of \"Cross-site scripting (XSS) / missing output encoding\" — fires when contextual_output_encoding_applied is_false, where reflected/stored/DOM XSS executes attacker script in victim browsers (T1059.007/T1539).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm output goes through framework auto-escaping and grep for raw-HTML escape-hatches.",
+        "command": "grep -rniE 'dangerouslySetInnerHTML|innerHTML\\s*=|v-html|bypassSecurityTrust|\\| *safe\\b|render_template_string' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output goes through framework auto-escaping; raw-HTML escape-hatches are absent or justified+sanitized. Each hit is an XSS sink to review.",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unsafe_html_sinks_used",
+    "option_description": "Whether raw-HTML escape-hatches that bypass auto-escaping are present and fed untrusted data (e.g. dangerouslySetInnerHTML, innerHTML=, v-html, bypassSecurityTrust, Jinja |safe, render_template_string).",
+    "security_impact": "One of the OR-triggers of \"Cross-site scripting (XSS) / missing output encoding\" — fires when unsafe_html_sinks_used is_true, an XSS injection sink (T1059.007).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep for raw-HTML sinks fed untrusted data.",
+        "command": "grep -rniE 'dangerouslySetInnerHTML|innerHTML\\s*=|v-html|bypassSecurityTrust|\\| *safe\\b|render_template_string' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output goes through framework auto-escaping; raw-HTML escape-hatches are absent or justified+sanitized. Each hit is an XSS sink to review (sets this true).",
+        "source": "OWASP Cross-Site Scripting Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "content_security_policy_enforced",
+    "option_description": "Whether the service emits an enforcing Content-Security-Policy response header (e.g. default-src 'self') as defense-in-depth against script injection.",
+    "security_impact": "One of the OR-triggers of \"Cross-site scripting (XSS) / missing output encoding\" — fires when content_security_policy_enforced is_false, removing the CSP backstop limiting injected-script execution (T1059.007).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect response headers for an enforcing Content-Security-Policy (not report-only).",
+        "command": "curl -sI https://<service>/ | grep -iE 'strict-transport-security|content-security-policy|x-content-type-options|x-frame-options|referrer-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All five present with hardened values (HSTS max-age>=63072000; CSP default-src 'self'; nosniff; DENY/frame-ancestors). Missing headers = insecure.",
+        "source": "OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "csp_allows_unsafe_inline_or_eval",
+    "option_description": "Whether the deployed CSP weakens script protection by permitting 'unsafe-inline' and/or 'unsafe-eval' script sources.",
+    "security_impact": "One of the OR-triggers of \"Cross-site scripting (XSS) / missing output encoding\" — fires when csp_allows_unsafe_inline_or_eval is_true, nullifying CSP's XSS mitigation (T1059.007).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Review the CSP script-src directives for 'unsafe-inline' and/or 'unsafe-eval'.",
+        "command": "curl -sI https://<service>/ | grep -iE 'content-security-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSP uses default-src/script-src 'self' (with nonces/hashes) and no 'unsafe-inline'/'unsafe-eval' (secure); presence of 'unsafe-inline' or 'unsafe-eval' in script-src sets this true.",
+        "source": "OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "secrets_hardcoded_in_config_or_iac",
+    "option_description": "Whether credentials/keys are baked into source/config files or IaC templates (Terraform/Helm/Compose) rather than pulled from a secret manager and injected at runtime.",
+    "security_impact": "One of the OR-triggers of \"Hardcoded / leaked secrets & over-privileged service identity\" — fires when secrets_hardcoded_in_config_or_iac is_true; hardcoded secrets are harvested from the repo/artifact and reused against downstream stores (T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Scan source/config/IaC for literal credential values.",
+        "command": "grep -rniE '(password|passwd|secret|api[_-]?key|token|aws_secret|private[_-]?key)\\s*[:=]\\s*[\"'\"'\"'][^\"'\"'\"' ]{6,}' <src> <config>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No literal secret values in repo; references resolve to a secret manager (Vault/AWS Secrets Manager/etc.) at runtime. Any literal credential sets this true.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "least_privilege_service_identity",
+    "option_description": "Whether the workload identity and downstream credentials are least-privilege and scoped per workload (scoped_per_workload) versus a shared superuser/root/standing-admin credential reused across services (shared_admin_or_root).",
+    "security_impact": "One of the OR-triggers of \"Hardcoded / leaked secrets & over-privileged service identity\" — fires when least_privilege_service_identity eq \"shared_admin_or_root\", turning any foothold into broad downstream compromise (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the workload's downstream credentials for per-workload least-privilege scoping.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Workload identity (e.g. per-service ServiceAccount/SPIFFE/IAM role) maps to narrowly-scoped downstream grants; DB role lacks SUPERUSER/CREATEROLE. Insecure: one broad credential reused across services.",
+        "source": "HashiCorp Vault — Database secrets engine"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "scoped_per_workload",
+      "shared_admin_or_root"
+    ]
+  },
+  {
+    "option_name": "downstream_tls_enforced_and_validated",
+    "option_description": "Whether calls to data stores and downstream services use TLS 1.2+ with certificate validation (tls_validated) versus cleartext or insecure_skip_verify / rejectUnauthorized:false / sslmode=disable (plaintext_or_skip_verify).",
+    "security_impact": "One of the OR-triggers of \"Hardcoded / leaked secrets & over-privileged service identity\" — fires when downstream_tls_enforced_and_validated eq \"plaintext_or_skip_verify\", letting harvested or in-flight credentials be intercepted (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect downstream client configuration for certificate-validation bypass flags.",
+        "command": "grep -rniE 'InsecureSkipVerify|verify=False|rejectUnauthorized:\\s*false|sslmode=disable|trustAllCerts|CURLOPT_SSL_VERIFYPEER.*0' <src>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No certificate-validation bypass flags; downstream clients configured TLS 1.2+ with validation on. Any skip-verify/disable hit = insecure.",
+        "source": "OWASP ASVS V9 — Communications"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the TLS versions/ciphers the downstream endpoint accepts.",
+        "command": "nmap --script ssl-enum-ciphers -p <downstream-port> <downstream-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLS 1.2/1.3 with strong (AEAD/ECDHE) cipher suites accepted on the downstream endpoint the service connects to.",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls_validated",
+      "plaintext_or_skip_verify"
+    ]
+  },
+  {
+    "option_name": "debug_and_verbose_errors_disabled_in_prod",
+    "option_description": "Attests that production returns generic error responses with debug mode off — stack traces, framework debug pages, and detailed internal messages are not exposed to clients.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when debug_and_verbose_errors_disabled_in_prod is_false, leaking internals that aid further attack (A05:2021, T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Request a route with malformed input and confirm a generic error body with no stack trace/debug page.",
+        "command": "curl -i 'https://<service>/<route>?<malformed-input>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Generic error body + correct status, no stack trace/framework debug page/internal path or query text. Leaked stack trace or debug console = insecure.",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Attests that all default/sample accounts and default passwords shipped with the platform, framework, or appliance have been removed or had their credentials changed.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when default_accounts_removed_or_changed is_false, leaving a trivial compromise path (A05:2021, T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit the account and credential baseline for remaining default/sample accounts or default passwords.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default credentials removed/changed; sample apps, admin consoles, and unused features disabled; config baseline reviewed and version-controlled (CM-2/CM-6). Defaults left in place = insecure.",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unnecessary_services_disabled",
+    "option_description": "Attests that unnecessary features, sample applications, admin consoles, debug endpoints, unused ports, and superfluous services are disabled or removed.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when unnecessary_services_disabled is_false, where sample apps / unused features / exposed admin consoles remain enabled (A05:2021, T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit enabled features and exposed endpoints/ports; confirm sample apps, debug endpoints, and admin consoles not needed in production are disabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default credentials removed/changed; sample apps, admin consoles, and unused features disabled; config baseline reviewed and version-controlled (CM-2/CM-6). Sample apps / unused features / exposed admin consoles remaining = insecure.",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "hardened_baseline_documented",
+    "option_description": "Attests that the service configuration follows a documented, reviewed, version-controlled secure baseline (NIST CM-2/CM-6), so hardening is repeatable and drift is detectable.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when hardened_baseline_documented is_false, allowing silent misconfiguration drift (A05:2021, T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a reviewed, version-controlled secure-baseline document exists and is current, with CM linkage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default credentials removed/changed; sample apps, admin consoles, and unused features disabled; config baseline reviewed and version-controlled (CM-2/CM-6). Ad hoc / undocumented config = insecure.",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dependency_vulnerability_scanning_enabled",
+    "option_description": "Attests that Software Composition Analysis (SCA) runs continuously in CI against all direct and nested dependencies, producing a current component inventory checked against CVE/NVD.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when dependency_vulnerability_scanning_enabled is_false, where dependency versions are un-inventoried (A06:2021, T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify an SCA step runs in the build pipeline against all dependencies and that its component inventory is current.",
+        "command": "<sca-tool> e.g. `osv-scanner -r .` / `npm audit` / OWASP Dependency-Check / retire.js / `pip-audit`",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCA runs in CI and produces a current component inventory with no unremediated known-vulnerable/unsupported components; patch cadence documented. Unknown versions or stale CVEs = insecure.",
+        "source": "OWASP Top 10 A06:2021 Vulnerable and Outdated Components"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "known_vulnerable_dependencies_present",
+    "option_description": "Whether one or more direct or nested dependencies (OS packages, runtimes, libraries, app/web server, DBMS, APIs) are known-vulnerable, unsupported, or out-of-date with unremediated CVEs, or are unmaintained.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when known_vulnerable_dependencies_present is_true; each is a ready exploit path (A06:2021, CWE-1035/CWE-1104, T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interpret the SCA report and patch cadence; any unremediated known-vulnerable or end-of-life component sets this true.",
+        "command": "<sca-tool> e.g. `osv-scanner -r .` / `npm audit` / OWASP Dependency-Check / retire.js / `pip-audit`",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCA runs in CI and produces a current component inventory with no unremediated known-vulnerable/unsupported components; patch cadence documented. Unknown versions or stale CVEs set this true.",
+        "source": "OWASP Top 10 A06:2021 Vulnerable and Outdated Components"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "artifact_supply_chain_signed_provenance_verified",
+    "option_description": "Attests that deployed artifacts/images are obtained from official sources over secure (TLS) links and their signatures/provenance (SLSA in-toto / cosign / signed packages) are verified against a pinned identity before deployment.",
+    "security_impact": "One of the OR-triggers of \"Security misconfiguration — verbose errors, debug, defaults & unpatched components\" — fires when artifact_supply_chain_signed_provenance_verified is_false (artifacts pulled unsigned/unverified), permitting malicious substitution (A06:2021, SLSA v1.0, T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the deploy pipeline verifies artifact signatures/provenance against a pinned identity before deployment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deploy pipeline verifies signed artifact provenance (cosign/SLSA in-toto) against pinned identity before release; components pulled from official registries over TLS. Unsigned/unverified artifacts = insecure.",
+        "source": "SLSA v1.0 — Verifying artifacts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

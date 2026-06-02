@@ -1,0 +1,9 @@
+{
+  "id": "195ec524-0162-43f8-aeb1-9d514f771a05",
+  "name": "User Input",
+  "classType": "data",
+  "type": "data",
+  "description": "User input — also called untrusted input, request parameters, form/API payloads, query strings, or client-supplied data — data submitted through interfaces and the entry point for injection, deserialization, and parsing attacks until validated. The place to look for untrusted input, request/form payloads, client-supplied parameters, or data that must be validated before use.",
+  "category": "Sensitive Information",
+  "status": "draft"
+}

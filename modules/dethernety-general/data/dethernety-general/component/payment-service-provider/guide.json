@@ -1,0 +1,818 @@
+[
+  {
+    "option_name": "api_keys_not_in_client_code_or_repo",
+    "option_description": "Whether secret/restricted PSP keys (sk_*/rk_*) are kept out of client bundles, mobile apps, and committed source — only the publishable key (pk_) ever appears client-side.",
+    "security_impact": "One of the OR-triggers for the exposure \"Leaked or over-privileged API key\" (MITRE T1552) — fires when false, i.e. a secret/restricted key is found in shipped client code or the repository, letting an attacker call the PSP API as us.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep the client bundle and committed source for live/test secret and restricted key prefixes.",
+        "command": "grep -rE 'sk_live_|rk_live_|sk_test_' . --include='*.js' --include='*.ts' --include='*.env*' --include='*.json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches in client bundles / committed source (secure). Any match of sk_*/rk_* in shipped client code is a critical exposure.",
+        "source": "Stripe — Best practices for managing secret API keys"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a pre-commit hook / secret scanner rejects sk_/rk_ patterns and that CI/CD pipelines are audited periodically.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pre-commit hook / secret scanner rejects commits containing sk_/rk_ patterns; CI/CD pipelines audited periodically (secure) vs no scanning (insecure).",
+        "source": "Stripe — Best practices for managing secret API keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "restricted_least_privilege_keys_used",
+    "option_description": "Whether integrations use restricted least-privilege keys (rk_live_) scoped to minimal per-resource permissions rather than one unrestricted full-access secret key.",
+    "security_impact": "One of the OR-triggers for \"Leaked or over-privileged API key\" (T1552) — fires when false (a single unrestricted secret key is shared across integrations), so a compromised key has unbounded blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the Stripe Dashboard API key listing and inspect whether keys are restricted with explicit per-resource scopes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Developers > API keys",
+        "expected_output": "Restricted keys with explicit per-resource scopes (secure) vs only an unrestricted secret key (insecure).",
+        "source": "Stripe — Restricted API keys"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the integration's key inventory to confirm each component uses a restricted key scoped to the minimal permissions it needs (e.g. read-only for a dispute monitor).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-component restricted keys with least-privilege scopes documented (secure) vs a shared unrestricted full-access secret key (insecure).",
+        "source": "Stripe — Restricted API keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "api_keys_stored_in_secret_manager",
+    "option_description": "Whether secret/restricted PSP keys are resolved at runtime from a secrets vault (AWS/GCP Secret Manager, Azure Key Vault, HashiCorp Vault) with access audit logging, rather than hard-coded or in plaintext config.",
+    "security_impact": "One of the OR-triggers for \"Leaked or over-privileged API key\" (T1552) — fires when false (keys hard-coded or committed in plaintext), exposing the credential at rest in VCS or config.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm keys are injected from a vault/secret manager at runtime and never hard-coded, in committed config, or exposed on error pages / diagnostic output.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Keys injected from a vault/secret manager (secure); never hard-coded; never exposed on error pages or diagnostic output.",
+        "source": "Stripe — Best practices for managing secret API keys"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect deployment/runtime config and environment wiring to confirm the key value is a vault reference (secret ARN / vault path), not a literal sk_/rk_ value.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Config references a secret-manager path/ARN resolved at boot (secure) vs a literal sk_*/rk_* value embedded in config (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "api_keys_rotated_regularly",
+    "option_description": "Whether a documented, practiced key-rotation process exists — keys rotated periodically and immediately on suspected exposure, using the delayed-expiration rollover window.",
+    "security_impact": "One of the OR-triggers for \"Leaked or over-privileged API key\" (T1552) — fires when false (long-lived static keys never rotated, no contingency plan), extending the useful life of a leaked key.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the written rotation procedure and evidence of periodic rotation plus immediate rotation on suspected exposure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written rotation procedure + evidence of periodic rotation (secure). Stripe also proactively notifies/deactivates keys it detects as exposed.",
+        "source": "Stripe — Best practices for managing secret API keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "test_live_keys_separated",
+    "option_description": "Whether test/sandbox keys (sk_test_/pk_test_) are kept out of production and live keys out of non-prod, preventing real-charge accidents and cross-environment data leakage.",
+    "security_impact": "One of the OR-triggers for \"Leaked or over-privileged API key\" (T1552) — fires when false (live keys appear in dev/test, or test keys deployed to prod).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Review Stripe Dashboard request logs / API request logs to confirm live-mode keys are used only from production contexts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Developers > Logs",
+        "expected_output": "Live-mode keys used only from prod (secure); audit logs for live keys appearing in non-prod contexts (insecure).",
+        "source": "Stripe — Best practices for managing secret API keys"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect per-environment configuration to confirm prod resolves a live key and non-prod resolves a test key.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Prod config resolves sk_live_/rk_live_, non-prod resolves sk_test_ (secure) vs mixed environments (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_signature_verified",
+    "option_description": "Whether every inbound webhook is verified with the Stripe-Signature header (t=,v1=HMAC-SHA256) against the whsec_ endpoint signing secret via constructEvent/construct_event over the RAW request body before any handling.",
+    "security_impact": "One of the OR-triggers for \"Forged or unverified webhook events\" (MITRE T1190) — fires when false, letting an attacker POST forged payment_intent.succeeded events to trigger order fulfilment without payment.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the handler calls construct_event/constructEvent(rawBody, sigHeader, endpointSecret) and rejects on failure, with the raw UTF-8 body passed unmodified (Express: route mounted before express.json()).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handler calls Stripe::Webhook.construct_event / Webhook.constructEvent(rawBody, sigHeader, endpointSecret) and rejects on failure (secure). Raw body must be UTF-8 unmodified.",
+        "source": "Stripe — Resolve webhook signature verification errors"
+      },
+      {
+        "type": "command",
+        "instruction": "Grep the webhook code path for the verification call and signature header handling.",
+        "command": "grep -rE 'constructEvent|construct_event|Stripe-Signature' .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Webhook route invokes signature verification with the whsec_ endpoint secret (secure) vs no verification call present (insecure).",
+        "source": "Stripe — Receive Stripe events in your webhook endpoint"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_endpoint_https_only",
+    "option_description": "Whether the webhook endpoint is served over HTTPS/TLS only (https:// URL), rejecting plaintext http:// delivery.",
+    "security_impact": "One of the OR-triggers for \"Forged or unverified webhook events\" (T1190) — fires when false (plaintext http:// endpoint), so forged/tampered events can be injected over cleartext and signature material observed in transit.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the registered webhook endpoint in the Stripe Dashboard and confirm the configured URL is https://.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Developers > Webhooks",
+        "expected_output": "Configured webhook URL is https:// (secure) vs http:// (insecure).",
+        "source": "Stripe — Integration security guide (webhooks must use TLS)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the webhook endpoint over plaintext HTTP to confirm it does not accept cleartext delivery.",
+        "command": "curl -sv http://<webhook-host>/<webhook-path> -o /dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plaintext HTTP is refused or redirected to HTTPS (secure) vs the endpoint accepting POSTs over http:// (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_source_ip_allowlisted",
+    "option_description": "Whether inbound webhook traffic is restricted to the PSP's published source IP ranges as defence-in-depth alongside signature verification.",
+    "security_impact": "One of the OR-triggers for \"Forged or unverified webhook events\" (T1190) — fires when false (endpoint accepts POSTs from any source IP), widening the surface for forged-event delivery.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the firewall/WAF/ingress rule fronting the webhook endpoint to confirm it restricts inbound traffic to the PSP's published IP ranges.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Allow rule scoped to the PSP's documented webhook source IP ranges (secure) vs open to 0.0.0.0/0 (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the documented PSP source-IP ranges are tracked and kept current as the provider publishes changes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Maintained allowlist matching the PSP's current published webhook IP ranges (secure) vs no IP restriction (insecure).",
+        "source": "Stripe — Integration security guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_replay_timestamp_tolerance_enforced",
+    "option_description": "Whether webhook signature verification enforces the library default ~5-minute (300s) timestamp recency window so intercepted-and-replayed signed events are rejected by staleness; tolerance=0 disables the check.",
+    "security_impact": "One of the OR-triggers for \"Webhook replay attack\" (MITRE T1080) — fires when false (tolerance=0 or no timestamp check), so a captured valid signed event can be replayed indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the signature-verification call to confirm it uses the library default 5-minute (300s) tolerance and is never set to 0.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Signature verification uses the library default 5-minute tolerance (timestamp is part of the signed payload) (secure). A tolerance of 0 disables the recency check (insecure).",
+        "source": "Stripe — Receive Stripe events in your webhook endpoint (replay attacks / tolerance)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_event_idempotency_enforced",
+    "option_description": "Whether the webhook handler deduplicates on event.id before applying side effects, so a re-sent (replayed or Stripe-retried) event with a previously-processed id does not double-apply fulfilment.",
+    "security_impact": "One of the OR-triggers for \"Webhook replay attack\" (T1080) — fires when false (no dedup), so replays/retries re-apply effects.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm in the Stripe Dashboard that the endpoint URL is HTTPS and review that the handler design deduplicates on event.id given Stripe's automatic retries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Developers > Webhooks",
+        "expected_output": "Handler records processed event.id and skips duplicates on Stripe's automatic retries (secure) vs a non-idempotent handler (insecure).",
+        "source": "Stripe — Integration security guide (webhooks must use TLS)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the handler code/data store to confirm processed event.id values are recorded and duplicates are skipped before applying side effects.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Processed event.id persisted and checked before side effects (secure) vs no dedup store (insecure).",
+        "source": "Stripe — Receive Stripe events in your webhook endpoint"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "client_side_tokenization_used",
+    "option_description": "Whether card data is tokenized client-side via Stripe.js/Elements/Checkout (or equivalent hosted fields) using the publishable key, so only a PaymentMethod/token (pm_/tok_) ever reaches our server.",
+    "security_impact": "One of the OR-triggers for \"Cardholder data exposure / PCI scope creep\" (MITRE T1005) — fires when false (raw PAN posted to / handled by our servers), pulling our environment into full PCI scope (SAQ-D, 300+ controls).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the payment form uses Stripe Elements iframes / Checkout and that server endpoints receive PaymentMethod IDs, not card numbers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Payment form uses Stripe Elements iframes / Checkout; server endpoints receive PaymentMethod IDs not card numbers (secure). Any code path accepting a raw PAN (insecure).",
+        "source": "Stripe — Integration security guide / Scoping considerations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "raw_pan_not_stored",
+    "option_description": "Whether full PAN (and CVV/track data) is never persisted at rest — only non-sensitive Stripe-returned data (last4, brand, expiry) is stored.",
+    "security_impact": "One of the OR-triggers for \"Cardholder data exposure / PCI scope creep\" (T1005) — fires when false (full card data stored at rest), violating PCI DSS Req 3.4 and creating a breach target.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the data inventory and persisted stores to confirm only tokens + last4/brand/expiry are stored and no full PAN/CVV/track data is retained.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data inventory shows only tokens + last4/brand/exp stored, with documented retention/residency controls (secure).",
+        "source": "PCI DSS v4.0 Requirement 3 — Protect Stored Account Data (corpus)"
+      },
+      {
+        "type": "command",
+        "instruction": "Scan persisted data stores / backups for 13–16 digit PAN-shaped strings that are not masked.",
+        "command": "grep -rE '[0-9]{13,16}' /var/lib/app/data | grep -vE 'masked|\\*{4}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No unmasked full PANs at rest (secure). PCI Req 3.4 requires PAN rendered unreadable.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cardholder_data_not_logged",
+    "option_description": "Whether full PAN and sensitive authentication data never appear in application, access, or audit logs (logs masked to last4/****).",
+    "security_impact": "One of the OR-triggers for \"Cardholder data exposure / PCI scope creep\" (T1005) — fires when false (PAN/SAD written to logs), violating PCI DSS Req 3.4 / Req 10.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep application/access logs for unmasked 13–16 digit PAN-shaped strings.",
+        "command": "grep -rE '[0-9]{13,16}' /var/log/app/ | grep -vE 'masked|\\*{4}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No full PANs in logs (secure). PCI Req 3.4 requires PAN rendered unreadable; Req 10 requires audit logs that themselves must not leak CHD.",
+        "source": "PCI DSS v4.0 Requirement 3 — Protect Stored Account Data (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether persisted account data (tokens plus any stored cardholder metadata) is encrypted at rest via managed KMS/SSE rather than stored in plaintext.",
+    "security_impact": "One of the OR-triggers for \"Cardholder data exposure / PCI scope creep\" (T1005) — secondary trigger reinforcing the PCI data-protection facet; fires when false (stored payment data in plaintext, PCI DSS Req 3).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm persisted account data stores use managed encryption at rest (KMS/SSE) and document the key management approach.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Stored tokens and cardholder metadata encrypted at rest via managed KMS/SSE (secure) vs plaintext storage (insecure).",
+        "source": "PCI DSS v4.0 Requirement 3 — Protect Stored Account Data (corpus)"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the storage backend's encryption configuration (e.g. cloud provider describe call) to confirm encryption-at-rest is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Encryption-at-rest reported enabled with a managed/customer-managed key (secure) vs disabled (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether all server-to-PSP API calls and payment pages are made over TLS/HTTPS only, with no plaintext HTTP fallback or downgrade path.",
+    "security_impact": "One of the OR-triggers for \"TLS downgrade / MITM on PSP transport\" (MITRE T1557) — fires when false (any cleartext HTTP call to the PSP API), exposing tokens, credentials, and transaction data in motion.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the TLS handshake against the PSP API endpoint succeeds over TLS and inspect the certificate validity dates.",
+        "command": "openssl s_client -connect api.stripe.com:443 -tls1_2 </dev/null | openssl x509 -noout -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.2+ handshake succeeds against a valid cert chain (secure). Stripe requires TLS 1.2 or above; verify with Qualys SSL Labs SSL Server Test.",
+        "source": "Stripe — Integration security guide (TLS 1.2 or above)"
+      },
+      {
+        "type": "command",
+        "instruction": "Grep the integration source for any http:// PSP endpoint URLs indicating a plaintext fallback.",
+        "command": "grep -rE 'http://[^\"'\\'' ]*(stripe|adyen|braintree|checkout)' .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No plaintext http:// PSP URLs (secure) vs any cleartext HTTP call to the PSP (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the HTTP client / TLS stack negotiating with the PSP permits TLS versions below 1.2 (TLS 1.0/1.1 or SSLv3). Secure value is false.",
+    "security_impact": "One of the OR-triggers for \"TLS downgrade / MITM on PSP transport\" (T1557) — fires when true (a downgrade to weak/deprecated TLS is possible), exposing transaction data to interception.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt a deprecated-protocol handshake to confirm TLS <1.2 is refused, then confirm TLS 1.2+ succeeds.",
+        "command": "openssl s_client -connect api.stripe.com:443 -tls1_1 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.0/1.1/SSLv3 handshake is refused (secure: weak versions disabled). Stripe requires TLS 1.2 or above.",
+        "source": "Stripe — Integration security guide (TLS 1.2 or above)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the HTTP client / TLS stack configuration for the minimum protocol setting permitting sub-1.2 versions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client minimum protocol is TLS 1.2+ (secure, attribute=false) vs config permitting TLS 1.0/1.1/SSLv3 (insecure, attribute=true).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The minimum TLS protocol version the connection to the PSP API will negotiate (SSLv3 / TLSv1.0 / TLSv1.1 / TLSv1.2 / TLSv1.3). PSPs mandate TLS 1.2 or above.",
+    "security_impact": "One of the OR-triggers for \"TLS downgrade / MITM on PSP transport\" (T1557) — fires on a weak floor (SSLv3 / TLSv1.0 / TLSv1.1); TLSv1.2/TLSv1.3 floors stay silent.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the TLS client's configured minimum protocol version for the PSP connection.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A floor of SSLv3 / TLSv1.0 / TLSv1.1 is insecure; TLSv1.2 or TLSv1.3 is secure.",
+        "source": "Stripe — Integration security guide (TLS 1.2 or above)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate accepted TLS versions against the PSP endpoint to corroborate the negotiated floor.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 api.stripe.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 offered (secure) vs TLSv1.0/TLSv1.1/SSLv3 present (insecure floor).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2",
+      "TLSv1.3"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the HTTP client validates the PSP API server's certificate chain and hostname (no verify=False / rejectUnauthorized:false / disabled hostname verification).",
+    "security_impact": "One of the OR-triggers for \"TLS downgrade / MITM on PSP transport\" (T1557) — fires when false: disabled certificate verification lets an adversary-in-the-middle present a forged cert and intercept tokens and transaction data.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the HTTP client configuration for disabled certificate or hostname verification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP client does not disable certificate verification (no verify=False / rejectUnauthorized:false) (secure) vs verification disabled (insecure).",
+        "source": "Stripe — Integration security guide"
+      },
+      {
+        "type": "command",
+        "instruction": "Grep the integration source for common certificate-verification-disabling flags.",
+        "command": "grep -rE 'verify=False|rejectUnauthorized\\s*:\\s*false|InsecureSkipVerify|CURLOPT_SSL_VERIFYPEER' .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches (secure) vs any verification-disabling flag present in the PSP client path (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "idempotency_key_used_on_charges",
+    "option_description": "Whether every mutating charge/PaymentIntent POST sends a unique Idempotency-Key header (V4 UUID or order/cart-derived) so network-error retries return the saved first response instead of creating a second charge.",
+    "security_impact": "One of the OR-triggers for \"Double-charge / amount tampering via missing integrity controls\" (MITRE T1565) — fires when false (no idempotency key, retries can double-charge).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep the integration source for the Idempotency-Key header being set on charge/PaymentIntent POSTs.",
+        "command": "grep -rE 'Idempotency-Key|idempotencyKey|idempotency_key' .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "POST/charge calls set an Idempotency-Key (secure). Stripe also errors if a reused key carries different params, preventing accidental misuse.",
+        "source": "Stripe — Idempotent requests (API reference)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "amount_currency_validated_server_side",
+    "option_description": "Whether the charge amount and currency are computed and authoritatively set server-side from trusted catalog/order data rather than echoed from the client request.",
+    "security_impact": "One of the OR-triggers for \"Double-charge / amount tampering via missing integrity controls\" (T1565) — fires when false (amount/currency taken from a client-trusted value), enabling amount/currency tampering.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the PaymentIntent/charge amount and currency are recomputed server-side from the order record, not echoed from the client request.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PaymentIntent/charge amount is recomputed server-side from the order record (secure) vs amount echoed from the client request (insecure).",
+        "source": "Stripe — The Payment Intents API (server-side integration)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "order_total_not_client_trusted",
+    "option_description": "Whether the server independently verifies the order total against trusted order/catalog records before charging, never trusting a client-supplied total.",
+    "security_impact": "One of the OR-triggers for \"Double-charge / amount tampering via missing integrity controls\" (T1565) — fires when false (no server-side order-total verification), letting a buyer pay an attacker-chosen amount.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the checkout/charge path to confirm the server independently recomputes/validates the order total against trusted order/catalog records before charging.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server recomputes the total from trusted order/catalog data before charging (secure) vs a client-supplied total used to charge (insecure).",
+        "source": "Stripe — The Payment Intents API (server-side integration)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "three_ds_sca_enforced",
+    "option_description": "Whether 3D Secure 2 / PSD2 Strong Customer Authentication is enforced on in-scope card payments via the PaymentIntents flow (handling the 3DS next_action) rather than raw charge APIs that bypass authentication.",
+    "security_impact": "One of the OR-triggers for \"Payment fraud via missing SCA / 3DS\" (MITRE T1583) — fires when false (SCA/3DS2 not enforced), enabling card-not-present / stolen-card fraud and merchant-borne chargebacks.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the payment flow uses PaymentIntents and handles the 3DS next_action, so Stripe's mandatory-authentication rules run regardless of manual request.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Payment flow uses PaymentIntents and handles the 3DS next_action; Stripe's mandatory-authentication rules run regardless of manual request (secure).",
+        "source": "Stripe — 3D Secure authentication / Strong Customer Authentication readiness"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "fraud_velocity_anomaly_checks_enabled",
+    "option_description": "Whether active fraud/abuse controls — a risk rules engine plus velocity/anomaly checks (Radar-style risk rules) — are enabled for the integration, with a defined dispute/chargeback workflow.",
+    "security_impact": "One of the OR-triggers for \"Payment fraud via missing SCA / 3DS\" (T1583) — fires when false (no fraud/velocity/anomaly detection), leaving stolen-card and abusive patterns undetected.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the Stripe Dashboard confirm fraud-prevention (Radar) rules are configured and disputes are monitored.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Radar > Rules / Disputes",
+        "expected_output": "Fraud-prevention rules configured and disputes monitored (secure). A read-only restricted key may be issued to a third-party dispute monitor rather than a full key.",
+        "source": "Stripe — Restricted API keys / Best practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sca_exemptions_applied_deliberately",
+    "option_description": "Whether SCA exemptions (low-value, TRA, frictionless / Data Only) are applied deliberately and narrowly with appropriate liability handling, rather than broad/blanket exemptions that suppress mandated authentication.",
+    "security_impact": "One of the OR-triggers for \"Payment fraud via missing SCA / 3DS\" (T1583) — fires when false (exemptions improperly broad or misapplied), undermining SCA coverage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review how SCA exemptions are requested in the integration to confirm they are scoped (low-value, TRA, frictionless/Data-Only) with proper liability handling, not blanket.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exemptions used deliberately and narrowly with documented liability handling (secure) vs broad blanket exemptions suppressing required SCA (insecure).",
+        "source": "Stripe — 3D Secure authentication / Strong Customer Authentication readiness"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "psp_auth_short_lived_tokens_or_mtls",
+    "option_description": "Whether client authentication to the PSP integration uses OAuth2 client-credentials or mTLS-bound (RFC 8705) short-lived, least-privilege access tokens rather than a long-lived static shared bearer secret/API key.",
+    "security_impact": "One of the OR-triggers for \"Trusted-relationship abuse of the PSP integration\" (MITRE T1199) — fires when false (long-lived static credentials are the trust anchor), so a single credential compromise grants durable, unbounded access.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm token acquisition uses OAuth2 client credentials or mTLS certificate-bound access tokens with short TTL per RFC 8705.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token acquisition uses client credentials / mTLS certificate-bound access tokens with short TTL (secure) per RFC 8705.",
+        "source": "RFC 8705 — OAuth 2.0 Mutual-TLS Client Authentication (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "psp_integration_ip_allowlisted",
+    "option_description": "Whether the secret/restricted keys (or token endpoints) for the PSP integration are bound to a NAT-gateway / reserved source-IP allowlist so a stolen credential is unusable from an attacker network.",
+    "security_impact": "One of the OR-triggers for \"Trusted-relationship abuse of the PSP integration\" (T1199 / T1078) — fires when false (credential usable from any source IP), removing a network constraint on trusted-relationship abuse.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the Stripe Dashboard key settings to confirm an IP allowlist is configured for the secret/restricted key.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Developers > API keys (key settings)",
+        "expected_output": "Dashboard key settings show IP allowlist configured for the key (secure) vs no IP restriction (insecure).",
+        "source": "Stripe — Best practices for managing secret API keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether access granted to/through the PSP integration follows least privilege — scoped restricted keys (rk_live_) with minimal per-resource permissions rather than a single unrestricted full-access secret key.",
+    "security_impact": "One of the OR-triggers for both \"Trusted-relationship abuse of the PSP integration\" (T1199) and \"Leaked or over-privileged API key\" (T1552) — fires when false (over-broad permissions on the trusted PSP connection), widening blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the Stripe Dashboard API key listing to confirm keys are restricted with minimal per-resource scopes, not a single unrestricted secret key.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Stripe Dashboard > Developers > API keys",
+        "expected_output": "Restricted keys with explicit per-resource scopes (secure) vs only an unrestricted secret key (insecure).",
+        "source": "Stripe — Restricted API keys"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the granted scopes map to only the operations each component legitimately requires.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each integration's key scopes match its minimal required operations (secure) vs over-broad grants (insecure).",
+        "source": "Stripe — Best practices for managing secret API keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "psp_trust_scope_least_privilege",
+    "option_description": "Whether the trust/permission scope specifically granted on the PSP connection (Connect account scopes, restricted-key resource grants, webhook/event subscriptions) is constrained to only the financial operations this component requires.",
+    "security_impact": "One of the OR-triggers for \"Trusted-relationship abuse of the PSP integration\" (T1199) — fires when false (over-broad trust scope), so abuse can pivot into financial operations beyond the component's legitimate need.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the PSP connection's Connect scopes, restricted-key resource grants, and webhook/event subscriptions to confirm they are limited to the financial operations this component needs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trust scope (Connect scopes / restricted-key grants / event subscriptions) constrained to required financial operations (secure) vs over-broad scope (insecure).",
+        "source": "Stripe — Restricted API keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "transaction_audit_trail_enabled",
+    "option_description": "Whether a complete, time-synced audit trail of payment operations and PSP webhook events is recorded per PCI DSS Req 10 (without storing CHD).",
+    "security_impact": "One of the OR-triggers for \"Transaction-data exfiltration over the PSP channel without audit trail\" (MITRE T1567) — fires when false, so exfiltration over the trusted PSP HTTPS channel leaves no record.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm audit logs record payment operations and webhook event IDs with retention and alerting per PCI Req 10, masked and excluding PAN.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit logs record payment operations and webhook event IDs with retention and alerting per PCI Req 10 (secure); logs are masked and exclude PAN.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "anomaly_alerting_on_payment_events",
+    "option_description": "Whether anomaly/alerting is active on PSP API request logs and webhook events (unusual volume, off-hours bulk reads, residency drift).",
+    "security_impact": "One of the OR-triggers for \"Transaction-data exfiltration over the PSP channel without audit trail\" (T1567) — fires when false, so attacker pulls of customer/transaction data blend with normal traffic and trigger no alert.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm alerting rules exist on PSP API request logs and webhook events for unusual volume, off-hours bulk reads, and residency drift.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active anomaly alerting on PSP API/webhook traffic (secure) vs no detection — exfiltration blends with normal traffic (insecure).",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "The retention period (in days) for transaction/audit logs. PCI DSS Req 10 requires audit history retained for at least one year (365 days).",
+    "security_impact": "One of the OR-triggers for \"Transaction-data exfiltration over the PSP channel without audit trail\" (T1567) — fires when < 365, making investigation of slow exfiltration over the PSP channel impossible.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the configured retention period for transaction/audit logs (days) in the log pipeline / SIEM configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention >= 365 days (secure, PCI Req 10); a value below 365 is insecure.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access (corpus)"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the log store / retention-policy API to confirm the effective retention window in days.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Effective retention reported as >= 365 days (secure) vs < 365 (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      365,
+      730
+    ]
+  },
+  {
+    "option_name": "payment_data_residency_pinned",
+    "option_description": "Whether regulated transaction-data residency and retention obligations are documented and enforced (data pinned to permitted jurisdictions; only tokenized references + non-sensitive metadata retained).",
+    "security_impact": "One of the OR-triggers for \"Transaction-data exfiltration over the PSP channel without audit trail\" (T1567) — fires when false, so data-residency drift moves regulated transaction data outside permitted jurisdictions undetected.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the data inventory and residency controls to confirm only tokens + last4/brand/exp are stored with documented retention/residency obligations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data inventory shows only tokens + last4/brand/exp stored, with documented retention/residency controls (secure).",
+        "source": "PCI DSS v4.0 Requirement 3 — Protect Stored Account Data (corpus) / Stripe Integration security guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

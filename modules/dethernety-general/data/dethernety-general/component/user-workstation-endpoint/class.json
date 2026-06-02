@@ -1,0 +1,9 @@
+{
+  "id": "1348b3f4-1f70-4819-9c19-c0b18a2bd71b",
+  "name": "User Workstation / Endpoint",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A user workstation or endpoint — also called an employee laptop/desktop, corporate-managed device, workstation, or company PC — an organization-managed device that accesses systems and holds credentials and data locally. A frequent initial-access foothold and the anchor for endpoint controls. The place to look for the workstation, employee laptop/desktop, managed endpoint, or the corporate device staff work from.",
+  "category": "User Devices",
+  "status": "draft"
+}

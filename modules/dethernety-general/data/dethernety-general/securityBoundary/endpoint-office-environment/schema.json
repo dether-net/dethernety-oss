@@ -1,0 +1,257 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "email_phishing_defenses_layered": {
+        "type": "boolean",
+        "title": "Layered Email Phishing Defenses",
+        "description": "Layered email phishing defenses at perimeter - DMARC enforce, link rewriting, attachment sandboxing, safe-browsing.",
+        "default": false
+      },
+      "user_awareness_training_current": {
+        "type": "boolean",
+        "title": "User Awareness Training Current",
+        "description": "Phishing-resistance posture current and measurable; training within 12 months plus simulated phish with measured posture trend."
+      },
+      "managed_device_enrollment_enforced": {
+        "type": "boolean",
+        "title": "Managed Device Enrollment Enforced",
+        "description": "Every device touching corp resources is MDM/UEM-enrolled with verified device identity.",
+        "default": false
+      },
+      "network_access_control_802_1x_enforced": {
+        "type": "boolean",
+        "title": "802.1X Network Access Control Enforced",
+        "description": "Corp wired ports and wifi SSIDs enforce 802.1X / cert-based NAC; no open or PSK corp networks.",
+        "default": false
+      },
+      "user_segment_isolated_from_production_tiers": {
+        "type": "boolean",
+        "title": "User Segment Isolated From Production",
+        "description": "User VLAN firewalled from prod data tier; endpoints reach data only via app gateways/jump hosts.",
+        "default": false
+      },
+      "admin_protocols_require_pam_and_mfa": {
+        "type": "boolean",
+        "title": "Admin Protocols Require PAM and MFA",
+        "description": "Admin remote-access protocols (RDP/SMB/WinRM/SSH/VNC) terminate at PAM-mediated jump host with MFA and session recording.",
+        "default": false
+      },
+      "third_party_access_scoped_and_audited": {
+        "type": "boolean",
+        "title": "Third-Party Access Scoped and Audited",
+        "description": "Contractor/MSP/partner access is time-boxed, scope-limited, audit-logged end-to-end.",
+        "default": false
+      },
+      "third_party_devices_meet_same_posture_bar": {
+        "type": "boolean",
+        "title": "Third-Party Devices Meet Same Posture Bar",
+        "description": "Vendor/contractor endpoints crossing boundary meet same MDM/EDR/patch posture as employee devices."
+      },
+      "endpoint_full_disk_encryption_on": {
+        "type": "boolean",
+        "title": "Endpoint Full-Disk Encryption On",
+        "description": "Every corp endpoint enforces FDE (BitLocker/FileVault/dm-crypt/LUKS) with central recovery-key escrow.",
+        "default": false
+      },
+      "remote_wipe_and_lost_device_response_tested": {
+        "type": "boolean",
+        "title": "Remote Wipe and Lost-Device Response Tested",
+        "description": "MDM remote-wipe capability exists AND lost-device runbook exercised end-to-end within 12 months."
+      },
+      "edr_agent_active_with_tamper_protection": {
+        "type": "boolean",
+        "title": "EDR Agent Active With Tamper Protection",
+        "description": "Every in-scope endpoint runs centrally-managed EDR/XDR, healthy, streaming off-box, with tamper-protection enabled.",
+        "default": false
+      },
+      "endpoint_to_endpoint_smb_rdp_restricted": {
+        "type": "boolean",
+        "title": "Endpoint-to-Endpoint SMB/RDP Restricted",
+        "description": "SMB/RDP/WinRM between user-segment endpoints blocked or tightly restricted; no flat L2 ransomware propagation path.",
+        "default": false
+      },
+      "endpoint_runs_as_least_privileged_user": {
+        "type": "boolean",
+        "title": "Endpoint Runs As Least-Privileged User",
+        "description": "Day-to-day user accounts are non-admin; local-admin gated through separate named/LAPS/JIT-PAM.",
+        "default": false
+      },
+      "session_binding_or_short_session_lifetime": {
+        "type": "boolean",
+        "title": "Session Binding or Short Session Lifetime",
+        "description": "SSO sessions cryptographically bound to device (DPoP/mTLS/WebAuthn-bound) OR short-lived (<=24h with conditional-access re-eval)."
+      },
+      "endpoint_audit_logs_centralised": {
+        "type": "boolean",
+        "title": "Endpoint Audit Logs Centralised",
+        "description": "Sign-ins / privilege elevation / EDR detections / USB insertion / policy drift shipped off-box to central SIEM with >=90 day retention.",
+        "default": false
+      }
+    },
+    "required": [
+      "email_phishing_defenses_layered",
+      "user_awareness_training_current",
+      "managed_device_enrollment_enforced",
+      "network_access_control_802_1x_enforced",
+      "user_segment_isolated_from_production_tiers",
+      "admin_protocols_require_pam_and_mfa",
+      "third_party_access_scoped_and_audited",
+      "third_party_devices_meet_same_posture_bar",
+      "endpoint_full_disk_encryption_on",
+      "remote_wipe_and_lost_device_response_tested",
+      "edr_agent_active_with_tamper_protection",
+      "endpoint_to_endpoint_smb_rdp_restricted",
+      "endpoint_runs_as_least_privileged_user",
+      "session_binding_or_short_session_lifetime",
+      "endpoint_audit_logs_centralised"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_protocols_require_pam_and_mfa"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_binding_or_short_session_lifetime"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_runs_as_least_privileged_user"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_access_scoped_and_audited"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_full_disk_encryption_on"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/email_phishing_defenses_layered"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_to_endpoint_smb_rdp_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_access_control_802_1x_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_segment_isolated_from_production_tiers"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edr_agent_active_with_tamper_protection"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_audit_logs_centralised"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_device_enrollment_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_devices_meet_same_posture_bar"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_wipe_and_lost_device_response_tested"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_awareness_training_current"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

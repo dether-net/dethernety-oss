@@ -1,0 +1,82 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "log_retention_days": 0,
+      "retention_schedule_enforced": false,
+      "logs_stored_on_separate_system": false,
+      "centralized_log_aggregation": false,
+      "audit_log_tamper_evident": false,
+      "log_pipeline_integrity_protected": false,
+      "audit_management_restricted_to_privileged_subset": false,
+      "log_access_monitored": false,
+      "authenticated_log_forwarders_required": false,
+      "log_storage_sized_for_retention": false,
+      "log_flood_overflow_protection": false,
+      "clocks_synced_to_trusted_time_source": false,
+      "secure_disposal_at_end_of_retention": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "log_retention_days": 1,
+      "retention_schedule_enforced": true,
+      "logs_stored_on_separate_system": true,
+      "centralized_log_aggregation": true,
+      "audit_log_tamper_evident": true,
+      "log_pipeline_integrity_protected": true,
+      "audit_management_restricted_to_privileged_subset": true,
+      "log_access_monitored": true,
+      "authenticated_log_forwarders_required": true,
+      "log_storage_sized_for_retention": true,
+      "log_flood_overflow_protection": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "secure_disposal_at_end_of_retention": true
+    },
+    "expectedCountermeasures": [
+      "Authenticated, encrypted log forwarding enforced",
+      "Off-box centralized aggregation enforced",
+      "Trusted time synchronization and secure end-of-retention disposal",
+      "Storage sized for the retention window",
+      "Audit-data access and management restricted",
+      "Log integrity / tamper-evidence enforced"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "log_retention_days": 0,
+      "retention_schedule_enforced": true,
+      "logs_stored_on_separate_system": true,
+      "centralized_log_aggregation": true,
+      "audit_log_tamper_evident": true,
+      "log_pipeline_integrity_protected": true,
+      "audit_management_restricted_to_privileged_subset": true,
+      "log_access_monitored": true,
+      "authenticated_log_forwarders_required": true,
+      "log_storage_sized_for_retention": true,
+      "log_flood_overflow_protection": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "secure_disposal_at_end_of_retention": true
+    },
+    "expectedCountermeasures": [
+      "Authenticated, encrypted log forwarding enforced",
+      "Off-box centralized aggregation enforced",
+      "Trusted time synchronization and secure end-of-retention disposal",
+      "Storage sized for the retention window",
+      "Audit-data access and management restricted",
+      "Log integrity / tamper-evidence enforced"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

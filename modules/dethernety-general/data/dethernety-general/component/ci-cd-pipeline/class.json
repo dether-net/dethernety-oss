@@ -1,0 +1,9 @@
+{
+  "id": "da8c7eaf-0380-4f5a-98b4-9a036e848880",
+  "name": "CI/CD Pipeline",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A CI/CD pipeline — also called the build/deploy pipeline, GitHub Actions/GitLab CI/Jenkins/CircleCI, build server, or release automation — an automated process that builds, tests, and deploys software with privileged access to environments and secrets. Pulls from the source repository and ships to runtime environments. The place to look for the CI/CD pipeline, build-and-deploy automation, release pipeline, or the system that compiles, tests, and pushes code to production.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

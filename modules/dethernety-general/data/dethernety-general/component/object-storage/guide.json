@@ -1,0 +1,1031 @@
+[
+  {
+    "option_name": "block_public_access_enabled",
+    "option_description": "Whether the account-/bucket-level public-access override is fully in force across the cloud: AWS S3 all four Block Public Access flags true, GCS publicAccessPrevention=enforced, or Azure allowBlobPublicAccess=false. The assessor interprets the per-cloud override into one boolean.",
+    "security_impact": "One of the OR-triggers of the \"Public-access exposure (anonymous read/write)\" exposure — fires when block_public_access_enabled is false (any AWS flag off / GCS PAP not enforced / Azure public access allowed), meaning ACLs or bucket policies can still grant the bucket public access (T1530). THE primary defence against the canonical accidental-public-bucket breach.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the bucket-level Block Public Access configuration; confirm all four flags are true.",
+        "command": "aws s3api get-public-access-block --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PublicAccessBlockConfiguration with BlockPublicAcls=true, IgnorePublicAcls=true, BlockPublicPolicy=true, RestrictPublicBuckets=true (secure). NoSuchPublicAccessBlockConfiguration error or any flag false = insecure.",
+        "source": "AWS S3 User Guide - Blocking public access to your Amazon S3 storage"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS S3 — also confirm the account-level Block Public Access override (Security Hub S3.8 / S3.1).",
+        "command": "aws s3control get-public-access-block --account-id <account-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Account-level PublicAccessBlockConfiguration; all four true recommended.",
+        "source": "AWS S3 User Guide - Blocking public access to your Amazon S3 storage"
+      },
+      {
+        "type": "command",
+        "instruction": "GCS — read public-access-prevention; confirm it is enforced.",
+        "command": "gcloud storage buckets describe gs://<bucket> --format='value(public_access_prevention,uniform_bucket_level_access)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "public_access_prevention=enforced and uniform_bucket_level_access enabled (secure). 'inherited' + ACLs = exposure risk.",
+        "source": "Google Cloud Storage - Public access prevention"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure — read allowBlobPublicAccess on the storage account; confirm it is false.",
+        "command": "az storage account show -n <acct> -g <rg> --query '{pub:allowBlobPublicAccess,https:enableHttpsTrafficOnly,tls:minimumTlsVersion}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{pub:false, https:true, tls:TLS1_2} (secure). pub:true = public access allowed = insecure.",
+        "source": "Microsoft Learn - Remediate anonymous read access to blob data"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "public_bucket_acl_disabled",
+    "option_description": "Whether no public ACL grant is effective on the bucket/objects: no AWS S3 ACL grant to AllUsers/AuthenticatedUsers, no GCS allUsers/allAuthenticatedUsers ACL, no Azure public container ACL.",
+    "security_impact": "One of the OR-triggers of the \"Public-access exposure (anonymous read/write)\" exposure — fires when public_bucket_acl_disabled is false, i.e. a public-read/-write ACL grant makes the bucket world-accessible (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — inspect the bucket ACL for a public group grantee.",
+        "command": "aws s3api get-bucket-acl --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No Grantee URI http://acs.amazonaws.com/groups/global/AllUsers or AuthenticatedUsers. Such a grant = public ACL.",
+        "source": "AWS S3 User Guide - Blocking public access to your Amazon S3 storage"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS S3 — corroborate via the aggregate public-status check.",
+        "command": "aws s3api get-bucket-policy-status --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"PolicyStatus\":{\"IsPublic\":false}} (secure) vs true (public).",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "GCS — confirm no allUsers/allAuthenticatedUsers ACL exists (relevant only when uniform bucket-level access is off).",
+        "command": "gcloud storage buckets describe gs://<bucket> --format='value(public_access_prevention,uniform_bucket_level_access)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "uniform_bucket_level_access enabled means object ACLs are disabled; otherwise list ACLs and confirm no allUsers grant.",
+        "source": "Google Cloud Storage - Uniform bucket-level access"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bucket_policy_no_wildcard_principal",
+    "option_description": "Whether the bucket/resource policy grants no anonymous access via a wildcard principal — no Principal:\"*\" (or Action:\"*\") statement lacking a limiting condition (aws:SourceVpce/aws:SourceArn/aws:PrincipalOrgID). The assessor interprets the policy document into this boolean.",
+    "security_impact": "One of the OR-triggers of the \"Public-access exposure (anonymous read/write)\" exposure — fires when bucket_policy_no_wildcard_principal is false, i.e. an effectively-public bucket policy grants anyone access (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the bucket policy and inspect for an unconditioned wildcard principal/action.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket> --query Policy --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No Statement with Principal:\"*\" (or Action:\"*\") lacking a fixed-value Condition (e.g. aws:SourceVpce/aws:PrincipalOrgID).",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS S3 — confirm the interpreted result via the policy-status flag.",
+        "command": "aws s3api get-bucket-policy-status --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"PolicyStatus\":{\"IsPublic\":false}} (secure) vs true (public).",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "anonymous_access_disabled",
+    "option_description": "Whether no unauthenticated/anonymous access path is configured on the bucket or prefix: MinIO `mc anonymous` permission is none (not download/upload/public), and no equivalent anonymous grant on other clouds.",
+    "security_impact": "One of the OR-triggers of the \"Public-access exposure (anonymous read/write)\" exposure — fires when anonymous_access_disabled is false, i.e. anonymous download/upload is enabled and data is reachable without credentials (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "MinIO — read the anonymous access policy on the bucket; confirm it is none.",
+        "command": "mc anonymous get myminio/<bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"Access permission ... is none\" (secure). download/upload/public = anonymous exposure.",
+        "source": "MinIO mc anonymous command reference (corpus)"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS S3 — cross-check the aggregate public status for any anonymous grant path.",
+        "command": "aws s3api get-bucket-policy-status --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"PolicyStatus\":{\"IsPublic\":false}} (secure) — no anonymous policy/ACL grant effective.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "public_object_listing_disabled",
+    "option_description": "Whether unauthenticated object enumeration/listing is not permitted — no public ListBucket / s3:ListBucket to a wildcard principal, no anonymous list permission.",
+    "security_impact": "One of the OR-triggers of the \"Public-access exposure (anonymous read/write)\" exposure — fires when public_object_listing_disabled is false, i.e. anonymous callers can enumerate the bucket contents (T1530), the discovery step that turns a public bucket into full exfiltration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the bucket policy and confirm s3:ListBucket is not granted to a wildcard/anonymous principal.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket> --query Policy --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No statement granting s3:ListBucket with Principal:\"*\" (or to AllUsers). Listing limited to authenticated, scoped principals.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated list against the bucket endpoint to prove enumeration is denied.",
+        "command": "curl -s https://<bucket>.s3.amazonaws.com/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AccessDenied XML (secure). A ListBucketResult XML enumerating keys = anonymous listing allowed.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "acls_disabled_bucket_owner_enforced",
+    "option_description": "Whether ACLs are disabled so IAM/bucket policy is the single access-control plane — AWS S3 ObjectOwnership=BucketOwnerEnforced, GCS uniformBucketLevelAccess=enabled, or the platform equivalent. Guarantees no object is public if the bucket is not.",
+    "security_impact": "An OR-trigger shared by two exposures — \"Public-access exposure (anonymous read/write)\" and \"Over-permissive IAM / bucket policy & weak presigned URLs\" — firing when acls_disabled_bucket_owner_enforced is false (ACLs still active), leaving ACL-based public/over-broad grant paths open (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read ownership controls; confirm ObjectOwnership=BucketOwnerEnforced (ACLs disabled).",
+        "command": "aws s3api get-bucket-ownership-controls --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules[].ObjectOwnership = BucketOwnerEnforced (secure). ObjectWriter/BucketOwnerPreferred = ACLs still active.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "GCS — confirm uniform bucket-level access is enabled (the GCS equivalent of disabling ACLs).",
+        "command": "gcloud storage buckets describe gs://<bucket> --format='value(public_access_prevention,uniform_bucket_level_access)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "uniform_bucket_level_access enabled (secure). Disabled = fine-grained object ACLs remain active.",
+        "source": "Google Cloud Storage - Uniform bucket-level access"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether access to the object store follows least privilege — identities are granted only the specific actions and bucket/object ARNs they need, with no broad admin grants (no MinIO consoleAdmin/readwrite-on-all on app identities, no AWS AdministratorAccess on app roles).",
+    "security_impact": "One of the OR-triggers of the \"Over-permissive IAM / bucket policy & weak presigned URLs\" exposure — fires when least_privilege_access_enforced is false, i.e. broad/admin grants on routine app identities enable lateral data access and privilege escalation (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "MinIO — list policies and inspect each attached to app identities for scope.",
+        "command": "mc admin policy list myminio; mc admin policy info myminio <policy>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documents scoped to needed actions/buckets. consoleAdmin/readwrite-on-all attached to app users = insecure.",
+        "source": "MinIO mc admin policy reference / MinIO PBAC access control (corpus)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "AWS — review IAM policies attached to app roles; confirm no AdministratorAccess or broad managed grants on routine identities.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "App roles hold only scoped, enumerated S3 actions on specific bucket/object ARNs.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "iam_policy_no_wildcard_actions",
+    "option_description": "Whether no IAM/bucket/PBAC policy attached to app identities combines a wildcard Action (s3:*) with a wildcard Resource (arn:aws:s3:::*) — actions and resources are explicitly enumerated.",
+    "security_impact": "One of the OR-triggers of the \"Over-permissive IAM / bucket policy & weak presigned URLs\" exposure — fires when iam_policy_no_wildcard_actions is false, i.e. a wildcard s3:* on Resource * (or equivalent broad MinIO PBAC grant) opens the privilege-escalation / mass-exfil path (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "MinIO — inspect each PBAC policy document for a wildcard Action on a wildcard Resource.",
+        "command": "mc admin policy info myminio <policy>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No statement with Action s3:* on arn:aws:s3:::* attached to app users (secure); enumerated actions/buckets instead.",
+        "source": "MinIO mc admin policy reference / MinIO PBAC access control (corpus)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "AWS — review the IAM/bucket policy JSON for wildcard Action+Resource statements.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No statement combines Action s3:* with Resource arn:aws:s3:::*; actions and resources explicitly enumerated.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "presigned_url_short_expiry_enforced",
+    "option_description": "Whether presigned-URL generation enforces a short, bounded expiry (minutes/hours, not multi-day/multi-year) — code/config calling generate_presigned_url / mc share uses a small ExpiresIn.",
+    "security_impact": "One of the OR-triggers of the \"Over-permissive IAM / bucket policy & weak presigned URLs\" exposure — fires when presigned_url_short_expiry_enforced is false, i.e. long-lived URLs turn a single signed link into a durable public download/exfil channel (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the code/config that calls generate_presigned_url / mc share; confirm a bounded ExpiresIn.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review code/config that calls generate_presigned_url / mc share: confirm bounded ExpiresIn and narrow object scope; confirm signer identity is least-privileged.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application config for the presigned-URL expiry setting (e.g. a URL_EXPIRY/EXPIRES_IN value).",
+        "command": null,
+        "file_path": "<app config or signing-service config>",
+        "navigation": null,
+        "expected_output": "Expiry set to minutes/hours (e.g. 300-3600s), not days/years.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "presigned_url_scope_limited",
+    "option_description": "Whether presigned URLs are narrowly scoped — single object, single HTTP method, and generated by a least-privileged signer identity.",
+    "security_impact": "One of the OR-triggers of the \"Over-permissive IAM / bucket policy & weak presigned URLs\" exposure — fires when presigned_url_scope_limited is false, i.e. an over-scoped URL or broad-credential signer means a leaked URL exposes more than one intended object/operation (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit the signer identity and the generate_presigned_url / mc share scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review code/config that calls generate_presigned_url / mc share: confirm bounded ExpiresIn and narrow object scope; confirm signer identity is least-privileged.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the signing identity holds only the minimal s3:GetObject/PutObject on the specific object prefix.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Signer is a least-privileged identity scoped to a single object/method, not a broad-credential role.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Cross-component attestation that stored objects are encrypted at rest (server-side encryption present on the bucket/account).",
+    "security_impact": "One of the OR-triggers of the \"Missing encryption at rest\" exposure — fires when encrypted_at_rest is false, i.e. an object store with no server-side encryption exposes plaintext data on disk/snapshot/backup-media theft (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read default encryption; presence of a rule confirms at-rest encryption.",
+        "command": "aws s3api get-bucket-encryption --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ServerSideEncryptionConfiguration.Rules[] present with SSEAlgorithm AES256 or aws:kms (encrypted). ServerSideEncryptionConfigurationNotFoundError = none.",
+        "source": "AWS CLI s3api get-bucket-encryption command reference"
+      },
+      {
+        "type": "command",
+        "instruction": "MinIO — read bucket auto-encryption status.",
+        "command": "mc encrypt info myminio/<bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auto encryption configured (SSE-KMS). 'Auto encryption is not set' = at-rest gap.",
+        "source": "MinIO KMS / Server-Side Encryption guide docs/kms/README.md (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_sse_enabled",
+    "option_description": "Whether server-side encryption is enabled by default so every newly written object is encrypted without per-request opt-in — AWS ServerSideEncryptionConfiguration present, MinIO bucket auto-encryption, GCS/Azure account encryption.",
+    "security_impact": "One of the OR-triggers of the \"Missing encryption at rest\" exposure — fires when default_sse_enabled is false, i.e. objects can land unencrypted or rely on caller-supplied SSE-C (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — confirm a default encryption rule is set on the bucket.",
+        "command": "aws s3api get-bucket-encryption --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ServerSideEncryptionConfiguration.Rules[].ApplyServerSideEncryptionByDefault.SSEAlgorithm = aws:kms or AES256 (default SSE on). NotFoundError = off.",
+        "source": "AWS CLI s3api get-bucket-encryption command reference"
+      },
+      {
+        "type": "command",
+        "instruction": "MinIO — confirm bucket auto-encryption is configured.",
+        "command": "mc encrypt info myminio/<bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auto encryption configured (SSE-KMS with key id). 'Auto encryption is not set' = default SSE off.",
+        "source": "MinIO KMS / Server-Side Encryption guide docs/kms/README.md (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "customer_managed_key_used",
+    "option_description": "Whether sensitive data is encrypted with a customer-managed key (SSE-KMS CMK / GCS CMEK / Azure CMK / MinIO KES) rather than provider-default keys, giving key-policy control, rotation governance, and key-usage auditing.",
+    "security_impact": "One of the OR-triggers of the \"Missing encryption at rest\" exposure — fires when customer_managed_key_used is false where a CMK is required but absent, leaving key governance and key-usage auditing to provider-default keys (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — confirm default encryption uses aws:kms with a customer KMSMasterKeyID.",
+        "command": "aws s3api get-bucket-encryption --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSEAlgorithm=aws:kms with KMSMasterKeyID present, BucketKeyEnabled=true (strong CMK). AES256 = SSE-S3 default keys only.",
+        "source": "AWS CLI s3api get-bucket-encryption command reference"
+      },
+      {
+        "type": "command",
+        "instruction": "MinIO — confirm KES/KMS-backed encryption with an externally-managed key id.",
+        "command": "mc encrypt info myminio/<bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSE-KMS with a named key id from the configured KES backend. No KMS = provider/default keys only.",
+        "source": "MinIO KMS / Server-Side Encryption guide docs/kms/README.md (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Interpreted boolean (secure=true): in-transit encryption is enforced so the endpoint accepts only TLS/HTTPS requests — Azure supportsHttpsTrafficOnly=true, MinIO HTTPS-only with certs, or an S3 policy guaranteeing TLS-only access.",
+    "security_impact": "One of the OR-triggers of the \"Cleartext / weak-TLS transport\" exposure — fires when tls_only_transport is false, i.e. plaintext HTTP is accepted at the bucket/account endpoint, exposing S3-API traffic and credentials to sniffing/MITM (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Azure — confirm secure transfer required is on.",
+        "command": "az storage account show -n <acct> -g <rg> --query '{pub:allowBlobPublicAccess,https:enableHttpsTrafficOnly,tls:minimumTlsVersion}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{https:true} (secure transfer required). https:false = HTTP accepted = insecure.",
+        "source": "Microsoft Learn - Require secure transfer for Azure Storage"
+      },
+      {
+        "type": "command",
+        "instruction": "MinIO — probe the plain-HTTP endpoint to confirm it fails or redirects to HTTPS.",
+        "command": "curl -sI http://<minio-host>:9000/minio/health/live",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP endpoint should fail/redirect to HTTPS; certs present in ~/.minio/certs/. Plain-HTTP 200 = in-transit gap.",
+        "source": "MinIO How to secure access with TLS docs/tls/README.md (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "insecure_transport_denied",
+    "option_description": "Interpreted boolean (secure=true): an explicit deny is in place for non-TLS access — an S3 bucket-policy Deny on Condition Bool aws:SecureTransport=false (verifiable via AWS Config rule s3-bucket-ssl-requests-only) or platform equivalent.",
+    "security_impact": "One of the OR-triggers of the \"Cleartext / weak-TLS transport\" exposure — fires when insecure_transport_denied is false, i.e. no deny exists so HTTP requests to the endpoint are accepted in cleartext (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the bucket policy and confirm a Deny on aws:SecureTransport=false.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket> --query Policy --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Contains a Deny with Condition Bool aws:SecureTransport=false (and optionally NumericLessThan s3:TlsVersion 1.2). Absent = insecure. Also verifiable via AWS Config rule s3-bucket-ssl-requests-only.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Interpreted boolean (secure=false): deprecated TLS protocol versions (TLS 1.0 / 1.1) are still negotiable on the storage endpoint — no s3:TlsVersion >= 1.2 floor, Azure minimumTlsVersion below TLS1_2, or MinIO permitting legacy protocols.",
+    "security_impact": "One of the OR-triggers of the \"Cleartext / weak-TLS transport\" exposure — fires when weak_tls_versions_enabled is true, leaving in-transit traffic downgradeable/sniffable even when HTTPS is nominally on (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the endpoint's supported TLS versions; confirm 1.0/1.1 are rejected.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <storage-endpoint>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 sections present. A TLSv1.0 or TLSv1.1 section = weak versions still negotiable (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure — read minimumTlsVersion; below TLS1_2 means weak versions are accepted.",
+        "command": "az storage account show -n <acct> -g <rg> --query '{pub:allowBlobPublicAccess,https:enableHttpsTrafficOnly,tls:minimumTlsVersion}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "tls:TLS1_2 or higher (secure). TLS1_0/TLS1_1 = weak versions enabled.",
+        "source": "Microsoft Learn - Require secure transfer for Azure Storage"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The minimum TLS protocol version the endpoint will negotiate (Azure minimumTlsVersion, S3 s3:TlsVersion floor, MinIO negotiated minimum). Secure floor is TLS1_2 or TLS1_3.",
+    "security_impact": "One of the OR-triggers of the \"Cleartext / weak-TLS transport\" exposure — fires when min_tls_version is in [TLS1_0, TLS1_1], permitting downgrade to deprecated, sniffable protocols (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Azure — read minimumTlsVersion directly.",
+        "command": "az storage account show -n <acct> -g <rg> --query '{pub:allowBlobPublicAccess,https:enableHttpsTrafficOnly,tls:minimumTlsVersion}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{tls:TLS1_2} (secure floor). TLS1_0/TLS1_1 = insecure floor.",
+        "source": "Microsoft Learn - Require secure transfer for Azure Storage"
+      },
+      {
+        "type": "network_test",
+        "instruction": "For S3/MinIO, attempt a TLS 1.0 handshake to determine the negotiated floor.",
+        "command": "openssl s_client -connect <storage-endpoint>:443 -tls1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake failure for TLS 1.0/1.1 (secure floor >= TLS1_2). A successful TLS1.0 handshake = floor at TLS1_0.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1_2",
+      "TLS1_3"
+    ]
+  },
+  {
+    "option_name": "object_versioning_enabled",
+    "option_description": "Interpreted secure-polarity boolean (true=secure): object versioning is enabled so prior versions are preserved for recovery from overwrite or delete (S3 Status=Enabled, GCS/Azure versioning).",
+    "security_impact": "One of the OR-triggers of the \"No ransomware resilience / immutability\" exposure — fires when object_versioning_enabled is false, leaving overwritten/deleted objects irrecoverable (T1485).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the versioning status of the bucket.",
+        "command": "aws s3api get-bucket-versioning --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"Status\":\"Enabled\"} (secure). Status absent/Suspended = insecure.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "GCS — confirm object versioning is enabled on the bucket.",
+        "command": "gcloud storage buckets describe gs://<bucket> --format='value(versioning_enabled)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "versioning_enabled=True (secure). False/empty = versioning off.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "object_lock_worm_enabled",
+    "option_description": "Interpreted secure-polarity boolean (true=secure): WORM immutability is in force with a retention rule (S3 Object Lock Enabled, COMPLIANCE preferred; GCS bucket retention/lock; Azure immutable blob policy) so objects cannot be deleted or overwritten for the retention period — even by a compromised credential or root.",
+    "security_impact": "One of the OR-triggers of the \"No ransomware resilience / immutability\" exposure — fires when object_lock_worm_enabled is false (no WORM retention; objects mutable/deletable), the strongest missing ransomware control (T1485).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the Object Lock configuration of the bucket.",
+        "command": "aws s3api get-object-lock-configuration --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockConfiguration.ObjectLockEnabled=Enabled with Rule.DefaultRetention.Mode (COMPLIANCE/GOVERNANCE). Error/absent = no WORM.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure — confirm an immutable blob (WORM) policy is configured on the container/account.",
+        "command": "az storage container immutability-policy show --account-name <acct> --container-name <container>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An immutability policy with a retention period in Locked state (secure). No policy = no WORM.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_delete_enabled",
+    "option_description": "Interpreted secure-polarity boolean (true=secure): MFA-Delete is enabled (S3 get-bucket-versioning MFADelete=Enabled) so permanently deleting object versions or suspending versioning requires an MFA token.",
+    "security_impact": "One of the OR-triggers of the \"No ransomware resilience / immutability\" exposure — fires when mfa_delete_enabled is false (MFA-Delete Disabled/absent or platform equivalent missing), lowering the bar for a single stolen credential to destroy versions (T1485).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the versioning configuration; MFADelete surfaces only when configured.",
+        "command": "aws s3api get-bucket-versioning --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"Status\":\"Enabled\",\"MFADelete\":\"Enabled\"} (secure). MFADelete absent/Disabled = insecure. (MFADelete is set only by the root account via put-bucket-versioning --mfa.)",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For non-AWS platforms, review whether an equivalent step-up (MFA) control gates destructive version operations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Destructive version deletes / versioning suspension require an MFA / step-up token.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backup_or_replication_configured",
+    "option_description": "Interpreted secure-polarity boolean (true=secure): an independent recovery copy exists — cross-region/cross-account replication or a separate backup target with its own versioning/retention (S3 CRR to a versioned destination, GCS replication/transfer, Azure object replication).",
+    "security_impact": "One of the OR-triggers of the \"No ransomware resilience / immutability\" exposure — fires when backup_or_replication_configured is false (no recovery path), so mass-destruction in the primary store destroys the only copy (T1485).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the replication configuration to confirm an independent destination.",
+        "command": "aws s3api get-bucket-replication --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ReplicationConfiguration with a destination bucket (ideally cross-account/cross-region, versioned). ReplicationConfigurationNotFoundError = no replication.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a separate backup target with its own versioning/retention exists if replication is not used.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented independent backup/replication recovery copy with its own retention.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether all default/shipped storage credentials have been removed or changed — specifically the MinIO root account is no longer the historical default minioadmin/minioadmin and no other default/bootstrap account retains its shipped password.",
+    "security_impact": "One of the OR-triggers of the \"Exposed / leaked storage credentials & root keys\" exposure — fires when default_accounts_removed_or_changed is false, i.e. anyone knowing the well-known default owns the all-powerful root account (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "MinIO — read the root credential environment variables; confirm they are strong unique values, not literal defaults.",
+        "command": "env | grep -i MINIO_ROOT_",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MINIO_ROOT_USER/PASSWORD set to strong unique values sourced from a secret manager, not literal defaults (minioadmin/minioadmin).",
+        "source": "MinIO Root Access Settings reference (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "root_credentials_not_used_for_routine_access",
+    "option_description": "Whether the all-powerful root/superuser identity (MinIO root user, AWS account root) is NOT used for routine application or operator access — apps and operators authenticate with scoped, least-privilege identities instead.",
+    "security_impact": "One of the OR-triggers of the \"Exposed / leaked storage credentials & root keys\" exposure — fires when root_credentials_not_used_for_routine_access is false, i.e. routine use of root maximises blast radius and spreads the most powerful credential across clients and logs (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "MinIO — list service/app identities and confirm scoped PBAC policies (not the root user) back routine access.",
+        "command": "mc admin user list myminio; mc admin policy list myminio",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "App/service identities exist with scoped policies; root credentials are not configured into application clients.",
+        "source": "MinIO mc admin policy reference / MinIO PBAC access control (corpus)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application/service config and IAM usage to confirm apps/operators use scoped identities, not account root.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Routine access authenticated by PBAC/IAM-scoped identities; root reserved for break-glass only.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_keys_rotated_regularly",
+    "option_description": "Whether static long-lived access keys (S3/MinIO access-key+secret pairs) are rotated on a defined schedule, or short-lived/role-derived credentials are used instead of static keys.",
+    "security_impact": "One of the OR-triggers of the \"Exposed / leaked storage credentials & root keys\" exposure — fires when access_keys_rotated_regularly is false, i.e. an unrotated long-lived key that leaks stays valid indefinitely (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the key-rotation policy/automation, or confirm ephemeral role/STS credentials replace static keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented rotation schedule/automation exists, or short-lived role/STS credentials are used instead of static keys.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS — list IAM access keys and check their creation date against the rotation SLA.",
+        "command": "aws iam list-access-keys --user-name <user>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AccessKeyMetadata CreateDate within the rotation window; no key older than the SLA. Prefer roles over long-term users.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credentials_not_embedded_in_code_or_env",
+    "option_description": "Whether storage credentials (root password, access-key/secret pairs) are sourced from a secret manager and are NOT embedded in client source code, container images, or plaintext env/docker-compose files.",
+    "security_impact": "One of the OR-triggers of the \"Exposed / leaked storage credentials & root keys\" exposure — fires when credentials_not_embedded_in_code_or_env is false, i.e. secrets leak via VCS, image layers, CI logs, and unauthenticated info-disclosure bugs such as MinIO CVE-2023-28432 which dumps env vars including MINIO_ROOT_USER/PASSWORD (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "MinIO — check whether root creds are literal values in env/compose vs sourced from a secret store.",
+        "command": "env | grep -i MINIO_ROOT_",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Values injected from a secret manager at runtime, not hard-coded literals in docker-compose.yml/.env or image layers.",
+        "source": "MinIO Root Access Settings reference (corpus)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Scan source repos, image layers, and CI config for embedded access-key/secret literals.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No AKIA.../secret-key literals in code, image history, or plaintext env; all secrets fetched from a secret store.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "object_level_data_event_logging_enabled",
+    "option_description": "Whether object-level read/write access is logged to an audit trail: S3 server access logging and/or CloudTrail S3 data events, GCS data-access audit logs, Azure Storage logging, or a MinIO audit webhook shipping per-request events.",
+    "security_impact": "One of the OR-triggers of the \"Insufficient logging / undetected exfiltration\" exposure — fires when object_level_data_event_logging_enabled is false, i.e. bulk object reads / exfiltration over the storage API are invisible (T1567).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read server access logging configuration.",
+        "command": "aws s3api get-bucket-logging --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LoggingEnabled.TargetBucket present (secure). Empty {} = no access logging. Validate data events via AWS Config rule cloudtrail-s3-dataevents-enabled.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "MinIO — confirm the audit webhook is enabled and pointed at a collector/SIEM.",
+        "command": "mc admin config get myminio audit_webhook",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "audit_webhook endpoint=... enable=on (secure). Disabled/empty = no audit trail.",
+        "source": "MinIO Logging and Audit (audit_webhook/logger_webhook) (corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether audit/access logs are shipped to a separate, tamper-resistant system (a dedicated logging account/bucket, SIEM, or external collector) rather than only into the same account/cluster an attacker reaching the store could also reach and delete.",
+    "security_impact": "One of the OR-triggers of the \"Insufficient logging / undetected exfiltration\" exposure — fires when logs_stored_on_separate_system is false, i.e. logs co-reside with the asset and a compromised credential can disable or wipe them (T1567).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — confirm the access-log target bucket lives in a separate (dedicated logging) account.",
+        "command": "aws s3api get-bucket-logging --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LoggingEnabled.TargetBucket resolves to a dedicated logging account/bucket, not the same account as the data bucket.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logs are shipped to an external SIEM/collector with separate access control from the store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs forwarded to a tamper-resistant SIEM/collector whose access is not reachable from the store's credentials.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "exfiltration_anomaly_detection_enabled",
+    "option_description": "Whether anomalous bulk-read / exfiltration behaviour over the storage API is actively detected and alerted (AWS GuardDuty S3 protection, CloudWatch/SIEM volume alerts, GCS/Azure threat detection, or SIEM rules over the MinIO audit stream).",
+    "security_impact": "One of the OR-triggers of the \"Insufficient logging / undetected exfiltration\" exposure — fires when exfiltration_anomaly_detection_enabled is false, i.e. even where logs exist no detection turns a bulk-exfil event into a timely alert (T1567).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS — confirm GuardDuty is enabled with S3 protection.",
+        "command": "aws guardduty list-detectors",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active detector with S3 data-event protection enabled (secure). No detector = no anomaly detection.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SIEM/CloudWatch rules alert on abnormal GetObject volume (or platform threat detection is on for GCS/Azure/MinIO).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented detection rules on abnormal bulk-read volume with an alerting destination.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Interpreted boolean (secure=false): the deployed object-storage build carries a known, publicly-exploitable CVE (e.g. MinIO CVE-2023-28432 unauthenticated Bootstrap-API info disclosure leaking root creds, chainable with CVE-2023-28434 to admin takeover) for which a fix exists but has not been applied.",
+    "security_impact": "One of the OR-triggers of the \"Known-CVE exposure + open network surface & residency drift\" exposure — fires when unpatched_known_rce_cve is true, i.e. a known publicly-exploitable CVE remains unpatched on the running build (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "MinIO — read the running server version and compare against vendor advisories / CVE fixed-versions.",
+        "command": "mc admin info myminio",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server version at/after the fixed release for CVE-2023-28432 / CVE-2023-28434 and any later advisories (secure=false). An older build = unpatched (true).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-reference the deployed build against the vendor security advisory / NVD fixed-version list.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No known publicly-exploitable CVE remains unpatched on the running version.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Interpreted boolean (secure=true): security patches / version upgrades for the object-storage service are applied within the organisation's patch SLA, so newly-disclosed CVEs do not linger on the deployed build.",
+    "security_impact": "One of the OR-triggers of the \"Known-CVE exposure + open network surface & residency drift\" exposure — fires when edge_appliance_patched_within_sla is false, i.e. a patch backlog leaves known vulnerabilities exploitable (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch cadence/change records against the organisation's patch SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patches applied within the defined SLA window; current version at/near the latest fixed release.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "MinIO — read the running version to confirm it tracks recent releases.",
+        "command": "mc admin info myminio",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version recent (within SLA of the latest release). A long-stale build = SLA breach.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "private_endpoint_only",
+    "option_description": "Interpreted boolean (secure=true): the object-storage data/API surface is reachable only via a private/VPC endpoint (S3 aws:SourceVpce/aws:SourceVpc condition, GCS/Azure private endpoint, MinIO bound to a private network), with no public-internet ingress path.",
+    "security_impact": "One of the OR-triggers of the \"Known-CVE exposure + open network surface & residency drift\" exposure — fires when private_endpoint_only is false (bucket/endpoint reachable from any internet source), widening the exploit surface for the unpatched CVE and the data-exfil path (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — confirm the bucket policy restricts access to a VPC endpoint.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket> --query Policy --output text | grep -i SourceVpce",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Condition keys aws:SourceVpce or aws:SourceVpc restricting access (secure). Absent = open network exposure.",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an off-VPC network, attempt to reach the storage endpoint to prove no public ingress path exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused/denied from the public internet; reachable only from the private network/VPC.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Interpreted boolean (secure=true): the storage control-plane / admin API (MinIO admin & Bootstrap APIs, console) is NOT reachable from the public internet.",
+    "security_impact": "One of the OR-triggers of the \"Known-CVE exposure + open network surface & residency drift\" exposure — fires when control_plane_api_not_publicly_exposed is false; a publicly-exposed control-plane API is exactly what makes the unauthenticated CVE-2023-28432 Bootstrap-API info disclosure remotely exploitable (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "MinIO — probe the admin/Bootstrap API path from the public internet to confirm it is not reachable.",
+        "command": "curl -sI https://<minio-host>:9000/minio/bootstrap/v1/verify",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused/timed out or 403 from public networks (secure). A reachable Bootstrap/admin endpoint = exposed control plane.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Scan the admin/console ports from an external network to confirm they are firewalled.",
+        "command": "nmap -p 9000,9001 <minio-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin/console ports filtered/closed from the public internet.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Interpreted boolean (secure=true): management/operator interfaces fronting the object store (web console, management ports) are not reachable from the public internet.",
+    "security_impact": "One of the OR-triggers of the \"Known-CVE exposure + open network surface & residency drift\" exposure — fires when edge_management_interfaces_not_internet_reachable is false, increasing the surface available to chain the info-disclosure CVE into admin takeover, CVE-2023-28434 (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the management/console ports from an external network to confirm they are not internet-reachable.",
+        "command": "nmap -p 9001 <minio-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Console/management port filtered/closed from the public internet (secure). Open = internet-reachable.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the security group / firewall / ingress rules fronting the management interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingress to management interfaces restricted to private/admin networks, not 0.0.0.0/0.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "data_residency_region_pinned",
+    "option_description": "Interpreted boolean (secure=true): stored objects (and any cross-region replication targets) are pinned to an approved Region / sovereignty boundary, so regulated PII/backups stay within permitted jurisdiction.",
+    "security_impact": "One of the OR-triggers of the \"Known-CVE exposure + open network surface & residency drift\" exposure — fires when data_residency_region_pinned is false, i.e. data is resident in or replicated to a non-approved Region (residency/sovereignty drift) (T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS S3 — read the bucket Region and any replication destinations; confirm all are approved Regions.",
+        "command": "aws s3api get-bucket-location --bucket <bucket>; aws s3api get-bucket-replication --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LocationConstraint = an approved Region; ReplicationConfiguration destinations all in approved Regions (or ReplicationConfigurationNotFoundError if CRR unused).",
+        "source": "AWS S3 User Guide - Security best practices for Amazon S3"
+      },
+      {
+        "type": "command",
+        "instruction": "GCS — confirm the bucket location is an approved Region.",
+        "command": "gcloud storage buckets describe gs://<bucket> --format='value(location,location_type)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "location resolves to an approved Region/multi-region; non-approved location = residency drift.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

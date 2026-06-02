@@ -1,0 +1,587 @@
+[
+  {
+    "option_name": "boundary_non_bypassable",
+    "option_description": "Attestation that no alternate network path lets DMZ/presentation hosts (or external traffic) reach the data tier while skipping the application boundary's authn/authz/audit. Covers redundant/failover paths, shared subnets, jump hosts and any L2 spanning the trust zones.",
+    "security_impact": "One of the OR-triggers for exposure \"Boundary bypass via direct DMZ-to-data path\" (rule_id bypass-dmz-data, MITRE T1599 Network Boundary Bridging) — the exposure fires when boundary_non_bypassable is false. Network/segmentation domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Architect-led reachability review of every network ACL / security group / NetworkPolicy / firewall rule between DMZ, app tier and data tier. Walk each ingress AND each failover/redundant path; confirm the data-tier security group accepts ONLY app-tier sources on the data-protocol port, no jump host straddles zones without re-authenticating, no shared L2/VLAN spans the boundary.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written reachability matrix proving every path to the data tier funnels through the authenticating app boundary; redundant paths inherit the same policy as the primary; no DMZ-to-data-tier rule exists.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a DMZ/presentation host (and from outside the VPC) probe the data-tier ports directly, bypassing the app tier. Repeat from a sampling of non-app-tier sources discovered during reachability analysis.",
+        "command": "# from a DMZ host: nc -vz <data-tier-host> <data-port>  ; from outside VPC: nmap -Pn -p<data-port> <data-tier-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All probes from outside the app-tier security group are filtered/closed. Only the app-tier source IPs/identities can open the data-tier port.",
+        "source": "OWASP Network Segmentation Cheat Sheet"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Diff the active cloud-firewall / security-group / NetworkPolicy snapshot against the documented segmentation design. Hunt for stale rules, world-open ports and any rule whose source set is broader than the app-tier identity/CIDR.",
+        "command": "aws ec2 describe-security-groups ; kubectl get networkpolicy -A -o yaml",
+        "file_path": "exported SG/NACL/NetworkPolicy manifests",
+        "navigation": null,
+        "expected_output": "No rule grants DMZ/presentation or 0.0.0.0/0 ingress to data-tier ports; every data-tier rule lists an app-tier SG / namespace label as its source.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dmz_to_data_tier_path_exists",
+    "option_description": "Attestation that a direct DMZ-to-data-tier network path has actually been discovered (the inverse phrasing of boundary_non_bypassable — explicit evidence of bypass rather than absence of evidence). True is the insecure state.",
+    "security_impact": "One of the OR-triggers for exposure \"Boundary bypass via direct DMZ-to-data path\" (rule_id bypass-dmz-data, MITRE T1599) — fires when dmz_to_data_tier_path_exists is true. Network/segmentation domain.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Active reachability sweep from every DMZ/presentation host (load balancers, edge proxies, bastions, WAF appliances) against every documented data-tier port. Record any successful TCP open or banner response.",
+        "command": "for h in $(cat dmz-hosts.txt); do ssh $h \"nmap -Pn -p<data-ports> <data-tier-cidr>\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero open ports from any DMZ source to any data-tier address. Any open finding (even on a 'failover' or 'admin' port) means a bypass path exists and this attestation must be marked true.",
+        "source": "OWASP Network Segmentation Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review change-tickets and IaC history for the last 90 days for emergency firewall rules, temporary 'allow data-tier from edge' carve-outs, or failover routes that were never reverted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No outstanding emergency rules; any temporary carve-out has a closure ticket and a verified revert. Otherwise, mark the attestation true and reference the open ticket.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In data-tier flow logs (VPC flow logs / NSG flow logs / mesh access logs) filter connections whose source IP is NOT in the app-tier subnet / SG over a representative 7-day window.",
+        "command": "aws logs filter-log-events --log-group-name /aws/vpc/flowlogs --filter-pattern '<data-tier-IP> -[app-tier-cidr]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No flows from DMZ/edge IPs to data-tier IPs. A single accepted flow proves the path exists in production traffic.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "internal_interface_reauthenticates_calls",
+    "option_description": "Attestation that the app-tier boundary re-authenticates every ingress call at its internal interface — per-request authn via mTLS/SVID or OIDC/JWT at a Policy Enforcement Point — rather than implicitly trusting calls that arrived from the presentation tier.",
+    "security_impact": "One of the OR-triggers for exposure \"Exploit public-facing application into app tier\" (rule_id exploit-public-facing-to-app-tier, MITRE T1190 Exploit Public-Facing Application) — fires when internal_interface_reauthenticates_calls is false. Authentication domain at the trust boundary.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Architecture review of every ingress path into the app tier (north-south from edge, east-west from peers, admin/management). Confirm each terminates at an authenticating PEP (API gateway, sidecar proxy, mesh ingress) that validates a workload identity (mTLS, SPIFFE SVID) or end-user identity (OIDC/JWT) BEFORE forwarding.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture review confirms every ingress path terminates at an authenticating PEP that validates a workload/service identity (e.g. mTLS, SPIFFE SVID) or an end-user identity (OIDC/JWT) before forwarding. No path that lands on an app-process port unauthenticated.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the app-boundary ingress without credentials and against any management/admin port discovered via nmap.",
+        "command": "curl -sS -o /dev/null -w '%{http_code}\\n' https://<app-boundary-ingress>/health  # without auth header / client cert",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401 / 403 (or TLS handshake failure for mTLS-required edges) — never 200. Repeat for any management/admin port discovered via nmap; all must reject unauthenticated calls.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the gateway/mesh authn policy (Istio AuthenticationPolicy / Envoy JWT filter / nginx auth_request / API-gateway JWT authorizer) for the app-tier ingress listener. Confirm a non-empty, default-deny authn rule applies to every route.",
+        "command": null,
+        "file_path": "service-mesh / API-gateway authn config (e.g. Istio AuthenticationPolicy CRDs, nginx.conf auth_request blocks)",
+        "navigation": null,
+        "expected_output": "Every route has an explicit authn requirement (issuer, audience, JWKS endpoint, or mTLS strict); no anonymous fall-through route to app-tier upstreams.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_side_allowlist_validation",
+    "option_description": "Attestation that untrusted input crossing the app boundary is validated server-side using allow-lists — anchored regex, schema validation, OpenAPI request validation, or a WAF — rather than relying on client-side validation only.",
+    "security_impact": "One of the OR-triggers for exposure \"Exploit public-facing application into app tier\" (rule_id exploit-public-facing-to-app-tier, MITRE T1190) — fires when server_side_allowlist_validation is false. Application/input-validation domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Code/config review of every external-facing endpoint for server-side validation: anchored regexes/length/charset/range checks; rejected requests return a generic error and log entry. Confirm a WAF or schema-validating gateway (OpenAPI request validator) sits in front of the app tier as defense-in-depth.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code/config review shows server-side validation present on every external-facing endpoint: anchored regexes/length/charset/range; rejected requests get a generic error and a log entry. A WAF or schema-validating gateway (OpenAPI request validator) is in front of the app tier as defense-in-depth.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send malformed, oversized and out-of-schema requests against a sampling of endpoints (parameter pollution, oversized bodies, Unicode boundary cases, SQL/script payloads in non-string fields).",
+        "command": "# send malformed/oversized/out-of-schema requests to a sampling of endpoints",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rejected with 400/422 before reaching business logic; no stack traces leaked; no propagation to the data tier.",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the OpenAPI spec served by the boundary and the gateway's request-validation feature (AWS API Gateway request validator, Envoy json-to-metadata + JSON-schema filter, Kong request-validator plugin) to confirm schema enforcement is enabled on every route.",
+        "command": null,
+        "file_path": "OpenAPI spec / gateway plugin config",
+        "navigation": null,
+        "expected_output": "Every route has a strict schema; validator is set to reject on missing/extra/unknown fields; no 'pass-through' routes.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "identity_propagated_cryptographically",
+    "option_description": "Attestation that caller identity crosses the internal boundary in a cryptographically verifiable form — gateway-signed JWT (iss/aud/exp/sig), mTLS cert subject, or SPIFFE SVID — and NOT as unsigned X-User-Id headers or IP allow-lists.",
+    "security_impact": "One of the OR-triggers for exposure \"Trusted-relationship abuse at the internal interface\" (rule_id trusted-relationship-at-internal-interface, MITRE T1199 Trusted Relationship + T1556 Modify Authentication Process) — fires when identity_propagated_cryptographically is false. Authentication/authorization domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Trace one request end-to-end from edge to data tier. Confirm the gateway-issued identity claim (JWT sub/aud, header signed by the gateway, mTLS SAN) reaches the data-access layer and is consulted in the authorization decision; the app tier does NOT collapse all users into a single 'app-service' DB account with broad rights.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trace one request end-to-end: the gateway-issued identity claim (JWT sub/aud, header signed by the gateway, mTLS SAN) reaches the data-access layer and is consulted in the authorization decision. The app tier does NOT collapse all users into a single 'app-service' DB account with broad rights.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Inject a forged X-User-Id (or equivalent unsigned identity header) at the app-internal interface, bypassing the gateway, and observe whether the app honors it.",
+        "command": "# inject a forged 'X-User-Id' header at the app-internal interface",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Header is ignored or rejected — only the gateway-signed identity (verified signature, validated iss/aud/exp) is honored. Unsigned trust-the-header is a finding.",
+        "source": "MITRE ATT&CK T1199 Trusted Relationship"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the boundary's identity-propagation config: the gateway's JWT signing keys / mTLS CA, the upstream service's JWT validation (iss, aud, exp, jwks_uri, signature algorithm), and any header-stripping rule that drops client-supplied identity headers at ingress.",
+        "command": null,
+        "file_path": "gateway+upstream authn config (Envoy JWT filter, OPA bundles, Spring Security JWT decoder)",
+        "navigation": null,
+        "expected_output": "JWT signature verification enabled with explicit iss/aud; client-supplied X-User-Id / X-Authenticated headers are stripped at the ingress before propagating; downstream services accept only the gateway-signed identity.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "shared_service_credentials_used",
+    "option_description": "Attestation that the presentation tier authenticates to the app tier using a shared service account / static service token reused across all end-user sessions — collapsing per-user identity into a single principal. True is the insecure state.",
+    "security_impact": "One of the OR-triggers for exposure \"Trusted-relationship abuse at the internal interface\" (rule_id trusted-relationship-at-internal-interface, MITRE T1199, T1556) — fires when shared_service_credentials_used is true. Authentication/identity-isolation domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the presentation-tier owners and review the auth integration between presentation and app tiers. Determine whether each end-user session is authenticated to the app tier with its own identity (OIDC token, on-behalf-of flow, identity propagation) or whether the presentation tier multiplexes all users behind a single shared API key / service token.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presentation tier acts as identity-aware proxy: each end-user session carries its own gateway-signed identity to the app tier. No single shared token represents all users.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In app-tier authn logs, count distinct authenticated principals over a representative window. A handful of principals despite thousands of end-users indicates principal collapse.",
+        "command": "# in central SIEM: aggregate distinct authenticated principal IDs on app-boundary ingress over 24h",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct-principal count scales with end-user count, not with the number of presentation services. A presentation-tier service account appearing as the principal for ALL user traffic is a finding.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the presentation tier's outbound auth config (API key/secret in env vars, static bearer token in config, machine-to-machine OAuth client_credentials) and the app tier's accepted credentials list.",
+        "command": null,
+        "file_path": "presentation tier secrets/env + app tier accepted-identity policy",
+        "navigation": null,
+        "expected_output": "Presentation tier uses identity propagation (on-behalf-of, token exchange, identity-aware proxy) — NOT a single long-lived static credential representing all users.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "east_west_microsegmentation_enforced",
+    "option_description": "Attestation that lateral movement within the app tier is constrained by default-deny NetworkPolicy / service-mesh / SG-to-SG allow-lists per service pair and port — no flat 'inside the subnet' trust.",
+    "security_impact": "One of the OR-triggers for exposure \"East-west lateral movement on flat app-tier trust\" (rule_id east-west-lateral-on-flat-trust, MITRE T1021 Remote Services + T1078 Valid Accounts) — fires when east_west_microsegmentation_enforced is false. Network/segmentation domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review service mesh / NetworkPolicy / SG-to-SG rules within the app tier. Confirm explicit allow-list per service pair on the specific port, default-deny between services, mTLS strict mode for in-mesh traffic, and SPIFFE/SVID workload identity rather than shared static service-account credentials.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service mesh / NetworkPolicy / SG-to-SG rules show explicit allow-list per service pair on the specific port; default-deny between services. mTLS strict mode (or equivalent peer authn) enforced for in-mesh traffic. SPIFFE/SVID or equivalent workload identity in use rather than shared static service-account credentials.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a pod that has no NetworkPolicy allowing it to talk to a peer, attempt the call. Repeat for a sampling of service pairs that should be denied per policy.",
+        "command": "kubectl exec <pod-A> -- curl -sS http://<pod-B-svc>:<port>/  # where A has no policy allowing B",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused/timed out (NetworkPolicy denies) OR mTLS handshake failure (peer rejects unidentified client). A successful 200 indicates flat trust within the tier.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Dump NetworkPolicy / Istio AuthorizationPolicy / SG-to-SG manifests for the app-tier namespace and confirm a default-deny baseline plus explicit per-pair allow rules.",
+        "command": "kubectl get networkpolicy -n <app-ns> -o yaml ; kubectl get authorizationpolicy -n <app-ns> -o yaml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Namespace contains a default-deny NetworkPolicy (empty podSelector / no ingress rules) plus explicit allow rules per service pair on specific ports. No 'allow all within namespace' rule.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "service_to_service_mtls_enforced",
+    "option_description": "Attestation that east-west service-to-service calls inside the app tier require their own cryptographic peer authentication — strict mTLS, SPIFFE SVID, or workload-identity tokens — and not 'caller is on the right subnet' implicit trust.",
+    "security_impact": "One of the OR-triggers for exposure \"East-west lateral movement on flat app-tier trust\" (rule_id east-west-lateral-on-flat-trust, MITRE T1021, T1078) — fires when service_to_service_mtls_enforced is false. Authentication/encryption domain for east-west traffic.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the mesh PeerAuthentication / mTLS policy (Istio PeerAuthentication mode STRICT, Linkerd automatic mTLS, Consul Connect strict). Confirm no PERMISSIVE / DISABLE override exists for any service in the app tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All services in the app tier are in STRICT mTLS mode with workload-identity certificates issued by the mesh CA. No PERMISSIVE namespace, no port-level mTLS exception.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From inside the app tier, attempt a plaintext (non-mTLS) call to a peer service on its application port.",
+        "command": "kubectl exec <pod-A> -- curl -sS http://<peer-svc>:<app-port>/   # no client cert",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake failure / peer reject — the peer demands a valid workload-identity cert. A 200 OK proves mTLS is not actually enforced.",
+        "source": "MITRE ATT&CK T1021 Remote Services"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect mesh access logs and authn-fail counters for the last 24h. Look for any successful connections lacking a peer principal / source.principal field.",
+        "command": "# Istio Envoy access logs filtered for source_principal empty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every accepted east-west connection has a non-empty source.principal (SPIFFE ID). Absent source.principal indicates mTLS was not enforced for that flow.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_at_boundary_crossing",
+    "option_description": "Attestation that every human-principal session crossing into the app boundary is challenged for MFA at ingress (FIDO2 phishing-resistant strongly preferred over SMS/push).",
+    "security_impact": "One of the OR-triggers for exposure \"Valid-account abuse crossing the boundary\" (rule_id valid-account-abuse-at-crossing, MITRE T1078 Valid Accounts) — fires when mfa_enforced_at_boundary_crossing is false. Authentication domain — the canonical mitigation for credential theft and password-spray.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP policy that fronts the boundary (Okta/Entra/Auth0/Cognito policy attached to the gateway's OIDC integration). Confirm MFA is required for all human users, with phishing-resistant factors (FIDO2/WebAuthn) preferred, and no policy exclusion for legacy clients/IPs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IdP policy mandates MFA on the application's group/audience; FIDO2 enrolled where supported; no 'trusted IP' carve-out that bypasses MFA at the boundary.",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a primary-credential-only login flow (username+password, no second factor) against the boundary's user-facing authn endpoint and observe whether a session is issued.",
+        "command": "# drive the OIDC/SAML login flow with username+password only, capture whether the IdP issues an authenticated session",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Login flow halts at an MFA challenge; no usable session token is issued without satisfying it.",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Aggregate IdP authn events over a 30-day window. Count sessions where an MFA factor was satisfied vs sessions that completed with password only.",
+        "command": "# in IdP audit log: count 'authentication.success' grouped by mfa_used (true|false) over 30d",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "100% of human sessions on the application audience completed an MFA challenge. Any password-only completions are a finding (an excluded user/group, a legacy app skipping MFA).",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_authorization_at_crossing",
+    "option_description": "Attestation that per-request authorization at the boundary is least-privilege: default-deny, no wildcard scopes, admin actions gated behind a separately-scoped role distinct from runtime user roles.",
+    "security_impact": "One of the OR-triggers for exposure \"Valid-account abuse crossing the boundary\" (rule_id valid-account-abuse-at-crossing, MITRE T1078 Valid Accounts) — fires when least_privilege_authorization_at_crossing is false. Authorization domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Policy review of the boundary's authoritative authz policy (OPA/Rego bundle, mesh AuthorizationPolicy, IAM/JWT-scope claims). Confirm default-deny posture, no wildcard Allow over arn:*:* or all-actions for service principals, admin actions gated behind a separately-scoped role.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy review shows an authoritative authz policy (OPA/Rego, service-mesh AuthorizationPolicy, IAM/JWT-scope claims) consulted on every request. Default-deny posture; no wildcard Allow over arn:*:*/all-actions for service principals; admin actions gated behind a separately-scoped role.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Mint a low-privilege token (read-only scope) and exercise admin / write endpoints to verify the boundary blocks them.",
+        "command": "curl -sS -H 'Authorization: Bearer <low-priv-token>' https://<app-boundary>/admin/<sensitive-op>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403 Forbidden with no resource leakage. A token valid for read-only scope MUST NOT succeed on write/admin paths.",
+        "source": "NIST SP 800-207A ZTA Model for Cloud-Native Applications in Multi-Cloud Environments"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the JWT scope / OAuth claim catalog and any Rego/OPA bundles that adjudicate boundary requests. Look for scopes that map to admin paths AND user paths simultaneously, or default Allow rules.",
+        "command": null,
+        "file_path": "OPA bundle / scope catalog / IAM policy",
+        "navigation": null,
+        "expected_output": "Scopes are narrow and named per resource+verb; admin scopes are disjoint from user scopes; the rule base ends in default-deny.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "app_tier_egress_destination_allowlisted",
+    "option_description": "Attestation that outbound traffic from app-tier workloads is constrained to an explicit allow-list — data-tier endpoints, KMS, secret manager, observability collector, package mirrors. General 0.0.0.0/0 internet egress is blocked or forced through an inspecting proxy with its own allow-list.",
+    "security_impact": "One of the OR-triggers for exposure \"Unrestricted egress enabling SSRF/exfil/C2\" (rule_id unrestricted-egress-ssrf-c2, MITRE T1552 Unsecured Credentials: Cloud Instance Metadata) — fires when app_tier_egress_destination_allowlisted is false. Network/egress-control domain.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Egress policy review: app-tier security group / NetworkPolicy / NAT egress rules list specific destinations (data-tier endpoints, KMS, secret manager, observability collector, package registry). 169.254.169.254 (cloud metadata), RFC1918 ranges outside the data tier, and 0.0.0.0/0 internet egress are blocked or routed through an inspecting proxy with an allow-list.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress policy review: app-tier security group / NetworkPolicy / NAT egress rules list specific destinations (data-tier endpoints, KMS, secret manager, observability collector, package registry). 169.254.169.254 (cloud metadata), RFC1918 ranges outside the data tier, and 0.0.0.0/0 internet egress are blocked (or routed through an inspecting proxy with an allow-list).",
+        "source": "OWASP Network Segmentation Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From inside an app-tier pod, attempt outbound calls to (a) the cloud metadata endpoint, (b) an arbitrary public internet host, (c) an RFC1918 host outside the data tier.",
+        "command": "kubectl exec <app-pod> -- curl -sS --max-time 5 http://169.254.169.254/latest/meta-data/  ; curl -sS --max-time 5 https://example.com/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both calls fail (filtered/blocked). Only documented allow-list destinations are reachable from inside the app tier.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect egress proxy / VPC flow logs for the last 7 days and bucket destinations. Compare against the documented allow-list.",
+        "command": "# flow logs: group by destination, identify any destination NOT in the documented allow-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All accepted egress flows resolve to documented allow-list destinations; unknown destinations appear only as denies.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cloud_metadata_endpoint_blocked",
+    "option_description": "Attestation that cloud Instance Metadata Service (169.254.169.254 on AWS, the GCP/Azure equivalents) is unreachable from app workloads — OR only reachable behind IMDSv2-style session-token+hop-limit constraints an SSRF cannot satisfy.",
+    "security_impact": "One of the OR-triggers for exposure \"Unrestricted egress enabling SSRF/exfil/C2\" (rule_id unrestricted-egress-ssrf-c2, MITRE T1552 Unsecured Credentials: Cloud Instance Metadata) — fires when cloud_metadata_endpoint_blocked is false. The canonical SSRF-to-cloud-credentials pivot.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From inside an app-tier workload, attempt to retrieve cloud metadata directly (IMDSv1 style — single GET, no session token).",
+        "command": "kubectl exec <app-pod> -- curl -sS --max-time 5 http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Request times out or returns 401 (IMDSv2 enforced and the IMDSv1 path is denied). A successful credential response means an SSRF in this workload would harvest cloud creds.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On AWS, inspect the instance's metadata options (HttpTokens=required, HttpPutResponseHopLimit=1) or the pod-level egress NetworkPolicy that blocks 169.254.169.254. On GCP/Azure inspect the equivalent metadata-server hardening.",
+        "command": "aws ec2 describe-instances --instance-ids <id> --query 'Reservations[].Instances[].MetadataOptions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HttpTokens=required (IMDSv2 enforced) AND HttpPutResponseHopLimit=1 (container-escape resistant); OR an explicit egress policy blocks the metadata IP entirely.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review whether any app-tier workload genuinely needs metadata access (e.g. for instance-profile creds). For those that do, confirm IMDSv2 with hop-limit 1; for those that don't, confirm an outright block.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented per-workload decision: 'needs IMDS — IMDSv2 enforced' or 'no metadata need — blocked at egress'. No workload has unrestricted IMDSv1.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "back_end_traffic_reencrypted_after_tls_termination",
+    "option_description": "Attestation that after edge TLS termination, traffic onward to app/data tiers is re-encrypted (TLS to upstreams with upstream cert verification, OR strict mTLS via mesh) rather than plaintext on the back end.",
+    "security_impact": "Single-condition OR-trigger for exposure \"Cleartext on the back end after TLS termination\" (rule_id cleartext-on-backend-post-termination, MITRE T1040 Network Sniffing) — fires when back_end_traffic_reencrypted_after_tls_termination is false. Encryption-in-transit domain.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "On an internal interface (between the edge proxy and the app, or between app and data) capture traffic during a representative transaction and confirm payloads are TLS-framed.",
+        "command": "tcpdump -nn -i <internal-iface> port <data-port>  # while a transaction runs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Payload is TLS-framed (handshake records, encrypted application data). Plaintext SQL/HTTP/Redis frames on the wire are a finding.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the reverse-proxy/ingress upstream config (nginx proxy_ssl_verify on with proxy_ssl_trusted_certificate; Envoy upstream tls_context with validation_context; mesh strict mTLS). Confirm backend listeners require TLS — no cleartext fallback port enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reverse-proxy/ingress config verifies upstream TLS verification ON (e.g. nginx proxy_ssl_verify on with proxy_ssl_trusted_certificate; service mesh strict mTLS). Backend listeners require TLS — no cleartext fallback port enabled.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the upstream/backend listener configs (nginx upstream blocks, Envoy clusters, mesh DestinationRule) for proxy_ssl_verify on, sni, trusted_ca, and absence of any plaintext fallback port.",
+        "command": null,
+        "file_path": "nginx upstream config / Envoy cluster TLS context / mesh DestinationRule",
+        "navigation": null,
+        "expected_output": "Upstream TLS verification enabled with a trusted CA bundle pinned; mesh DestinationRule uses ISTIO_MUTUAL or SIMPLE TLS with verification; no cleartext-fallback upstream.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "management_plane_isolated_from_data_plane",
+    "option_description": "Attestation that admin/management interfaces of the boundary itself (gateway admin, mesh control plane, firewall management) are NOT reachable from user-traffic networks — separate admin segment, mgmt VPN, IP-allowlisted admin tier.",
+    "security_impact": "One of the OR-triggers for exposure \"Management-plane compromise bridging the boundary\" (rule_id management-plane-bridging, MITRE T1599 Network Boundary Bridging) — fires when management_plane_isolated_from_data_plane is false. Network-segmentation domain applied to the boundary's own control plane.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Architecture review of management endpoints (e.g. /admin, mesh control-plane API, IaC apply path, firewall mgmt console). Confirm they sit on a separate network/VPN, require MFA, and require a different identity than runtime traffic; centralised AAA for admins; dedicated admin workstation/segment with no internet egress.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management endpoints (e.g. /admin, mesh control plane API, IaC apply path) are on a separate network/VPN, require MFA, and require a different identity than runtime traffic. Centralised AAA for admins; dedicated admin workstation/segment with no internet egress.",
+        "source": "CIS Controls v8 Control 12: Network Infrastructure Management"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a user-tier host (not on the admin VPN) attempt to reach the boundary's management endpoint.",
+        "command": "curl -sS https://<boundary-mgmt-endpoint>  # from a user-tier host",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection filtered. Management endpoint only reachable from the admin segment / VPN.",
+        "source": "CIS Controls v8 Control 12: Network Infrastructure Management"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Dump the security group / firewall / NetworkPolicy attached to the boundary's mgmt-plane endpoints. Confirm source restrictions point at the admin segment / VPN CIDR only.",
+        "command": null,
+        "file_path": "SG/NACL/NetworkPolicy on the boundary's admin endpoints",
+        "navigation": null,
+        "expected_output": "Source CIDRs / SGs limited to admin VPN and admin-workstation segment; no user-tier or DMZ source can hit the management endpoint.",
+        "source": "MITRE ATT&CK T1599 Network Boundary Bridging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "boundary_admin_actions_require_mfa_and_audited",
+    "option_description": "Attestation that privileged actions on the boundary's management plane require MFA AND every change is recorded to a tamper-resistant off-box audit log.",
+    "security_impact": "One of the OR-triggers for exposure \"Management-plane compromise bridging the boundary\" (rule_id management-plane-bridging, MITRE T1599) — fires when boundary_admin_actions_require_mfa_and_audited is false. Authentication + logging domain over the boundary's own control plane.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP / privileged-access policy attached to the boundary's mgmt endpoints. Confirm MFA (FIDO2 preferred) is required for every admin role, and that every state-changing API/CLI/console action is captured to an immutable audit pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logging configuration ships boundary admin logs to an off-host central collector with write-only access from sources, integrity protection (hash/sign or WORM), and documented retention >=90 days (>=12 months for regulated data). MFA enforced on every admin role.",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the central SIEM for boundary admin-action events over the last 30 days. Cross-reference each event against the IdP MFA-satisfied log to prove the operator was MFA-challenged for that action.",
+        "command": "# central SIEM: select admin events on boundary mgmt endpoints, join to IdP authn log on session_id, count events whose session had mfa_used=true",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "100% of admin actions are tied to a session that satisfied MFA. Any admin action lacking an MFA-satisfied session is a finding. Volume of admin events matches change-management ticket count (no silent / unaudited changes).",
+        "source": "CIS Controls v8 Control 8 Audit Log Management"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an admin action against the boundary mgmt endpoint with a credential that has NOT completed MFA (re-use an MFA-stripped token, or a service identity not intended for admin).",
+        "command": "# attempt POST/PUT against boundary admin API with a non-MFA-satisfied session",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Action rejected (401/403) and the rejection itself is logged with principal, source IP, attempted operation and decision.",
+        "source": "CIS Controls v8 Control 12: Network Infrastructure Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

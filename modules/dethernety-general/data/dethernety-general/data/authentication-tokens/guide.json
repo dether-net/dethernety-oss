@@ -1,0 +1,242 @@
+[
+  {
+    "attribute_name": "accepts_alg_none",
+    "option_name": "Verifier accepts alg=none (unsigned JWTs)",
+    "how_to_obtain": [
+      "Code review for the canonical library-misuse pattern: grep the verifier configuration for any allow-list that includes 'none' or that is absent entirely (no algorithms parameter). RFC 8725 §3.1 'Perform Algorithm Verification' + §3.2 'Use Appropriate Algorithms' require an explicit allow-list excluding 'none'.",
+      "Library API check — confirm the verifier is invoked with an explicit algorithms parameter: node-jsonwebtoken `jwt.verify(token, key, { algorithms: ['RS256'] })`; jjwt `Jwts.parserBuilder().setSigningKey(key).build()` (rejects alg=none by default since 0.10.x); PyJWT `jwt.decode(token, key, algorithms=['RS256'])`. Calls without an algorithms parameter historically accept alg=none.",
+      "Live probe: craft a test JWT with header `{\"alg\":\"none\",\"typ\":\"JWT\"}`, payload of choice, empty signature segment, present it to the protected endpoint. Per OWASP JSON Web Token Cheat Sheet (alg=none section) the verifier MUST return 401; a 200 confirms accepts_alg_none=true. Fires exposure \"JWT signature algorithm confusion\".",
+      "CVE precedent: cross-check the library version against CVE-2015-9235 (node-jsonwebtoken alg=none) and CVE-2018-1000531 (inversoft prime-jwt) — older pinned versions remain vulnerable even when the current API is safe."
+    ]
+  },
+  {
+    "attribute_name": "access_token_ttl_minutes",
+    "option_name": "Access token lifetime in minutes",
+    "how_to_obtain": [
+      "Authorization server config: inspect the token-service configuration for the access-token TTL setting (Keycloak realm 'Access Token Lifespan'; Auth0 API 'Token Expiration'; Okta authorization-server policy 'Access Token Lifetime'; Cognito user-pool client 'AccessTokenValidity').",
+      "Decode an issued token: `echo <jwt> | cut -d. -f2 | base64 -d | jq '.exp - .iat'` returns the lifetime in seconds; divide by 60. The exp/iat pair is the authoritative on-wire value regardless of stated config.",
+      "RFC 9700 §2.2 baseline: 'Authorization servers SHOULD use short-lived access tokens.' OWASP OAuth2 Cheat Sheet — 'Token Lifetime' recommends minutes-scale (typical 5–15 min). Rule \"Excessive token lifetime with no revocation channel\" fires at > 60 min.",
+      "Confirm there is no silent renewal extending an apparent short TTL: check whether the resource server re-stamps tokens server-side or whether refresh is the only renewal channel."
+    ]
+  },
+  {
+    "attribute_name": "audience_claim_validated",
+    "option_name": "Audience (aud) claim enforced against this service",
+    "how_to_obtain": [
+      "Verifier configuration: confirm the expected aud value is configured and enforced. node-jsonwebtoken `jwt.verify(token, key, { audience: 'api.example.com' })`; PyJWT `jwt.decode(token, key, audience='api.example.com')`; jjwt `.requireAudience('api.example.com')` on the parser builder. Absence of these calls means aud is decoded but not enforced.",
+      "RFC 8725 §3.7 'Use and Validate Audience' + RFC 7519 §4.1.3: verifier MUST reject tokens whose aud does not name this service.",
+      "Live probe: take a valid token minted by the same issuer for a different audience (a sibling service that shares signing keys) and present it here. A 200 response proves audience_claim_validated=false — the audience-confusion replay path fires exposure \"Missing or permissive token claim validation\".",
+      "Log review: confirm verification-failure logs distinguish 'audience mismatch' from 'signature invalid' — presence of the former in deny logs is positive evidence the check runs."
+    ]
+  },
+  {
+    "attribute_name": "cookie_httponly_flag",
+    "option_name": "Session cookie HttpOnly attribute",
+    "how_to_obtain": [
+      "Capture Set-Cookie on login: `curl -i -X POST https://app.example.com/login -d 'user=...&pass=...' | grep -i '^set-cookie:'` and verify each session cookie line contains `HttpOnly` (case-insensitive).",
+      "Browser DevTools: Application → Cookies pane — the HttpOnly column must be checked for the session cookie.",
+      "OWASP Session Management Cheat Sheet — 'Cookies' section: HttpOnly is mandatory; without it `document.cookie` from injected script reads the token. Missing HttpOnly fires exposure \"Token exfiltration via XSS / JS-accessible storage\".",
+      "Live browser-console test: `document.cookie` must NOT return the session id. If it does, HttpOnly is absent (or set on a different cookie than the session-bearing one)."
+    ]
+  },
+  {
+    "attribute_name": "expiry_claim_validated",
+    "option_name": "Expiry (exp/nbf) claim enforcement",
+    "how_to_obtain": [
+      "Verifier code path: confirm the library's default exp/nbf check is not disabled — node-jsonwebtoken default validates exp (disabled only by `ignoreExpiration: true`); PyJWT default validates exp (`options={'verify_exp': False}` disables it); jjwt validates exp by default through the parser.",
+      "RFC 7519 §4.1.4 (exp) + §4.1.5 (nbf) + RFC 8725 §3.8: tokens past exp or before nbf MUST be rejected.",
+      "Live probe: present a token whose exp is in the past (decode an old one or mint a test token with `exp: now-3600`). A 200 proves expiry is not enforced; a 401 with 'token expired' confirms the check. Missing expiry validation fires exposure \"Missing or permissive token claim validation\".",
+      "Inspect any clock-skew tolerance — RFC 7519 allows 'small leeway' (~60s typical, e.g. PyJWT `leeway=60`); leeway beyond a few minutes weakens but does not disable the control."
+    ]
+  },
+  {
+    "attribute_name": "identifier_entropy_bits",
+    "option_name": "HMAC signing key entropy (bits)",
+    "how_to_obtain": [
+      "Operator interview / secret-management inspection: locate the HS256/HS384/HS512 shared secret in the secret store (Vault, AWS Secrets Manager, env var) and measure its byte length: entropy_bits = 8 × len(secret) for CSPRNG-generated random bytes, or much lower for human-chosen strings.",
+      "RFC 7518 §3.2 'HMAC with SHA-2 Functions': 'A key of the same size as the hash output (for instance, 256 bits for HS256) or larger MUST be used.' Floor is 256 bits per RFC; rule \"Weak HMAC secret brute-force\" fires below 128 bits.",
+      "Offline attempt as proof: capture a JWT and run `hashcat -m 16500 token.txt rockyou.txt` (or `jwt2john` → john) — a hit within minutes proves entropy is well below the floor.",
+      "If the secret is passphrase-derived, require the KDF to be Argon2/PBKDF2 with documented work factor (OWASP Password Storage Cheat Sheet); otherwise treat the passphrase's own entropy as the bit count."
+    ]
+  },
+  {
+    "attribute_name": "issuer_claim_validated",
+    "option_name": "Issuer (iss) claim enforced against allow-list",
+    "how_to_obtain": [
+      "Verifier configuration: confirm an explicit issuer is configured — node-jsonwebtoken `{ issuer: 'https://idp.example.com' }`; PyJWT `issuer='https://idp.example.com'`; jjwt `.requireIssuer(...)` on the parser builder.",
+      "RFC 7519 §4.1.1 (iss) + RFC 8725 §3.7 ('Use and Validate Issuer'): verifier MUST match iss against a trusted issuer list, rejecting tokens minted by any other authority.",
+      "Live probe: mint or capture a token from a different issuer signed with a key the verifier trusts (e.g. a sibling tenant on the same authorization server) and present it. Acceptance proves iss is not enforced — fires exposure \"Missing or permissive token claim validation\".",
+      "Cross-tenant test: if the deployment is multi-tenant, present tenant-A's token at tenant-B's endpoint — a 200 indicates issuer scoping is missing."
+    ]
+  },
+  {
+    "attribute_name": "jwt_signature_verified",
+    "option_name": "JWT signature actually cryptographically verified",
+    "how_to_obtain": [
+      "Code grep for the library-misuse pattern: search for `jwt.decode(` (node-jsonwebtoken — decode-without-verify), `jwt.get_unverified_claims(` (PyJWT / python-jose), `Jwts.parser().parse(` without `.setSigningKey()`, or any 'unverified' / 'insecure' helper.",
+      "RFC 8725 §2.1 'Perform Algorithm Verification' + OWASP JSON Web Token Cheat Sheet — 'Use a Proper JWT Library': the verify path must include signature verification, not solely claim decoding.",
+      "Live probe: tamper a single byte of an issued JWT payload (re-base64-encode payload with a changed claim, keep original signature) and present it. The verifier MUST return 401 — a 200 conclusively proves jwt_signature_verified=false. Fires exposure \"JWT signature algorithm confusion\".",
+      "Audit-log review: signature failures should produce a distinct error code from 'expired' or 'audience mismatch' — absence of any 'signature invalid' deny events over a sample period is suspicious."
+    ]
+  },
+  {
+    "attribute_name": "long_lived_token_in_browser_storage",
+    "option_name": "Multi-day token persisted in browser-side storage",
+    "how_to_obtain": [
+      "Browser DevTools: Application → Local Storage / Session Storage — enumerate stored keys; any value that decodes as a JWT with `exp - iat > 86400`, or any opaque token labelled `refresh_token`, is a long-lived browser-stored credential.",
+      "RFC 9700 §4.13 'Browser-Based Apps': refresh tokens stored in browser storage are a primary XSS exfiltration target; the BCP recommends server-side session backends or HttpOnly cookies for long-lived material.",
+      "OWASP JSON Web Token Cheat Sheet — 'Token Storage on Client Side': localStorage / sessionStorage are JS-accessible and unsuitable for long-lived tokens; only short-TTL access tokens may live there, if at all. Fires exposure \"Token exfiltration via XSS / JS-accessible storage\".",
+      "Code grep: `localStorage.setItem('refresh`, `sessionStorage.setItem('refresh`, framework auth-store config (Auth0 SPA SDK `cacheLocation: 'localstorage'`) — these explicitly opt into the insecure pattern."
+    ]
+  },
+  {
+    "attribute_name": "refresh_token_rotation_enabled",
+    "option_name": "Refresh token rotation on every use",
+    "how_to_obtain": [
+      "Authorization server config: confirm rotation is enabled (Auth0 application 'Refresh Token Rotation' toggle; Okta 'Rotate token after every use'; Keycloak realm 'Revoke Refresh Token' enabled; Cognito client 'EnableTokenRevocation').",
+      "RFC 9700 §2.2.2 'Refresh Token Protection' + OWASP OAuth2 Cheat Sheet — 'Refresh Token Rotation': single-use rotation is BCP for public clients.",
+      "Live probe: perform a refresh exchange against /token (`curl -X POST .../token -d 'grant_type=refresh_token&refresh_token=<rt>'`); record the new refresh_token returned; immediately replay the ORIGINAL rt — rotation-on-use requires it to be rejected. Replay-acceptance fires exposure \"Refresh-token replay with no rotation or reuse detection\".",
+      "If the same rt remains usable across multiple refreshes, rotation is disabled; if the new rt arrives but the old one is still accepted, that is the worst-of-both case (rotation without invalidation)."
+    ]
+  },
+  {
+    "attribute_name": "rs256_to_hs256_confusion_possible",
+    "option_name": "Verifier vulnerable to RS256→HS256 key-confusion / kid injection",
+    "how_to_obtain": [
+      "Code review: verifier must NOT branch on the token-supplied alg to choose the verification routine — it must pin the algorithm AND pin the key type for that alg. RFC 8725 §3.1 and §2.1 are the authoritative anchors.",
+      "Library API check: node-jsonwebtoken `algorithms: ['RS256']` (mandatory — absence allows HS256 selection against the RSA key); jjwt `Jwts.parserBuilder().setSigningKey(rsaPublicKey).build()` (pre-0.10 versions tolerate HS256 against the same key); PyJWT modern versions reject this, older do not.",
+      "Live probe (canonical exploit): take a valid RS256 token, change header to `{\"alg\":\"HS256\"}`, sign with the issuer's PEM public key as the HMAC secret (jwt_tool / scripted), present it — a 200 proves rs256_to_hs256_confusion_possible=true and fires exposure \"JWT signature algorithm confusion\".",
+      "kid header injection: inspect how the verifier resolves `kid` — it must look up against a trusted JWKS set, never a path/SQL value influenced by the kid string. Path-traversal-style kid values (`../../dev/null`) reaching the filesystem indicate the related kid-injection vulnerability (RFC 8725 §3.11)."
+    ]
+  },
+  {
+    "attribute_name": "samesite_attribute_set",
+    "option_name": "SameSite attribute present on session cookie",
+    "how_to_obtain": [
+      "Capture Set-Cookie: `curl -i .../login | grep -i '^set-cookie:'` and check each session cookie line for `SameSite=` (any value).",
+      "Browser DevTools Application → Cookies: the SameSite column shows the policy. Empty / 'Unspecified' (which Chrome currently treats as Lax-by-default) is reported as missing by this attestation — the attribute string must be present.",
+      "RFC 6265bis §4.1.2.7 + OWASP Session Management Cheat Sheet — 'SameSite Attribute': missing SameSite leaves CSRF auto-attachment to legacy browser defaults (Safari does not enforce Lax-by-default) and downgrades CSRF posture. Missing attribute fires exposure \"Session fixation and cross-site request forgery on cookie-borne sessions\".",
+      "Cross-browser test: open an attacker-controlled origin and trigger a state-changing POST to the app — if the session cookie attaches and the request succeeds, the SameSite control is effectively absent."
+    ]
+  },
+  {
+    "attribute_name": "samesite_mode",
+    "option_name": "SameSite policy mode (Strict / Lax / None)",
+    "how_to_obtain": [
+      "Capture Set-Cookie and read the value: `curl -i .../login | grep -i samesite=` returns `SameSite=Strict|Lax|None`. None requires `Secure` to be honoured by modern browsers (RFC 6265bis §5.5).",
+      "OWASP Session Management Cheat Sheet — 'SameSite Attribute': 'Strict' / 'Lax' protect state-changing endpoints from CSRF; 'None' opts back in to cross-site attachment. Rule fires when value equals 'None' — exposure \"Session fixation and cross-site request forgery on cookie-borne sessions\".",
+      "If the value is 'None', require justification (third-party embeds, federated logout) and a complementary CSRF token / Origin-header check on every state-changing endpoint.",
+      "Audit pattern: a session cookie with `SameSite=None` that is also missing `Secure` is rejected by modern Chrome — verify both attributes co-occur."
+    ]
+  },
+  {
+    "attribute_name": "secrets_masked_in_logs",
+    "option_name": "Tokens redacted from logs, traces, and error reports",
+    "how_to_obtain": [
+      "Logging pipeline review: confirm a redaction filter for `Authorization`, `Cookie`, `Set-Cookie`, `access_token`, `refresh_token`, `id_token`, `Bearer ` (and JSON-body equivalents) on application logs, access logs, and OpenTelemetry span attributes. CWE-532 + OWASP Logging Cheat Sheet name these patterns.",
+      "OpenTelemetry / APM config: Sentry `beforeSend` scrubs `Authorization` headers; Datadog `processing_rules` strips token-shaped strings; OTel SDK `SpanProcessor` filters span attributes — verify by code/config grep.",
+      "Live test: send a request with a probe-value bearer token (`Authorization: Bearer DEADBEEF-PROBE-<uuid>`); then grep all log/telemetry sinks (application logs, nginx access logs, CDN logs, Sentry events, Datadog traces) for `DEADBEEF-PROBE-`. Any hit proves secrets_masked_in_logs=false and fires exposure \"Token leakage via URL, Referer, or telemetry sinks\".",
+      "MITRE ATT&CK T1552.001 'Credentials in Files' is the threat model — the log store is the file in question."
+    ]
+  },
+  {
+    "attribute_name": "sender_constrained",
+    "option_name": "Sender-constrained access tokens (DPoP / mTLS)",
+    "how_to_obtain": [
+      "Authorization-server feature check — DPoP: issuer accepts `DPoP` request header on /token and binds the access token to the proof JWT's `cnf.jkt` thumbprint (RFC 9449 §6); mTLS: issuer accepts client-cert authentication and emits `cnf.x5t#S256` binding (RFC 8705 §3).",
+      "Inspect an issued access token: decode the JWT and look for a `cnf` (confirmation) claim — `cnf.jkt` indicates DPoP binding, `cnf.x5t#S256` indicates mTLS binding. Absence of `cnf` means pure bearer.",
+      "Resource-server check: confirm the API validates the DPoP proof on every request (header `DPoP: <proof-jwt>` with matching htm/htu/jti/ath claims per RFC 9449 §4.3) or terminates client TLS itself and matches the cert thumbprint. RFC 9700 §2.2 is the BCP.",
+      "Live replay test: capture a valid Authorization header and replay it from a different host without the corresponding DPoP proof / client cert — sender-constrained deployments return 401 'invalid_dpop_proof' / TLS handshake failure; pure bearers return 200, firing exposure \"Bearer token theft and replay without sender constraint\"."
+    ]
+  },
+  {
+    "attribute_name": "server_side_revocation_supported",
+    "option_name": "Server-side revocation / reuse-detection state",
+    "how_to_obtain": [
+      "Endpoint discovery: query the authorization server's OIDC discovery document (`GET /.well-known/openid-configuration`) and confirm both `revocation_endpoint` (RFC 7009) and `introspection_endpoint` (RFC 7662) are advertised and reachable.",
+      "Live revocation test: revoke a token via `curl -X POST <revocation_endpoint> -d 'token=<rt>&token_type_hint=refresh_token' -u <client>`; then attempt to use it. RFC 7009 requires immediate invalidation; a 200 on subsequent use proves revocation is non-functional — fires both \"Refresh-token replay with no rotation or reuse detection\" and \"Excessive token lifetime with no revocation channel\".",
+      "Refresh-token reuse-detection probe (Auth0 / Okta family-invalidation guidance): refresh once (rt1 → rt2 + at2), then present rt1 again. The server MUST revoke the entire token family on detected reuse — verify that rt2 is also invalidated after the rt1 replay attempt.",
+      "Store check: for JWT-based deployments confirm a deny-list / token-id (jti) blocklist is consulted on every verification — otherwise self-contained JWTs cannot be pulled back."
+    ]
+  },
+  {
+    "attribute_name": "session_absolute_timeout_enforced",
+    "option_name": "Absolute (non-sliding) session timeout enforced",
+    "how_to_obtain": [
+      "Session-store / authorization-server config: locate the absolute-lifetime parameter (Keycloak realm 'SSO Session Max'; Auth0 tenant 'Absolute Lifetime'; Spring Session `maximumSessions` / `maxLifetime`; express-session does NOT support absolute by default — must be enforced in app code).",
+      "OWASP Session Management Cheat Sheet — 'Session Expiration' section: recommends idle + absolute timers; absolute typically 4–12 h or one working day regardless of activity.",
+      "Live test: authenticate, then continuously refresh / use the session past the documented absolute limit (script a request every 5 min beyond the cap); a session that survives indefinitely proves session_absolute_timeout_enforced=false and fires exposure \"Excessive token lifetime with no revocation channel\".",
+      "Cross-check refresh-chain extensibility: if refresh tokens reissue access tokens without consulting an absolute cap on the underlying session, the absolute timeout is bypassable through the refresh path."
+    ]
+  },
+  {
+    "attribute_name": "session_id_regenerated_on_auth",
+    "option_name": "Session id regenerated on authentication / privilege change",
+    "how_to_obtain": [
+      "Live test: visit the site unauthenticated, record the pre-login session cookie value; submit valid credentials; record the post-login session cookie. Per OWASP Session Management Cheat Sheet — 'Renew the Session ID After Any Privilege Level Change' — they MUST differ. Identical values prove session_id_regenerated_on_auth=false (CWE-384 Session Fixation), firing exposure \"Session fixation and cross-site request forgery on cookie-borne sessions\".",
+      "Code grep for explicit regeneration: PHP `session_regenerate_id(true)`; Django `request.session.cycle_key()`; Spring Security `SessionFixationProtectionStrategy` / `migrateSession`; Express `req.session.regenerate(cb)`.",
+      "Repeat for every privilege transition: MFA step-up, password change, role escalation, account link — each MUST mint a fresh id per OWASP Authentication Cheat Sheet — 'Re-Authentication'.",
+      "Confirm the server REJECTS server-unminted ids (strict, not permissive, session management) — try presenting a freshly-generated random session cookie; the server must not adopt it."
+    ]
+  },
+  {
+    "attribute_name": "signature_algorithm_pinned_server_side",
+    "option_name": "Signature algorithm pinned server-side (header alg ignored)",
+    "how_to_obtain": [
+      "Library API check (the canonical control): verifier called with an explicit algorithms allow-list — node-jsonwebtoken `jwt.verify(token, key, { algorithms: ['RS256'] })`; PyJWT `jwt.decode(token, key, algorithms=['RS256'])`; jjwt 0.11+ `Jwts.parserBuilder().setSigningKey(key).build()` (pins to the algorithm family of the supplied key); jose-jwt `JWT.Decode(token, key, JwsAlgorithm.RS256)`.",
+      "RFC 8725 §3.1 'Use Appropriate Algorithms' + §2.1 'Perform Algorithm Verification' — the verifier MUST NOT trust the token-supplied alg to choose the verification routine.",
+      "Live probe: take a valid token, rewrite the header alg to a different family (RS256 → HS256, or RS256 → none) without changing the signature segment; the verifier MUST reject. Acceptance proves pinning is absent and fires exposure \"JWT signature algorithm confusion\".",
+      "Configuration review: any verifier API that takes 'algorithm' as input from the token (some legacy wrappers) rather than from configuration is unsafe — call it out by name."
+    ]
+  },
+  {
+    "attribute_name": "signing_key_csprng_generated",
+    "option_name": "HMAC signing key generated by CSPRNG",
+    "how_to_obtain": [
+      "Operator interview / runbook review: confirm key-generation used a CSPRNG — `openssl rand -base64 64`, `/dev/urandom`, `python -c 'import secrets; print(secrets.token_urlsafe(64))'`, AWS KMS `GenerateRandom`, Vault `transit/random` — NOT a human-chosen string, passphrase without strong KDF, or `Math.random()`-class RNG.",
+      "RFC 8725 §3.5 'Use Appropriate Key Length' + RFC 4086 'Randomness Requirements for Security': cryptographic keys MUST be generated by a CSPRNG.",
+      "Audit the key in the secret store for tell-tale weakness: words, repeated patterns, ASCII-only short strings, common defaults ('secret', 'changeme', the project name). Any of these refute CSPRNG provenance regardless of stated procedure and fire exposure \"Weak HMAC secret brute-force\".",
+      "If the key was derived from a passphrase, verify a strong KDF was applied (Argon2id with documented parameters, PBKDF2 with ≥600k iterations per OWASP Password Storage Cheat Sheet) — otherwise the effective entropy is the passphrase's, not the output's."
+    ]
+  },
+  {
+    "attribute_name": "signing_key_high_entropy",
+    "option_name": "HMAC signing key has high entropy (resists brute-force)",
+    "how_to_obtain": [
+      "Measure key length in bytes from the secret store: ≥ 32 bytes (256 bits) for HS256 per RFC 7518 §3.2; ≥ 48 bytes for HS384; ≥ 64 bytes for HS512. Anything shorter than the hash output is the explicit RFC 7518 violation.",
+      "Offline crack attempt as falsification: `hashcat -m 16500 captured.jwt rockyou.txt -O` and `hashcat -m 16500 captured.jwt -a 3 ?a?a?a?a?a?a?a?a` (mask 8-char brute-force). A hit within hours proves signing_key_high_entropy=false and fires exposure \"Weak HMAC secret brute-force\".",
+      "RFC 8725 §3.5 + OWASP JSON Web Token Cheat Sheet — 'Symmetric Key Confidentiality and Strength': mandates long, random, never-reused symmetric secrets; prefers asymmetric (RS256/ES256/EdDSA) so this question becomes moot for verifiers.",
+      "Check default-value provenance: if the secret originated from the framework's example config or a tutorial copy-paste, treat entropy as zero regardless of measured length."
+    ]
+  },
+  {
+    "attribute_name": "stored_in_js_accessible_storage",
+    "option_name": "Tokens placed in JavaScript-accessible storage",
+    "how_to_obtain": [
+      "Browser DevTools — Application → Local Storage and Session Storage: enumerate entries; any access_token / id_token / refresh_token / `Bearer`-shaped value is JS-accessible storage. Application → Cookies: any auth cookie WITHOUT HttpOnly is equivalently JS-accessible.",
+      "Browser console: `Object.keys(localStorage)` and `Object.keys(sessionStorage)` from the authenticated page; `document.cookie` lists non-HttpOnly cookies. Any token-shaped value confirms stored_in_js_accessible_storage=true and fires exposure \"Token exfiltration via XSS / JS-accessible storage\".",
+      "OWASP JSON Web Token Cheat Sheet — 'Token Storage on Client Side' + RFC 9700 §4.13: localStorage / sessionStorage are reachable by injected script and unsuitable; HttpOnly cookies or non-persistent in-memory only is the safe pattern.",
+      "Code grep: `localStorage.setItem('token`, `localStorage.setItem('access`, framework auth library config (Auth0 SPA SDK `cacheLocation: 'localstorage'`, MSAL `cacheLocation: 'localStorage'`) — all opt into the insecure pattern explicitly."
+    ]
+  },
+  {
+    "attribute_name": "tls_only_transport",
+    "option_name": "Token transmitted exclusively over TLS",
+    "how_to_obtain": [
+      "HSTS check: `curl -sI https://app.example.com | grep -i strict-transport-security` — `max-age` should be ≥ 31536000 with `includeSubDomains` (and ideally `preload`). Per OWASP Secure Headers Project this prevents protocol downgrade.",
+      "Cleartext probe: `curl -v http://app.example.com/api/me -H 'Authorization: Bearer <token>'` — the server MUST 301/308 to https BEFORE any token-bearing endpoint accepts the request, AND the cookie/header must not be acknowledged on the plaintext leg. Failure fires exposure \"Token leakage via URL, Referer, or telemetry sinks\".",
+      "Issuer + revocation endpoints: `curl -v http://idp.example.com/.well-known/openid-configuration` — the discovery doc, /token, /revocation, /introspection MUST all be https-only on every leg of the token lifecycle (RFC 9700 §3.1).",
+      "Network capture in a staging environment: tcpdump / Wireshark on the egress interface during a login + API call; observe no plaintext token bytes. Mixed-mode (HTTPS with an HTTP redirect chain) counts as cleartext for this attestation."
+    ]
+  },
+  {
+    "attribute_name": "transmitted_in_url_or_query",
+    "option_name": "Token appears in URL path / query / fragment",
+    "how_to_obtain": [
+      "Inspect HTTP request shapes: tokens MUST live in `Authorization: Bearer` header or `Cookie:` header — NEVER in `?access_token=`, path segments, or `#access_token=` fragments. RFC 9700 §4.3.2 'Authorization Code in Browser History' + CWE-598 are the authorities.",
+      "Web-server / CDN access logs: `grep -E 'access_token=|token=|jwt=|sid=' /var/log/nginx/access.log` (and CloudFront / Cloudflare / Fastly logs) — any hit confirms tokens hit URLs and were logged. The hit itself is evidence of leakage to log sinks and fires exposure \"Token leakage via URL, Referer, or telemetry sinks\".",
+      "Browser history + Referer test: navigate from an authenticated page to a third-party origin (analytics pixel, embedded widget). Inspect outbound requests' `Referer` header in DevTools — token bytes in Referer prove URL-borne leakage to third parties. Mitigate with `Referrer-Policy: no-referrer` or `strict-origin`.",
+      "Code grep: `window.location.href.includes('token=')`, route handlers reading `req.query.access_token`, OAuth implicit-flow callback handlers reading `window.location.hash` — flag any of these as URL-borne token paths (RFC 9700 deprecates implicit flow precisely because of this)."
+    ]
+  }
+]

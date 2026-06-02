@@ -1,0 +1,451 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "breached_password_screening_enabled": {
+        "type": "boolean",
+        "title": "Breached-Password Screening Enabled",
+        "description": "Attested true when prospective/changed consumer passwords are screened against a known-compromised-password blocklist (e.g. Pwned Passwords k-anonymity range API) per NIST SP 800-63B Rev 4 §3.1.1.2 SHALL. Insecure (false) when no breach-list screening exists, so reused breached passwords are accepted and credential stuffing succeeds.",
+        "default": false
+      },
+      "mfa_available": {
+        "type": "boolean",
+        "title": "MFA Available to Users",
+        "description": "Attested true when end-users can enrol a second authentication factor on the account. MFA is the single highest-impact account-takeover defense (stops ~99.9% of automated compromise per OWASP). Insecure (false) when no second-factor option exists anywhere in account settings, leaving password-only accounts fully exposed to replayed/phished credentials.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Login Rate Limiting or Lockout Enabled",
+        "description": "Attested true when failed-login attempts are throttled (graduated delays / CAPTCHA / bot detection bound to the account) per NIST SP 800-63B Rev 4 §3.2.2. Insecure (false) when login accepts unbounded attempts at full speed, permitting high-volume password spraying and credential stuffing against the endpoint.",
+        "default": false
+      },
+      "max_consecutive_failed_attempts": {
+        "type": "integer",
+        "title": "Max Consecutive Failed Login Attempts",
+        "description": "The documented cap on consecutive failed login attempts per account before throttle/challenge. NIST SP 800-63B Rev 4 §3.2.2 requires limiting consecutive failures to <=100. Insecure when greater than 100 (or effectively uncapped), giving an attacker a wide guessing window per account for spraying/stuffing. Secure baseline is <=100, so the gt-100 trigger stays silent on a hardened config.",
+        "minimum": 0,
+        "maximum": 100
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "boolean",
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "Attestation: a phishing-resistant, origin-bound authenticator (FIDO2/WebAuthn passkey or PIV/CAC) is REQUIRED to authenticate the consumer account, so an AiTM relay proxy cannot complete the login or replay the factor. When false, the account is reachable with phishable factors and an adversary-in-the-middle proxy can relay the real login and capture the credential plus the OTP/push approval.",
+        "default": false
+      },
+      "phishing_resistant_mfa_offered": {
+        "type": "string",
+        "enum": [
+          "webauthn_or_piv_offered",
+          "sms_otp_push_only"
+        ],
+        "title": "Phishing-Resistant MFA Offered",
+        "description": "Attestation: which second-factor types the account offers. Only origin-bound FIDO/WebAuthn or PKI (webauthn_or_piv_offered) defeats an AiTM proxy; sms_otp_push_only is phishable/downgradable and the proxy relays or generates the approval. The condition fires on the insecure value sms_otp_push_only and stays silent on the secure webauthn_or_piv_offered."
+      },
+      "session_cookie_attributes": {
+        "type": "string",
+        "enum": [
+          "secure_httponly_samesite",
+          "missing_attributes"
+        ],
+        "title": "Session Cookie Attributes (Composite)",
+        "description": "Attestation: whether the consumer session cookie sets Secure, HttpOnly, and SameSite as a composite verdict. AiTM proxies that capture the live session cookie bypass MFA entirely by riding the established session; weak cookie attributes (missing_attributes) widen the theft/replay surface. Secondary trigger for the session-theft facet of the phishing vector; fires on the insecure value."
+      },
+      "session_revocation_on_credential_change": {
+        "type": "string",
+        "enum": [
+          "revoked_on_change",
+          "sessions_survive"
+        ],
+        "title": "Session Revocation on Credential Change",
+        "description": "Attestation: whether active sessions are revoked on credential change and the user can terminate active sessions. When sessions_survive, a session cookie captured by an AiTM proxy keeps working even after the victim resets their password, so the stolen session cannot be evicted. Paired with weak cookie attributes it completes the session-theft branch of the phishing vector."
+      },
+      "password_min_length": {
+        "type": "integer",
+        "title": "Password Minimum Length",
+        "description": "Minimum password length the account permits for a memorized secret. NIST SP 800-63B Rev 4 §3.1.1 raised the single-factor memorized-secret minimum to 15 chars (Rev 3 was 8); a minimum below ~12 pushes users toward short, guessable secrets that fall to guessing, spraying, and reuse. The exposure fires when the enforced minimum is short (lt 12); a hardened policy (>=15) does not fire."
+      },
+      "password_max_length_cap_below_64": {
+        "type": "boolean",
+        "title": "Password Max-Length Capped Below 64",
+        "description": "Interpreted boolean: true when the account imposes a maximum password length below 64 characters, blocking the long passphrases NIST 800-63B §3.1.1 requires verifiers to accept (>=64). A low max-length cap is a legacy constraint that suppresses entropy. Fires when true (insecure); a policy that accepts >=64-char passphrases sets this false and stays silent."
+      },
+      "composition_rules_or_forced_rotation_imposed": {
+        "type": "boolean",
+        "title": "Composition Rules or Forced Rotation Imposed",
+        "description": "Interpreted boolean: true when the account imposes legacy memorized-secret rules NIST 800-63B Rev 4 §3.1.1 deprecates — mandatory character-class composition (forced symbol/number/case mix) and/or forced periodic rotation (e.g. 90-day expiry). These rules push users to predictable patterns that fall to guessing. Fires when true (insecure); a hardened policy with no composition mandate and no forced rotation sets this false and stays silent."
+      },
+      "recovery_token_csprng_single_use_short_expiry": {
+        "type": "boolean",
+        "title": "Recovery Token CSPRNG / Single-Use / Short-Expiry",
+        "description": "Attestation that the password-reset token is CSPRNG-generated, unguessable, single-use, short-expiry, tied to one user, invalidated after use, and delivered over a side channel (emailed HTTPS URL / SMS PIN) rather than returned in-band. The assessor sets this true only when ALL of those hold. Insecure (false) fires this exposure: sequential/guessable, reusable, long-lived, or in-band reset tokens let an attacker forge or replay a reset and seize the account through recovery.",
+        "default": false
+      },
+      "recovery_no_account_enumeration": {
+        "type": "boolean",
+        "title": "Recovery Flow Resists Account Enumeration",
+        "description": "Attestation that forgot-password and registration return a consistent message AND uniform timing regardless of whether the account exists, so the recovery flow cannot be used to enumerate valid accounts. Insecure (false) fires this exposure: differential wording ('no such user') or measurable timing difference leaks account existence, seeding targeted credential stuffing and phishing."
+      },
+      "reset_request_rate_limited": {
+        "type": "boolean",
+        "title": "Password-Reset Requests Rate Limited",
+        "description": "Attestation that password-reset-request submissions are rate-limited per account (throttle / CAPTCHA) so the recovery flow cannot be abused for enumeration, mail-bombing, or brute-forcing the reset token. Insecure (false) fires this exposure: unbounded reset triggering enables token brute force and recovery-flow abuse."
+      },
+      "no_auto_login_after_reset": {
+        "type": "boolean",
+        "title": "No Auto-Login After Reset",
+        "description": "Attestation that the user is NOT automatically logged in after completing a password reset and that prior sessions are invalidated, so completing a reset cannot silently establish a session for an attacker who triggered it. Insecure (false) fires this exposure: auto-login post-reset (or surviving old sessions) lets a recovery-flow abuser obtain an authenticated session directly."
+      },
+      "kba_security_questions_used": {
+        "type": "boolean",
+        "title": "KBA / Security Questions Used",
+        "description": "Attestation that security questions / knowledge-based answers (or an unauthenticated-readable password hint) are used as an authentication or account-recovery factor. Insecure-positive form: true fires this exposure because KBA answers are low-entropy, frequently public or socially harvested, and forbidden as a recovery factor (NIST 800-63B SHALL NOT use KBA; OWASP forbids security questions as a reset mechanism).",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Attested true when the login flow and all authenticated pages — and therefore the session secret — travel exclusively over HTTPS/TLS (plain-HTTP redirects to https:// and HSTS is present). When false the session cookie can be observed in plaintext and replayed (session hijacking).",
+        "default": false
+      },
+      "cookie_secure_flag": {
+        "type": "boolean",
+        "title": "Cookie Secure Flag Set",
+        "description": "Attested true when the consumer session cookie carries the Secure attribute, so the browser never transmits it over plaintext HTTP. When false the session secret can leak over an unencrypted hop and be stolen.",
+        "default": false
+      },
+      "cookie_httponly_flag": {
+        "type": "boolean",
+        "title": "Cookie HttpOnly Flag Set",
+        "description": "Attested true when the consumer session cookie carries the HttpOnly attribute, so client-side script cannot read it. When false an XSS payload can exfiltrate the session secret and hijack the session.",
+        "default": false
+      },
+      "samesite_attribute_set": {
+        "type": "boolean",
+        "title": "SameSite Attribute Set",
+        "description": "Attested true when the consumer session cookie sets SameSite (Strict or Lax), preventing the browser from attaching it to cross-site requests. When false the session can be ridden cross-site (CSRF / cross-site session ride)."
+      },
+      "session_id_regenerated_on_auth": {
+        "type": "boolean",
+        "title": "Session ID Regenerated on Auth",
+        "description": "Attested true when the session identifier is regenerated on authentication (and on privilege change), so a pre-auth identifier planted by an attacker cannot become an authenticated one. When false the session is open to fixation — the attacker fixes a known session id and rides it after the victim logs in.",
+        "default": false
+      },
+      "session_absolute_timeout_enforced": {
+        "type": "boolean",
+        "title": "Session Absolute Timeout Enforced",
+        "description": "Attested true when the consumer session has both an idle and an absolute (overall) timeout sized to the AAL (800-63B Table 1). When false a hijacked or abandoned session never expires, leaving an unbounded exploitation window."
+      },
+      "server_side_revocation_supported": {
+        "type": "boolean",
+        "title": "Server-Side Session Revocation Supported",
+        "description": "Attested true when active sessions are revoked server-side on password change / reset / MFA change and the user can terminate active sessions ('sign out everywhere'). When false a stolen session survives the very credential rotation meant to evict the attacker.",
+        "default": false
+      },
+      "anomalous_login_detection_enabled": {
+        "type": "boolean",
+        "title": "Anomalous Login Detection Enabled",
+        "description": "Attestation: anomalous / risky logins to the consumer account (new device, impossible-travel geolocation, new IP) are detected and trigger a user alert (email/push) and/or a step-up challenge. Fires the exposure when false — a stolen credential or hijacked session yields no anomaly signal, letting account takeover persist undetected (NIST SP 800-63B Rev 4 §3.2.2; OWASP ASVS V7).",
+        "default": false
+      },
+      "user_alerted_on_credential_change": {
+        "type": "boolean",
+        "title": "User Alerted on Credential Change",
+        "description": "Attestation: the user receives a security-event notification (email/push) on credential changes — password change/reset, MFA enrolment/removal, new-device sign-in. Fires the exposure when false — an attacker who changes the password or adds a factor does so silently, denying the legitimate owner the out-of-band signal needed to detect and reclaim the account (NIST SP 800-63B Rev 4 §3.2.2)."
+      },
+      "least_privilege_authorization_at_crossing": {
+        "type": "boolean",
+        "title": "Least-Privilege Authorization for Consumer Role",
+        "description": "Attestation: the consumer/end-user role grants only customer-scoped capabilities (own data, own actions) with no admin/back-office/cross-tenant authorization. Fires the exposure when false — an over-privileged consumer role turns a compromised account into a path to elevated function, compounding the blast radius of an undetected takeover (MITRE ATT&CK T1078 Valid Accounts)."
+      },
+      "pii_minimized_to_purpose": {
+        "type": "boolean",
+        "title": "PII Minimized to Purpose",
+        "description": "Attested true when the account collects only the personal data strictly necessary for the service it provides (purpose limitation / data minimisation, GDPR Art 5(1)(b)(c)). Fires the exposure when false — i.e. the registration/profile flow mandates collection of unnecessary or excess-sensitive PII, enlarging the breach blast radius.",
+        "default": false
+      },
+      "lawful_consent_basis_recorded": {
+        "type": "boolean",
+        "title": "Lawful Consent Basis Recorded",
+        "description": "Attested true when a lawful basis / explicit consent for each category of personal data collected is captured and recorded at the point of collection (GDPR Art 5(1)(a) lawfulness, Art 6/7 consent). Fires the exposure when false — PII is collected with no documented consent or lawful-basis record."
+      },
+      "retention_limit_defined": {
+        "type": "boolean",
+        "title": "Retention Limit Defined",
+        "description": "Attested true when a stated retention limit (storage-limitation period) exists for the consumer PII the account holds (GDPR Art 5(1)(e) storage limitation). Fires the exposure when false — no retention limit is declared, so data accumulates indefinitely and the breach blast radius keeps growing."
+      },
+      "retention_schedule_enforced": {
+        "type": "boolean",
+        "title": "Retention Schedule Enforced",
+        "description": "Shared-workspace attestation: true when the declared retention limit is actually operationalised — PII is deleted/anonymised on schedule rather than merely policy-stated (GDPR Art 5(1)(e) storage limitation, enforcement). Fires the exposure when false — a retention limit may be defined on paper but never executed, so stale PII persists. Reuses the cross-component retention_schedule_enforced concept."
+      }
+    },
+    "required": [
+      "breached_password_screening_enabled",
+      "mfa_available",
+      "rate_limiting_or_lockout_enabled",
+      "max_consecutive_failed_attempts",
+      "phishing_resistant_authenticator_required",
+      "phishing_resistant_mfa_offered",
+      "session_cookie_attributes",
+      "session_revocation_on_credential_change",
+      "password_min_length",
+      "password_max_length_cap_below_64",
+      "composition_rules_or_forced_rotation_imposed",
+      "recovery_token_csprng_single_use_short_expiry",
+      "recovery_no_account_enumeration",
+      "reset_request_rate_limited",
+      "no_auto_login_after_reset",
+      "kba_security_questions_used",
+      "tls_only_transport",
+      "cookie_secure_flag",
+      "cookie_httponly_flag",
+      "samesite_attribute_set",
+      "session_id_regenerated_on_auth",
+      "session_absolute_timeout_enforced",
+      "server_side_revocation_supported",
+      "anomalous_login_detection_enabled",
+      "user_alerted_on_credential_change",
+      "least_privilege_authorization_at_crossing",
+      "pii_minimized_to_purpose",
+      "lawful_consent_basis_recorded",
+      "retention_limit_defined",
+      "retention_schedule_enforced"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/breached_password_screening_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_httponly_flag"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_secure_flag"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kba_security_questions_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/password_min_length"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_mfa_offered"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_token_csprng_single_use_short_expiry"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_revocation_supported"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_id_regenerated_on_auth"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/composition_rules_or_forced_rotation_imposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_consecutive_failed_attempts"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_auto_login_after_reset"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/password_max_length_cap_below_64"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_no_account_enumeration"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/reset_request_rate_limited"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/samesite_attribute_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_absolute_timeout_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_cookie_attributes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_revocation_on_credential_change"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_authorization_at_crossing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_minimized_to_purpose"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/lawful_consent_basis_recorded"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_limit_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_schedule_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anomalous_login_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_alerted_on_credential_change"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

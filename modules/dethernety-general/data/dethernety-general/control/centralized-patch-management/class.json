@@ -1,0 +1,9 @@
+{
+  "id": "4e931be7-a167-4624-abc5-1dc2c78321eb",
+  "name": "Centralized Patch Management",
+  "classType": "control",
+  "type": "Centralized Patch Management",
+  "description": "Centralized patch management — also called patch/update management, vulnerability remediation, WSUS/SCCM/patch orchestration, or OS and software updating — a control that systematically tracks and applies security updates across components to close known-vulnerability windows. The place to look for patching, update management, vulnerability remediation, or keeping systems current with security fixes.",
+  "category": "System Maintenance",
+  "status": "draft"
+}

@@ -1,0 +1,110 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "tls_only_transport": false,
+      "hsts_enforced": false,
+      "hsts_max_age_seconds": 0,
+      "content_security_policy_enforced": false,
+      "csp_allows_unsafe_inline_or_eval": true,
+      "x_content_type_options_nosniff_set": false,
+      "frame_ancestors_or_x_frame_options_restricted": false,
+      "cors_origin_allowlist_strict": false,
+      "cors_credentials_with_wildcard_origin": true,
+      "csrf_token_or_double_submit_enforced": false,
+      "samesite_attribute_set": false,
+      "content_type_strict_validation": false,
+      "cookie_httponly_flag": false,
+      "cookie_secure_flag": false,
+      "request_framing_normalized_front_back": false,
+      "http_method_allow_list_enforced": false,
+      "trace_track_methods_blocked": false,
+      "waf_active_blocking_on_public_web": false,
+      "request_size_and_complexity_limits_enforced": false
+    },
+    "expectedExposures": [
+      "HTTP request smuggling (CL.TE / TE.CL / H2 desync)",
+      "Permissive CORS allowing cross-origin data theft",
+      "Missing CSRF protection on state-changing requests",
+      "Session cookies missing HttpOnly / Secure / SameSite",
+      "WAF in detect-only / absent on public web flow",
+      "Missing/weak Content-Security-Policy enabling XSS",
+      "Cleartext HTTP downgrade / missing HSTS",
+      "Oversized request bodies enabling resource exhaustion",
+      "Permissive HTTP methods / verb tampering (TRACE/TRACK)",
+      "Clickjacking via missing frame-ancestors / X-Frame-Options"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "tls_only_transport": true,
+      "hsts_enforced": true,
+      "hsts_max_age_seconds": 63072000,
+      "content_security_policy_enforced": true,
+      "csp_allows_unsafe_inline_or_eval": false,
+      "x_content_type_options_nosniff_set": true,
+      "frame_ancestors_or_x_frame_options_restricted": true,
+      "cors_origin_allowlist_strict": true,
+      "cors_credentials_with_wildcard_origin": false,
+      "csrf_token_or_double_submit_enforced": true,
+      "samesite_attribute_set": true,
+      "content_type_strict_validation": true,
+      "cookie_httponly_flag": true,
+      "cookie_secure_flag": true,
+      "request_framing_normalized_front_back": true,
+      "http_method_allow_list_enforced": true,
+      "trace_track_methods_blocked": true,
+      "waf_active_blocking_on_public_web": true,
+      "request_size_and_complexity_limits_enforced": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "tls_only_transport": true,
+      "hsts_enforced": true,
+      "hsts_max_age_seconds": 0,
+      "content_security_policy_enforced": true,
+      "csp_allows_unsafe_inline_or_eval": false,
+      "x_content_type_options_nosniff_set": true,
+      "frame_ancestors_or_x_frame_options_restricted": true,
+      "cors_origin_allowlist_strict": true,
+      "cors_credentials_with_wildcard_origin": false,
+      "csrf_token_or_double_submit_enforced": true,
+      "samesite_attribute_set": true,
+      "content_type_strict_validation": true,
+      "cookie_httponly_flag": true,
+      "cookie_secure_flag": true,
+      "request_framing_normalized_front_back": true,
+      "http_method_allow_list_enforced": true,
+      "trace_track_methods_blocked": true,
+      "waf_active_blocking_on_public_web": true,
+      "request_size_and_complexity_limits_enforced": true
+    },
+    "expectedExposures": [
+      "Cleartext HTTP downgrade / missing HSTS"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "HTTP request smuggling (CL.TE / TE.CL / H2 desync)",
+      "Permissive CORS allowing cross-origin data theft",
+      "Missing CSRF protection on state-changing requests",
+      "Session cookies missing HttpOnly / Secure / SameSite",
+      "WAF in detect-only / absent on public web flow",
+      "Missing/weak Content-Security-Policy enabling XSS",
+      "Cleartext HTTP downgrade / missing HSTS",
+      "Oversized request bodies enabling resource exhaustion",
+      "Permissive HTTP methods / verb tampering (TRACE/TRACK)",
+      "Clickjacking via missing frame-ancestors / X-Frame-Options"
+    ]
+  }
+]

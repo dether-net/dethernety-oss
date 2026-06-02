@@ -1,0 +1,9 @@
+{
+  "id": "1e4fdcb0-1384-499e-967d-71bb0faca1e6",
+  "name": "Identity & Access Management",
+  "classType": "control",
+  "type": "Identity & Access Management",
+  "description": "Identity and access management (IAM) — also called identity governance, IGA, joiner-mover-leaver/provisioning, directory and entitlement management, or access lifecycle — centralized governance of identities, entitlements, and authentication policy across the system. The place to look for IAM, identity governance, account provisioning/deprovisioning, entitlement management, or the lifecycle control over who has access.",
+  "category": "Access Control",
+  "status": "draft"
+}

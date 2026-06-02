@@ -1,0 +1,620 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "sso_with_phishing_resistant_mfa_enforced": {
+        "type": "boolean",
+        "title": "SSO With Phishing-Resistant MFA Enforced",
+        "description": "Whether human access to the repo/registry is gated by enterprise SSO (SAML/OIDC) with phishing-resistant MFA (WebAuthn/FIDO2/passkey) enforced org-wide, rather than local accounts with optional or SMS-based MFA. Secure when true; when false a phished or sprayed credential yields a valid-account foothold at the supply-chain root.",
+        "default": false
+      },
+      "mfa_available": {
+        "type": "boolean",
+        "title": "MFA Available",
+        "description": "Whether multi-factor authentication is available and required for accounts that can access the repository/registry. Secure when true; when false single-factor credentials alone grant access, enabling maintainer account takeover.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Whether members hold least-privilege roles with a minimized owner/admin set and base permissions default to read/none, write/admin granted per-need. Secure when true; when false over-broad org/admin roles widen the blast radius of any compromised account. Also serves as the cross-cutting least-privilege context for the CI-token facets.",
+        "default": false
+      },
+      "shared_admin_accounts": {
+        "type": "boolean",
+        "title": "Shared Admin Accounts",
+        "description": "Negative-polarity attribute: whether admin/owner access is via shared, non-attributable accounts rather than per-individual identities. Secure when false; fires when true because shared admin credentials defeat attribution and concentrate takeover risk."
+      },
+      "external_collaborator_access_controlled": {
+        "type": "boolean",
+        "title": "External Collaborator Access Controlled",
+        "description": "Whether external collaborators are scoped to least-privilege, time-bound, per-repo access (no standing org-wide or broad write grants to outside collaborators). Secure when true; when false external collaborators with over-broad access expand the maintainer-takeover surface."
+      },
+      "no_anonymous_access_to_private_repos": {
+        "type": "boolean",
+        "title": "No Anonymous Access to Private Repos",
+        "description": "Whether private source repos and private artifact registries reject unauthenticated read/write and no internal repo is exposed publicly (no anonymous pull on a private registry). Secure when true; when false anonymous/public access exposes source, secrets, and IP from the central repository.",
+        "default": false
+      },
+      "branch_protection_required_reviews_enabled": {
+        "type": "boolean",
+        "title": "Branch Protection: Required Reviews Enabled",
+        "description": "Whether the default/protected branch requires a pull request with at least one approving review (and CODEOWNERS review on sensitive paths) before merge, with no direct push permitted. Secure when true; an insecure (false) value — direct pushes or zero required reviews — fires this exposure (unreviewed code injected straight into the default branch).",
+        "default": false
+      },
+      "force_push_blocked_on_default_branch": {
+        "type": "boolean",
+        "title": "Force-Push Blocked on Default Branch",
+        "description": "Whether force-push and deletion / history rewrite of the default/protected branch are blocked (require linear history). Secure when true; an insecure (false) value — force push or branch deletion permitted — fires this exposure (silent history tampering of the integrity baseline).",
+        "default": false
+      },
+      "required_status_checks_enforced": {
+        "type": "boolean",
+        "title": "Required Status Checks Enforced",
+        "description": "Whether required status checks (CI, scanning) must pass before a merge to the protected branch is allowed (strict mode). Secure when true; an insecure (false) value — no required checks — fires this exposure (unvetted changes merge without passing security/quality gates).",
+        "default": false
+      },
+      "signed_commits_required": {
+        "type": "boolean",
+        "title": "Signed Commits Required",
+        "description": "Whether commits (and tags) on the protected branch must be cryptographically signed and verified so authorship cannot be forged. Secure when true; an insecure (false) value — unsigned commits accepted — fires this exposure (forged-authorship commits land on the default branch).",
+        "default": false
+      },
+      "protected_immutable_tags": {
+        "type": "boolean",
+        "title": "Protected Immutable Tags",
+        "description": "Whether release/version tags are protected from overwrite and deletion (immutable tags), so a published tag cannot be silently re-pointed at tampered content after verification. Secure when true; an insecure (false) value — mutable/overwritable tags — fires this exposure (a release tag can be re-pushed to different content)."
+      },
+      "artifact_signing_enabled": {
+        "type": "boolean",
+        "title": "Artifact Signing Enabled",
+        "description": "Whether published artifacts/container images are cryptographically signed (Sigstore/cosign keyless) at release time. Secure value = true (all released images signed); the exposure fires when signing is absent, so unsigned, swappable artifacts can be published and consumed.",
+        "default": false
+      },
+      "artifact_signature_verified_at_deploy": {
+        "type": "boolean",
+        "title": "Artifact Signature Verified at Deploy",
+        "description": "Whether consumers verify the artifact/image signature and signer identity before deploy (e.g. cosign verify with pinned --certificate-identity and --certificate-oidc-issuer, or a Sigstore policy-controller admission gate). Secure value = true; the exposure fires when no verification gate exists, so a tampered or wrong-identity artifact runs unchecked downstream.",
+        "default": false
+      },
+      "slsa_provenance_attested": {
+        "type": "boolean",
+        "title": "SLSA Provenance Attested",
+        "description": "Whether builds emit and consumers verify SLSA / in-toto provenance attestations binding the artifact to its source repo, builder identity, and inputs (SLSA Build L2+/L3). Secure value = true; the exposure fires when no provenance exists, so an artifact's origin is unverifiable and a substituted build cannot be detected.",
+        "default": false
+      },
+      "immutable_artifact_tags_enforced": {
+        "type": "boolean",
+        "title": "Immutable Artifact Tags Enforced",
+        "description": "Whether published artifact/image release tags are immutable so a tag cannot be silently overwritten with tampered content after verification (Artifactory/Harbor immutable tag rules). Secure value = true; the exposure fires when tags are mutable, so a release tag can be re-pushed to point at different content post-verification."
+      },
+      "oidc_short_lived_tokens_used": {
+        "type": "boolean",
+        "title": "OIDC Short-Lived Tokens Used",
+        "description": "True when CI authenticates to cloud/registries via short-lived OIDC federation (id-token: write) scoped by the token 'sub' claim, with no long-lived PATs or static cloud access keys stored as Actions secrets. False (exposure) when long-lived PATs / AWS access keys / static service-account keys are stored as secrets instead of OIDC federation, giving a standing credential that compromised workflow code can exfiltrate and replay.",
+        "default": false
+      },
+      "workflow_token_least_privilege": {
+        "type": "boolean",
+        "title": "Workflow Token Least Privilege",
+        "description": "True when the default workflow GITHUB_TOKEN is set to read-only and each workflow/job declares an explicit narrow 'permissions:' block (e.g. contents: read) granting only the minimum scopes. False (exposure) when the default workflow permission is read/write-all with no explicit per-job permissions block, so any compromised step wields write-all repo scopes.",
+        "default": false
+      },
+      "ci_secrets_scoped_not_broad": {
+        "type": "boolean",
+        "title": "CI Secrets Scoped, Not Broad",
+        "description": "True when CI secrets, app installations, and workflow scopes are narrowly scoped to the repo/environment that needs them (environment-scoped secrets, per-job permissions, least-privilege installed apps) rather than broadly available org-wide to every workflow. False (exposure) when secrets and workflow scopes are over-broad — shared org-wide or unscoped — widening the blast radius of any single compromised workflow."
+      },
+      "secret_scanning_enabled": {
+        "type": "boolean",
+        "title": "Secret Scanning Enabled",
+        "description": "Whether secret scanning is enabled on the repo/org so that committed credentials (API keys, tokens) are detected. Off by default; when disabled, secrets land in git history unnoticed. Secure value: true (scanning enabled, ideally auto-enabled org-wide for new repos).",
+        "default": false
+      },
+      "push_protection_enabled": {
+        "type": "boolean",
+        "title": "Push Protection Enabled",
+        "description": "Whether secret-scanning push protection blocks a push that contains a credential before it reaches the repository. Disabled by default; when off, secrets are committed into git history and persist even after later removal. Secure value: true (push protection enabled).",
+        "default": false
+      },
+      "secrets_not_in_build_logs": {
+        "type": "boolean",
+        "title": "Secrets Not in Build Logs",
+        "description": "Whether CI/build pipelines mask registered secrets in build/job logs so credentials are not exposed in plaintext log output (the secondary leak path for this vector). Secure value: true (secrets masked / not printed in build logs)."
+      },
+      "secrets_in_secret_manager_not_repo": {
+        "type": "boolean",
+        "title": "Secrets in Secret Manager, Not Repo",
+        "description": "Whether credentials are sourced from a dedicated secret manager / encrypted CI secret store rather than committed as plaintext into the repository or config files. Secure value: true (secret-manager usage; no static secrets in the repo)."
+      },
+      "internal_packages_scoped_no_public_fallback": {
+        "type": "boolean",
+        "title": "Internal Packages Scoped, No Public Fallback",
+        "description": "Internal packages are namespaced/scoped (e.g. @org/*) and bound in .npmrc (or registry config) to the private registry only, with public-registry fallback DISABLED for internal scopes and the scope owned on the public registry. When true, an attacker cannot publish a higher-versioned public package under an internal name to be resolved into builds. When false, unscoped internal names plus public-fallback resolution permit a dependency-confusion substitution.",
+        "default": false
+      },
+      "dependency_versions_pinned_lockfile": {
+        "type": "boolean",
+        "title": "Dependency Versions Pinned via Lockfile",
+        "description": "Dependency versions are pinned via a committed lockfile (package-lock.json / yarn.lock / poetry.lock) so resolution is deterministic and a swapped or higher-versioned malicious package cannot silently enter builds. True = lockfile present and committed (secure); false = no lockfile / floating ranges resolved at install time (insecure).",
+        "default": false
+      },
+      "dependency_vuln_scanning_block_on_critical": {
+        "type": "boolean",
+        "title": "Dependency Vuln Scanning Blocks on Critical",
+        "description": "Dependencies and artifacts/images are continuously scanned for known vulnerabilities (e.g. JFrog Xray watches/policies, Dependabot) with a block-on-critical policy that prevents download/build-promotion/merge of vulnerable or known-malicious artifacts. True = scanning enabled with enforcing block policy (secure); false = no SCA/vuln scanning or alert-only with no block (insecure).",
+        "default": false
+      },
+      "package_sources_allowlisted": {
+        "type": "boolean",
+        "title": "Package Sources Allowlisted",
+        "description": "Package resolution is restricted to an explicit allow-list of trusted/curated upstream sources (e.g. a vetted virtual repository / proxy with approved remotes) rather than resolving from arbitrary public registries. True = only allow-listed sources are reachable for resolution (secure); false = any public source resolvable (insecure)."
+      },
+      "webhook_signature_verified": {
+        "type": "boolean",
+        "title": "Webhook Signature Verified",
+        "description": "True when webhook deliveries are configured with a shared secret and the receiver validates the HMAC SHA-256 signature (e.g. X-Hub-Signature-256) before acting on the payload. False (insecure) when no webhook secret is set or payloads are processed without signature verification, letting a forged or replayed payload trigger trusted actions.",
+        "default": false
+      },
+      "third_party_app_scope_least_privilege": {
+        "type": "boolean",
+        "title": "Third-Party App Scope Least Privilege",
+        "description": "True when installed third-party OAuth apps and GitHub Apps are granted least-privilege scopes (only the specific repos and minimal permissions they need) rather than broad org-wide / all-repos write or admin access. False (insecure) when integrations hold over-scoped repo access, so a compromised integration can tamper with the supply chain.",
+        "default": false
+      },
+      "installed_integrations_reviewed_approved": {
+        "type": "boolean",
+        "title": "Installed Integrations Reviewed and Approved",
+        "description": "True when an inventory of installed integrations (OAuth apps, GitHub Apps, webhooks) is periodically reviewed and new installations go through an approval/restriction policy (e.g. org-owner approval for third-party access). False (insecure) when integrations can be installed without review/approval, so an unvetted or compromised integration gains a trusted-relationship path into the repository."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Whether all repo/registry access (clone/push/pull/API) is forced over TLS 1.2+/1.3 with no plaintext HTTP or unencrypted git protocol fallback. Insecure (false) when plaintext transport is permitted, exposing source and credentials in transit.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted at Rest",
+        "description": "Whether repositories and stored artifacts are encrypted at rest (KMS-managed) on the backend storage. Insecure (false) when repo/artifact storage is unencrypted, exposing source and artifacts to storage-layer compromise.",
+        "default": false
+      },
+      "audit_log_streaming_enabled": {
+        "type": "boolean",
+        "title": "Audit Log Streaming Enabled",
+        "description": "Whether the audit log (access, admin, and Git push events) is streamed off-host to an external SIEM/object store rather than being web-only with short retention. Insecure (false) when no off-host streaming is configured, leaving tamperable, short-lived web-only records.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "Whether audit/access logs are persisted on a system separate from the repository platform itself (off-host SIEM/object store), so a host compromise cannot delete the evidentiary record. Insecure (false) when logs live only on the platform that an attacker may control."
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Log Retention (Days)",
+        "description": "Configured retention period (in days) for audit/access logs. Insecure when below 90 days, the threshold at which short/default web-only retention prevents detection and forensic reconstruction of slow-burn repository access abuse."
+      },
+      "anomaly_alerting_on_access": {
+        "type": "boolean",
+        "title": "Anomaly Alerting on Access",
+        "description": "Whether anomaly/alerting rules are configured on suspicious repository access (e.g. unusual clone volume, off-hours admin actions, mass push/exfil patterns). Insecure (false) when no alerting fires on anomalous access, so unauthorized reads of the information repository go unnoticed."
+      },
+      "data_residency_region_pinned": {
+        "type": "boolean",
+        "title": "Data Residency Region Pinned",
+        "description": "Whether storage of regulated source/artifacts and their logs is pinned to an approved residency region, preventing drift of regulated data to non-compliant geographies. Insecure (false) when residency is unpinned and regulated source may relocate across jurisdictional boundaries."
+      },
+      "self_hosted_runner_isolated_ephemeral": {
+        "type": "boolean",
+        "title": "Self-Hosted Runner Isolated and Ephemeral",
+        "description": "Attested true when self-hosted CI runners are ephemeral/just-in-time, network-isolated from the internal estate, and never attached to public repositories or reused across jobs. False (insecure) when persistent shared runners are attached to public repos or reused across jobs, allowing attacker-supplied PR/job code to execute on a standing host and persist between jobs.",
+        "default": false
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "Negative-polarity attribute: true (insecure) when the self-hosted repo/registry instance (GitLab/Artifactory) is running a version affected by a known, actively-exploited remote-code-execution CVE (e.g. listed in CISA KEV / vendor advisory) that has not been remediated. Secure state is false (no outstanding known-exploited RCE).",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Attested true when the self-hosted instance is kept on a current, vendor-supported (non-EoL) version and security patches are applied within the organisation's defined remediation SLA. False (insecure) when the instance runs an unpatched or end-of-life version outside the patch SLA, leaving exploitable defects open against an internet-facing supply-chain root.",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control-Plane API Not Publicly Exposed",
+        "description": "Attested true when the self-hosted instance's API / control-plane endpoint that should be private is not reachable from untrusted public networks (placed behind VPN/private network/allowlist). False (insecure) when a private instance's API is publicly exposed, presenting an externally reachable attack surface for T1190 exploitation.",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet-Reachable",
+        "description": "Attested true when administrative/management interfaces of the self-hosted repo/registry instance are not reachable directly from the public internet. False (insecure) when management interfaces are internet-reachable, widening the remotely exploitable surface for an unpatched or misconfigured instance."
+      }
+    },
+    "required": [
+      "sso_with_phishing_resistant_mfa_enforced",
+      "mfa_available",
+      "least_privilege_access_enforced",
+      "shared_admin_accounts",
+      "external_collaborator_access_controlled",
+      "no_anonymous_access_to_private_repos",
+      "branch_protection_required_reviews_enabled",
+      "force_push_blocked_on_default_branch",
+      "required_status_checks_enforced",
+      "signed_commits_required",
+      "protected_immutable_tags",
+      "artifact_signing_enabled",
+      "artifact_signature_verified_at_deploy",
+      "slsa_provenance_attested",
+      "immutable_artifact_tags_enforced",
+      "oidc_short_lived_tokens_used",
+      "workflow_token_least_privilege",
+      "ci_secrets_scoped_not_broad",
+      "secret_scanning_enabled",
+      "push_protection_enabled",
+      "secrets_not_in_build_logs",
+      "secrets_in_secret_manager_not_repo",
+      "internal_packages_scoped_no_public_fallback",
+      "dependency_versions_pinned_lockfile",
+      "dependency_vuln_scanning_block_on_critical",
+      "package_sources_allowlisted",
+      "webhook_signature_verified",
+      "third_party_app_scope_least_privilege",
+      "installed_integrations_reviewed_approved",
+      "tls_only_transport",
+      "encrypted_at_rest",
+      "audit_log_streaming_enabled",
+      "logs_stored_on_separate_system",
+      "log_retention_days",
+      "anomaly_alerting_on_access",
+      "data_residency_region_pinned",
+      "self_hosted_runner_isolated_ephemeral",
+      "unpatched_known_rce_cve",
+      "edge_appliance_patched_within_sla",
+      "control_plane_api_not_publicly_exposed",
+      "edge_management_interfaces_not_internet_reachable"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/no_anonymous_access_to_private_repos"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sso_with_phishing_resistant_mfa_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_app_scope_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/workflow_token_least_privilege"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_collaborator_access_controlled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_admin_accounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_residency_region_pinned"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oidc_short_lived_tokens_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/push_protection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_scanning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ci_secrets_scoped_not_broad"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_in_secret_manager_not_repo"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_not_in_build_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/self_hosted_runner_isolated_ephemeral"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_signature_verified_at_deploy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_signing_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/branch_protection_required_reviews_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_versions_pinned_lockfile"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_vuln_scanning_block_on_critical"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/force_push_blocked_on_default_branch"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_packages_scoped_no_public_fallback"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/required_status_checks_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signed_commits_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/slsa_provenance_attested"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_signature_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/immutable_artifact_tags_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/installed_integrations_reviewed_approved"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/package_sources_allowlisted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/protected_immutable_tags"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_streaming_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anomaly_alerting_on_access"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Patch Management",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

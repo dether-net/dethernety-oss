@@ -1,0 +1,571 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "parameterized_queries_used": {
+        "type": "boolean",
+        "title": "Parameterized Queries Used",
+        "description": "Interpreted boolean (true = secure): all data-access queries use bound parameters / prepared statements (e.g. $1, ?, named params) rather than string-concatenated SQL built from untrusted request input. Verified via code review / SAST per OWASP SQL Injection Prevention Cheat Sheet. False = the app concatenates user input into SQL, the primary SQL-injection enabler, so the exposure fires.",
+        "default": false
+      },
+      "dynamic_sql_avoided": {
+        "type": "boolean",
+        "title": "Dynamic SQL on Untrusted Input Avoided",
+        "description": "Interpreted boolean (true = secure): the application and stored procedures avoid dynamic SQL execution on untrusted strings (no EXECUTE/EXECUTE IMMEDIATE on request-derived text) — the residual SQLi surface that survives even where most queries are parameterized. False = dynamic string-built SQL is present, so the exposure fires.",
+        "default": false
+      },
+      "app_role_not_superuser_or_ddl": {
+        "type": "boolean",
+        "title": "App DB Role Not Superuser / No DDL",
+        "description": "Interpreted boolean (true = secure): the application's DB login holds only table-scoped DML (SELECT/INSERT/UPDATE/DELETE) on its own schema and is NOT a superuser/SUPER and holds no DDL/DROP/GRANT/ALL. False = the app runs as superuser or holds DDL, so a successful injection escalates to schema tampering, COPY-to/from-program RCE (cf. CVE-2025-1094), and full takeover — the exposure fires.",
+        "default": false
+      },
+      "strong_db_auth_method_enforced": {
+        "type": "boolean",
+        "title": "Strong DB Authentication Method Enforced",
+        "description": "Interpreted-secure boolean: true only when client authentication uses a strong challenge-response method everywhere — PostgreSQL pg_hba.conf rows use scram-sha-256 (never 'trust', 'md5', or 'password' for remote hosts) and password_encryption=scram-sha-256, and MySQL/MariaDB accounts use caching_sha2_password (not the deprecated mysql_native_password). Fires (insecure) when trust/md5/password or mysql_native_password authentication is in use.",
+        "default": false
+      },
+      "no_blank_or_default_db_passwords": {
+        "type": "boolean",
+        "title": "No Blank or Default DB Passwords",
+        "description": "Interpreted-secure boolean: true when no account holds a blank/empty verifier or a default/well-known password — PostgreSQL superuser (postgres) and MySQL root set to strong non-default secrets, and no MySQL account with empty authentication_string. Fires (insecure) when any account has a blank or default/well-known password enabling default-credential login.",
+        "default": false
+      },
+      "anonymous_db_accounts_removed": {
+        "type": "boolean",
+        "title": "Anonymous DB Accounts Removed",
+        "description": "Interpreted-secure boolean: true when no anonymous account exists — MySQL/MariaDB has no '' (empty user) account (verified against mysql.user where user='') and PostgreSQL has no equivalently unauthenticated catch-all login. Fires (insecure) when an anonymous '' user is present, allowing unauthenticated connection to the database."
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed or Changed",
+        "description": "Canonical cross-component interpreted-secure boolean: true when shipped/default administrative accounts have been removed or had their credentials changed from vendor defaults and remote login to default admin roles (postgres, root) is restricted. Fires (insecure) when a default account retains its shipped credential or is reachable for default-credential login."
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Canonical attestation that the application's database principal operates under least privilege — it is NOT a superuser/owner (PostgreSQL rolsuper/rolcreatedb/rolcreaterole all false; MySQL no SUPER/ALL/WITH GRANT OPTION) and holds only the minimum privileges needed. False fires this exposure because a compromised app session or SQL injection can escalate to schema tampering, COPY-to/from-program RCE, and full data exfiltration.",
+        "default": false
+      },
+      "role_grants_least_privilege": {
+        "type": "boolean",
+        "title": "Role Grants Least Privilege",
+        "description": "Attestation that the application DB role holds only table-scoped DML grants (SELECT/INSERT/UPDATE/DELETE) on its own schema and NOT DDL/DROP/GRANT/ALL or broad cross-database privileges — i.e. per-role GRANT least-privilege is in place rather than the role connecting as superuser/owner. False fires this exposure.",
+        "default": false
+      },
+      "public_schema_create_revoked": {
+        "type": "boolean",
+        "title": "PUBLIC Schema CREATE Revoked",
+        "description": "Attestation that the implicit PUBLIC role no longer holds CREATE on the public schema (REVOKE CREATE ON SCHEMA public FROM PUBLIC), so untrusted/low-privilege accounts cannot plant objects in the shared schema. PG15+ revokes by default but must be verified; pre-15 requires explicit REVOKE. False fires this exposure.",
+        "default": false
+      },
+      "row_level_security_enforced_where_multitenant": {
+        "type": "boolean",
+        "title": "Row-Level Security Enforced Where Multi-Tenant",
+        "description": "Attestation that, where the store holds multi-tenant or per-record-sensitive data, Row-Level Security is enabled (and FORCEd to bind table owners) with policies constraining which rows a role can see/modify — so a compromised app session cannot read other tenants' data. Vacuously true when the store is not multi-tenant. False fires this exposure."
+      },
+      "db_not_publicly_accessible": {
+        "type": "boolean",
+        "title": "DB Not Publicly Accessible",
+        "description": "Interpreted-secure boolean: the database instance has NO public endpoint — RDS/Aurora/Cloud SQL/Azure SQL PubliclyAccessible=false and the instance sits in a private subnet with no internet-resolvable IP. Fires this exposure when the managed instance is publicly accessible from the internet.",
+        "default": false
+      },
+      "listen_addresses_restricted": {
+        "type": "boolean",
+        "title": "Listen Addresses Restricted",
+        "description": "Interpreted-secure boolean: the engine binds only to loopback or a specific private/VPC interface, never to all interfaces — PostgreSQL listen_addresses is localhost/a private IP (not '*') and MySQL/MariaDB bind_address is 127.0.0.1/a private IP (not 0.0.0.0 or ::). Fires this exposure when the DB listens on all interfaces on an internet-reachable host.",
+        "default": false
+      },
+      "host_access_rules_scoped": {
+        "type": "boolean",
+        "title": "Host Access Rules Scoped",
+        "description": "Interpreted-secure boolean: client host-based access rules are scoped to known private CIDRs and never permit the world — PostgreSQL pg_hba.conf host/hostssl rows do NOT use 0.0.0.0/0 or ::/0, and MySQL account host specifiers are not '%' for remote logins. Fires this exposure when host rules allow 0.0.0.0/0.",
+        "default": false
+      },
+      "network_firewall_restricts_db_port": {
+        "type": "boolean",
+        "title": "Network Firewall Restricts DB Port",
+        "description": "Interpreted-secure boolean: a network firewall / security group / NACL restricts ingress to the DB port (5432/3306) to the application tier or known private ranges only, with no 0.0.0.0/0 allow on the DB port. Fires this exposure when the DB sits on a public subnet with no firewall scoping the port.",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport Enforced",
+        "description": "Server enforces TLS for all client connections so plaintext is rejected — PostgreSQL ssl=on (with pg_hba hostssl) or MySQL require_secure_transport=ON. When false, the database accepts unencrypted connections and credentials/PII are sniffable and MITM-able on the wire.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Clients validate the server certificate AND hostname before sending credentials — PostgreSQL sslmode=verify-full (cert chains to a trusted CA and hostname matches), MySQL VERIFY_IDENTITY / REQUIRE X509. When false (sslmode=require/prefer/allow/disable or no CA pinning), the connection may be encrypted but the server is unauthenticated, leaving an active MITM able to intercept the session.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted boolean: the server negotiates a deprecated/weak TLS protocol version (TLS 1.0/1.1, SSLv3) or weak cipher suites for database connections. True means a downgrade-capable MITM or passive attacker can break the transport encryption. Modeled as an interpreted boolean rather than substring-matching the raw cipher/version directive to stay polarity-safe.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLSv1.0",
+          "TLSv1.1",
+          "TLSv1.2",
+          "TLSv1.3"
+        ],
+        "title": "Minimum TLS Version Accepted",
+        "description": "Lowest TLS protocol version the database server will accept for client connections (canonical shared-workspace attribute). A value of TLSv1.0/TLSv1.1/SSLv3 indicates a legacy floor exploitable by downgrade/known-cipher attacks; the secure floor is TLSv1.2 or TLSv1.3. PG ssl_min_protocol_version, MySQL tls_version."
+      },
+      "storage_encryption_enabled": {
+        "type": "boolean",
+        "title": "At-Rest Storage Encryption Enabled",
+        "description": "Whether at-rest storage encryption is active for the data files, WAL/binlogs, automated backups and snapshots — RDS StorageEncrypted=true (AES-256 via KMS), TDE for Oracle/SQL Server, or an encrypted volume (LUKS) for self-managed engines. False means at-rest data is readable from disk/volume/snapshot theft; note RDS encryption is creation-time-only and is retrofitted only by encrypting a snapshot copy.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Data Encrypted at Rest",
+        "description": "Canonical workspace flag asserting the store's data at rest is encrypted by some mechanism (TDE / RDS StorageEncrypted / encrypted volume). Used here as the AND-context for the customer-managed-key gap: when at-rest encryption is on but not backed by a customer-managed key, the second group fires. Reuses the canonical name across the workspace rather than a store-local synonym."
+      },
+      "customer_managed_key_used": {
+        "type": "boolean",
+        "title": "Customer-Managed Key Used",
+        "description": "Whether the at-rest encryption is backed by a customer-managed KMS key (CMK) rather than the AWS-managed default key (or no distinct CMK). A customer-managed CMK gives independent key policy, scoped principal access, and revocation/rotation control. False — when encryption is otherwise enabled — leaves key custody and access policy outside the data owner's control."
+      },
+      "db_credentials_in_secret_manager": {
+        "type": "boolean",
+        "title": "DB Credentials in Secret Manager",
+        "description": "Interpreted attestation: the database connection credentials are sourced at runtime from a secret manager / Vault rather than embedded in app config, environment files, or source. Secure value is true; fires on false, where the DB password lives in plaintext config/env and can be harvested from images, repos, or process memory and replayed for direct DB access.",
+        "default": false
+      },
+      "dynamic_short_lived_db_credentials_used": {
+        "type": "boolean",
+        "title": "Dynamic Short-Lived DB Credentials Used",
+        "description": "Interpreted attestation: the application uses short-lived, automatically-issued dynamic DB credentials (e.g. HashiCorp Vault's database secrets engine issuing TTL'd creds) rather than a single long-lived shared static password. Secure value is true; fires on false, where a long-lived static password is used, so a single credential leak grants persistent direct DB access until manually rotated.",
+        "default": false
+      },
+      "db_credentials_not_in_code_or_repo": {
+        "type": "boolean",
+        "title": "DB Credentials Not in Code or Repo",
+        "description": "Interpreted attestation: no database connection string or password is hard-coded in application source code, committed config files, container images, or version-control history. Secure value is true; fires on false, where connection strings or DB passwords are committed to the repo or baked into images and harvested directly (MITRE T1552.001).",
+        "default": false
+      },
+      "db_credentials_rotated_regularly": {
+        "type": "boolean",
+        "title": "DB Credentials Rotated Regularly",
+        "description": "Interpreted attestation: where static credentials cannot be fully eliminated, the DB password is rotated on a regular, enforced schedule (automated rotation policy) rather than left long-lived/unchanged. Secure value is true; fires on false, where a never-rotated static password remains valid indefinitely, maximizing the reuse window for a leaked credential."
+      },
+      "backups_encrypted": {
+        "type": "boolean",
+        "title": "Backups Encrypted",
+        "description": "True when database backups/snapshots and dumps are encrypted at rest (RDS automated backups inherit StorageEncrypted=true with a KMS key; self-managed pg_dump/mysqldump output is encrypted). Insecure (false) when backups are written unencrypted — e.g. plaintext dumps in an open bucket — exposing the full dataset to theft of snapshots and enabling exfiltration from recovery copies.",
+        "default": false
+      },
+      "point_in_time_recovery_enabled": {
+        "type": "boolean",
+        "title": "Point-in-Time Recovery Enabled",
+        "description": "True when point-in-time recovery / automated backups are enabled so the data store can be restored after destruction or ransomware — RDS BackupRetentionPeriod > 0, or equivalent WAL/binlog archiving with retention for self-managed engines. Insecure (false) when BackupRetentionPeriod=0 or no PITR/retention exists, so a compromised credential can destroy data with no recovery path.",
+        "default": false
+      },
+      "backup_access_restricted": {
+        "type": "boolean",
+        "title": "Backup Access Restricted",
+        "description": "True when access to the backup store (snapshot share permissions, backup bucket IAM/ACLs, snapshot copy/delete rights) is least-privilege and not world-readable/writable, so a compromised app/DB credential cannot read, copy, or delete recovery data. Insecure (false) when backups live in a world-readable bucket or the runtime credential holds delete/share rights over snapshots.",
+        "default": false
+      },
+      "backup_immutability_enabled": {
+        "type": "boolean",
+        "title": "Backup Immutability Enabled",
+        "description": "True when backups are immutable / integrity-protected (object-lock / WORM / append-only store, or vaulted snapshots that cannot be altered or deleted within retention), so an attacker who reaches the backup store cannot tamper with or delete recovery data (anti-forensics, ransomware). Insecure (false) when backups are mutable and deletable by the operating credential.",
+        "default": false
+      },
+      "database_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Database Audit Logging Enabled",
+        "description": "True when database access/DML/DDL auditing is active (pgAudit loaded with object/role logging, MySQL audit log plugin, or RDS audit-log export). False means privileged and bulk-read activity goes unrecorded (defeats PCI DSS Req 10 / NIST AU family).",
+        "default": false
+      },
+      "log_connections_enabled": {
+        "type": "boolean",
+        "title": "Connection Logging Enabled",
+        "description": "True when connection logging is on (PostgreSQL log_connections=on / log_disconnections=on, or the MySQL equivalent) so login and session events are captured. False leaves authentication events unlogged, masking unauthorized access."
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "True when audit/database logs are shipped off-host to a centralized, append-only/immutable store with restricted access (CloudWatch export, SIEM forwarding) so a DB-account compromise cannot erase the local trail (PCI DSS Req 10, NIST AU-9). False means logs live only on the DB host and are deletable by the DB account.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Log Retention (Days)",
+        "description": "Number of days audit/access logs are retained in the off-host store. Values below the regulatory minimum (PCI DSS Req 10 mandates ~1 year, here 365 days) leave insufficient forensic history to investigate and reconstruct a breach. Fires when retention is shorter than the required window."
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "True when the database engine runs an EoL major version or a minor behind a known-exploited CVE/CISA-KEV entry (e.g. CVE-2025-1094, the PostgreSQL libpq/psql invalid-UTF-8 SQL injection chaining to shell command execution; fixed in PG 17.3/16.7/15.11/14.16/13.19). True leaves a documented, weaponized exploitation path open with mandated KEV remediation timelines (CISA BOD 22-01).",
+        "default": false
+      },
+      "data_residency_region_pinned": {
+        "type": "boolean",
+        "title": "Data Residency Region Pinned",
+        "description": "True when the instance plus its read replicas, automated backups, and snapshot copies are confined to the approved residency region(s) and cannot drift cross-region. False means regulated PII may be stored or replicated outside the required jurisdiction (residency violation; NIST SP 800-122).",
+        "default": false
+      }
+    },
+    "required": [
+      "parameterized_queries_used",
+      "dynamic_sql_avoided",
+      "app_role_not_superuser_or_ddl",
+      "strong_db_auth_method_enforced",
+      "no_blank_or_default_db_passwords",
+      "anonymous_db_accounts_removed",
+      "default_accounts_removed_or_changed",
+      "least_privilege_access_enforced",
+      "role_grants_least_privilege",
+      "public_schema_create_revoked",
+      "row_level_security_enforced_where_multitenant",
+      "db_not_publicly_accessible",
+      "listen_addresses_restricted",
+      "host_access_rules_scoped",
+      "network_firewall_restricts_db_port",
+      "tls_only_transport",
+      "server_certificate_validated",
+      "weak_tls_versions_enabled",
+      "storage_encryption_enabled",
+      "customer_managed_key_used",
+      "db_credentials_in_secret_manager",
+      "dynamic_short_lived_db_credentials_used",
+      "db_credentials_not_in_code_or_repo",
+      "db_credentials_rotated_regularly",
+      "backups_encrypted",
+      "point_in_time_recovery_enabled",
+      "backup_access_restricted",
+      "backup_immutability_enabled",
+      "database_audit_logging_enabled",
+      "log_connections_enabled",
+      "logs_stored_on_separate_system",
+      "log_retention_days",
+      "unpatched_known_rce_cve",
+      "data_residency_region_pinned"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_blank_or_default_db_passwords"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/strong_db_auth_method_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_db_accounts_removed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/app_role_not_superuser_or_ddl"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/public_schema_create_revoked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_grants_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/row_level_security_enforced_where_multitenant"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backups_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_residency_region_pinned"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/db_credentials_in_secret_manager"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/db_credentials_not_in_code_or_repo"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_short_lived_db_credentials_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/customer_managed_key_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/db_credentials_rotated_regularly"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/db_not_publicly_accessible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_access_rules_scoped"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/listen_addresses_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_firewall_restricts_db_port"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_sql_avoided"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/parameterized_queries_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_access_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_immutability_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/point_in_time_recovery_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/database_audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_connections_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Patch Management",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

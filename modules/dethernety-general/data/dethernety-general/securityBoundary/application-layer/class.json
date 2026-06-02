@@ -1,0 +1,9 @@
+{
+  "id": "f1b4b628-b08e-4540-a181-d27c0de9dbda",
+  "name": "Application Layer",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "The application layer — also called the app tier, service trust zone, or business-logic boundary — the trust boundary around application processes where authentication and authorization decisions are enforced before data is reached. The place to look for the application tier/zone, the app trust boundary, or where access decisions are enforced ahead of the data layer.",
+  "category": "Application Security",
+  "status": "draft"
+}
