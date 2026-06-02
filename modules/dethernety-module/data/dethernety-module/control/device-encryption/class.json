@@ -1,9 +1,0 @@
-{
-  "id": "4dbfe254-1dc9-400f-90dc-018c4af4e9b1",
-  "name": "Device Encryption",
-  "classType": "control",
-  "type": "Device Encryption",
-  "description": "Full-disk or file-level encryption on local devices provides cryptographic protection for data at rest, ensuring that physical possession of a device does not translate to data access without valid credentials or keys. When properly configured, it delivers strong prevention coverage against unauthorized data extraction and enforces access control boundaries at the storage layer.",
-  "category": "Data Protection",
-  "status": "reviewed"
-}

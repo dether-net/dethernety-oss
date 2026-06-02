@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **dethereal**: Supplementary application
 - **dt-core**: Shared TypeScript data access layer and core interfaces
 - **dt-module**: Base classes and utilities for the extensible module system
-- **dethernety-module**: Default threat modeling module with component classes, controls, and exposures
+- **dethernety-general**: Default threat modeling module with component classes, controls, and exposures
 - **mitre-frameworks**: MITRE ATT&CK and D3FEND framework data and ingestion tooling
 - **demo**: Docker Compose environment for quick local evaluation
 - **Dockerfile.production**: Production-ready container image

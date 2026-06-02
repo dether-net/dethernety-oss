@@ -1,9 +1,0 @@
-{
-  "id": "650255fa-36ae-4653-a4ef-485cd8888f33",
-  "name": "Network Perimeter",
-  "classType": "securityBoundary",
-  "type": "securityBoundary",
-  "description": "This security boundary component enforces trust zone separation between external untrusted networks and internal infrastructure, using a combination of firewall, VPN gateway, and load balancer. Key exposure vectors arise from misconfigured ingress/egress rules, insufficient segmentation enforcement between ingress-facing and backend zones, VPN trust propagation weaknesses, and monitoring blind spots at zone transitions. Lateral movement risk is elevated when boundary devices share management planes or when traffic inspection is bypassed via allowed protocols.",
-  "category": "Network Security",
-  "status": "reviewed"
-}

@@ -1,9 +1,0 @@
-{
-  "id": "e04e9803-9f22-4d6b-ae1d-9e49325a408d",
-  "name": "Security Logs",
-  "classType": "data",
-  "type": "Security Logs",
-  "description": "Operational metadata logs represent a sensitive aggregate data asset. While individual log entries may appear low-sensitivity, their collection exposes behavioral patterns, access histories, network topology, timing correlations, and user activity trails. Failures in classification enforcement, retention controls, anonymization, and disposal procedures create significant exposure for insider threats, regulatory non-compliance, and forensic re-identification attacks.",
-  "category": "Security",
-  "status": "reviewed"
-}

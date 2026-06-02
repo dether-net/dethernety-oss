@@ -30,7 +30,7 @@ Subsequent runs skip the build and just start the services.
 5. Builds the Docker image (`dethernety:demo`)
 6. Starts Docker Compose (memgraph + opa + dethernety)
 7. Waits for services to be healthy
-8. Builds and installs the dethernety-module (core component classes and data)
+8. Builds and installs the dethernety-general module (core component classes and data)
 9. Builds and installs mitre-frameworks (ATT&CK + D3FEND — requires Python 3)
 10. Restarts Dethernety to load the installed modules
 

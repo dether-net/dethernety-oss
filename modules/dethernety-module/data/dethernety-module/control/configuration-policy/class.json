@@ -1,9 +1,0 @@
-{
-  "id": "5d1ccdb4-b408-4509-aea8-5289c7e4d8a1",
-  "name": "Configuration Policy",
-  "classType": "control",
-  "type": "control",
-  "description": "Configuration consistency control ensures system environments are provisioned uniformly and as intended, delivering prevention of configuration drift, baseline enforcement, and repeatable deployment outcomes across infrastructure.",
-  "category": "Operational Management",
-  "status": "reviewed"
-}

@@ -1,9 +1,0 @@
-{
-  "id": "73f3abb0-8d8e-4179-8f0d-e2295ff92eec",
-  "name": "VPN Gateway",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "A VPN gateway or secure remote access concentrator that provides encrypted tunnels for remote users or site-to-site connectivity. Misconfigurations in authentication strength, cipher suites, split tunneling, session management, and logging create significant exposure vectors ranging from credential compromise to full network penetration.",
-  "category": "Network Security",
-  "status": "reviewed"
-}

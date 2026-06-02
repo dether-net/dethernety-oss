@@ -1,9 +1,0 @@
-{
-  "id": "7a7e740b-40da-48d4-b8da-c1639c8d3c1e",
-  "name": "Operating System Layer",
-  "classType": "securityBoundary",
-  "type": "securityBoundary",
-  "description": "The base operating system environment acts as a foundational trust zone boundary, managing process execution contexts and resource interfaces. Key boundary weaknesses center on inadequate zone separation between kernel and user space, insufficient inter-process trust enforcement, permeable ingress/egress filtering at syscall and IPC layers, and incomplete segmentation of privileged credential stores from unprivileged execution contexts. Lateral movement is enabled when trust propagation across process boundaries is implicit rather than explicitly enforced.",
-  "category": "System Foundation",
-  "status": "reviewed"
-}

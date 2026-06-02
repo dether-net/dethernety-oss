@@ -1,9 +1,0 @@
-{
-  "id": "e8227d43-49c5-4649-80b0-1945322f10c4",
-  "name": "Application Layer",
-  "classType": "securityBoundary",
-  "type": "securityBoundary",
-  "description": "The application tier security boundary encloses web and application servers responsible for business logic processing. Its primary security function is enforcing strict zone separation between external-facing networks and internal backend systems. Key risks include inadequate ingress/egress filtering allowing lateral movement, trust propagation abuse between enclosed components, insufficient segmentation enforcement permitting east-west traversal, and monitoring gaps that obscure boundary crossing events.",
-  "category": "Application Security",
-  "status": "reviewed"
-}

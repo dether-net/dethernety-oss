@@ -1,9 +1,0 @@
-{
-  "id": "f66c4e23-44c3-487e-b760-6cd2d814d42c",
-  "name": "OS Security Patches",
-  "classType": "control",
-  "type": "OS Security Patches",
-  "description": "Regular OS patch management delivers systematic vulnerability remediation, reducing the exploitable attack surface by closing known security gaps through vendor-supplied fixes. When properly configured with automated deployment, compliance tracking, and rollback capability, this control provides measurable prevention coverage against known CVEs and supports audit accountability.",
-  "category": "System Foundation",
-  "status": "reviewed"
-}

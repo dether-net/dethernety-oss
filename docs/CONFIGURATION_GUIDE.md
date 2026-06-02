@@ -249,7 +249,7 @@ NEO4J_TRUST_CERT=true
 
 # Modules
 CUSTOM_MODULES_PATH=custom_modules
-ALLOWED_MODULES=dethernety-module
+ALLOWED_MODULES=dethernety-general
 
 # OIDC (configure to match your identity provider)
 OIDC_ISSUER=http://localhost:8080

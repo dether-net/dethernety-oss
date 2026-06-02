@@ -1,9 +1,0 @@
-{
-  "id": "377047d1-cc9e-4e11-bf0e-616af2e93a3f",
-  "name": "Security Services Layer",
-  "classType": "securityBoundary",
-  "type": "securityBoundary",
-  "description": "A dedicated security management layer housing SIEM and related security tooling introduces a high-value trust zone whose boundary enforcement is critical. Weaknesses in how this zone enforces ingress/egress filtering, credential isolation, and segmentation can allow adversaries to pivot from monitored networks into the monitoring infrastructure itself, blind detection capabilities, or abuse management-plane trust to propagate laterally across the broader environment.",
-  "category": "Security",
-  "status": "reviewed"
-}

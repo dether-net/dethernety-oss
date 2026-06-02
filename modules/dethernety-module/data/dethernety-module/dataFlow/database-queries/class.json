@@ -1,9 +1,0 @@
-{
-  "id": "c16ab17e-aaef-490d-bbb0-7446cc10f0d2",
-  "name": "Database Queries",
-  "classType": "dataFlow",
-  "type": "dataFlow",
-  "description": "Application-to-database data flows represent a high-value transit path carrying queries, credentials, and sensitive result sets. Key concerns include unencrypted or weakly encrypted transport, absent mutual TLS authentication, protocol-level vulnerabilities in database wire protocols, lack of message integrity verification, SQL injection traversal through the channel, replay attack surfaces, and absence of connection rate controls. An attacker with network access to the application-database segment can intercept, manipulate, or replay traffic with significant data exposure impact.",
-  "category": "Data Traffic",
-  "status": "reviewed"
-}

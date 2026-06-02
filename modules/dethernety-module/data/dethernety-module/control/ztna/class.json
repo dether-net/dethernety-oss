@@ -1,9 +1,0 @@
-{
-  "id": "8bfaa5bf-23f4-4c31-b4ea-fc5312d50d89",
-  "name": "ZTNA",
-  "classType": "control",
-  "type": "ZTNA",
-  "description": "Zero trust network access control delivers continuous authentication, context-aware authorization, and micro-segmentation to enforce least-privilege connectivity across all users and devices regardless of network location.",
-  "category": "Cross Cutting Controls",
-  "status": "reviewed"
-}

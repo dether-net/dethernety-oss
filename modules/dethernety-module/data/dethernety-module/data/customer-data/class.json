@@ -1,9 +1,0 @@
-{
-  "id": "e23a7f4f-b0c6-4fbc-a145-bdb43b80ced2",
-  "name": "Customer Data",
-  "classType": "data",
-  "type": "data",
-  "description": "PII and financial data stored in the database presents significant exposure across multiple lifecycle phases. Key risks include inconsistent classification enforcement, inadequate retention controls, insufficient masking of sensitive fields, unclear cross-border transfer compliance, and gaps in secure disposal. Without enforced classification policies, data handling decisions default to least-effort rather than least-privilege, increasing breach impact and regulatory liability.",
-  "category": "Sensitive Information",
-  "status": "reviewed"
-}

@@ -1,9 +1,0 @@
-{
-  "id": "a185229a-5353-4cfb-8304-31589844658a",
-  "name": "Backup Operations",
-  "classType": "dataFlow",
-  "type": "dataFlow",
-  "description": "Backup data flows from primary databases to secure storage represent high-value transit targets due to the bulk sensitivity of replicated data, often scheduled at predictable intervals. Key risks include unencrypted channels, weak or absent mutual authentication, protocol downgrade attacks, lack of integrity verification, and predictable transfer timing enabling replay or interception. The transit path may traverse shared network segments, increasing exposure to passive surveillance and active man-in-the-middle attacks.",
-  "category": "Data Flows",
-  "status": "reviewed"
-}

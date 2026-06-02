@@ -85,7 +85,7 @@ in the model overview.
 To create a custom module, see the [Module Development Guide](docs/architecture/modules/). Key points:
 
 - Extend the base classes in `packages/dt-module/`
-- Follow the structure of `modules/dethernety-module/` as a reference
+- Follow the structure of `modules/dethernety-general/` as a reference
 - Include a `module.json` manifest with metadata
 - Test module loading locally before submitting
 

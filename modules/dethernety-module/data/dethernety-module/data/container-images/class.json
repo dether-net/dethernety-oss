@@ -1,9 +1,0 @@
-{
-  "id": "7a34143e-6045-45cf-a37d-6f359682e43f",
-  "name": "Container Images",
-  "classType": "data",
-  "type": "Container Images",
-  "description": "Container registry image data presents significant data lifecycle risks centered on embedded secrets within layered OCI snapshots, inconsistent classification enforcement across image tiers, inadequate retention policies leading to stale image accumulation, and insufficient disposal controls allowing recovery of sensitive layer data. The layered filesystem model creates compounding exposure where sensitive data added and subsequently deleted in a Dockerfile layer remains permanently recoverable from the image manifest, making classification and disposal failures especially severe.",
-  "category": "Container Infrastructure",
-  "status": "reviewed"
-}

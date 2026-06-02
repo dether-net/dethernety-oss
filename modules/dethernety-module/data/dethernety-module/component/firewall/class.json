@@ -1,9 +1,0 @@
-{
-  "id": "0657fbd8-e7c0-491f-920e-3099450ec057",
-  "name": "Firewall",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "A firewall inspects and regulates network traffic based on configured security rules. Misconfigurations in rule sets, authentication, logging, encryption, and management interfaces can expose the host and downstream network to unauthorized access, traffic bypass, or undetected intrusion. As a critical enforcement boundary, weaknesses here affect all traffic it governs.",
-  "category": "Network Security",
-  "status": "reviewed"
-}

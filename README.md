@@ -134,7 +134,7 @@ Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego, and TypeScript MCP.
 
 Modules are executable JavaScript/TypeScript code, not static configuration or templates. A module can define component classes for threat modeling, implement analysis logic, provide security controls, create issue types, or integrate with external systems. Because they're real code, there's no hard limit on what a module can do -- anything you can write in JS is fair game.
 
-You don't have to start from scratch. The platform ships with a base class library ([dt-module](packages/dt-module/)) that handles registration, schema definition, and lifecycle management. For analysis, modules can use built-in OPA/Rego policy evaluation to write detection rules declaratively, or implement their own logic. The included [Dethernety Module](modules/dethernety-module/) is a working reference implementation.
+You don't have to start from scratch. The platform ships with a base class library ([dt-module](packages/dt-module/)) that handles registration, schema definition, and lifecycle management. For analysis, modules can use built-in OPA/Rego policy evaluation to write detection rules declaratively, or implement their own logic. The included [Dethernety General](modules/dethernety-general/) is a working reference implementation.
 
 See the [development guide](docs/architecture/modules/DEVELOPMENT_GUIDE.md) for building your own.
 
@@ -152,7 +152,7 @@ dethernety-oss/
 │   ├── eslint-config/      Shared ESLint configuration
 │   └── typescript-config/  Shared TypeScript configuration
 ├── modules/
-│   ├── dethernety-module/  Default threat modeling module
+│   ├── dethernety-general/ Default threat modeling module
 │   └── mitre-frameworks/   MITRE ATT&CK and D3FEND data
 ├── docs/                   Documentation
 ├── demo/                   One-command demo (Memgraph + OPA + Dethernety)

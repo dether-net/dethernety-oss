@@ -1,9 +1,0 @@
-{
-  "id": "a658e7b6-41b8-4152-be59-407340543de1",
-  "name": "HTTP/S Requests",
-  "classType": "dataFlow",
-  "type": "dataFlow",
-  "description": "This data flow transmits potential PII between clients and applications over a network channel. Key transit risks include weak or absent transport encryption, protocol downgrade opportunities, missing mutual authentication, lack of message integrity verification, replay attack exposure, absence of rate limiting, and insecure routing. The channel must be assessed for both passive interception and active manipulation by adversaries positioned on the network path.",
-  "category": "Application Traffic",
-  "status": "reviewed"
-}

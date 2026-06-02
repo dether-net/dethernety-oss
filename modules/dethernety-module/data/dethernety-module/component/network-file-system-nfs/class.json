@@ -1,9 +1,0 @@
-{
-  "id": "994bdb05-6c42-44f4-9361-2957c408c1f3",
-  "name": "Network File System (NFS)",
-  "classType": "component",
-  "type": "STORE",
-  "description": "NFS (Network File System) exposes file storage over a network, making its host configuration critical to preventing unauthorized access, data exfiltration, and privilege escalation. Key risks arise from weak export controls, absent transport encryption, insecure authentication mechanisms, and overly permissive mount options that allow privilege abuse.",
-  "category": "Storage Solutions",
-  "status": "reviewed"
-}

@@ -1,9 +1,0 @@
-{
-  "id": "1aacda79-fda1-47b4-9dba-f17f13138514",
-  "name": "Email Security Policies",
-  "classType": "control",
-  "type": "Email Security Policies",
-  "description": "Email server-side security control that enforces authentication protocols, filtering rules, and delivery policies to provide measurable protection outcomes including spoofing prevention, spam reduction, and delivery integrity verification.",
-  "category": "Communication Services",
-  "status": "reviewed"
-}

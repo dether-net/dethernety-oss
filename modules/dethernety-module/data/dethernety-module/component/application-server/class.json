@@ -1,9 +1,0 @@
-{
-  "id": "7f684a45-f9e3-4208-97a6-fcbccf77db1b",
-  "name": "Application Server",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "An application server executing business logic and processing API requests presents a broad attack surface across authentication enforcement, transport security, privilege separation, secrets management, and runtime configuration. Misconfigurations at the host level—such as running as root, exposing debug endpoints, or storing credentials in environment variables without protection—can be exploited independently of application-layer vulnerabilities to compromise the host, pivot laterally, or exfiltrate sensitive data.",
-  "category": "Application Processing",
-  "status": "reviewed"
-}

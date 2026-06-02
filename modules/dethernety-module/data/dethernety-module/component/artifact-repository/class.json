@@ -1,9 +1,0 @@
-{
-  "id": "a8b76c03-505a-431f-8097-0b966f444e04",
-  "name": "Artifact Repository",
-  "classType": "component",
-  "type": "STORE",
-  "description": "Artifact repositories managing non-OCI artifacts introduce risks across dependency resolution, proxy trust chains, authentication, and integrity verification. Active package resolution logic creates supply chain attack surfaces distinct from passive storage. Proxying external registries introduces dependency confusion risk. Integrity models for Helm charts, binaries, and packages differ from container digests and must be independently enforced. Misconfiguration in any layer — auth, network, signing, or proxy routing — can result in malicious artifact injection or exfiltration.",
-  "category": "Software Supply Chain",
-  "status": "reviewed"
-}

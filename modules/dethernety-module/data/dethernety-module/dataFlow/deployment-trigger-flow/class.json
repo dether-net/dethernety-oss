@@ -1,9 +1,0 @@
-{
-  "id": "a5205903-521b-4577-9122-8bf4c46e5145",
-  "name": "Deployment Trigger Flow",
-  "classType": "dataFlow",
-  "type": "Deployment Trigger Flow",
-  "description": "This dataFlow carries deployment manifests and image references from the CI/CD pipeline engine to the Kubernetes (or equivalent) API server. Because it transports pipeline trust context and directly influences production workload scheduling, any weakness in transport encryption, mutual authentication, or message integrity creates a high-impact path for arbitrary workload injection. The channel must enforce mTLS, certificate pinning, strong cipher suites, replay protection, and rate limiting to prevent interception, manifest tampering, credential replay, and resource exhaustion.",
-  "category": "Software Supply Chain",
-  "status": "reviewed"
-}
