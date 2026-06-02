@@ -23,8 +23,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
-    "dev": "tsc -b -w"
+    "build": "tsc -b tsconfig.build.json",
+    "dev": "tsc -b tsconfig.build.json -w",
+    "test": "vitest run"
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
@@ -40,6 +41,7 @@
   "devDependencies": {
     "@types/json-logic-js": "^2.0.8",
     "@types/node": "^25.7.0",
-    "@types/uuid": "^10.0.0"
+    "@types/uuid": "^10.0.0",
+    "vitest": "^4.1.6"
   }
 }
