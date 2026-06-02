@@ -325,4 +325,60 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
 
     expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([]);
   });
+
+  // AC-6b — append-only at the PROPERTY level (AC-6 proves it at the edge level).
+  // `SET rel += $attributes` merges, it does not replace, so a later run that drops
+  // the justification (empty attribute map) must NOT clobber the earlier value.
+  it('append-only justification: a later bare ref does not clobber an earlier justification', async () => {
+    await seedControlAndClass();
+    await seedTechnique('T1078');
+
+    // First run records a justification on the edge.
+    await upsertCountermeasure({
+      name: 'MFA',
+      type: 'CONTROL',
+      category: 'identity',
+      mitigates: [techRef('T1078', 'a second factor stops stolen passwords')],
+    });
+
+    // Second run supplies the same ref WITHOUT justification (empty attribute map).
+    await upsertCountermeasure({
+      name: 'MFA',
+      type: 'CONTROL',
+      category: 'identity',
+      mitigates: [techRef('T1078')],
+    });
+
+    // The earlier justification survives the bare re-run.
+    expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([
+      { target: 'T1078', justification: 'a second factor stops stolen passwords' },
+    ]);
+  });
+
+  // AC-8 — every schema-wired verb routes to its own COUNTERMEASURE_<VERB> edge type.
+  // Defends the naming isomorphism on the write side across all four production verbs
+  // (AC-1 only exercised mitigates + detects). A typo in a COUNTERMEASURE_VERB_EDGES
+  // map value (e.g. detects → 'COUNTERMEASURE_DETECT') fails exactly its own row here.
+  it('routes each wired verb field to its own edge type', async () => {
+    await seedControlAndClass();
+    const wired = [
+      { field: 'mitigates', edge: 'COUNTERMEASURE_MITIGATES', tech: 'T1078' },
+      { field: 'protectsAgainst', edge: 'COUNTERMEASURE_PROTECTS_AGAINST', tech: 'T1110' },
+      { field: 'detects', edge: 'COUNTERMEASURE_DETECTS', tech: 'T1190' },
+      { field: 'isolates', edge: 'COUNTERMEASURE_ISOLATES', tech: 'T1021' },
+    ];
+    for (const w of wired) await seedTechnique(w.tech);
+
+    // One countermeasure carrying all four wired verbs at once.
+    await upsertCountermeasure({
+      name: 'MFA',
+      type: 'CONTROL',
+      category: 'identity',
+      ...Object.fromEntries(wired.map((w) => [w.field, [techRef(w.tech)]])),
+    });
+
+    for (const w of wired) {
+      expect(await edges('MFA', w.edge)).toEqual([{ target: w.tech, justification: null }]);
+    }
+  });
 });

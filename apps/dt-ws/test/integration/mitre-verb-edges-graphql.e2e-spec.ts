@@ -44,6 +44,9 @@ const typeDefs = `
       @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
       @settable(onUpdate: false)
     mitigates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_MITIGATES", direction: OUT)
+    protectsAgainst: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_PROTECTS_AGAINST", direction: OUT)
+    detects: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_DETECTS", direction: OUT)
+    isolates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_ISOLATES", direction: OUT)
     control: [Control!]! @relationship(type: "HAS_COUNTERMEASURE", direction: IN)
     controlClass: [ControlClass!]! @relationship(type: "IS_COUNTERMEASURE_OF", direction: OUT)
   }
@@ -186,5 +189,55 @@ describe('Countermeasure verb edges — GraphQL surface (e2e)', () => {
       `MATCH (cm:Countermeasure { name: 'System CM' }) RETURN cm.createdBy AS createdBy`,
     );
     expect(sys.records[0].get('createdBy')).toBe('SYSTEM');
+  });
+
+  // AC-10 — writer-map ↔ schema-field round-trip for every wired verb (not just `mitigates`).
+  // Drives the real upsert (which selects the edge type from COUNTERMEASURE_VERB_EDGES) then
+  // reads it back through the matching GraphQL @relationship field. If the writer's map value
+  // and the schema field's relationship type ever disagree, the field returns [] and the row
+  // fails. The probe typeDefs above mirror schema.graphql:1048-1054 (production parity for the
+  // schema strings themselves is the probe's known scope limit, called out in the file header).
+  it.each([
+    ['mitigates', 'T1078'],
+    ['protectsAgainst', 'T1110'],
+    ['detects', 'T1190'],
+    ['isolates', 'T1021'],
+  ])('the `%s` field returns the technique its writer linked', async (field, tech) => {
+    await runWrite(
+      `CREATE (:Control { id: 'ctrl-1', name: 'Ctrl' })
+       CREATE (:ControlClass { id: 'ccls-1', name: 'CtrlClass' })
+       CREATE (:MitreAttackTechnique { attack_id: $tech, name: $tech })`,
+      { tech },
+    );
+
+    const session = mg.driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        svc.upsertCountermeasuresInTx(tx as any, {
+          componentId: 'ctrl-1',
+          classId: 'ccls-1',
+          countermeasures: [
+            {
+              name: 'CM',
+              type: 'CONTROL',
+              category: 'identity',
+              [field]: [{ label: 'MitreAttackTechnique', property: 'attack_id', value: tech }],
+            } as any,
+          ],
+        }),
+      );
+    } finally {
+      await session.close();
+    }
+
+    const result = await graphql({
+      schema,
+      source: `query { countermeasures(where: { name_EQ: "CM" }) { ${field} { attack_id } } }`,
+      contextValue: ctx('user-1'),
+    });
+
+    expect(result.errors).toBeUndefined();
+    const cm = (result.data as any)?.countermeasures?.[0];
+    expect(cm[field]).toEqual([{ attack_id: tech }]);
   });
 });
