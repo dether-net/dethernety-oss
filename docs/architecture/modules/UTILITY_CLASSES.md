@@ -320,7 +320,7 @@ async deletePolicyByPrefix(prefix: string): Promise<boolean>
 await opaOps.deletePolicy('dethernety.PROCESS.webserver.policies');
 
 // Delete all policies for a module (during refresh)
-await opaOps.deletePolicyByPrefix('dethernety-module.');
+await opaOps.deletePolicyByPrefix('dethernety-general.');
 ```
 
 ---

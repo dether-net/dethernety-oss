@@ -171,14 +171,14 @@ const policyPath = regoPackageName?.replaceAll('.', '/') + '/exposures';
 import { DtNeo4jOpaModule } from '@dethernety/dt-module';
 import { Logger } from '@nestjs/common';
 
-class DthernetyModule extends DtNeo4jOpaModule {
+class MyModule extends DtNeo4jOpaModule {
   constructor(driver: any, logger: Logger) {
-    super('dethernety-module', driver, logger);
+    super('my-module', driver, logger);
   }
 }
 
 // In ModuleRegistryService
-const module = new DthernetyModule(graphDbDriver, logger);
+const module = new MyModule(graphDbDriver, logger);
 const metadata = await module.getMetadata();
 ```
 

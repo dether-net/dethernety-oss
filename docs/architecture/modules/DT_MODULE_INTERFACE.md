@@ -223,7 +223,7 @@ export interface DTMetadata {
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  DTMetadata                                                     │    │
 │  │  {                                                              │    │
-│  │    name: "dethernety-module",                                   │    │
+│  │    name: "dethernety-general",                                  │    │
 │  │    version: "1.0.0",                                            │    │
 │  │    componentClasses: [...],                                     │    │
 │  │    dataFlowClasses: [...],                                      │    │
@@ -237,7 +237,7 @@ export interface DTMetadata {
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  Graph Database                                                 │    │
 │  │                                                                 │    │
-│  │  (DTModule {name: "dethernety-module"})                         │    │
+│  │  (DTModule {name: "dethernety-general"})                        │    │
 │  │       │                                                         │    │
 │  │       ├──[:MODULE_PROVIDES_CLASS]──>(DTComponentClass)          │    │
 │  │       ├──[:MODULE_PROVIDES_CLASS]──>(DTDataFlowClass)           │    │
