@@ -1,0 +1,9 @@
+{
+  "id": "829b9ffb-9329-44fe-8971-01913f388831",
+  "name": "Data Backup & Recovery",
+  "classType": "control",
+  "type": "Data Backup & Recovery",
+  "description": "Data backup and recovery — also called backups, snapshots, disaster recovery (DR), restore procedures, or business continuity — a control maintaining tested, isolated copies and restoration runbooks to recover from destruction, ransomware, or corruption. The place to look for backups, snapshot/restore, DR, recovery point/time objectives, or the ability to rebuild data after loss.",
+  "category": "Recovery & Availability",
+  "status": "draft"
+}

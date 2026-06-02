@@ -1,0 +1,85 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "data_classification_scheme_established": false,
+      "sensitive_data_inventory_and_discovery": "inventory_only",
+      "network_egress_dlp_enabled": false,
+      "dlp_enforcement_mode": "monitor",
+      "tls_inspection_enabled": false,
+      "deep_packet_inspection_enabled": false,
+      "endpoint_dlp_agent_coverage": false,
+      "removable_media_control_enabled": false,
+      "email_dlp_gateway_enabled": false,
+      "web_cloud_casb_dlp_enabled": false,
+      "information_flow_rules_bound_to_classification": false,
+      "dlp_exceptions_governed_and_recertified": false,
+      "dlp_policy_hit_alerting_enabled": false,
+      "exfiltration_testing_performed": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "data_classification_scheme_established": true,
+      "sensitive_data_inventory_and_discovery": "maintained_with_discovery_scans",
+      "network_egress_dlp_enabled": true,
+      "dlp_enforcement_mode": "block",
+      "tls_inspection_enabled": true,
+      "deep_packet_inspection_enabled": true,
+      "endpoint_dlp_agent_coverage": true,
+      "removable_media_control_enabled": true,
+      "email_dlp_gateway_enabled": true,
+      "web_cloud_casb_dlp_enabled": true,
+      "information_flow_rules_bound_to_classification": true,
+      "dlp_exceptions_governed_and_recertified": true,
+      "dlp_policy_hit_alerting_enabled": true,
+      "exfiltration_testing_performed": true
+    },
+    "expectedCountermeasures": [
+      "Sensitive data classified and discovered",
+      "Egress network DLP enforced in blocking mode",
+      "Email, web, and cloud (CASB) channel coverage",
+      "TLS/SSL inspection on the DLP egress path",
+      "Information-flow rules bound to classification with governed exceptions",
+      "Policy-hit alerting, tuning, and exfiltration testing",
+      "Endpoint and removable-media DLP coverage"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "data_classification_scheme_established": true,
+      "sensitive_data_inventory_and_discovery": "inventory_only",
+      "network_egress_dlp_enabled": true,
+      "dlp_enforcement_mode": "monitor",
+      "tls_inspection_enabled": true,
+      "deep_packet_inspection_enabled": true,
+      "endpoint_dlp_agent_coverage": true,
+      "removable_media_control_enabled": true,
+      "email_dlp_gateway_enabled": true,
+      "web_cloud_casb_dlp_enabled": true,
+      "information_flow_rules_bound_to_classification": true,
+      "dlp_exceptions_governed_and_recertified": true,
+      "dlp_policy_hit_alerting_enabled": true,
+      "exfiltration_testing_performed": true
+    },
+    "expectedCountermeasures": [
+      "Email, web, and cloud (CASB) channel coverage",
+      "TLS/SSL inspection on the DLP egress path",
+      "Information-flow rules bound to classification with governed exceptions",
+      "Policy-hit alerting, tuning, and exfiltration testing",
+      "Endpoint and removable-media DLP coverage"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

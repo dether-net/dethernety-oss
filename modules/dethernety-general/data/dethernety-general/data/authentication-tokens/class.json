@@ -1,0 +1,9 @@
+{
+  "id": "2bc04479-7e0c-43f2-88b5-9fe788860642",
+  "name": "Authentication Tokens",
+  "classType": "data",
+  "type": "data",
+  "description": "Authentication tokens — also called session tokens, bearer/JWT tokens, access and refresh tokens, cookies, API keys, or SAML assertions — identifiers and assertions that grant access without re-authentication. Issued at login and presented on each request. The place to look for tokens, JWTs, session/bearer credentials, API keys, or the artifacts proving an active authenticated session.",
+  "category": "Access Credentials",
+  "status": "draft"
+}

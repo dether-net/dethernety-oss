@@ -1,0 +1,255 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "data_classification_scheme_established": {
+        "type": "boolean",
+        "title": "Data Classification Scheme Established",
+        "description": "A documented data-classification scheme (CIS 3.7) is maintained and referenced by DLP policies, so sensitive content can be matched against defined categories. Secure value: true.",
+        "default": false
+      },
+      "sensitive_data_inventory_and_discovery": {
+        "type": "string",
+        "enum": [
+          "maintained_with_discovery_scans",
+          "inventory_only",
+          "no_inventory"
+        ],
+        "title": "Sensitive Data Inventory & Discovery",
+        "description": "State of the sensitive-data inventory and data-at-rest discovery (CIS 3.1/3.2). Secure value: maintained_with_discovery_scans (inventory kept current AND periodic discovery scans run)."
+      },
+      "network_egress_dlp_enabled": {
+        "type": "boolean",
+        "title": "Network Egress DLP Enabled",
+        "description": "DLP is deployed and actively inspecting outbound traffic at managed interfaces / the network perimeter (SC-7(10); CIS 3.13). Secure value: true.",
+        "default": false
+      },
+      "dlp_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "block",
+          "monitor",
+          "off"
+        ],
+        "title": "DLP Enforcement Mode",
+        "description": "Enforcement mode of high-severity DLP policies. Secure value: block (actively stops exfiltration, versus monitor-only or off which only log or do nothing)."
+      },
+      "tls_inspection_enabled": {
+        "type": "boolean",
+        "title": "TLS/SSL Inspection Enabled",
+        "description": "TLS/SSL inspection is enabled on the DLP egress path so encrypted channels are not a content-inspection blind spot (SC-7(10)). Secure value: true.",
+        "default": false
+      },
+      "deep_packet_inspection_enabled": {
+        "type": "boolean",
+        "title": "Deep Packet Inspection Enabled",
+        "description": "Deep packet inspection / protocol-format adherence is enforced on the DLP egress path so content can be examined beyond headers (SC-7(10)). Secure value: true.",
+        "default": false
+      },
+      "endpoint_dlp_agent_coverage": {
+        "type": "boolean",
+        "title": "Endpoint DLP Agent Coverage",
+        "description": "Endpoint DLP agents are deployed on all managed endpoints and reconciled to the asset inventory (M1057; CIS 3.13). Secure value: true.",
+        "default": false
+      },
+      "removable_media_control_enabled": {
+        "type": "boolean",
+        "title": "Removable Media Control Enabled",
+        "description": "Device control blocks or encrypts sensitive writes to USB / removable media (CIS 3.9; M1057 counters T1052/.001). Secure value: true.",
+        "default": false
+      },
+      "email_dlp_gateway_enabled": {
+        "type": "boolean",
+        "title": "Email DLP Gateway Enabled",
+        "description": "Outbound email is routed through a DLP-inspecting mail gateway operating in enforce mode. Secure value: true.",
+        "default": false
+      },
+      "web_cloud_casb_dlp_enabled": {
+        "type": "boolean",
+        "title": "Web & Cloud (CASB) DLP Enabled",
+        "description": "Web uploads and cloud-app traffic are inspected via SWG/CASB enforce-mode DLP (mitigates T1567 exfiltration over web services and T1537 cloud transfer). Secure value: true.",
+        "default": false
+      },
+      "information_flow_rules_bound_to_classification": {
+        "type": "boolean",
+        "title": "Information-Flow Rules Bound to Classification",
+        "description": "DLP enforces information-flow restrictions that are bound to data classification labels/categories (AC-4). Secure value: true.",
+        "default": false
+      },
+      "dlp_exceptions_governed_and_recertified": {
+        "type": "boolean",
+        "title": "DLP Exceptions Governed & Recertified",
+        "description": "DLP exceptions / allow-lists are documented, approved, time-bound, and periodically recertified so they do not become permanent exfiltration gaps (AC-4 / SC-7(10)). Secure value: true."
+      },
+      "dlp_policy_hit_alerting_enabled": {
+        "type": "boolean",
+        "title": "DLP Policy-Hit Alerting Enabled",
+        "description": "DLP policy hits raise alerts into a monitored SOC/SIEM workflow rather than only being logged (SI-4; SC-7(10)). Secure value: true.",
+        "default": false
+      },
+      "exfiltration_testing_performed": {
+        "type": "boolean",
+        "title": "Exfiltration Testing Performed",
+        "description": "Exfiltration-capability tests are run on a defined frequency to validate that DLP detects and blocks representative data-egress attempts (SC-7(10)). Secure value: true."
+      }
+    },
+    "required": [
+      "data_classification_scheme_established",
+      "sensitive_data_inventory_and_discovery",
+      "network_egress_dlp_enabled",
+      "dlp_enforcement_mode",
+      "tls_inspection_enabled",
+      "deep_packet_inspection_enabled",
+      "endpoint_dlp_agent_coverage",
+      "removable_media_control_enabled",
+      "email_dlp_gateway_enabled",
+      "web_cloud_casb_dlp_enabled",
+      "information_flow_rules_bound_to_classification",
+      "dlp_exceptions_governed_and_recertified",
+      "dlp_policy_hit_alerting_enabled",
+      "exfiltration_testing_performed"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/information_flow_rules_bound_to_classification"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_exceptions_governed_and_recertified"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_inspection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_classification_scheme_established"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_inventory_and_discovery"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_policy_hit_alerting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Control Effectiveness",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/exfiltration_testing_performed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Exfiltration Prevention",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deep_packet_inspection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_enforcement_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/email_dlp_gateway_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_dlp_agent_coverage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_egress_dlp_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/removable_media_control_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/web_cloud_casb_dlp_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

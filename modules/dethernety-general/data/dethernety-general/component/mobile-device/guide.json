@@ -1,0 +1,580 @@
+[
+  {
+    "option_name": "hardware_backed_credential_storage_used",
+    "option_description": "Attests that tokens/credentials on this untrusted device live exclusively in the OS-protected, ideally hardware-backed keystore (iOS Keychain/Secure Enclave, Android Keystore/StrongBox, or EncryptedSharedPreferences) rather than in plaintext SharedPreferences, NSUserDefaults, plist, SQLite, or sandbox files.",
+    "security_impact": "One of the OR-triggers for the exposure \"Insecure local credential/token storage\" — fires when hardware_backed_credential_storage_used is false (is_false), meaning credentials are recoverable from a lost, stolen, or rooted device (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Statically/dynamically review where the app persists tokens/credentials and confirm exclusive use of the OS keystore.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: Android keys created via Android Keystore (KeyStore.getInstance(\"AndroidKeyStore\")), preferably with setIsStrongBoxBacked(true) where available, and secrets stored via EncryptedSharedPreferences/Jetpack Security. iOS secrets in Keychain via SecItemAdd. Insecure: secrets found in SharedPreferences XML, NSUserDefaults, plist, plaintext SQLite, or app sandbox files.",
+        "source": "Android Keystore system (Android Developers)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "On iOS, confirm Keychain items carry the most restrictive accessibility class consistent with function.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "iOS Keychain items carry the most restrictive accessibility class consistent with function — kSecAttrAccessibleWhenUnlockedThisDeviceOnly (not ...Always / not synced to iCloud) for tokens that should never leave the device.",
+        "source": "Apple — kSecAttrAccessibleWhenUnlockedThisDeviceOnly"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tokens_in_plaintext_device_storage",
+    "option_description": "Positive interpreted boolean — true when tokens, session credentials, or secrets are observed persisted in cleartext in app-readable device storage (SharedPreferences XML, NSUserDefaults, plist, plaintext SQLite, caches, or sandbox files) outside the keystore.",
+    "security_impact": "One of the OR-triggers for the exposure \"Insecure local credential/token storage\" — fires when tokens_in_plaintext_device_storage is true (is_true); polarity-safe positive boolean so the secure baseline stays silent (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Examine app-readable storage on a test/rooted device for any cleartext token/credential/secret persisted outside the keystore.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: Android keys created via Android Keystore (KeyStore.getInstance(\"AndroidKeyStore\")), preferably with setIsStrongBoxBacked(true) where available, and secrets stored via EncryptedSharedPreferences/Jetpack Security. iOS secrets in Keychain via SecItemAdd. Insecure (this attribute true): secrets found in SharedPreferences XML, NSUserDefaults, plist, plaintext SQLite, or app sandbox files.",
+        "source": "Android Keystore system (Android Developers)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Static/dynamic review of the app sandbox for cleartext PII/tokens in caches, databases, logs, or WebView local storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Static/dynamic review of the app sandbox finds no cleartext PII/tokens in caches, databases, logs, or WebView local storage; sensitive blobs are AES-GCM encrypted under a keystore-held key. This attribute is true when any cleartext token/secret IS found.",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Attests that sensitive data (PII, tokens, secrets) persisted on the device outside the keystore is encrypted at rest with a keystore-held key (e.g. AES-GCM under a Keystore key), rather than written as cleartext caches/logs/temp files/WebView storage.",
+    "security_impact": "One of the OR-triggers for the exposure \"Insecure local credential/token storage\" — fires when encrypted_at_rest is false (is_false), i.e. cleartext sensitive data is present at rest (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Static/dynamic review of the app sandbox confirming sensitive data persisted outside the keystore is encrypted with a Keystore/Keychain-held key.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Static/dynamic review of the app sandbox finds no cleartext PII/tokens in caches, databases, logs, or WebView local storage; sensitive blobs are AES-GCM encrypted under a keystore-held key.",
+        "source": "OWASP Cryptographic Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Attests all app-to-backend traffic is carried over TLS only, with cleartext transport impossible (Android Network Security Config cleartextTrafficPermitted=false / iOS App Transport Security left on, NSAllowsArbitraryLoads not set).",
+    "security_impact": "One of the OR-triggers for the exposure \"Cleartext transport / no certificate pinning\" — fires when tls_only_transport is false (is_false), letting the channel fall back to cleartext HTTP for MITM (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Android Network Security Config for cleartextTrafficPermitted.",
+        "command": "grep -i cleartextTrafficPermitted res/xml/network_security_config.xml",
+        "file_path": "res/xml/network_security_config.xml",
+        "navigation": null,
+        "expected_output": "Secure: cleartextTrafficPermitted=\"false\" in <base-config> (also the Android 9 / API 28+ default). Insecure: cleartextTrafficPermitted=\"true\". Config must be wired in via android:networkSecurityConfig on the <application> element in AndroidManifest.xml.",
+        "source": "Android Network Security Configuration (Android Developers)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the iOS Info.plist App Transport Security keys.",
+        "command": null,
+        "file_path": "Info.plist",
+        "navigation": null,
+        "expected_output": "Secure: NSAppTransportSecurity has NO NSAllowsArbitraryLoads=true and no broad NSExceptionAllowsInsecureHTTPLoads exceptions (ATS on by default since iOS 9 SDK, enforces HTTPS/TLS 1.2+). Insecure: NSAllowsArbitraryLoads = true.",
+        "source": "Apple — NSAllowsArbitraryLoads / NSAppTransportSecurity"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cleartext_http_permitted",
+    "option_description": "Interpreted boolean over the composite transport-trust config (Android cleartextTrafficPermitted, iOS NSAllowsArbitraryLoads / NSExceptionAllowsInsecureHTTPLoads): true when the app is configured to permit cleartext HTTP to the backend or a broad insecure-HTTP exception.",
+    "security_impact": "One of the OR-triggers for the exposure \"Cleartext transport / no certificate pinning\" — fires when cleartext_http_permitted is true (is_true), letting the hostile-device adversary read/alter the channel (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Android Network Security Config for any cleartext-permitting setting.",
+        "command": "grep -i cleartextTrafficPermitted res/xml/network_security_config.xml",
+        "file_path": "res/xml/network_security_config.xml",
+        "navigation": null,
+        "expected_output": "Secure: cleartextTrafficPermitted=\"false\" (this attribute false). Insecure (this attribute true): cleartextTrafficPermitted=\"true\" or a per-domain cleartext exception.",
+        "source": "Android Network Security Configuration (Android Developers)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the iOS Info.plist for NSAllowsArbitraryLoads or broad insecure-HTTP exceptions.",
+        "command": null,
+        "file_path": "Info.plist",
+        "navigation": null,
+        "expected_output": "Secure: no NSAllowsArbitraryLoads=true and no broad NSExceptionAllowsInsecureHTTPLoads. Insecure (this attribute true): NSAllowsArbitraryLoads=true or NSExceptionAllowsInsecureHTTPLoads set.",
+        "source": "Apple — NSAllowsArbitraryLoads / NSAppTransportSecurity"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "certificate_pinning_enabled",
+    "option_description": "Attests the app pins the backend's certificate/public key (Android <pin-set> SHA-256 SPKI pins with a backup pin; iOS URLSession delegate / pinning lib), so a malicious CA or user-installed root on a compromised/rooted device cannot transparently MITM the channel.",
+    "security_impact": "One of the OR-triggers for the exposure \"Cleartext transport / no certificate pinning\" — fires when certificate_pinning_enabled is false (is_false), leaving the app on system trust only so a user-installed root CA can intercept TLS (ATT&CK T1557, T1553.004).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Android Network Security Config for a <pin-set> on the backend domain.",
+        "command": "grep -i pin-set res/xml/network_security_config.xml",
+        "file_path": "res/xml/network_security_config.xml",
+        "navigation": null,
+        "expected_output": "Secure: <domain-config> for the backend host contains a <pin-set> with at least two <pin digest=\"SHA-256\"> SPKI hashes (current + backup) and <trust-anchors> not silently trusting user CAs. Insecure: no pin-set, or <certificates src=\"user\"/> trusted in production.",
+        "source": "Android Network Security Configuration (Android Developers)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "On iOS, confirm pinning is implemented in the URLSession delegate or a pinning library for backend connections (no dossier command exists for the iOS path).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: backend connections pin the server certificate or public key via URLSession:didReceiveChallenge: validation or a pinning library, with a backup pin. Insecure: system trust only, no pinning.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Attests the mobile client fully validates the backend server certificate chain (no disabled hostname verification, no trust-all/accept-any TrustManager or insecure URLSession delegate).",
+    "security_impact": "One of the OR-triggers for the exposure \"Cleartext transport / no certificate pinning\" — fires when server_certificate_validated is false (is_false), where any presented certificate is accepted enabling trivial MITM (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Android Network Security Config trust-anchors / certificate sources for the backend domain.",
+        "command": "grep -iE 'certificates src=|overridePins' res/xml/network_security_config.xml",
+        "file_path": "res/xml/network_security_config.xml",
+        "navigation": null,
+        "expected_output": "Secure: <trust-anchors> use only <certificates src=\"system\"/> (plus explicit pinned CAs); overridePins absent/false. Insecure: <certificates src=\"user\"/> present, or overridePins=\"true\".",
+        "source": "Android Network Security Configuration (Android Developers)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the app code for any trust-all/accept-any TrustManager, disabled hostname verification, or insecure URLSession delegate (no dossier command isolates this).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: no custom TrustManager that returns without validation, no HostnameVerifier that always returns true, no URLSession delegate calling completionHandler with .useCredential unconditionally. Insecure: chain validation bypassed.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "root_jailbreak_detection_enabled",
+    "option_description": "Interpreted boolean — true when the app detects a rooted/jailbroken runtime and gates or restricts sensitive flows on a positive verdict (defence-in-depth).",
+    "security_impact": "One of the OR-triggers for the exposure \"No jailbreak/root detection or app-integrity attestation\" — fires when root_jailbreak_detection_enabled is false (is_false), so the app runs identically on a rooted/jailbroken device, silently undermining OS sandbox guarantees that protect the keystore and screen.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review whether the app performs root/jailbreak checks and gates/limits sensitive flows on a positive verdict.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: app performs root/jailbreak checks and gates/limits sensitive flows on a positive verdict (defence-in-depth, not sole control). Insecure: app runs identically on a rooted/jailbroken device with no check or response.",
+        "source": "OWASP MASVS — MASVS-RESILIENCE"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_verified_app_integrity_attestation",
+    "option_description": "Interpreted boolean — true when the backend server-side verifies the request comes from a genuine, untampered instance of the real app on a genuine device (Android Play Integrity deviceIntegrity/appLicensingVerdict; iOS App Attest DCAppAttestService assertion validated server-side) and the app resists tampering/repackaging.",
+    "security_impact": "An OR-trigger for TWO exposures — \"No jailbreak/root detection or app-integrity attestation\" and \"App repackaging & hardcoded-secret extraction\" — each firing when server_verified_app_integrity_attestation is false (is_false), where the server trusts any client claiming to be the app and a repackaged forged app is indistinguishable from the genuine one (ATT&CK T1036.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the backend validates an Android Play Integrity verdict server-side before trusting a request.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: backend validates a Play Integrity verdict (deviceIntegrity contains MEETS_DEVICE_INTEGRITY and/or MEETS_STRONG_INTEGRITY; appLicensingVerdict = LICENSED) and/or an iOS App Attest assertion server-side, rejecting/elevating-friction on failure. Insecure: server trusts any client claiming to be the app.",
+        "source": "Google Play Integrity API — verdicts (Android Developers)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the iOS path uses App Attest with server-side validation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "iOS: app calls DCAppAttestService to generate a Secure-Enclave keypair and the server validates the Apple-signed attestation object / assertions; private key never leaves the Secure Enclave.",
+        "source": "Apple DeviceCheck — DCAppAttestService"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_hardcoded_in_config_or_iac",
+    "option_description": "True when long-lived API keys, signing secrets, or backend shared secrets are embedded in the app binary/resources (APK/IPA) or bundled config rather than provisioned at runtime over an authenticated channel.",
+    "security_impact": "One of the OR-triggers for the exposure \"App repackaging & hardcoded-secret extraction\" — fires when secrets_hardcoded_in_config_or_iac is true (is_true), since an attacker decompiles the package and recovers the secret by string/entropy analysis (ATT&CK T1036.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Decompile the APK/IPA and run static analysis / string + entropy scanning over binary, resources, and bundled config.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: static analysis / string + entropy scan of the decompiled APK/IPA finds no long-lived API keys, private keys, or backend secrets; any per-device secret is provisioned at runtime over the authenticated channel. Insecure (this attribute true): secrets recoverable from the binary.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "access_token_ttl_minutes",
+    "option_description": "Lifetime of the mobile session's access token in minutes. Short-lived tokens bound the replay window of a token stolen off a lost or compromised device; long-lived tokens let a stolen bearer token be replayed until expiry.",
+    "security_impact": "One of the AND/OR conditions for the exposure \"Long-lived bearer token theft and replay\" — fires when access_token_ttl_minutes is greater than 60 (gt 60), making a stolen token replayable for a long window (ATT&CK T1528, T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the access-token lifetime from the authorization server / token issuance config and express it in minutes (the dossier frames token TTL as a server-side OAuth attestation, not a single device command).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: short access-token TTL (minutes), refresh-token rotation with reuse-detection, and DPoP (RFC 9449) or mTLS (RFC 8705) binding tokens to the device key. Insecure: long-lived plain bearer tokens accepted from any client. The exposure fires when TTL exceeds 60 minutes.",
+        "source": "RFC 9700 — OAuth 2.0 Security Best Current Practice"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      5,
+      15,
+      60,
+      1440
+    ]
+  },
+  {
+    "option_name": "sender_constrained",
+    "option_description": "Whether the access token is sender-constrained (bound to the device's key via DPoP per RFC 9449 or mTLS per RFC 8705) rather than a plain bearer token replayable verbatim.",
+    "security_impact": "One of the conditions for the exposure \"Long-lived bearer token theft and replay\" — fires when sender_constrained is false (is_false), so a token exfiltrated from device storage/logs can be replayed verbatim from attacker hardware (ATT&CK T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm access tokens are bound to the device key via DPoP (RFC 9449) or mTLS (RFC 8705).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: short access-token TTL (minutes), refresh-token rotation with reuse-detection, and DPoP (RFC 9449) or mTLS (RFC 8705) binding tokens to the device key. Insecure: long-lived plain bearer tokens accepted from any client.",
+        "source": "RFC 9700 — OAuth 2.0 Security Best Current Practice"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "refresh_token_rotation_enabled",
+    "option_description": "Whether refresh tokens are rotated on use with reuse-detection (RFC 9700). Without rotation a stolen refresh token mints fresh access tokens indefinitely and replay goes undetected.",
+    "security_impact": "One of the conditions for the exposure \"Long-lived bearer token theft and replay\" — fires when refresh_token_rotation_enabled is false (is_false) (ATT&CK T1528).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm refresh tokens are rotated on each use and reuse of a retired token is detected and triggers revocation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: short access-token TTL (minutes), refresh-token rotation with reuse-detection, and DPoP (RFC 9449) or mTLS (RFC 8705) binding tokens to the device key. Insecure: long-lived plain bearer tokens accepted from any client.",
+        "source": "RFC 9700 — OAuth 2.0 Security Best Current Practice"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_side_revocation_supported",
+    "option_description": "Whether the backend exposes a server-side revocation/logout path that immediately invalidates a device's access and refresh tokens (e.g. on reported device loss/theft).",
+    "security_impact": "One of the conditions for the exposure \"Long-lived bearer token theft and replay\" — fires when server_side_revocation_supported is false (is_false), so stolen-token access persists until natural expiry with no recovery (ATT&CK T1528).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a server-side revocation/logout endpoint exists that immediately invalidates a device's access+refresh tokens on demand and the app supports remote/local wipe.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a server-side revocation/logout endpoint invalidates the device's access+refresh tokens immediately, and the app supports remote/local wipe of stored secrets. Insecure: revoked only by waiting for token expiry; no app-data wipe.",
+        "source": "OWASP OAuth2 Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "excluded_from_device_backup",
+    "option_description": "Attests sensitive data (tokens, credentials, PII) is excluded from OS/cloud device backups — Android android:allowBackup=\"false\" or backup/dataExtractionRules excluding secret stores, and iOS Keychain items using a ...ThisDeviceOnly accessibility class.",
+    "security_impact": "One of the OR-triggers for the exposure \"Sensitive data leakage via backups, logs, clipboard, screen capture\" — fires when excluded_from_device_backup is false (is_false), so secrets ride into backups and leak to an attacker who restores/harvests them (ATT&CK T1115).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the AndroidManifest for allowBackup (and dataExtractionRules/fullBackupContent).",
+        "command": "grep -i allowBackup AndroidManifest.xml",
+        "file_path": "AndroidManifest.xml",
+        "navigation": null,
+        "expected_output": "Secure: android:allowBackup=\"false\" (or fullBackupContent/dataExtractionRules excluding secret stores). Insecure: allowBackup=\"true\" with secrets in backed-up paths. iOS: secrets use ...ThisDeviceOnly Keychain accessibility so they are never written to iCloud backups.",
+        "source": "Apple — kSecAttrAccessibleWhenUnlockedThisDeviceOnly"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "On iOS, confirm device-bound secrets use a ...ThisDeviceOnly Keychain accessibility class so they are never written to iCloud/iTunes backups.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "iOS Keychain items carry the most restrictive accessibility class consistent with function — kSecAttrAccessibleWhenUnlockedThisDeviceOnly (not ...Always / not synced to iCloud) for tokens that should never leave the device.",
+        "source": "Apple — kSecAttrAccessibleWhenUnlockedThisDeviceOnly"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "screen_capture_protection_enabled",
+    "option_description": "Attests sensitive screens block screenshots/screen-recording and resist overlay/tapjacking — Android FLAG_SECURE on sensitive windows (plus filterTouchesWhenObscured), and iOS hides/blurs sensitive content in the app-switcher snapshot.",
+    "security_impact": "One of the OR-triggers for the exposure \"Sensitive data leakage via backups, logs, clipboard, screen capture\" — fires when screen_capture_protection_enabled is false (is_false), so sensitive screens are freely screenshot/recorded/overlaid (ATT&CK T1115).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm sensitive Activities set FLAG_SECURE and use overlay protection; iOS blurs/hides content in the app-switcher snapshot.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: sensitive Activities set WindowManager.LayoutParams.FLAG_SECURE (screenshots blocked / recordings show black); overlay protection via filterTouchesWhenObscured; iOS blurs/hides content in the app-switcher snapshot. Insecure: sensitive screens freely screenshot/recorded.",
+        "source": "Android — Secure sensitive activities / FLAG_SECURE (Android Developers)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sensitive_clipboard_hygiene",
+    "option_description": "Attests secret-entry fields enforce clipboard/keyboard hygiene — secrets are not auto-copied to the shared clipboard and secret fields use secure/no-suggestion input types (iOS isSecureTextEntry / autocorrectionType=.no; Android inputType textNoSuggestions/textPassword).",
+    "security_impact": "One of the OR-triggers for the exposure \"Sensitive data leakage via backups, logs, clipboard, screen capture\" — fires when sensitive_clipboard_hygiene is false (is_false), so passwords/tokens land on the shared clipboard or keyboard cache readable by other apps (ATT&CK T1115).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm secret-entry fields use secure/no-suggestion input types and secrets are not auto-copied to the clipboard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: secret entry fields set secure/no-suggestion input types (iOS isSecureTextEntry / autocorrectionType=.no; Android inputType textNoSuggestions/textPassword) and secrets are not auto-copied to the clipboard. Insecure: passwords/tokens cached by the keyboard or copied to a long-lived clipboard.",
+        "source": "OWASP MASVS — MASVS-STORAGE / MASVS-PLATFORM"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Attests credentials, tokens, and PII are excluded/masked from device logs (logcat / NSLog / crash-reporting SDKs) and debug logging is stripped from release builds.",
+    "security_impact": "One of the OR-triggers for the exposure \"Sensitive data leakage via backups, logs, clipboard, screen capture\" — fires when secrets_masked_in_logs is false (is_false), so secrets are written to device logs readable on a rooted device or harvested by crash services (CWE-532, ATT&CK T1115).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Capture device logs on a test device and grep for secrets at runtime; confirm release builds strip debug logging.",
+        "command": "adb logcat | grep -iE 'token|password|authorization|bearer'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: no credentials/tokens/PII appear in device logs at any verbosity; debug logging stripped from release builds. Insecure: secrets visible in logcat/NSLog or shipped to a crash service.",
+        "source": "MITRE CWE-532 Insertion of Sensitive Information into Log File"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deep_link_origin_validated",
+    "option_description": "Interpreted boolean — deep-link / custom-URL-scheme / intent handlers validate the origin and parameters of the inbound link and re-check authorization server-side before acting.",
+    "security_impact": "One of the OR-triggers for the exposure \"Malicious deep link & untrusted client-supplied data\" — fires when deep_link_origin_validated is false (is_false), where a crafted link or intent drives a sensitive action or leaks data without checks (ATT&CK T1204.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review deep-link/custom-URL-scheme/intent handlers to confirm they validate origin+params and re-check authorization server-side.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: deep-link / intent handlers validate origin and parameters and re-check authorization server-side before acting; Android prefers verified App Links over custom schemes; exported components are minimized. Insecure: a crafted link/intent can drive sensitive actions or leak data without checks.",
+        "source": "OWASP MASVS — MASVS-PLATFORM"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deep_link_url_scheme_validation",
+    "option_description": "Enum over the deep-link/URL-scheme validation posture: 'validated_authorized' (handlers validate origin+params, prefer verified App Links, minimize exported components) vs 'unvalidated_deep_links' (a crafted link/intent triggers sensitive actions or leaks data without checks).",
+    "security_impact": "One of the OR-triggers for the exposure \"Malicious deep link & untrusted client-supplied data\" — fires when deep_link_url_scheme_validation equals \"unvalidated_deep_links\" (eq) (ATT&CK T1204.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether inbound deep links/URL schemes/intents are validated and authorized, and classify the posture.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure ('validated_authorized'): deep-link / intent handlers validate origin and parameters and re-check authorization server-side before acting; Android prefers verified App Links over custom schemes; exported components are minimized. Insecure ('unvalidated_deep_links'): a crafted link/intent can drive sensitive actions or leak data without checks.",
+        "source": "OWASP MASVS — MASVS-PLATFORM"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "validated_authorized",
+      "unvalidated_deep_links"
+    ]
+  },
+  {
+    "option_name": "server_side_allowlist_validation",
+    "option_description": "Interpreted boolean — the backend re-validates every request from the untrusted mobile client with allow-list input validation and authorization independent of any client-side gate.",
+    "security_impact": "One of the OR-triggers for the exposure \"Malicious deep link & untrusted client-supplied data\" — fires when server_side_allowlist_validation is false (is_false), where the backend relies on client-supplied input being well-formed or on the app to enforce business rules (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the backend re-validates every request with allow-list input validation and authorization, independent of any client-side gate.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: server re-validates every request with allow-list input validation and authorization independent of any client-side gate; client-side jailbreak/integrity checks are advisory, with the server as authority. Insecure: backend trusts client-supplied flags or relies on the app to enforce business rules.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "client_asserted_state_trusted_serverside",
+    "option_description": "Interpreted boolean — whether the backend trusts client-asserted state (entitlements, prices, identifiers, geofence/jailbreak/integrity claims) supplied by the mobile app. The secure posture is false (client claims are advisory; the server is the authority).",
+    "security_impact": "One of the OR-triggers for the exposure \"Malicious deep link & untrusted client-supplied data\" — fires when client_asserted_state_trusted_serverside is true (is_true), so a tampered or instrumented app bypasses enforcement (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether the backend trusts client-asserted state (entitlements, prices, identifiers, geofence/jailbreak/integrity claims) or treats them as advisory only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure (this attribute false): server re-validates every request independent of any client-side gate; client-side jailbreak/integrity checks are advisory, with the server as authority. Insecure (this attribute true): backend trusts client-supplied flags or relies on the app to enforce business rules.",
+        "source": "OWASP Input Validation Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "biometric_local_auth_gates_secrets",
+    "option_description": "Interpreted attestation — access to keystore-held secrets and sensitive in-app actions is gated behind a device biometric/local-auth challenge (Android BiometricPrompt before key use; iOS Keychain items with a biometry-bound SecAccessControl, e.g. .biometryCurrentSet).",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing local-auth (biometric) gating of secrets\" — fires when biometric_local_auth_gates_secrets is false (is_false), so secrets are usable with no challenge on a momentarily-unlocked or stolen device (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm access to keystore-held secrets and sensitive in-app actions requires a fresh biometric/local-auth challenge.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: Android keys created with setUserAuthenticationRequired(true) (BiometricPrompt before use); iOS Keychain items with biometry-bound access control (SecAccessControl, .biometryCurrentSet). Insecure: secrets usable with no local-auth challenge.",
+        "source": "Android Keystore system (Android Developers)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "keys_bound_to_user_authentication",
+    "option_description": "Interpreted attestation — keystore keys protecting secrets are cryptographically bound to user authentication so the OS will not release/use them without a fresh local-auth challenge (Android setUserAuthenticationRequired(true); iOS SecAccessControl with biometry/userPresence enforced by the Secure Enclave).",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing local-auth (biometric) gating of secrets\" — fires when keys_bound_to_user_authentication is false (is_false), leaving keys usable on a stolen unlocked device (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect how keystore keys are created to confirm they are auth-bound so the OS/Secure Enclave will not use them without a fresh local-auth challenge.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: Android keys created with setUserAuthenticationRequired(true) (BiometricPrompt before use); iOS Keychain items with biometry-bound access control (SecAccessControl, .biometryCurrentSet). Insecure: secrets usable with no local-auth challenge.",
+        "source": "Android Keystore system (Android Developers)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

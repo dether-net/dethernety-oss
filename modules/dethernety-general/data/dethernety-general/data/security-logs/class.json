@@ -1,0 +1,9 @@
+{
+  "id": "5e0eb7c5-6a23-496f-82be-e98e12f252af",
+  "name": "Security Logs",
+  "classType": "data",
+  "type": "data",
+  "description": "Security logs — also called audit logs, event logs, the audit trail, access logs, or security telemetry — audit and event records used for detection, investigation, and compliance. The evidentiary record of system and user activity. The place to look for logs, the audit trail, security/access event records, or the data used to investigate and prove what happened.",
+  "category": "Security",
+  "status": "draft"
+}

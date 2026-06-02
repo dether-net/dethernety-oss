@@ -1,0 +1,104 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "automated_backups_configured": false,
+      "backup_rpo_hours": 0,
+      "data_recovery_process_documented": false,
+      "backups_encrypted": false,
+      "backups_encrypted_in_transit": false,
+      "backup_keys_in_separate_trust_domain": false,
+      "backup_immutability_enabled": false,
+      "object_lock_retention_mode": "GOVERNANCE",
+      "offline_airgapped_backup_exists": false,
+      "backup_copy_in_separate_account_or_region": false,
+      "backup_access_restricted": false,
+      "mfa_delete_enabled": false,
+      "restoration_tested_rto": false,
+      "restore_test_interval_days": 0,
+      "backup_integrity_verification": false,
+      "object_versioning_enabled": false,
+      "point_in_time_recovery_enabled": false,
+      "backup_retention_days": 0,
+      "backup_job_monitoring_enabled": false,
+      "backup_failure_alerting_enabled": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "automated_backups_configured": true,
+      "backup_rpo_hours": 0,
+      "data_recovery_process_documented": true,
+      "backups_encrypted": true,
+      "backups_encrypted_in_transit": true,
+      "backup_keys_in_separate_trust_domain": true,
+      "backup_immutability_enabled": true,
+      "object_lock_retention_mode": "COMPLIANCE",
+      "offline_airgapped_backup_exists": true,
+      "backup_copy_in_separate_account_or_region": true,
+      "backup_access_restricted": true,
+      "mfa_delete_enabled": true,
+      "restoration_tested_rto": true,
+      "restore_test_interval_days": 0,
+      "backup_integrity_verification": true,
+      "object_versioning_enabled": true,
+      "point_in_time_recovery_enabled": true,
+      "backup_retention_days": 1,
+      "backup_job_monitoring_enabled": true,
+      "backup_failure_alerting_enabled": true
+    },
+    "expectedCountermeasures": [
+      "Isolated / air-gapped copy (3-2-1)",
+      "Backup immutability (WORM / Object Lock)",
+      "Automated backups at adequate frequency (RPO)",
+      "Restoration regularly tested (RTO) with integrity verification",
+      "Backup access restricted to a separate trust domain with MFA-delete",
+      "Backups encrypted at rest and in transit",
+      "Backup job monitoring and failure alerting"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "automated_backups_configured": true,
+      "backup_rpo_hours": 0,
+      "data_recovery_process_documented": true,
+      "backups_encrypted": true,
+      "backups_encrypted_in_transit": true,
+      "backup_keys_in_separate_trust_domain": true,
+      "backup_immutability_enabled": true,
+      "object_lock_retention_mode": "GOVERNANCE",
+      "offline_airgapped_backup_exists": true,
+      "backup_copy_in_separate_account_or_region": true,
+      "backup_access_restricted": true,
+      "mfa_delete_enabled": true,
+      "restoration_tested_rto": true,
+      "restore_test_interval_days": 0,
+      "backup_integrity_verification": true,
+      "object_versioning_enabled": true,
+      "point_in_time_recovery_enabled": true,
+      "backup_retention_days": 0,
+      "backup_job_monitoring_enabled": true,
+      "backup_failure_alerting_enabled": true
+    },
+    "expectedCountermeasures": [
+      "Isolated / air-gapped copy (3-2-1)",
+      "Automated backups at adequate frequency (RPO)",
+      "Restoration regularly tested (RTO) with integrity verification",
+      "Backup access restricted to a separate trust domain with MFA-delete",
+      "Backups encrypted at rest and in transit",
+      "Backup job monitoring and failure alerting"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

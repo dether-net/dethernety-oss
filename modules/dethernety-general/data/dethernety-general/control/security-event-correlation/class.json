@@ -1,0 +1,9 @@
+{
+  "id": "a82e1258-96be-49d3-b3cb-c016c3e5aa8a",
+  "name": "Security Event Correlation",
+  "classType": "control",
+  "type": "Security Event Correlation",
+  "description": "Security event correlation — also called SIEM correlation rules, detection analytics, alert correlation, UEBA, or threat detection logic — rules and analytics over aggregated logs that surface multi-step attacks invisible to single-source detection. The place to look for correlation rules, SIEM analytics, multi-signal detection, behavioral analytics, or stitching events into attack patterns.",
+  "category": "Detection",
+  "status": "draft"
+}

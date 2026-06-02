@@ -1,0 +1,78 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "edr_agent_active_with_tamper_protection": false,
+      "behavior_monitoring_enabled": false,
+      "realtime_protection_enabled": false,
+      "ransomware_mass_change_detection_enabled": false,
+      "endpoint_remediation_rollback_enabled": false,
+      "automated_host_isolation_enabled": false,
+      "endpoint_containment_response_enabled": false,
+      "application_allowlisting_enforced": false,
+      "threat_signatures_current": false,
+      "endpoint_audit_logs_centralised": false,
+      "monitored_response_function_present": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "edr_agent_active_with_tamper_protection": true,
+      "behavior_monitoring_enabled": true,
+      "realtime_protection_enabled": true,
+      "ransomware_mass_change_detection_enabled": true,
+      "endpoint_remediation_rollback_enabled": true,
+      "automated_host_isolation_enabled": true,
+      "endpoint_containment_response_enabled": true,
+      "application_allowlisting_enforced": true,
+      "threat_signatures_current": true,
+      "endpoint_audit_logs_centralised": true,
+      "monitored_response_function_present": true
+    },
+    "expectedCountermeasures": [
+      "EDR agent present on all endpoints with tamper protection",
+      "Anti-ransomware mass-change detection and rollback enabled",
+      "Real-time behavioral detection enabled",
+      "Application allowlisting / execution control enforced",
+      "Centralized telemetry forwarded to monitored SIEM/SOC",
+      "Automated containment and host isolation enabled",
+      "Detection content and engine kept current"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "edr_agent_active_with_tamper_protection": true,
+      "behavior_monitoring_enabled": true,
+      "realtime_protection_enabled": true,
+      "ransomware_mass_change_detection_enabled": true,
+      "endpoint_remediation_rollback_enabled": true,
+      "automated_host_isolation_enabled": true,
+      "endpoint_containment_response_enabled": true,
+      "application_allowlisting_enforced": true,
+      "threat_signatures_current": true,
+      "endpoint_audit_logs_centralised": true,
+      "monitored_response_function_present": true
+    },
+    "expectedCountermeasures": [
+      "Anti-ransomware mass-change detection and rollback enabled",
+      "EDR agent present on all endpoints with tamper protection",
+      "Real-time behavioral detection enabled",
+      "Application allowlisting / execution control enforced",
+      "Automated containment and host isolation enabled",
+      "Centralized telemetry forwarded to monitored SIEM/SOC",
+      "Detection content and engine kept current"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

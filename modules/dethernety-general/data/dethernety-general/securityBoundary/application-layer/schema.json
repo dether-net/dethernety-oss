@@ -1,0 +1,258 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "boundary_non_bypassable": {
+        "type": "boolean",
+        "title": "Boundary Non-Bypassable",
+        "description": "Attestation: no alternate network path lets DMZ/presentation reach the data tier skipping the app boundary's authn/authz/audit.",
+        "default": false
+      },
+      "dmz_to_data_tier_path_exists": {
+        "type": "boolean",
+        "title": "DMZ-to-Data-Tier Path Exists",
+        "description": "Attestation: a direct DMZ-to-data-tier network path has been discovered or is known to exist.",
+        "default": false
+      },
+      "internal_interface_reauthenticates_calls": {
+        "type": "boolean",
+        "title": "Internal Interface Re-Authenticates Calls",
+        "description": "Attestation: the app-tier boundary re-authenticates every ingress call at its internal interface (per-request authn via mTLS/SVID or OIDC/JWT at a PEP) rather than implicitly trusting presentation-tier calls.",
+        "default": false
+      },
+      "server_side_allowlist_validation": {
+        "type": "boolean",
+        "title": "Server-Side Allow-List Validation",
+        "description": "Attestation: untrusted input crossing the app boundary is validated server-side using allow-lists (anchored regex/schema/WAF/OpenAPI), not client-side only."
+      },
+      "identity_propagated_cryptographically": {
+        "type": "boolean",
+        "title": "Identity Propagated Cryptographically",
+        "description": "Attestation: caller identity crosses the internal boundary in a cryptographically verifiable form (gateway-signed JWT iss/aud/exp/sig, mTLS cert subject, SPIFFE SVID) - NOT unsigned X-User-Id headers or IP allow-lists.",
+        "default": false
+      },
+      "shared_service_credentials_used": {
+        "type": "boolean",
+        "title": "Shared Service Credentials Used",
+        "description": "Attestation: presentation tier authenticates to app tier using a shared service account / static service token reused across all end-user sessions (collapsing per-user identity into one principal).",
+        "default": false
+      },
+      "east_west_microsegmentation_enforced": {
+        "type": "boolean",
+        "title": "East-West Microsegmentation Enforced",
+        "description": "Attestation: lateral movement within the app tier is constrained by default-deny NetworkPolicy / service-mesh / SG-to-SG allow-lists per service pair and port.",
+        "default": false
+      },
+      "service_to_service_mtls_enforced": {
+        "type": "boolean",
+        "title": "Service-to-Service mTLS Enforced",
+        "description": "Attestation: east-west service-to-service calls inside the app tier require their own cryptographic peer authn (strict mTLS / SPIFFE SVID / workload-identity tokens).",
+        "default": false
+      },
+      "mfa_enforced_at_boundary_crossing": {
+        "type": "boolean",
+        "title": "MFA Enforced at Boundary Crossing",
+        "description": "Attestation: every human-principal session crossing into the app boundary is challenged for MFA at ingress (FIDO2 preferred).",
+        "default": false
+      },
+      "least_privilege_authorization_at_crossing": {
+        "type": "boolean",
+        "title": "Least-Privilege Authorization at Crossing",
+        "description": "Attestation: per-request authz at the boundary is least-privilege (default-deny, no wildcard scopes, admin actions gated behind a separately-scoped role).",
+        "default": false
+      },
+      "app_tier_egress_destination_allowlisted": {
+        "type": "boolean",
+        "title": "App-Tier Egress Destination Allow-Listed",
+        "description": "Attestation: outbound traffic from app-tier workloads is constrained to an allow-list (data-tier endpoints, KMS, observability, package mirrors). General 0.0.0.0/0 internet egress is blocked or forced through an inspecting proxy.",
+        "default": false
+      },
+      "cloud_metadata_endpoint_blocked": {
+        "type": "boolean",
+        "title": "Cloud Metadata Endpoint Blocked",
+        "description": "Attestation: cloud IMDS (169.254.169.254 / GCP / Azure equivalents) is unreachable from app workloads OR only reachable behind IMDSv2-style session-token+hop-limit constraints that an SSRF cannot satisfy.",
+        "default": false
+      },
+      "back_end_traffic_reencrypted_after_tls_termination": {
+        "type": "boolean",
+        "title": "Back-End Traffic Re-Encrypted After TLS Termination",
+        "description": "Attestation: after edge TLS termination, traffic onward to app/data tiers is re-encrypted (TLS to upstreams w/ upstream cert verification OR strict mTLS via mesh) rather than plaintext on the back end.",
+        "default": false
+      },
+      "management_plane_isolated_from_data_plane": {
+        "type": "boolean",
+        "title": "Management Plane Isolated from Data Plane",
+        "description": "Attestation: admin/management interfaces of the boundary itself (gateway admin, mesh control plane, firewall mgmt) are NOT reachable from user-traffic networks - separate admin segment / mgmt VPN / IP-allowlisted admin tier.",
+        "default": false
+      },
+      "boundary_admin_actions_require_mfa_and_audited": {
+        "type": "boolean",
+        "title": "Boundary Admin Actions Require MFA and Are Audited",
+        "description": "Attestation: privileged actions on the boundary's management plane require MFA AND every change is recorded to a tamper-resistant off-box audit log."
+      }
+    },
+    "required": [
+      "boundary_non_bypassable",
+      "dmz_to_data_tier_path_exists",
+      "internal_interface_reauthenticates_calls",
+      "server_side_allowlist_validation",
+      "identity_propagated_cryptographically",
+      "shared_service_credentials_used",
+      "east_west_microsegmentation_enforced",
+      "service_to_service_mtls_enforced",
+      "mfa_enforced_at_boundary_crossing",
+      "least_privilege_authorization_at_crossing",
+      "app_tier_egress_destination_allowlisted",
+      "cloud_metadata_endpoint_blocked",
+      "back_end_traffic_reencrypted_after_tls_termination",
+      "management_plane_isolated_from_data_plane",
+      "boundary_admin_actions_require_mfa_and_audited"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_propagated_cryptographically"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_interface_reauthenticates_calls"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_at_boundary_crossing"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_service_credentials_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_authorization_at_crossing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/back_end_traffic_reencrypted_after_tls_termination"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_to_service_mtls_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/app_tier_egress_destination_allowlisted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_non_bypassable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_metadata_endpoint_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dmz_to_data_tier_path_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/east_west_microsegmentation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_plane_isolated_from_data_plane"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_allowlist_validation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_admin_actions_require_mfa_and_audited"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

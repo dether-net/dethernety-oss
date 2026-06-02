@@ -1,0 +1,92 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values - maximum exposures should fire",
+    "input": {
+      "boundary_non_bypassable": false,
+      "dmz_to_data_tier_path_exists": true,
+      "internal_interface_reauthenticates_calls": false,
+      "server_side_allowlist_validation": false,
+      "identity_propagated_cryptographically": false,
+      "shared_service_credentials_used": true,
+      "east_west_microsegmentation_enforced": false,
+      "service_to_service_mtls_enforced": false,
+      "mfa_enforced_at_boundary_crossing": false,
+      "least_privilege_authorization_at_crossing": false,
+      "app_tier_egress_destination_allowlisted": false,
+      "cloud_metadata_endpoint_blocked": false,
+      "back_end_traffic_reencrypted_after_tls_termination": false,
+      "management_plane_isolated_from_data_plane": false,
+      "boundary_admin_actions_require_mfa_and_audited": false
+    },
+    "expectedExposures": [
+      "East-west lateral movement on flat app-tier trust",
+      "Cleartext on the back end after TLS termination",
+      "Management-plane compromise bridging the boundary",
+      "Boundary bypass via direct DMZ-to-data path",
+      "Exploit public-facing application into app tier",
+      "Unrestricted egress enabling SSRF/exfil/C2",
+      "Valid-account abuse crossing the boundary",
+      "Trusted-relationship abuse at the internal interface"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values - no exposures should fire",
+    "input": {
+      "boundary_non_bypassable": true,
+      "dmz_to_data_tier_path_exists": false,
+      "internal_interface_reauthenticates_calls": true,
+      "server_side_allowlist_validation": true,
+      "identity_propagated_cryptographically": true,
+      "shared_service_credentials_used": false,
+      "east_west_microsegmentation_enforced": true,
+      "service_to_service_mtls_enforced": true,
+      "mfa_enforced_at_boundary_crossing": true,
+      "least_privilege_authorization_at_crossing": true,
+      "app_tier_egress_destination_allowlisted": true,
+      "cloud_metadata_endpoint_blocked": true,
+      "back_end_traffic_reencrypted_after_tls_termination": true,
+      "management_plane_isolated_from_data_plane": true,
+      "boundary_admin_actions_require_mfa_and_audited": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "boundary_non_bypassable": true,
+      "dmz_to_data_tier_path_exists": false,
+      "internal_interface_reauthenticates_calls": true,
+      "server_side_allowlist_validation": true,
+      "identity_propagated_cryptographically": true,
+      "shared_service_credentials_used": false,
+      "east_west_microsegmentation_enforced": true,
+      "service_to_service_mtls_enforced": true,
+      "mfa_enforced_at_boundary_crossing": true,
+      "least_privilege_authorization_at_crossing": true,
+      "app_tier_egress_destination_allowlisted": true,
+      "cloud_metadata_endpoint_blocked": true,
+      "back_end_traffic_reencrypted_after_tls_termination": true,
+      "management_plane_isolated_from_data_plane": true,
+      "boundary_admin_actions_require_mfa_and_audited": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input - tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "East-west lateral movement on flat app-tier trust",
+      "Cleartext on the back end after TLS termination",
+      "Management-plane compromise bridging the boundary",
+      "Boundary bypass via direct DMZ-to-data path",
+      "Exploit public-facing application into app tier",
+      "Unrestricted egress enabling SSRF/exfil/C2",
+      "Valid-account abuse crossing the boundary",
+      "Trusted-relationship abuse at the internal interface"
+    ]
+  }
+]

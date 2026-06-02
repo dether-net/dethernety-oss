@@ -1,0 +1,815 @@
+[
+  {
+    "option_name": "smbv1_enabled",
+    "option_description": "Whether the legacy SMBv1/CIFS dialect is enabled on the file server (EnableSMB1Protocol). SMBv1 lacks signing, encryption, and pre-auth integrity and is the protocol exploited by EternalBlue/MS17-010.",
+    "security_impact": "Triggers the exposure \"SMBv1 wormable remote code execution\" — one of its OR-conditions, firing when smbv1_enabled is true (the EternalBlue/MS17-010 RCE surface behind WannaCry/NotPetya; ATT&CK T1210/T1021.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the SMBv1 protocol state from the SMB server configuration.",
+        "command": "Get-SmbServerConfiguration | Select EnableSMB1Protocol",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EnableSMB1Protocol : False (secure) — True means SMBv1 is enabled (insecure)",
+        "source": "Microsoft Learn — Detect, enable, and disable SMBv1, SMBv2, and SMBv3 in Windows"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm whether the SMB1Protocol Windows optional feature is installed.",
+        "command": "Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "State : Disabled (secure) vs State : Enabled (insecure); set with Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol",
+        "source": "Microsoft Learn — Detect, enable, and disable SMBv1, SMBv2, and SMBv3 in Windows"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "min_smb_dialect",
+    "option_description": "The minimum SMB dialect the server will negotiate with clients. A floor permitting SMB1/CIFS leaves the EternalBlue surface reachable via downgrade; Microsoft guidance is to force an SMB 3.1.1 minimum.",
+    "security_impact": "Triggers the exposure \"SMBv1 wormable remote code execution\" — one of its OR-conditions, firing when min_smb_dialect is in [SMB1, SMB1.0, CIFS] (a floor still permitting the EternalBlue dialect).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm SMBv1/CIFS is not a negotiable dialect floor by reading the SMBv1 protocol state (its absence is the practical SMB3.1.1 floor on modern Windows).",
+        "command": "Get-SmbServerConfiguration | Select EnableSMB1Protocol",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EnableSMB1Protocol : False means CIFS/SMB1 cannot be negotiated (secure floor); True permits the SMB1 dialect (insecure)",
+        "source": "Microsoft Learn — Detect, enable, and disable SMBv1, SMBv2, and SMBv3 in Windows"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the SMB1Protocol feature is removed so no downgrade to the SMB1 dialect floor is possible.",
+        "command": "Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "State : Disabled — the negotiable dialect floor is SMB2+/SMB3.1.1 (secure); Enabled permits SMB1/CIFS (insecure)",
+        "source": "Microsoft Learn — Detect, enable, and disable SMBv1, SMBv2, and SMBv3 in Windows"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "SMB3.1.1",
+      "SMB2.1",
+      "CIFS"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the file-server/NAS appliance OS, firmware, and bundled apps are kept on current vendor-supported versions and patched within the org's remediation SLA, including MS17-010 and CISA-KEV-listed CVEs.",
+    "security_impact": "OR-trigger of three exposures: \"SMBv1 wormable remote code execution\", \"Ransomware mass-encryption of shares\", and \"Unpatched NAS appliance firmware (online brute force surface)\" — fires when edge_appliance_patched_within_sla is false (lagging firmware leaves the mass-exploit surface open; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Compare installed appliance firmware/app versions against vendor security advisories and the CISA KEV catalog, and confirm KEV-listed CVEs are remediated within the documented patch SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Appliance firmware/app versions checked against vendor advisories and CISA KEV with no outstanding known-exploited CVEs (secure); lagging firmware with a KEV-listed CVE (e.g. CVE-2021-28799, CVE-2022-27593) is insecure",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities; NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the appliance's patch/auto-update process and change records to confirm a rapid-patch cadence is in place and evidenced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented auto-update or rapid-patch process with recent applied updates (secure); ad-hoc/never-patched firmware is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "everyone_full_control_share",
+    "option_description": "Interpreted boolean: at least one SMB share grants Everyone or Authenticated Users Full Control/Change on data — an over-broad, least-privilege-violating configuration.",
+    "security_impact": "Triggers the exposure \"Over-broad / world-readable shares (least-privilege failure)\" — one of its OR-conditions, firing when everyone_full_control_share is true (any reachable principal can read/tamper/mass-encrypt; ATT&CK T1135/T1222).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate share ACLs and look for the Everyone / Authenticated Users principal carrying Full or Change rights.",
+        "command": "Get-SmbShare | Get-SmbShareAccess",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AccountName scoped to specific groups with Read/Change as needed (secure) vs AccountName 'Everyone' AccessRight 'Full' (insecure over-broad share = true)",
+        "source": "Microsoft Learn — SMB security hardening (UNC hardening / share access)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "nfs_export_wildcard_rw",
+    "option_description": "Interpreted boolean: at least one NFS export uses a wildcard client spec ('*' or 0.0.0.0/0) combined with blanket read-write, so any reachable host can read/tamper/mass-encrypt the export.",
+    "security_impact": "Triggers the exposure \"Over-broad / world-readable shares (least-privilege failure)\" — one of its OR-conditions, firing when nfs_export_wildcard_rw is true (open host-scope + rw access mode; ATT&CK T1135/T1222).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the NFS export table and identify any export with a bare '*'/0.0.0.0/0 client spec carrying rw.",
+        "command": "cat /etc/exports",
+        "file_path": "/etc/exports",
+        "expected_output": "Each export bound to an explicit CIDR/hostname (secure) vs a bare '*' wildcard client spec (insecure = true)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the active export host-scope and access mode at runtime.",
+        "command": "exportfs -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exports show explicit client scope and ro where possible (secure); a wildcard '*' export with rw is insecure (true)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Attestation that least-privilege access control is enforced across the store's shares/exports — principals receive only minimum rights (named groups, ro where writes are not needed) and no broad principal holds Full Control.",
+    "security_impact": "Triggers the exposure \"Over-broad / world-readable shares (least-privilege failure)\" — one of its OR-conditions, firing when least_privilege_access_enforced is false (the store's access model is over-broad).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review the effective SMB share access model and confirm named groups scoped to minimum rights with no broad Full Control principal.",
+        "command": "Get-SmbShare | Get-SmbShareAccess",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named groups with Read/Change as required and no Everyone Full Control (secure = true) vs broad principals with Full Control (insecure = false)",
+        "source": "Microsoft Learn — SMB security hardening (UNC hardening / share access)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the NFS export access modes and confirm ro is the default unless writes are genuinely required.",
+        "command": "grep -E '\\((rw|ro)' /etc/exports",
+        "file_path": "/etc/exports",
+        "expected_output": "Exports default to ro unless write is required (secure = true) vs blanket rw (broader-than-needed, false)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_based_enumeration_disabled",
+    "option_description": "Interpreted boolean: Access-Based Enumeration (ABE) is disabled on shares (FolderEnumerationMode = Unrestricted), so all file/folder names are visible to any user regardless of permission.",
+    "security_impact": "Triggers the exposure \"Over-broad / world-readable shares (least-privilege failure)\" — one of its OR-conditions, firing when access_based_enumeration_disabled is true (secondary recon facet exposing sensitive names; ATT&CK T1135).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the FolderEnumerationMode of each SMB share to determine whether ABE is on.",
+        "command": "Get-SmbShare | Select Name, FolderEnumerationMode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FolderEnumerationMode : AccessBased (secure, attribute false) vs Unrestricted (insecure, attribute true)",
+        "source": "Microsoft Learn — SMB security hardening (share configuration)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "insecure_guest_auth_allowed",
+    "option_description": "Interpreted-secure boolean: true when the SMB client/server permits insecure guest logons (AllowInsecureGuestAuth=1 / EnableSecurityGuest). Guest logons require no password and disable SMB signing/encryption.",
+    "security_impact": "Triggers the exposure \"Anonymous / guest / null-session access\" — one of its OR-conditions, firing when insecure_guest_auth_allowed is true (unauthenticated share enumeration/access; ATT&CK T1135/T1021.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the AllowInsecureGuestAuth registry value on the LanmanWorkstation client parameters.",
+        "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters\" /v AllowInsecureGuestAuth",
+        "file_path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+        "expected_output": "AllowInsecureGuestAuth REG_DWORD 0x0 (secure, attribute false) vs 0x1 (insecure guest logons enabled, attribute true)",
+        "source": "Microsoft Learn — SMB security hardening (SMB insecure guest authentication)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "null_session_access_allowed",
+    "option_description": "Interpreted-secure boolean: true when the SMB server permits anonymous null-session connections (RestrictNullSessAccess=0, RestrictAnonymous low, or shares/named pipes reachable without credentials).",
+    "security_impact": "Triggers the exposure \"Anonymous / guest / null-session access\" — one of its OR-conditions, firing when null_session_access_allowed is true (unauthenticated enumeration of shares/users/host; ATT&CK T1135).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the RestrictNullSessAccess value on the LanManServer parameters to confirm null sessions are restricted.",
+        "command": "reg query \"HKLM\\System\\CurrentControlSet\\Services\\LanManServer\\Parameters\" /v RestrictNullSessAccess",
+        "file_path": "HKLM\\System\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "expected_output": "RestrictNullSessAccess REG_DWORD 0x1 (null sessions restricted, secure = false) vs 0x0 (null sessions open, insecure = true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an anonymous null-session share enumeration from an untrusted vantage to confirm shares/named pipes are not reachable without credentials.",
+        "command": "smbclient -L //<storage-host> -N",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NT_STATUS_ACCESS_DENIED / no anonymous listing (secure = false); a successful share list without credentials is insecure (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "nfs_auth_sys_only",
+    "option_description": "Interpreted-secure boolean: true when NFS exports carrying accessible data rely solely on AUTH_SYS (sec=sys / no sec= option) with no RPCSEC_GSS Kerberos flavor — any reachable client can mount by spoofing UIDs.",
+    "security_impact": "Triggers the exposure \"Anonymous / guest / null-session access\" — one of its OR-conditions, firing when nfs_auth_sys_only is true (AUTH_SYS trusts client UIDs with no cryptographic auth = effectively unauthenticated; ATT&CK T1135).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the sec= options across exports; the absence of a sec= option (or only sec=sys) on sensitive exports is the insecure trigger.",
+        "command": "grep -E 'sec=' /etc/exports",
+        "file_path": "/etc/exports",
+        "expected_output": "Sensitive exports specify sec=krb5i/krb5p (secure = false); absence of sec= (AUTH_SYS) or only sec=sys is insecure (true)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the active per-export security flavor at runtime.",
+        "command": "exportfs -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each sensitive export shows a krb5i/krb5p flavor (secure = false); sys-only is insecure (true)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "smb_signing_required",
+    "option_description": "Whether the SMB server mandates SMB message signing (RequireSecuritySignature). When false, signing is optional and an adjacent attacker can perform an SMB relay/signing-downgrade attack.",
+    "security_impact": "Triggers the exposure \"SMB relay / signing-downgrade and cleartext interception (AiTM)\" — one of its OR-conditions, firing when smb_signing_required is false (enables relay/tamper; ATT&CK T1557/T1187/T1021.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the server-side mandatory SMB signing setting.",
+        "command": "Get-SmbServerConfiguration | Select RequireSecuritySignature, EnableSecuritySignature",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RequireSecuritySignature : True (secure) — False means signing is optional and a relay/MITM downgrade is possible (insecure)",
+        "source": "Microsoft Learn — Overview of Server Message Block signing in Windows"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the equivalent LanManServer registry value.",
+        "command": "reg query \"HKLM\\System\\CurrentControlSet\\Services\\LanManServer\\Parameters\" /v RequireSecuritySignature",
+        "file_path": "HKLM\\System\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "expected_output": "RequireSecuritySignature REG_DWORD 0x1 (secure) vs 0x0 (insecure)",
+        "source": "Microsoft Learn — Overview of Server Message Block signing in Windows"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "smb3_encryption_required",
+    "option_description": "Whether SMB3 end-to-end encryption (AES-128/256-GCM/CCM) is required for SMB traffic server-wide or per share (EncryptData). When false, cleartext SMB transport is permitted.",
+    "security_impact": "Triggers the exposure \"SMB relay / signing-downgrade and cleartext interception (AiTM)\" — one of its OR-conditions, firing when smb3_encryption_required is false (sniff/MITM of credentials and data in transit; ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the server-wide SMB encryption requirement.",
+        "command": "Get-SmbServerConfiguration | Select EncryptData, RejectUnencryptedAccess",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EncryptData : True with RejectUnencryptedAccess : True (secure) — EncryptData False permits cleartext SMB (insecure)",
+        "source": "Microsoft Learn — SMB Security Enhancements (SMB Encryption)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm per-share encryption on shares carrying sensitive data.",
+        "command": "Get-SmbShare | Select Name, EncryptData",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EncryptData : True on sensitive shares (secure) vs False (insecure)",
+        "source": "Microsoft Learn — SMB Security Enhancements (SMB Encryption)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "reject_unencrypted_access",
+    "option_description": "When SMB encryption is enabled, whether the server rejects clients that cannot negotiate SMB3 encryption (RejectUnencryptedAccess, default true). When false, non-SMB3 clients are allowed onto encrypted shares.",
+    "security_impact": "Triggers the exposure \"SMB relay / signing-downgrade and cleartext interception (AiTM)\" — one of its OR-conditions, firing when reject_unencrypted_access is false (re-opens a cleartext downgrade path the AiTM attacker can force; ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read whether unencrypted (non-SMB3) clients are rejected.",
+        "command": "Get-SmbServerConfiguration | Select RejectUnencryptedAccess",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RejectUnencryptedAccess : True (secure default) — False allows non-SMB3 clients to bypass encryption (insecure)",
+        "source": "Microsoft Learn — SMB Security Enhancements (SMB Encryption)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "smb_ntlm_blocked",
+    "option_description": "Whether NTLM authentication is blocked for SMB so Kerberos is enforced (BlockNTLM). When false, a negotiated downgrade from Kerberos to NTLM enables NTLM relay, pass-the-hash, and challenge-response leakage.",
+    "security_impact": "Triggers the exposure \"SMB relay / signing-downgrade and cleartext interception (AiTM)\" — one of its OR-conditions, firing when smb_ntlm_blocked is false (NTLM relay/pass-the-hash to a spoofed server; ATT&CK T1557/T1187).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read whether the SMB client blocks NTLM for outbound connections.",
+        "command": "Get-SmbClientConfiguration | Select BlockNTLM",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BlockNTLM : True (secure, Kerberos-only) vs False (NTLM downgrade possible, insecure)",
+        "source": "Microsoft Learn — SMB security hardening (SMB NTLM blocking)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "nfs_export_security_flavor",
+    "option_description": "The RPCSEC_GSS authentication/integrity/privacy flavor for NFS exports (sec= in /etc/exports). Secure values are krb5i or krb5p; 'sys' (AUTH_SYS) trusts client UIDs with no cryptographic auth and carries cleartext.",
+    "security_impact": "Triggers the exposure \"SMB relay / signing-downgrade and cleartext interception (AiTM)\" — one of its OR-conditions, firing when nfs_export_security_flavor eq 'sys' (UID spoofing + sniffing/MITM of AUTH_SYS NFS traffic; ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the sec= option for each export; absence of sec= means AUTH_SYS (sys).",
+        "command": "grep -E 'sec=' /etc/exports",
+        "file_path": "/etc/exports",
+        "expected_output": "Exports carrying sensitive data specify sec=krb5p (secure) — absence of a sec= option means AUTH_SYS / sys (insecure)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the active per-export security flavor at runtime.",
+        "command": "exportfs -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each export shows its sec= flavor; krb5i/krb5p secure, sys insecure",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "krb5p",
+      "krb5i",
+      "sys"
+    ]
+  },
+  {
+    "option_name": "nfs_no_root_squash_set",
+    "option_description": "Interpreted from the NFS export options: true when any export carries no_root_squash, which trusts the client's root (UID 0) and lets a client-root attacker read/write server files as root.",
+    "security_impact": "Triggers the exposure \"NFS no_root_squash privilege escalation / data tampering\" — its sole condition, firing when nfs_no_root_squash_set is true (client-root writes server files as root — drop SUID binaries, alter ACLs; ATT&CK T1068/T1222).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect /etc/exports for the no_root_squash option on any export (interpret the option list, do not blind substring-match).",
+        "command": "grep -E 'no_root_squash|no_all_squash' /etc/exports",
+        "file_path": "/etc/exports",
+        "expected_output": "No no_root_squash present, i.e. root_squash in effect (secure = false) — any line containing no_root_squash is insecure (true)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the effective squash mode per export at runtime.",
+        "command": "exportfs -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each export shows root_squash in its option list (secure = false); no_root_squash appearing is insecure (true)",
+        "source": "Red Hat Enterprise Linux Storage Administration Guide — Securing NFS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "immutable_worm_snapshots_enabled",
+    "option_description": "Whether the store keeps immutable/WORM (read-only, retention-locked) point-in-time snapshots that ransomware cannot delete or encrypt.",
+    "security_impact": "Triggers the exposure \"Ransomware mass-encryption of shares\" — one of its OR-conditions, firing when immutable_worm_snapshots_enabled is false (the core enabler of irrecoverable mass-encryption; ATT&CK T1486/T1490).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the snapshot schedule and immutability/retention-lock config, and confirm snapshots survive a delete attempt by the data-plane account.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a snapshot schedule with immutability/retention lock (NAS snapshot config, ZFS/Btrfs read-only snapshots, or storage WORM/object-lock) — snapshots survive a delete attempt by the data-plane account (secure); no snapshot/immutability is insecure",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "offline_airgapped_backup_exists",
+    "option_description": "Whether at least one backup copy is offline/air-gapped/immutable (3-2-1-1 style), unreachable from the production credentials/network.",
+    "security_impact": "Triggers the exposure \"Ransomware mass-encryption of shares\" — one of its OR-conditions, firing when offline_airgapped_backup_exists is false (ransomware reaching the store can also destroy the last-resort copy; ATT&CK T1490).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup architecture and the last restore-test record to confirm an offline/air-gapped/immutable copy unreachable from production credentials and network.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup architecture diagram + last successful restore-test record showing an offline/immutable copy (secure); only-online or untested backups are insecure",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ransomware_mass_change_detection_enabled",
+    "option_description": "Whether bulk-modify/rename/encrypt anomaly detection is in place to surface ransomware mass-encryption early (sudden high-volume file modification on shares).",
+    "security_impact": "Triggers the exposure \"Ransomware mass-encryption of shares\" — one of its OR-conditions, firing when ransomware_mass_change_detection_enabled is false (mass-encryption proceeds unobserved; ATT&CK T1486).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for per-share quotas as a baseline and confirm write-rate/rename anomaly alerting is wired to the share activity stream.",
+        "command": "Get-FsrmQuota   # Windows FSRM  /  repquota -a   # Linux",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Quotas defined for data volumes/shares plus active bulk-modify/rename anomaly alerting (secure); none defined and no anomaly detection is insecure",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a FIM / NAS anomaly-detection / SIEM analytic on file-modify events is active and alerting on sudden high-volume modifications.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of write-rate / rename anomaly alerting on the shares (secure); no such alerting is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_backed_up_to_known_good",
+    "option_description": "Whether the store's configuration/data is captured in a known-good backup that can be restored after compromise.",
+    "security_impact": "Triggers the exposure \"Ransomware mass-encryption of shares\" — one of its OR-conditions, firing when config_backed_up_to_known_good is false (no known-good baseline to recover from; ATT&CK T1490).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a known-good configuration/data baseline backup exists and is retained for post-compromise restore.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented known-good config/data baseline backup retained for restore (secure); no such baseline is insecure",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rollback_tested",
+    "option_description": "Whether recovery/restore from backup is periodically tested so a real ransomware event can actually be reversed.",
+    "security_impact": "Triggers the exposure \"Ransomware mass-encryption of shares\" — one of its OR-conditions, firing when rollback_tested is false (untested restores may fail when needed, leaving recovery impossible; ATT&CK T1490).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm periodic restore tests are performed and documented (not merely that backups exist).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented periodic restore-test records (secure); backups present but never restore-tested is insecure",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_store_publicly_routable",
+    "option_description": "Attestation: whether the file-storage host is reachable from a public/internet-routable interface. True means the NAS/file server is exposed to the open internet.",
+    "security_impact": "Triggers the exposure \"Internet-exposed / unsegmented file-sharing service\" — one of its OR-conditions, firing when data_store_publicly_routable is true (direct exploitation/brute force/ransomware scanners; ATT&CK T1190/T1135).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted/internet vantage, probe the file-sharing ports against the store's public IP to confirm it is not internet-reachable.",
+        "command": "nmap -p 139,445,111,2049 <storage-host-or-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports filtered/closed from untrusted networks (secure, attribute false) — any open file-sharing port from the internet is insecure (true)",
+        "source": "CIS Controls v8 Control 4 Secure Configuration; NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "file_sharing_ports_internet_exposed",
+    "option_description": "Whether the file-sharing service ports — SMB (TCP 445/139) and/or NFS (TCP/UDP 2049 + rpcbind 111) — are listening on a public interface or otherwise reachable from the internet.",
+    "security_impact": "Triggers the exposure \"Internet-exposed / unsegmented file-sharing service\" — one of its OR-conditions, firing when file_sharing_ports_internet_exposed is true (the network condition behind mass NAS-ransomware campaigns; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the file-sharing ports from an untrusted vantage to confirm they are not listening on a public interface.",
+        "command": "nmap -p 139,445,111,2049 <storage-host-or-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "445/2049/111 filtered/closed from untrusted networks (secure, attribute false) — open from the internet/untrusted segment is insecure (true)",
+        "source": "CIS Controls v8 Control 4 Secure Configuration; NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "segment_boundary_enforced",
+    "option_description": "Attestation: whether a network-segmentation boundary is enforced between the file-storage service and untrusted VLANs/segments, so file-sharing ports are not reachable from untrusted internal networks.",
+    "security_impact": "Triggers the exposure \"Internet-exposed / unsegmented file-sharing service\" — one of its OR-conditions, firing when segment_boundary_enforced is false (store reachable from untrusted VLANs; ATT&CK T1190/T1135).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a host on an untrusted VLAN, probe the file-sharing ports to confirm the segmentation boundary (firewall/ACL/VLAN) blocks reach.",
+        "command": "nmap -p 139,445,111,2049 <storage-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports filtered/unreachable from the untrusted segment (secure = true) — reachable from an untrusted VLAN means no boundary enforced (false)",
+        "source": "CIS Controls v8 Control 4 Secure Configuration; NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review firewall/ACL/VLAN configuration to confirm an enforced boundary prevents untrusted segments from reaching file-sharing ports.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented firewall/ACL/VLAN rules isolating the store from untrusted segments (secure = true); no segmentation is insecure (false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether the underlying file-storage volume is encrypted at rest (BitLocker, LUKS/dm-crypt, or NAS volume encryption) with keys held in a KMS/HSM/TPM separate from the data. SMB3/NFS in-transit encryption does NOT satisfy this.",
+    "security_impact": "Triggers the exposure \"Unencrypted data at rest / data remanence on decommissioned media\" — one of its OR-conditions, firing when encrypted_at_rest is false (stolen/lost/decommissioned disks leak sensitive files; PHYSICAL vector).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the at-rest encryption status of the volume on Windows or Linux and confirm keys are held separately from the data.",
+        "command": "manage-bde -status   # Windows  /  cryptsetup status <device> ; lsblk -o NAME,TYPE,FSTYPE   # Linux LUKS",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Windows: Conversion Status 'Fully Encrypted', Protection 'On'; Linux: device type 'crypt' / LUKS header present (secure = true) — no encryption layer is insecure (false)",
+        "source": "OWASP Cryptographic Storage Cheat Sheet; NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "media_sanitized_before_disposal",
+    "option_description": "Whether drives/volumes are sanitized per NIST SP 800-88r2 (Clear/Purge/Destroy matched to data confidentiality impact) before reuse or disposal, with sanitization records or certificates of destruction retained.",
+    "security_impact": "Triggers the exposure \"Unencrypted data at rest / data remanence on decommissioned media\" — one of its OR-conditions, firing when media_sanitized_before_disposal is false (recoverable data remanence on retired media; PHYSICAL vector).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review sanitization records / certificates of destruction and confirm the sanitization level matches the data confidentiality impact.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sanitization records / certificates of destruction matching the data confidentiality impact (secure = true); no sanitization process is insecure (false)",
+        "source": "NIST SP 800-88 Rev. 2 Guidelines for Media Sanitization"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secure_deletion_or_crypto_shred",
+    "option_description": "Whether retired media is rendered unrecoverable via cryptographic erase (destroying the at-rest encryption key) or an equivalent Purge-level secure deletion.",
+    "security_impact": "Triggers the exposure \"Unencrypted data at rest / data remanence on decommissioned media\" — one of its OR-conditions, firing when secure_deletion_or_crypto_shred is false (residual data recoverable from retired storage; PHYSICAL vector).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a crypto-erase or Purge-level secure-deletion process is applied to retired media and evidenced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented crypto-erase / Purge-level secure-deletion process for retired media (secure = true); no secure-deletion mechanism is insecure (false)",
+        "source": "NIST SP 800-88 Rev. 2 Guidelines for Media Sanitization"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether object/file-access audit logging is enabled on sensitive shares (Windows SACL 'Audit Object Access' / Linux auditd file watches) and shipped to a central SIEM.",
+    "security_impact": "Triggers the exposure \"Bulk data exfiltration without DLP or access auditing\" — one of its OR-conditions, firing when access_audit_trail_enabled is false (abnormal bulk reads go unrecorded/unattributed; ATT&CK T1039/T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check that file-system object-access auditing is enabled and SACLs are set on sensitive folders, and that events are forwarded to SIEM.",
+        "command": "auditpol /get /subcategory:\"File System\"   # Windows  /  auditctl -l ; ausearch -k <key>   # Linux auditd",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File System auditing shows Success/Failure enabled with SACLs on sensitive folders (secure = true) vs 'No Auditing' (insecure = false)",
+        "source": "CIS Controls v8 Control 8 Audit Log Management; NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dlp_egress_controls_enabled",
+    "option_description": "Whether data-loss-prevention controls inspect and constrain sensitive files leaving the share (copy-off, sync, email) on egress paths.",
+    "security_impact": "Triggers the exposure \"Bulk data exfiltration without DLP or access auditing\" — one of its OR-conditions, firing when dlp_egress_controls_enabled is false (the compensating control for over-broad read/exfiltration is absent; ATT&CK T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an active DLP policy covers the file store's egress paths and review recent policy-hit telemetry.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a DLP policy covering the file store's egress (endpoint/network/cloud DLP) and recent policy-hit telemetry (secure = true); no DLP is a gap (false)",
+        "source": "CIS Controls v8 Control 3 Data Protection (Safeguard 3.13 DLP on egress)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bulk_export_monitored_and_alerted",
+    "option_description": "Whether abnormal high-volume / bulk read-and-copy activity against the share is monitored and alerted (read-rate / bulk-export anomaly detection via SIEM analytics or UEBA on the audit stream).",
+    "security_impact": "Triggers the exposure \"Bulk data exfiltration without DLP or access auditing\" — one of its OR-conditions, firing when bulk_export_monitored_and_alerted is false (large-scale copies trigger no alert even when individual access is logged; ATT&CK T1039).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm bulk-read/export anomaly alerting is wired to the access audit stream (SIEM analytic or UEBA rule).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of bulk-read/export anomaly alerting on the audit stream (secure = true); no such alerting is insecure (false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Interpreted boolean: the NAS appliance OS or a bundled app runs a firmware/app version carrying a known-exploited (CISA KEV) RCE or improper-authorization CVE — e.g. QNAP HBS 3 CVE-2021-28799 (Qlocker) or Photo Station CVE-2022-27593 (DeadBolt).",
+    "security_impact": "Triggers the exposure \"Unpatched NAS appliance firmware (online brute force surface)\" — one of its OR-conditions, firing when unpatched_known_rce_cve is true (any outstanding KEV-listed exploitable CVE; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check installed firmware/app versions against vendor security advisories and the CISA KEV catalog for outstanding exploitable CVEs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No outstanding known-exploited CVEs against installed versions (secure = false); a KEV-listed CVE applies, e.g. CVE-2021-28799 or CVE-2022-27593 (insecure = true)",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities; NIST SP 800-209 Security Guidelines for Storage Infrastructure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "unnecessary_nas_apps_enabled",
+    "option_description": "Interpreted boolean: non-essential bundled NAS applications (e.g. Photo Station, Hybrid Backup Sync, media/web apps) are installed and enabled, expanding the appliance's exploitable attack surface beyond core file sharing.",
+    "security_impact": "Triggers the exposure \"Unpatched NAS appliance firmware (online brute force surface)\" — one of its OR-conditions, firing when unnecessary_nas_apps_enabled is true (bundled apps most frequently carry the mass-exploited KEV CVEs; ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the appliance's installed/enabled application list (App Center / package manager) and confirm only required apps remain enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only required apps enabled, non-essential bundled apps removed/disabled (secure = false); non-essential bundled apps installed and enabled is insecure (true)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Attestation: the store throttles failed authentication against admin UIs and SMB/file shares via a server-side authentication rate limiter (SMB InvalidAuthenticationDelayTimeInMs non-zero, default 2000 ms on WS 2025 / Win11 24H2) and/or account lockout.",
+    "security_impact": "Triggers the exposure \"Unpatched NAS appliance firmware (online brute force surface)\" — one of its OR-conditions, firing when rate_limiting_or_lockout_enabled is false (unthrottled high-rate online credential brute force; ATT&CK T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the SMB authentication rate-limiter delay to confirm a non-zero throttle is active.",
+        "command": "Get-SmbServerConfiguration | Select InvalidAuthenticationDelayTimeInMs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero value, e.g. 2000 (secure = true) vs 0 (no throttling, insecure = false)",
+        "source": "Microsoft Learn — SMB security hardening (SMB authentication rate limiter)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm account lockout and/or a rate limiter is also active on the appliance admin UIs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Account lockout / rate limiting active on admin UIs and SMB/file shares (secure = true); no throttling/lockout is insecure (false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

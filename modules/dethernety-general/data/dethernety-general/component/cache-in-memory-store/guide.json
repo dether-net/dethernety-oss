@@ -1,0 +1,798 @@
+[
+  {
+    "option_name": "data_store_publicly_routable",
+    "option_description": "Interpreted from the cache's bind/listen configuration: true when the instance listens on a publicly or broadly reachable interface (0.0.0.0, '* -::*', all interfaces) rather than loopback or a specific trusted private IP. The assessor derives this from the raw `bind` value; true is the exposed (insecure) state.",
+    "security_impact": "One of the OR-triggers for \"Unauthenticated internet-exposed instance\" (CVSS 9.8, T1190/T1133). It fires when data_store_publicly_routable is true AND default_user_unauthenticated is true, and again when data_store_publicly_routable is true AND protected_mode_enabled is false — a reachable interface is the precondition that turns missing auth into full unauthenticated network read/write.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the network interfaces Redis listens on and interpret loopback/specific-private (false) versus 0.0.0.0/all-interfaces (true).",
+        "command": "redis-cli CONFIG GET bind",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 1) \"bind\" 2) \"127.0.0.1 -::1\" or a specific private IP. Insecure (publicly routable): \"0.0.0.0\" or all interfaces.",
+        "source": "Redis Security (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-check protected-mode, since binding all interfaces with protected-mode off is what actually makes the instance reachable unauthenticated.",
+        "command": "redis-cli CONFIG GET protected-mode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "1) \"protected-mode\" 2) \"yes\" (secure) or \"no\" (insecure).",
+        "source": "Redis Security (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "default_user_unauthenticated",
+    "option_description": "Interpreted boolean over the composite Redis ACL/auth state: true when the built-in 'default' user is reachable with no credentials — shipped as 'user default on nopass ~* &* +@all' with no requirepass and no ACL password. True is the unauthenticated full-access (insecure) state.",
+    "security_impact": "One of the OR-triggers for \"Unauthenticated internet-exposed instance\" (CVSS 9.8, T1190/T1133). It fires when default_user_unauthenticated is true AND data_store_publicly_routable is true — a passwordless +@all default user reachable over the network is the classic mass-internet cache compromise (sessions/tokens dumped, FLUSHALL/CONFIG/Lua usable).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List ACL users and inspect the built-in default user's flags for the shipped passwordless full-access state.",
+        "command": "redis-cli ACL LIST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Insecure: line 'user default on nopass ~* &* +@all'. Secure: 'user default on #<sha256-hash> ...' (password set) or 'user default off', plus least-privilege named users.",
+        "source": "Redis ACL (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the default user directly to confirm whether a password is set and commands are narrowed.",
+        "command": "redis-cli ACL GETUSER default",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Insecure: flags include 'nopass'. Secure: 'passwords' array non-empty (a sha256 hash) and commands narrowed from '+@all'.",
+        "source": "Redis ACL (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm no legacy single-password auth is set for the default user.",
+        "command": "redis-cli CONFIG GET requirepass",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a non-empty value. Insecure: 1) \"requirepass\" 2) \"\" (empty — no password). Combine with ACL state to confirm the default user is truly unauthenticated.",
+        "source": "Redis Security (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "protected_mode_enabled",
+    "option_description": "Maps to Redis `protected-mode` (default yes): the safety net that, when bound to all interfaces with no password, accepts only loopback connections. true = 'yes' (secure); the condition fires on false ('no'), which on a reachable interface with no auth opens unauthenticated network access.",
+    "security_impact": "One of the OR-triggers for \"Unauthenticated internet-exposed instance\" (CVSS 9.8, T1190/T1133). It fires when protected_mode_enabled is false AND data_store_publicly_routable is true — disabling the safety net on an exposed, unauthenticated instance removes the last barrier to network read/write.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the protected-mode safety-net setting.",
+        "command": "redis-cli CONFIG GET protected-mode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "1) \"protected-mode\" 2) \"yes\" (secure, protected_mode_enabled=true) or \"no\" (insecure, =false).",
+        "source": "Redis Security (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bind",
+    "option_description": "Raw Redis `bind` value (network interfaces the cache listens on), e.g. '0.0.0.0', '* -::*', '127.0.0.1 -::1', or a specific private IP. Source field the assessor interprets into data_store_publicly_routable; retained for context.",
+    "security_impact": "Context (DERIVATION_INPUT) feeding the derived trigger data_store_publicly_routable in \"Unauthenticated internet-exposed instance\". The raw bind string is not itself an OR-condition in the policy — the interpreted boolean it produces is — so capture it verbatim to justify that derivation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the raw bind string verbatim for context behind data_store_publicly_routable.",
+        "command": "redis-cli CONFIG GET bind",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 1) \"bind\" 2) \"127.0.0.1 -::1\" or a specific private IP. Insecure: \"0.0.0.0\" or all interfaces.",
+        "source": "Redis Security (official documentation)"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "127.0.0.1 -::1",
+      "0.0.0.0",
+      "* -::*"
+    ]
+  },
+  {
+    "option_name": "requirepass",
+    "option_description": "Raw Redis `requirepass` value — legacy single-password auth for the default user. Empty ('') means no password via this mechanism; combined with the ACL state it determines default_user_unauthenticated. Retained for context (ACL-based auth may set the default password instead).",
+    "security_impact": "Context (DERIVATION_INPUT) feeding default_user_unauthenticated in \"Unauthenticated internet-exposed instance\". The raw value is not a direct OR-condition; the interpreted unauthenticated boolean it helps derive is. Capture it to evidence whether legacy auth is set.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the legacy single-password auth value; combine with ACL state to derive default_user_unauthenticated.",
+        "command": "redis-cli CONFIG GET requirepass",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a non-empty value. Insecure: 1) \"requirepass\" 2) \"\" (empty — no password). When ACLs are used the default user password may be set via ACL instead.",
+        "source": "Redis Security (official documentation)"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "",
+      "<long high-entropy random password>"
+    ]
+  },
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Whether client traffic to the store is served over a TLS listener (Redis tls-port set non-zero with tls-cert-file/tls-key-file present). When false, session IDs and bearer tokens travel as plaintext RESP, readable by any on-path attacker. Secure value is true.",
+    "security_impact": "One of the OR-triggers for \"Cleartext transport interception\" (CVSS 7.4, T1040/T1557/T1562.010/T1048.003). It fires when flow_tls_encrypted is false AND tls_only_transport is false — no TLS listener means sessions/tokens cross the wire in cleartext and can be harvested and replayed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether a TLS listener is enabled (non-zero TLS port).",
+        "command": "redis-cli CONFIG GET tls-port",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a non-zero TLS port. Insecure: \"0\" (TLS disabled).",
+        "source": "Redis TLS/Encryption (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm a server certificate is configured, since TLS cannot be served without it even when tls-port is set.",
+        "command": "redis-cli CONFIG GET tls-cert-file",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a path to a server certificate (with tls-key-file/tls-ca-cert-file also set). Insecure: empty.",
+        "source": "Redis TLS/Encryption (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether the cleartext listener is disabled so clients can connect ONLY over TLS (Redis port 0 with tls-port set). When false, the cleartext port (e.g. 6379) accepts unencrypted connections alongside any TLS port, leaving plaintext interception possible. Secure value is true.",
+    "security_impact": "One of the OR-triggers for \"Cleartext transport interception\" (CVSS 7.4, T1040/T1557). It fires when tls_only_transport is false AND flow_tls_encrypted is false — leaving the cleartext port open means an attacker can intercept (or downgrade clients to) the unencrypted listener even if TLS is also offered.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the cleartext TCP listener is disabled (port 0).",
+        "command": "redis-cli CONFIG GET port",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure (TLS-only): 1) \"port\" 2) \"0\". Insecure: \"6379\" with no TLS, meaning cleartext is accepted.",
+        "source": "Redis Security (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the TLS port is set, so disabling the cleartext port still leaves clients a path.",
+        "command": "redis-cli CONFIG GET tls-port",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a non-zero TLS port paired with port 0. Insecure: \"0\".",
+        "source": "Redis TLS/Encryption (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the TLS listener permits legacy protocol versions (TLSv1.0/TLSv1.1) — the downgradeable variant of the cleartext exposure. Interpreted from the Redis tls-protocols directive; the assessor sets true when TLSv1.0/1.1 are allowed. Secure value is false.",
+    "security_impact": "An OR-trigger for \"Cleartext transport interception\" (CVSS 7.4, T1040/T1557). It fires on its own when weak_tls_versions_enabled is true — permitting TLSv1.0/1.1 lets an attacker force a downgrade to weak-cipher / breakable TLS and recover sessions/tokens.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the allowed TLS protocol versions and interpret whether legacy versions are permitted.",
+        "command": "redis-cli CONFIG GET tls-protocols",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: \"TLSv1.2 TLSv1.3\". Insecure (weak versions enabled): includes TLSv1.0/TLSv1.1.",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The lowest TLS protocol version accepted on the encrypted transport, derived from the Redis tls-protocols directive. TLSv1.0/TLSv1.1 are downgradeable and weak-cipher-prone; secure values are TLSv1.2/TLSv1.3.",
+    "security_impact": "An OR-trigger for \"Cleartext transport interception\" (CVSS 7.4, T1040/T1557). It fires when min_tls_version is in [TLSv1.0, TLSv1.1] — a minimum at a legacy version is the same downgrade exposure carried as an explicit enum alongside weak_tls_versions_enabled.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the tls-protocols directive and interpret the lowest enabled version.",
+        "command": "redis-cli CONFIG GET tls-protocols",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: \"TLSv1.2 TLSv1.3\" (min TLSv1.2/1.3). Insecure: includes TLSv1.0/TLSv1.1 (min at a legacy version).",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2",
+      "TLSv1.3",
+      "TLSv1.0",
+      "TLSv1.1"
+    ]
+  },
+  {
+    "option_name": "cipher_suites_strong_only",
+    "option_description": "Whether the TLS listener negotiates only strong cipher suites (no aNULL/eNULL/RC4/MD5/export). Interpreted from the Redis tls-ciphers/tls-ciphersuites directives rather than substring-matching the raw list. Secure value is true.",
+    "security_impact": "An OR-trigger for \"Cleartext transport interception\" (CVSS 7.4, T1040/T1557). It fires on its own when cipher_suites_strong_only is false — negotiable weak/NULL/export ciphers let an on-path attacker break or strip the encryption protecting sessions/tokens.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the TLSv1.2-and-below cipher list and interpret whether only strong suites are negotiable.",
+        "command": "redis-cli CONFIG GET tls-ciphers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interpret: true when no aNULL/eNULL/RC4/MD5/export suites are negotiable (e.g. a hardened HIGH:!aNULL:!MD5-style list). false when weak suites are permitted.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the TLSv1.3 cipher suites to confirm the 1.3 suite list is also strong.",
+        "command": "redis-cli CONFIG GET tls-ciphersuites",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns the configured TLSv1.3 ciphersuites; confirm only strong suites are present.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "persistence_enabled",
+    "option_description": "Whether the cache writes in-memory state to disk via RDB snapshots (the 'save' schedule) or the append-only file (appendonly yes). When true for a session/token tier, transient secrets are durably written to disk — the firing (insecure) value for this transient-secret store.",
+    "security_impact": "The shared trigger for \"Sensitive transient data exposed via persistence\" (CVSS 7.1, T1005/T1552). It fires when persistence_enabled is true AND encrypted_at_rest is false, and again when persistence_enabled is true AND dump_files_world_readable is true — persistence is the precondition that turns transient sessions/tokens into an at-rest exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether append-only-file persistence is enabled.",
+        "command": "redis-cli CONFIG GET appendonly",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"yes\" or \"no\". If yes (or save is set), confirm the dir (CONFIG GET dir) is on encrypted storage with restricted file permissions.",
+        "source": "Redis configuration file reference"
+      },
+      {
+        "type": "command",
+        "instruction": "Check the RDB snapshot schedule — the other persistence mechanism.",
+        "command": "redis-cli CONFIG GET save",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A schedule like \"3600 1 300 100 60 10000\" (snapshotting on, persistence_enabled=true) or \"\" (disabled). When set, verify dir + file permissions + disk encryption.",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether persisted RDB/AOF data is protected by at-rest encryption. Redis has no built-in at-rest encryption, so this is satisfied only by an encrypted/restricted volume or filesystem hosting CONFIG GET dir. False (no at-rest encryption while persistence is on) fires the exposure: cleartext dump.rdb/appendonly files leak sessions and tokens.",
+    "security_impact": "One of the OR-triggers for \"Sensitive transient data exposed via persistence\" (CVSS 7.1, T1005/T1552). It fires when encrypted_at_rest is false AND persistence_enabled is true — an unencrypted dump.rdb/appendonly file is a cleartext copy of the very secrets the cache held transiently.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the persistence directory whose underlying volume must be encrypted.",
+        "command": "redis-cli CONFIG GET dir",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns the directory holding dump.rdb/appendonly files; this is the path whose volume must be confirmed encrypted at rest.",
+        "source": "Redis configuration file reference"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the filesystem/volume hosting the persistence dir is encrypted at rest (LUKS, cloud volume encryption, etc.); Redis itself provides no at-rest encryption.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Encrypted volume/filesystem evidence (LUKS, EBS/PD/Azure-disk encryption attestation) => encrypted_at_rest=true. No encryption on the dir's volume => false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dump_files_world_readable",
+    "option_description": "Whether the persistence directory and its dump.rdb/appendonly files carry broad (world/group-readable) permissions, letting any local user or co-tenant read the persisted secrets. Positive-insecure complement of the config-files-not-world-readable attestation; true fires the exposure.",
+    "security_impact": "One of the OR-triggers for \"Sensitive transient data exposed via persistence\" (CVSS 7.1, T1005/T1552). It fires when dump_files_world_readable is true AND persistence_enabled is true — broadly-readable dumps expose persisted sessions/tokens to any host-local reader even when disk encryption guards only against stolen disks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Find the persistence directory, then inspect file permissions on it and its dump.rdb/appendonly files.",
+        "command": "redis-cli CONFIG GET dir",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns the persistence directory path to inspect for permissions.",
+        "source": "Redis configuration file reference"
+      },
+      {
+        "type": "command",
+        "instruction": "List permissions on the dump/AOF files in the persistence directory.",
+        "command": "ls -l <dir>/dump.rdb <dir>/appendonly*",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "World- or group-readable (e.g. 0644 / 0640 to a broad group) => dump_files_world_readable=true. Owner-only (e.g. 0600 / 0640 to redis only) => false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "relies_on_disk_encryption_only",
+    "option_description": "Whether at-rest protection rests solely on full-disk/volume encryption (which guards stolen-disk/offline access) without file-permission restriction or app-layer secret handling. Context that sharpens the dump_files_world_readable finding — disk encryption alone does not stop a host-local reader. Not itself a trigger.",
+    "security_impact": "Contextual evidence (CONTEXTUAL_EVIDENCE) supporting \"Sensitive transient data exposed via persistence\"; it is not one of the policy's OR-conditions. It explains residual risk: disk encryption alone leaves a world-readable dump readable to any logged-in host user.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether at-rest protection is full-disk/volume encryption only, with no file-permission restriction or application-layer secret handling.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "True if disk/volume encryption is the sole control (no restrictive file perms, no app-layer handling); false if file-permission restriction or app-layer protection is also in place.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cache_patched_within_sla",
+    "option_description": "Whether the running Redis engine has been patched within the remediation SLA to a release fixing known critical CVEs — notably CVE-2025-49844 (RediShell), the Lua use-after-free enabling sandbox escape to native RCE. Secure value is true; the exposure fires when false.",
+    "security_impact": "One of the OR-triggers for \"RediShell Lua sandbox escape to RCE\" (CVSS 10.0, T1059.011/T1190). It fires when cache_patched_within_sla is false AND scripting_restricted_for_app_users is false — an unpatched engine with Lua scripting reachable by app users leaves the use-after-free sandbox-escape path open.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running engine version and compare against the fixed release for CVE-2025-49844.",
+        "command": "redis-cli INFO server | grep redis_version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compare redis_version against the fixed release for CVE-2025-49844 (RediShell). At/after the fixed cutoff within SLA => true; pre-fix => false.",
+        "source": "Redis Security Advisory: CVE-2025-49844 (RediShell)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "scripting_restricted_for_app_users",
+    "option_description": "Whether EVAL/EVALSHA/SCRIPT/FCALL (the Lua scripting attack surface) is removed from the credentials applications use — i.e. app/named ACL users carry '-@scripting' rather than inheriting the default user's '+@all'. Secure value is true; the exposure fires when false.",
+    "security_impact": "Shared OR-trigger for \"RediShell Lua sandbox escape to RCE\" (CVSS 10.0, T1059.011/T1190). It fires when scripting_restricted_for_app_users is false AND cache_patched_within_sla is false, and again when scripting_restricted_for_app_users is false AND unpatched_known_rce_cve is true — leaving scripting reachable keeps the RediShell sandbox-escape surface available.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether scripting commands are restricted for the app credentials by inspecting the relevant ACL user.",
+        "command": "redis-cli ACL GETUSER default",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure app users carry '-@scripting' (or EVAL/SCRIPT excluded) so the Lua attack surface is removed; insecure when scripting remains in the command set.",
+        "source": "Redis ACL (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "List all ACL users and verify named app users (not just default) exclude scripting commands.",
+        "command": "redis-cli ACL LIST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-app named users carrying -@scripting => true. App credentials inheriting +@all / scripting commands => false.",
+        "source": "Redis ACL (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Interpreted boolean: the running redis_version is at or below the vulnerable range for a known critical RCE CVE that remains unremediated — specifically CVE-2025-49844 (RediShell). Secure value is false; the exposure fires when true.",
+    "security_impact": "An OR-trigger for \"RediShell Lua sandbox escape to RCE\" (CVSS 10.0, T1059.011/T1190). It fires when unpatched_known_rce_cve is true AND scripting_restricted_for_app_users is false — a vulnerable version with scripting reachable is the exploitable RediShell configuration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running engine version and derive whether it sits at/below the vulnerable, unremediated range.",
+        "command": "redis-cli INFO server | grep redis_version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compare redis_version against the CVE-2025-49844 (RediShell) fixed-version cutoff for the deployed branch. At/below vulnerable range and unremediated => true.",
+        "source": "Redis Security Advisory: CVE-2025-49844 (RediShell)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "redis_version",
+    "option_description": "Raw running engine version string from 'redis-cli INFO server | grep redis_version'. Context only — interpreted against the CVE-2025-49844 (RediShell) fixed-release cutoff to derive cache_patched_within_sla / unpatched_known_rce_cve. Not pattern-matched directly.",
+    "security_impact": "Context (DERIVATION_INPUT) feeding the patch-currency derivations in \"RediShell Lua sandbox escape to RCE\". The raw version string is not itself an OR-condition; the interpreted patch booleans it produces are. Capture it to evidence the version verdict.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the raw engine version verbatim for context behind the patch-currency derivations.",
+        "command": "redis-cli INFO server | grep redis_version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A line like 'redis_version:7.4.1' — recorded verbatim; feeds cache_patched_within_sla / unpatched_known_rce_cve.",
+        "source": "Redis Security Advisory: CVE-2025-49844 (RediShell)"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "7.4.1",
+      "6.2.14",
+      "7.2.5"
+    ]
+  },
+  {
+    "option_name": "dangerous_commands_acl_restricted",
+    "option_description": "Whether app/named ACL users carry -@dangerous/-@admin so destructive/administrative commands (FLUSHALL, FLUSHDB, KEYS, CONFIG, SHUTDOWN, DEBUG) are not grantable to them. True only when those categories are excluded from the credentials apps actually use; false fires the exposure.",
+    "security_impact": "One of the OR-triggers for \"Over-privileged / destructive command access\" (CVSS 8.1, T1485). It fires when dangerous_commands_acl_restricted is false AND dangerous_commands_renamed_or_disabled is false — destructive commands reachable by neither ACL nor rename means a compromised app credential can FLUSHALL/CONFIG/KEYS at will.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List the dangerous command category, then verify app users carry -@dangerous/-@admin.",
+        "command": "redis-cli ACL CAT dangerous",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists the dangerous category (FLUSHALL, FLUSHDB, KEYS, CONFIG, SHUTDOWN, DEBUG, SAVE, BGSAVE, MONITOR, REPLICAOF, MIGRATE, RESTORE, CLIENT, INFO). App users should carry -@dangerous / -@admin so these are not grantable.",
+        "source": "Redis ACL (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "List ACL users and confirm app credentials exclude the dangerous/admin categories.",
+        "command": "redis-cli ACL LIST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dangerous/admin categories excluded for app users (e.g. '... -@dangerous -@admin') => true. App users with +@all / no exclusions => false.",
+        "source": "Redis ACL (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dangerous_commands_renamed_or_disabled",
+    "option_description": "Whether dangerous commands are neutralised at the engine level via the legacy `rename-command` mechanism (e.g. `rename-command FLUSHALL \"\"` to disable, or renamed to an unguessable token) for CONFIG/FLUSHALL/FLUSHDB/KEYS/DEBUG/SHUTDOWN. False (all commands available under normal names) is the secondary trigger.",
+    "security_impact": "One of the OR-triggers for \"Over-privileged / destructive command access\" (CVSS 8.1, T1485). It fires when dangerous_commands_renamed_or_disabled is false AND dangerous_commands_acl_restricted is false — AND-ed with the ACL facet, it means destructive commands are reachable by neither defence.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the redis config for rename-command directives neutralising destructive commands (CONFIG GET does not list renamed commands).",
+        "command": "grep -i '^rename-command' /etc/redis/redis.conf",
+        "file_path": "/etc/redis/redis.conf",
+        "navigation": null,
+        "expected_output": "Secure: lines like 'rename-command FLUSHALL \"\"' (disabled) or renamed to an unguessable token => true. Insecure: no rename-command lines => false.",
+        "source": "Redis Security (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether least-privilege named users exist for applications (each scoped to the keys/commands it needs) rather than every client authenticating as the all-powerful built-in `default` user (`+@all`). Interpreted from `ACL LIST` / a configured `aclfile`. False (only the single full-access default user) fires this exposure on its own.",
+    "security_impact": "An OR-trigger for \"Over-privileged / destructive command access\" (CVSS 8.1, T1485). It fires on its own when least_privilege_access_enforced is false — if every client is the +@all default user, any compromised credential inherits FLUSHALL/CONFIG/KEYS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List ACL users and check whether per-app scoped named users exist or only the built-in default user is present.",
+        "command": "redis-cli ACL LIST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-app scoped named users present (e.g. 'user app-read on ... ~app:* +@read') => true. Only 'user default on ... +@all' => false.",
+        "source": "Redis ACL (official documentation)"
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether an external ACL file defining least-privilege users is configured.",
+        "command": "redis-cli CONFIG GET aclfile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a configured path (e.g. /etc/redis/users.acl). Insecure: empty (no external ACL file; rely on a single default user).",
+        "source": "Redis ACL (official documentation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "aclfile",
+    "option_description": "Raw `CONFIG GET aclfile` value — path to the external ACL file defining least-privilege named users. Empty means only the built-in default user exists; supports deriving least_privilege_access_enforced. Context only, not a trigger.",
+    "security_impact": "Context (DERIVATION_INPUT) feeding least_privilege_access_enforced in \"Over-privileged / destructive command access\". The raw path is not itself an OR-condition; the interpreted least-privilege boolean it supports is. Capture it to evidence whether scoped users are even defined.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the aclfile path (or empty) for context behind least_privilege_access_enforced.",
+        "command": "redis-cli CONFIG GET aclfile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a configured path. Insecure: empty (no external ACL file; rely on a single default user).",
+        "source": "Redis ACL (official documentation)"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "",
+      "/etc/redis/users.acl"
+    ]
+  },
+  {
+    "option_name": "maxmemory_limit_set",
+    "option_description": "Interpreted from the Redis 'maxmemory' config key: true when a sized non-zero memory cap is configured (e.g. 4gb), false when maxmemory is 0/unset (unbounded growth). With no cap a flood of writes drives the host to OOM, taking down the hot-data tier fronting auth/session state.",
+    "security_impact": "The dominant OR-trigger for \"Memory-exhaustion denial of service\" (CVSS 6.5, T1499.003/T1499.001). It fires on its own when maxmemory_limit_set is false, and also pairs with maxmemory_policy=noeviction — an unbounded cache lets an attacker or runaway client write until the host OOMs.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the configured memory cap and interpret zero (unbounded) versus a sized limit.",
+        "command": "redis-cli CONFIG GET maxmemory",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a non-zero byte limit (maxmemory_limit_set=true). Insecure: \"0\" (unbounded, =false).",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "maxmemory_policy",
+    "option_description": "The Redis 'maxmemory-policy' eviction policy applied when the memory limit is reached. 'noeviction' returns errors on writes once full rather than evicting — when paired with an unset maxmemory and TTL-bearing session data this is an availability hazard. A volatile-*/allkeys-* policy with a set maxmemory bounds growth.",
+    "security_impact": "An OR-trigger for \"Memory-exhaustion denial of service\" (CVSS 6.5, T1499.003/T1499.001). It fires when maxmemory_policy eq 'noeviction' AND maxmemory_limit_set is false — a noeviction policy with no cap means a write flood drives OOM rather than bounded eviction.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the active eviction policy and evaluate against whether maxmemory is set and keys carry TTLs.",
+        "command": "redis-cli CONFIG GET maxmemory-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns the active policy (noeviction|allkeys-lru|volatile-lru|allkeys-lfu|volatile-ttl|...). 'noeviction' is the firing value; an allkeys-*/volatile-* policy paired with a set maxmemory bounds growth.",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "noeviction",
+      "allkeys-lru",
+      "volatile-lru",
+      "volatile-ttl"
+    ]
+  },
+  {
+    "option_name": "maxmemory",
+    "option_description": "Raw value of the Redis 'maxmemory' config key (e.g. \"0\" for unbounded, or a byte limit like \"4gb\"). Retained as context; the load-bearing trigger is the interpreted boolean maxmemory_limit_set derived from this value.",
+    "security_impact": "Context (DERIVATION_INPUT) feeding maxmemory_limit_set in \"Memory-exhaustion denial of service\". The raw value is not itself an OR-condition; the interpreted cap boolean it produces is. Capture it to evidence whether a cap exists.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the raw maxmemory value verbatim for context behind maxmemory_limit_set.",
+        "command": "redis-cli CONFIG GET maxmemory",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a non-zero byte limit. Insecure: \"0\" (unbounded).",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "0",
+      "4gb",
+      "2147483648"
+    ]
+  },
+  {
+    "option_name": "persistent_logging_absent",
+    "option_description": "Interpreted: Redis has no durable log destination — `logfile` is empty AND syslog is not enabled — so operational/audit logs go to volatile stdout only. Derived from `CONFIG GET logfile` (empty) together with the absence of `syslog-enabled yes`; true means there is no persistent audit trail.",
+    "security_impact": "An OR-trigger for \"Insufficient audit logging\" (CVSS 5.3, T1562.012/T1562). It fires on its own when persistent_logging_absent is true — stdout-only logging leaves no durable record of who connected, blinding detection of scraping, brute-force, and DoS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the log destination; an empty logfile with no syslog means volatile stdout-only logging.",
+        "command": "redis-cli CONFIG GET logfile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a file path (and/or syslog-enabled yes). Insecure: empty with no syslog (persistent_logging_absent=true).",
+        "source": "Redis configuration file reference"
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether syslog forwarding is enabled, since syslog can provide durable off-box retention even with an empty logfile.",
+        "command": "redis-cli CONFIG GET syslog-enabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"yes\" provides a durable path; \"no\" with an empty logfile => persistent_logging_absent=true.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "logfile",
+    "option_description": "Raw Redis `logfile` config value (`CONFIG GET logfile`). Empty with no syslog means logs are emitted to stdout only (volatile). Retained for context to derive persistent_logging_absent.",
+    "security_impact": "Context (DERIVATION_INPUT) feeding persistent_logging_absent in \"Insufficient audit logging\". The raw value is not itself an OR-condition; the interpreted no-durable-log boolean it helps derive is. Capture it to evidence the log destination.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the raw logfile path (or empty) for context behind persistent_logging_absent.",
+        "command": "redis-cli CONFIG GET logfile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a file path (and/or syslog-enabled yes). Insecure: empty with no syslog.",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "",
+      "/var/log/redis/redis-server.log"
+    ]
+  },
+  {
+    "option_name": "syslog_enabled",
+    "option_description": "Raw Redis `syslog-enabled` config value. When true, Redis ships logs to syslog (which can forward off-box for durable retention). Used together with `logfile` to derive persistent_logging_absent.",
+    "security_impact": "Context (DERIVATION_INPUT) feeding persistent_logging_absent in \"Insufficient audit logging\". The raw value is not itself an OR-condition; it combines with logfile to derive the no-durable-log boolean. Capture it to evidence whether off-box log retention exists.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read syslog-enabled and combine with logfile to derive persistent_logging_absent.",
+        "command": "redis-cli CONFIG GET syslog-enabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"yes\" (logs to syslog, can forward off-box) or \"no\". Combine with an empty logfile to conclude no durable log.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "slowlog_log_slower_than",
+    "option_description": "Redis `slowlog-log-slower-than` threshold in microseconds. A negative value (-1) disables the slow-query log — the closest Redis has to command-level audit — removing any record of abusive/expensive commands (KEYS, big SORT, repeated AUTH failures) that signal scraping/brute-force/DoS. Secure is a positive threshold (e.g. 10000); insecure (firing) is < 0.",
+    "security_impact": "An OR-trigger for \"Insufficient audit logging\" (CVSS 5.3, T1562.012/T1562). It fires on its own when slowlog_log_slower_than lt 0 — a disabled slowlog (-1) removes visibility into abusive/expensive commands.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the slow-query log threshold; a negative value disables it.",
+        "command": "redis-cli CONFIG GET slowlog-log-slower-than",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a positive integer (microseconds, e.g. 10000). Insecure: \"-1\" (slowlog disabled, firing).",
+        "source": "Redis configuration file reference"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "10000",
+      "-1"
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether a durable audit trail of access (who connected, when) is captured and retained for this component. Supporting context for the audit-logging posture; not itself the trigger for this exposure.",
+    "security_impact": "Contextual evidence (CONTEXTUAL_EVIDENCE) supporting \"Insufficient audit logging\"; it is not one of the policy's OR-conditions (persistent_logging_absent and slowlog_log_slower_than<0 are what fire). It records whether connection/access events are durably retained.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether connection/access events are durably captured and retained for the cache.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that connect/auth events are written to a durable, retained destination => true; volatile/no capture => false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Whether security-relevant events (authentication failures, privileged/abusive commands) are fully captured in logs. Supporting context; the volatile-stdout and disabled-slowlog conditions are what actually fire the exposure.",
+    "security_impact": "Contextual evidence (CONTEXTUAL_EVIDENCE) supporting \"Insufficient audit logging\"; it is not one of the policy's OR-conditions. It records whether auth failures and privileged-command events are captured.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Determine whether auth failures and privileged/abusive command events are fully captured in the logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Complete coverage of auth-failure and privileged-command events in retained logs => true; gaps or absence => false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether logs are shipped to and retained on a separate system (off-box, tamper-resistant). Supporting context for the durability of any audit trail; relevant to whether stdout-only logging is recoverable.",
+    "security_impact": "Contextual evidence (CONTEXTUAL_EVIDENCE) supporting \"Insufficient audit logging\"; it is not one of the policy's OR-conditions. It records whether logs survive off-box (tamper-resistant retention) independent of the firing conditions.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether logs are forwarded to and retained on a separate, off-box system.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Off-box retention present (syslog/log-shipper to a separate, tamper-resistant store) => true; local/volatile only => false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

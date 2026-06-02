@@ -1,0 +1,780 @@
+[
+  {
+    "option_name": "spf_policy",
+    "option_description": "Effective enforcement posture of the domain's SPF (RFC 7208) 'all' qualifier: hardfail (-all), softfail (~all), or none (?all/+all or no record).",
+    "security_impact": "One of the OR-triggers of \"Domain spoofing via missing or weak email authentication\" — fires when spf_policy is in [\"softfail\", \"none\"]. A non-hardfail posture gives receivers no basis to reject unauthorized senders, enabling From-domain spoofing (MITRE T1566 / T1672).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the domain's SPF TXT record and read the 'all' qualifier.",
+        "command": "dig +short TXT example.com | grep 'v=spf1'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'v=spf1 ... -all' string (hardfail). '~all'/'?all' is softfail/weak; '+all' or no record is none.",
+        "source": "RFC 7208 (SPF)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "hardfail",
+      "softfail",
+      "none"
+    ]
+  },
+  {
+    "option_name": "dkim_signing_enabled",
+    "option_description": "Whether the MTA cryptographically signs all outbound mail with DKIM (RFC 6376) and publishes a valid public key at <selector>._domainkey.<domain>.",
+    "security_impact": "One of the OR-triggers of \"Domain spoofing via missing or weak email authentication\" — fires when dkim_signing_enabled is false. Unsigned mail removes one of the two bases DMARC aligns against, enabling domain forgery (MITRE T1566).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the published DKIM selector public key, and confirm outbound mail carries a DKIM-Signature header that validates against it.",
+        "command": "dig +short TXT selector1._domainkey.example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'v=DKIM1; k=rsa; p=...' record (signing published, >=2048-bit key). Empty/NXDOMAIN means DKIM not published.",
+        "source": "RFC 6376 (DKIM)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dmarc_policy",
+    "option_description": "DMARC (RFC 7489) policy published at _dmarc.<domain>: reject (p=reject), quarantine, or none (p=none monitor-only or absent record).",
+    "security_impact": "One of the OR-triggers of \"Domain spoofing via missing or weak email authentication\" — fires when dmarc_policy eq \"none\". p=none binds SPF+DKIM with alignment but instructs receivers to take no action on failure, so spoofed mail is delivered unimpeded (MITRE T1566).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the DMARC record and read the p= tag.",
+        "command": "dig +short TXT _dmarc.example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'v=DMARC1; p=reject; ...' (full enforcement). 'p=none' is monitor-only; absent record reads none.",
+        "source": "RFC 7489 (DMARC) / DMARC Overview"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "reject",
+      "quarantine",
+      "none"
+    ]
+  },
+  {
+    "option_name": "opportunistic_tls_only",
+    "option_description": "Whether SMTP transport relies on opportunistic STARTTLS only (e.g. Postfix smtp/smtpd_tls_security_level = 'may') with no downgrade-resistant enforcement layer.",
+    "security_impact": "One of the AND-group OR-triggers of \"Cleartext transport / STARTTLS stripping (MITM)\" — the first condition group fires when opportunistic_tls_only is true AND mta_sts_enforce_mode is false AND dane_outbound_enabled is false. Best-effort STARTTLS is strippable by an on-path attacker, silently downgrading to cleartext (MITRE T1557 / T1562.010).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Postfix inbound and outbound TLS security levels; 'may' on both with no MTA-STS/DANE in force indicates opportunistic-only transport.",
+        "command": "postconf smtpd_tls_security_level smtp_tls_security_level",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "Both at 'may' with no MTA-STS enforce or DANE elsewhere = opportunistic-only (true). A downgrade-resistant level (dane/verify/secure) or MTA-STS enforce present = false.",
+        "source": "Postfix TLS_README"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify STARTTLS is merely offered (not enforced) and is therefore strippable on the wire.",
+        "command": "openssl s_client -starttls smtp -connect mail.example.com:25 -crlf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS handshake succeeds but nothing forces it — an active MITM omitting the STARTTLS advert downgrades to cleartext.",
+        "source": "Postfix TLS_README"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mta_sts_enforce_mode",
+    "option_description": "Whether the domain publishes MTA-STS (RFC 8461) with mode: enforce — a matching _mta-sts.<domain> TXT plus an HTTPS policy file with 'mode: enforce', mx and max_age — so sending MTAs MUST use validated TLS.",
+    "security_impact": "Part of the first AND-group of \"Cleartext transport / STARTTLS stripping (MITM)\" — that group fires when opportunistic_tls_only is true AND mta_sts_enforce_mode is false AND dane_outbound_enabled is false. Enforce mode is the downgrade-resistant mechanism that defeats STARTTLS stripping (MITRE T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Fetch the MTA-STS TXT record and the HTTPS-hosted policy file; confirm 'mode: enforce' with mx/max_age.",
+        "command": "dig +short TXT _mta-sts.example.com && curl -s https://mta-sts.example.com/.well-known/mta-sts.txt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TXT 'v=STSv1; id=...' present AND policy file contains 'mode: enforce' with mx/max_age (true). 'mode: testing/none' or absent reads false.",
+        "source": "RFC 8461 (MTA-STS)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dane_outbound_enabled",
+    "option_description": "Whether outbound TLS is DANE-validated for SMTP (RFC 7672) — Postfix smtp_tls_security_level = dane with smtp_dns_support_level = dnssec and TLSA records present — the DNSSEC-backed downgrade-resistant alternative to MTA-STS.",
+    "security_impact": "Part of the first AND-group of \"Cleartext transport / STARTTLS stripping (MITM)\" — that group fires when opportunistic_tls_only is true AND mta_sts_enforce_mode is false AND dane_outbound_enabled is false. DANE is the downgrade-resistant outbound mechanism (MITRE T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm outbound TLS is DANE-validated: smtp_tls_security_level=dane with DNSSEC support, and that TLSA records exist for delivery hosts.",
+        "command": "postconf smtp_tls_security_level smtp_dns_support_level",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "smtp_tls_security_level = dane and smtp_dns_support_level = dnssec (true). Anything else, or no TLSA records, reads false.",
+        "source": "Postfix TLS_README / RFC 7672 (DANE SMTP)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "smtpd_tls_security_level",
+    "option_description": "Postfix inbound STARTTLS posture (smtpd_tls_security_level). 'none'/unset advertises no STARTTLS and accepts cleartext inbound mail; secure on a public MX is 'may' or 'encrypt' for internal/relay hosts.",
+    "security_impact": "One of the OR-triggers of \"Cleartext transport / STARTTLS stripping (MITM)\" — fires when smtpd_tls_security_level eq \"none\". A 'none' posture accepts cleartext inbound mail outright, the maximal downgrade exposure (MITRE T1557 / T1562.010).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Postfix inbound STARTTLS posture.",
+        "command": "postconf smtpd_tls_security_level",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_tls_security_level = may (or encrypt). 'none' or empty is the insecure firing value.",
+        "source": "Postfix TLS_README"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm STARTTLS is actually advertised and a valid cert is presented on inbound port 25.",
+        "command": "openssl s_client -starttls smtp -connect mail.example.com:25 -crlf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful TLS handshake with a valid cert (STARTTLS offered). 'STARTTLS not supported' or handshake failure indicates 'none'.",
+        "source": "Postfix TLS_README"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "may",
+      "encrypt",
+      "none"
+    ]
+  },
+  {
+    "option_name": "smtp_tls_security_level",
+    "option_description": "Postfix outbound (client) TLS posture when relaying to other MTAs (smtp_tls_security_level). 'none' always relays in cleartext; secure is 'dane' (with smtp_dns_support_level=dnssec) or verify/secure for known partners, at minimum 'may'.",
+    "security_impact": "One of the OR-triggers of \"Cleartext transport / STARTTLS stripping (MITM)\" — fires when smtp_tls_security_level eq \"none\". A 'none' value relays forwarded mail in cleartext, exposing it to passive interception and trivial downgrade (MITRE T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Postfix outbound (client) TLS posture and DNS support level.",
+        "command": "postconf smtp_tls_security_level smtp_dns_support_level",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "smtp_tls_security_level = dane (+ smtp_dns_support_level = dnssec) or verify/secure (secure). 'none' is the insecure firing value.",
+        "source": "Postfix TLS_README / RFC 7672 (DANE SMTP)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "dane",
+      "may",
+      "none"
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Whether the negotiated TLS protocol set permits SSLv2/SSLv3/TLSv1.0/TLSv1.1 (below TLSv1.2), derived from Postfix smtpd_tls_mandatory_protocols / smtpd_tls_protocols.",
+    "security_impact": "One of the OR-triggers of \"Cleartext transport / STARTTLS stripping (MITM)\" — fires when weak_tls_versions_enabled is true. Permitting pre-TLSv1.2 protocols lets an on-path attacker force a weak-protocol downgrade (MITRE T1557 / T1562.010).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the configured mandatory/permitted TLS protocols.",
+        "command": "postconf smtpd_tls_mandatory_protocols smtpd_tls_protocols",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "'>=TLSv1.2' or explicit '!SSLv2, !SSLv3, !TLSv1, !TLSv1.1' (false). Anything allowing TLSv1/1.1/SSLv3 reads true.",
+        "source": "Postfix TLS_README"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols/ciphers actually accepted on the wire.",
+        "command": "nmap --script ssl-enum-ciphers -p 25 --script-args 'smtp.domains=example.com' mail.example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/1.3 with A-graded AEAD ciphers (false). Any TLSv1.0/1.1/SSLv3 or weak cipher (RC4/3DES) reads true.",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "relay_restrictions_enforced",
+    "option_description": "Whether the MTA's relay-control policy denies relay to arbitrary destinations from untrusted clients — i.e. smtpd_relay_restrictions terminates with reject_unauth_destination after permit_mynetworks/permit_sasl_authenticated.",
+    "security_impact": "One of the OR-triggers of \"Open relay abuse\" — fires when relay_restrictions_enforced is false. A missing reject_unauth_destination makes the MTA an open relay for spam/phishing distribution and IP-reputation damage (MITRE T1071.003 / T1566).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read and interpret the Postfix relay-restriction chain.",
+        "command": "postconf smtpd_relay_restrictions",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "Ends with reject_unauth_destination after permit_mynetworks/permit_sasl_authenticated (true). An absent reject is an open-relay risk (false).",
+        "source": "Postfix SMTPD_ACCESS_README"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to relay from an unauthorized client to an external recipient to confirm relay is denied.",
+        "command": "swaks --server mail.example.com --to external@otherdomain.com --from spoof@elsewhere.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "554 / 'Relay access denied' (true/secure). A 250 acceptance proves an open relay (false).",
+        "source": "Postfix SMTPD_ACCESS_README"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mynetworks_overly_broad",
+    "option_description": "Whether the mynetworks trust scope (IP ranges allowed to relay without authentication) includes overly broad or public address space (e.g. 0.0.0.0/0, or mynetworks_style=class) rather than only loopback and specific internal CIDRs.",
+    "security_impact": "One of the OR-triggers of \"Open relay abuse\" — fires when mynetworks_overly_broad is true. A broad trust scope makes the MTA an effective open relay for those nets (MITRE T1071.003 / T1566).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read and interpret the trusted-network scope.",
+        "command": "postconf mynetworks mynetworks_style",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "Narrow, explicit internal CIDRs (e.g. 127.0.0.0/8, 10.0.0.0/24) reads false. A range covering public space or mynetworks_style=class reads true.",
+        "source": "Postfix SMTPD_ACCESS_README / postconf(5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "smtp_auth_allowed_without_tls",
+    "option_description": "Whether the MTA offers SMTP AUTH (SASL) on cleartext, pre-STARTTLS connections — true when smtpd_sasl_auth_enable=yes AND smtpd_tls_auth_only=no, so mailbox credentials traverse the wire in the clear.",
+    "security_impact": "The sole trigger of \"Plaintext SMTP AUTH credential capture\" — fires when smtp_auth_allowed_without_tls is true. Offering AUTH on cleartext lets a passive sniffer or MITM harvest mailbox credentials, yielding account takeover and an authenticated relay/exfil foothold (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read whether SASL AUTH is enabled and whether it is restricted to TLS sessions.",
+        "command": "postconf smtpd_tls_auth_only smtpd_sasl_auth_enable",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_tls_auth_only = yes (false/secure). 'no' with smtpd_sasl_auth_enable=yes exposes plaintext AUTH (true).",
+        "source": "Postfix TLS_README / postconf(5)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "EHLO before STARTTLS and check whether AUTH is advertised on the cleartext connection.",
+        "command": "openssl s_client -connect mail.example.com:25 -crlf  # then send: EHLO test (before STARTTLS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EHLO response should NOT advertise 'AUTH' before STARTTLS. If 'AUTH PLAIN LOGIN' appears pre-TLS it is insecure (true).",
+        "source": "Postfix TLS_README"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "content_filtering_enabled",
+    "option_description": "Whether an inbound anti-spam/anti-phishing content_filter or smtpd_milters pipeline (e.g. rspamd/SpamAssassin) scans every received message.",
+    "security_impact": "One of the OR-triggers of \"Inbound phishing and malware delivery (no content filtering)\" — fires when content_filtering_enabled is false. With no scanning pipeline, phishing reaches users unimpeded (MITRE T1566 / T1566.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the content-filter / milter pipeline configuration.",
+        "command": "postconf content_filter smtpd_milters non_smtpd_milters",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A configured milter/content_filter (e.g. inet:localhost:11332 for rspamd) reads true. Empty means no scanning (false).",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "attachment_malware_scanning",
+    "option_description": "Whether inbound mail attachments are malware-scanned and dangerous attachment types blocked (e.g. ClamAV / attachment-type policy wired into the milter or content_filter pipeline).",
+    "security_impact": "One of the OR-triggers of \"Inbound phishing and malware delivery (no content filtering)\" — fires when attachment_malware_scanning is false. Unscanned attachments deliver malware directly to users (MITRE T1566.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the content-filter/milter pipeline and confirm an antivirus engine and dangerous-attachment policy are wired in; absent = false.",
+        "command": "postconf content_filter smtpd_milters non_smtpd_milters",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A scanning milter/content_filter present in the pipeline. Confirm separately that an AV engine (e.g. ClamAV) is active behind it; an empty pipeline reads false.",
+        "source": "postconf(5)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the mail operator that an antivirus engine (e.g. ClamAV) and a dangerous-attachment-type policy are active in the content_filter/milter pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence an AV engine and attachment-type blocking run on every inbound message (true). No AV / no attachment policy reads false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "link_detonation",
+    "option_description": "Whether inbound message URLs are rewritten and/or detonated/sandboxed (time-of-click protection or URL reputation in the milter/content_filter pipeline).",
+    "security_impact": "One of the OR-triggers of \"Inbound phishing and malware delivery (no content filtering)\" — fires when link_detonation is false. Without URL rewriting/detonation, malicious links reach users directly (MITRE T1566).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the content-filter/milter pipeline to see whether a URL-protection module is wired in.",
+        "command": "postconf content_filter smtpd_milters non_smtpd_milters",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A milter/content_filter present whose module list includes URL rewriting/reputation. Empty pipeline reads false.",
+        "source": "postconf(5)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the mail operator that URL rewriting / time-of-click detonation or URL-reputation scanning is active in the inbound pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence inbound URLs are rewritten/detonated or reputation-checked (true). None present reads false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dlp_egress_controls_enabled",
+    "option_description": "Whether outbound content inspection / DLP scanning is enforced on egress mail (an outbound content_filter/DLP milter inspecting message bodies and attachments for sensitive-data egress).",
+    "security_impact": "One of the OR-triggers of \"Data exfiltration over email (no egress DLP)\" — fires when dlp_egress_controls_enabled is false. Absent outbound inspection, bulk attachment egress and hidden-BCC exfil pass undetected (MITRE T1567 / T1020 / T1114.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Gather evidence of an outbound content_filter/DLP milter and an auto-forward policy on egress mail.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of an outbound content_filter/DLP milter and an auto-forward policy (true). Absence is a data-exfiltration gap (false).",
+        "source": "NIST SP 800-177r1 Trustworthy Email (content security) / MITRE ATT&CK T1567"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "external_auto_forward_blocked",
+    "option_description": "Whether automatic forwarding of mail to external (off-domain) recipients is restricted/blocked by policy.",
+    "security_impact": "One of the OR-triggers of \"Data exfiltration over email (no egress DLP)\" — fires when external_auto_forward_blocked is false. Permits silent auto-forward rules to ship a mailbox's mail to an attacker-controlled external address (MITRE T1114.003 Email Forwarding Rule).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a transport/policy rule blocks or quarantines auto-forwarding to external recipients.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence a transport/policy rule blocks or quarantines external auto-forward (true). No such rule reads false.",
+        "source": "NIST SP 800-177r1 Trustworthy Email (content security) / MITRE ATT&CK T1567"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bulk_export_monitored_and_alerted",
+    "option_description": "Whether high-volume / bulk outbound mail (large or repeated attachment egress, abnormal recipient fan-out) is monitored with alerting so automated exfiltration is surfaced.",
+    "security_impact": "One of the OR-triggers of \"Data exfiltration over email (no egress DLP)\" — fires when bulk_export_monitored_and_alerted is false. Bulk attachment egress (MITRE T1020 Automated Exfiltration) then leaves no signal.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm monitoring/alerting fires on high-volume or anomalous outbound mail (size, frequency, recipient fan-out).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting rules / dashboards keyed on outbound volume, frequency, and recipient fan-out (true). No such monitoring reads false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "vrfy_expn_enabled",
+    "option_description": "Whether the MTA answers SMTP VRFY/EXPN commands (Postfix disable_vrfy_command = no, the default), letting an attacker enumerate valid mailboxes.",
+    "security_impact": "One of the OR-triggers of \"Recipient enumeration and version disclosure\" — fires when vrfy_expn_enabled is true. Answered VRFY/EXPN lets attackers enumerate valid mailboxes for targeted spear-phishing (MITRE T1087).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the VRFY-disable setting (issue VRFY/EXPN over SMTP to confirm behaviour).",
+        "command": "postconf disable_vrfy_command",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "disable_vrfy_command = yes (VRFY rejected; reads false). 'no' permits address harvesting (reads true).",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "version_banner_disclosed",
+    "option_description": "Whether the SMTP greeting banner (Postfix smtpd_banner) leaks the MTA software name/version, fingerprinting the MTA to steer CVE targeting.",
+    "security_impact": "One of the OR-triggers of \"Recipient enumeration and version disclosure\" — fires when version_banner_disclosed is true. A version-bearing banner fingerprints the MTA software/version (MITRE T1589.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the configured SMTP greeting banner (or connect to port 25 and read the 220 greeting).",
+        "command": "postconf smtpd_banner",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A banner of '$myhostname ESMTP' without product/version reads false. A 'Postfix'/Exim version string reads true.",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the running MTA build is on a branch/version known to carry a critical unauthenticated RCE CVE (e.g. Exim 4.87-4.91 for CVE-2019-10149, or the pre-fix branches for CVE-2023-42115), derived from the running version.",
+    "security_impact": "One of the OR-triggers of \"Unpatched MTA remote code execution\" — fires when unpatched_known_rce_cve is true. An exploitable unpatched branch is directly fireable for full host compromise (MITRE T1190 / T1210).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running MTA version and match against known affected RCE CVE ranges.",
+        "command": "postconf mail_version   # Postfix;  exim -bV  # Exim",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A current patched version reads false. Exim 4.87-4.91 (CVE-2019-10149) or the 2023-CVE-affected builds read true.",
+        "source": "Qualys advisory CVE-2019-10149 / The Hacker News Exim 2023 CVE disclosure"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "mta_patched_within_sla",
+    "option_description": "Patch-hygiene attestation: the MTA software is kept on a current patched release within the organisation's patch SLA.",
+    "security_impact": "Part of the second AND-group of \"Unpatched MTA remote code execution\" — that group fires when mta_patched_within_sla is false AND mta_internet_facing is true. An out-of-SLA MTA that is also internet-facing is directly exploitable (MITRE T1190 / T1210).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the deployed MTA version and confirm it is on a currently-patched release within the org's patch SLA window.",
+        "command": "postconf mail_version   # Postfix;  exim -bV  # Exim",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A current patched release within the SLA window reads true. A stale/out-of-SLA build reads false.",
+        "source": "Qualys advisory CVE-2019-10149 / The Hacker News Exim 2023 CVE disclosure"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the patch SLA window with the operator and check the deployed version's release date against it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deployed version released/patched within the documented SLA window (true); otherwise false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mta_internet_facing",
+    "option_description": "Whether the MTA accepts SMTP connections from the public internet (a published MX on port 25 / reachable submission ports), as opposed to an internal-only relay.",
+    "security_impact": "Part of the second AND-group of \"Unpatched MTA remote code execution\" — that group fires when mta_patched_within_sla is false AND mta_internet_facing is true. Internet exposure turns a stale patch level into an actively exploitable, unauthenticated RCE surface (MITRE T1190 / T1210).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm whether port 25 / submission ports are reachable from the public internet (published MX, external connectivity test).",
+        "command": "dig +short MX example.com && nmap -p 25,465,587 mail.example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A published MX and externally-reachable SMTP/submission ports indicate internet-facing (true). No public reachability reads false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Attestation that connection/message rate limiting is configured and active on the MTA (Postfix anvil via smtpd_client_*_rate_limit / connection_count_limit, or an equivalent throttle).",
+    "security_impact": "One of the OR-triggers of \"SMTP-borne DoS / connection flooding\" — fires when rate_limiting_or_lockout_enabled is false. Unbounded connection and message rates leave the MTA open to connection floods and spam-burst abuse (MITRE T1499.003 / T1498.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Postfix anvil client rate/limit settings to confirm throttling is active.",
+        "command": "postconf smtpd_client_connection_rate_limit smtpd_client_message_rate_limit smtpd_client_connection_count_limit",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "Non-zero limits (e.g. 30) indicate rate limiting is active (true). All-zero/unlimited reads false.",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Attestation that a DoS/DDoS protection layer (network/edge rate limiting, SYN/connection flood mitigation, anti-backscatter controls) fronts or is configured on the MTA's network exposure.",
+    "security_impact": "One of the OR-triggers of \"SMTP-borne DoS / connection flooding\" — fires when ddos_protection_in_place is false. No DoS protection leaves mail availability at the mercy of connection floods and amplification (MITRE T1498.001 / T1667).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a network/edge DoS protection layer (flood mitigation, anti-backscatter) fronts the MTA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of an edge/network flood-mitigation and anti-backscatter layer fronting the MTA (true). Absent = false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "smtpd_client_connection_rate_limit",
+    "option_description": "Postfix smtpd_client_connection_rate_limit — max new connections a single client may make per anvil time unit; 0 means UNLIMITED.",
+    "security_impact": "One of the OR-triggers of \"SMTP-borne DoS / connection flooding\" — fires when smtpd_client_connection_rate_limit eq 0. Unlimited per-client connection rate exposes the MTA to per-client connection flooding (MITRE T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the per-client connection rate limit.",
+        "command": "postconf smtpd_client_connection_rate_limit smtpd_client_message_rate_limit smtpd_client_connection_count_limit",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A non-zero cap (e.g. 30) is secure. 0 means unlimited — the insecure firing value.",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      0
+    ]
+  },
+  {
+    "option_name": "smtpd_client_message_rate_limit",
+    "option_description": "Postfix smtpd_client_message_rate_limit — max messages a single client may deliver per anvil time unit; 0 means UNLIMITED.",
+    "security_impact": "One of the OR-triggers of \"SMTP-borne DoS / connection flooding\" — fires when smtpd_client_message_rate_limit eq 0. Unlimited per-client message rate enables spam-burst abuse and backscatter amplification (MITRE T1499.003 / T1498.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the per-client message rate limit.",
+        "command": "postconf smtpd_client_connection_rate_limit smtpd_client_message_rate_limit smtpd_client_connection_count_limit",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A non-zero cap is secure. 0 means unlimited — the insecure firing value.",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      0
+    ]
+  },
+  {
+    "option_name": "smtpd_client_connection_count_limit",
+    "option_description": "Postfix smtpd_client_connection_count_limit — max simultaneous connections from a single client; 0 means UNLIMITED.",
+    "security_impact": "One of the OR-triggers of \"SMTP-borne DoS / connection flooding\" — fires when smtpd_client_connection_count_limit eq 0. Unlimited simultaneous connections let a single source exhaust connection slots and deny mail availability (MITRE T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the per-client simultaneous-connection limit.",
+        "command": "postconf smtpd_client_connection_rate_limit smtpd_client_message_rate_limit smtpd_client_connection_count_limit",
+        "file_path": "main.cf",
+        "navigation": null,
+        "expected_output": "A non-zero cap (e.g. 50) is secure. 0 means unlimited — the insecure firing value.",
+        "source": "postconf(5)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      50,
+      0
+    ]
+  },
+  {
+    "option_name": "mail_logging_enabled",
+    "option_description": "Whether the MTA records mail-transaction and SASL-authentication events to maillog/journald (client connection, SASL AUTH, delivery/relay lines).",
+    "security_impact": "One of the OR-triggers of \"No mail audit trail\" — fires when mail_logging_enabled is false. With logging disabled/unpopulated there is no audit trail to detect phishing, open-relay abuse, credential compromise, or exfiltration (MITRE T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm the mail log is populated with connection, SASL AUTH, and delivery/relay records.",
+        "command": "tail -n 50 /var/log/maillog   # or journalctl -u postfix",
+        "file_path": "/var/log/maillog",
+        "navigation": null,
+        "expected_output": "client connection, SASL auth, and delivery/relay lines present (true). Empty/absent log is a logging gap (false).",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Whether security-relevant events (authentication attempts, relay/delivery decisions, TLS negotiation outcomes, rejections) are captured in full rather than partially.",
+    "security_impact": "One of the OR-triggers of \"No mail audit trail\" — fires when security_events_fully_logged is false. Missing key forensic events undermines investigation even when basic logging is on (MITRE T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect the mail log and confirm authentication attempts, relay/delivery decisions, TLS outcomes, and rejections are all captured, not just a subset.",
+        "command": "grep -E 'SASL|reject|TLS|relay' /var/log/maillog | tail -n 50   # or journalctl -u postfix",
+        "file_path": "/var/log/maillog",
+        "navigation": null,
+        "expected_output": "Auth attempts, relay/delivery decisions, TLS negotiation outcomes, and rejections all present (true). A partial subset reads false.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether an access/authentication audit trail (SASL-AUTH and access events) is enabled and retained per policy for the component.",
+    "security_impact": "One of the OR-triggers of \"No mail audit trail\" — fires when access_audit_trail_enabled is false. Without retained access/auth events, credential-compromise and abuse cannot be investigated retrospectively (MITRE T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm SASL-AUTH and access events are logged and retained per the org's retention policy.",
+        "command": "grep 'sasl' /var/log/maillog | tail -n 50   # or journalctl -u postfix",
+        "file_path": "/var/log/maillog",
+        "navigation": null,
+        "expected_output": "SASL-AUTH and access events present and retained per policy (true). Missing or not retained reads false.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the documented retention period for access/authentication logs matches the org's retention policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access/auth logs retained for the policy-mandated window (true); shorter or no retention reads false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether mail logs are shipped to a central SIEM/log-aggregation pipeline for correlation and alerting.",
+    "security_impact": "One of the OR-triggers of \"No mail audit trail\" — fires when centralized_log_aggregation is false. Local-only logs give no cross-host correlation and no real-time detection of phishing, open-relay abuse, or exfiltration (MITRE T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm mail logs are forwarded to a central SIEM/aggregation pipeline (rsyslog/fluentd/agent) rather than retained only locally.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a forwarder shipping mail logs to a central SIEM/aggregation pipeline (true). Local-only retention reads false.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether logs are written to a separate/append-only system out of reach of a host compromise.",
+    "security_impact": "One of the OR-triggers of \"No mail audit trail\" — fires when logs_stored_on_separate_system is false. If the only copy lives on the MTA, an attacker who compromises the host can tamper with or delete the audit trail (MITRE T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a copy of logs is written to a separate/append-only system beyond the MTA host's mutation reach.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of an off-host append-only/immutable log copy (true). Only a local mutable copy reads false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "3889c5eb-a3f7-4af6-ad9f-752b3b622f7b",
+  "name": "Endpoint / Office Environment",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "The endpoint / office environment — also called the corporate LAN, user/office network, internal workstation zone, or employee network — the trust zone encompassing user devices and corporate-network access, the origin of most human-driven activity and initial-access attempts. The place to look for the office/corporate network, user-device zone, internal LAN, or the employee workstation trust boundary.",
+  "category": "Network Architecture",
+  "status": "draft"
+}

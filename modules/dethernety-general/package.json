@@ -1,0 +1,22 @@
+{
+  "name": "dethernety-general",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "dist/dethernety/dethernety-general/DethernetyGeneralModule.js",
+  "types": "dist/dethernety/dethernety-general/DethernetyGeneralModule.d.ts",
+  "scripts": {
+    "build": "pnpm build:ts && pnpm build:package",
+    "build:ts": "tsc",
+    "build:package": "node ../../scripts/package-module.js",
+    "embed": "../../scripts/module-manager.sh embed . --model ${EMBEDDING_MODEL:-embeddinggemma} --url ${EMBEDDING_URL:-http://localhost:11434/api/embed}",
+    "dev": "tsc -w",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dethernety/dt-module": "workspace:*",
+    "@nestjs/common": "^11.1.18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2"
+  }
+}

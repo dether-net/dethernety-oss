@@ -1,0 +1,82 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "service_to_service_mtls_enforced": false,
+      "peer_authentication_mtls_mode_strict": false,
+      "identity_propagated_cryptographically": false,
+      "east_west_microsegmentation_enforced": false,
+      "east_west_within_segment_restricted": false,
+      "least_privilege_authorization_at_crossing": false,
+      "internal_interface_reauthenticates_calls": false,
+      "shared_service_credentials_used": true,
+      "centralized_log_aggregation": false,
+      "access_audit_trail_enabled": false,
+      "management_plane_isolated_from_data_plane": false,
+      "cloud_metadata_endpoint_blocked": false
+    },
+    "expectedExposures": [
+      "Flat pod network (no default-deny NetworkPolicy)",
+      "Plaintext east-west traffic (no mTLS)",
+      "No per-workload identity (IP- or shared-token trust)",
+      "mTLS PERMISSIVE downgrade",
+      "Shared long-lived service credentials reused everywhere",
+      "Privileged control-plane reachable from app pods",
+      "No per-call service-to-service authorization",
+      "Unmonitored east-west — silent lateral movement"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "service_to_service_mtls_enforced": true,
+      "peer_authentication_mtls_mode_strict": true,
+      "identity_propagated_cryptographically": true,
+      "east_west_microsegmentation_enforced": true,
+      "east_west_within_segment_restricted": true,
+      "least_privilege_authorization_at_crossing": true,
+      "internal_interface_reauthenticates_calls": true,
+      "shared_service_credentials_used": false,
+      "centralized_log_aggregation": true,
+      "access_audit_trail_enabled": true,
+      "management_plane_isolated_from_data_plane": true,
+      "cloud_metadata_endpoint_blocked": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "service_to_service_mtls_enforced": true,
+      "peer_authentication_mtls_mode_strict": true,
+      "identity_propagated_cryptographically": true,
+      "east_west_microsegmentation_enforced": true,
+      "east_west_within_segment_restricted": true,
+      "least_privilege_authorization_at_crossing": true,
+      "internal_interface_reauthenticates_calls": true,
+      "shared_service_credentials_used": false,
+      "centralized_log_aggregation": true,
+      "access_audit_trail_enabled": true,
+      "management_plane_isolated_from_data_plane": true,
+      "cloud_metadata_endpoint_blocked": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Flat pod network (no default-deny NetworkPolicy)",
+      "Plaintext east-west traffic (no mTLS)",
+      "No per-workload identity (IP- or shared-token trust)",
+      "mTLS PERMISSIVE downgrade",
+      "Privileged control-plane reachable from app pods",
+      "No per-call service-to-service authorization",
+      "Unmonitored east-west — silent lateral movement"
+    ]
+  }
+]

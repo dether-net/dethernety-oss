@@ -1,0 +1,9 @@
+{
+  "id": "f5ccb98e-aeb5-48e4-a313-ce77b4dd7b56",
+  "name": "Management & Monitoring Plane",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "The management and monitoring plane — also called the control plane, admin/ops zone, or out-of-band management boundary — the administrative and observability boundary containing control-plane access, CI/CD, and telemetry pipelines, held to stricter trust than the workload plane. The place to look for the control/management plane, admin zone, ops boundary, or the privileged operational trust zone.",
+  "category": "Operational Security",
+  "status": "draft"
+}

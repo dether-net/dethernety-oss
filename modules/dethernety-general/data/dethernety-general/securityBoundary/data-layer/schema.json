@@ -1,0 +1,277 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "data_store_publicly_routable": {
+        "type": "boolean",
+        "title": "Data Store Publicly Routable",
+        "description": "Data store is directly reachable from public network (insecure when true). The data tier must not be addressable from untrusted networks.",
+        "default": false
+      },
+      "data_tier_crossing_only_via_app_pep": {
+        "type": "boolean",
+        "title": "Data-Tier Crossing Only via App PEP",
+        "description": "Every ingress path into the data tier transits the application-tier policy enforcement point; no alternate non-PEP path exists.",
+        "default": false
+      },
+      "per_workload_db_identity_used": {
+        "type": "boolean",
+        "title": "Per-Workload DB Identity Used",
+        "description": "Each workload authenticates to the data store with its own least-privilege service identity (IAM auth / SPIFFE SVID / per-app DB role) - not a shared superuser.",
+        "default": false
+      },
+      "data_tier_credentials_short_lived": {
+        "type": "boolean",
+        "title": "Data-Tier Credentials Short-Lived",
+        "description": "Credentials used to cross the boundary are short-lived / dynamically issued (vault leases, IAM session tokens, X.509 SVIDs), not long-lived static passwords pinned in config."
+      },
+      "least_privilege_db_account": {
+        "type": "boolean",
+        "title": "Least-Privilege DB Account",
+        "description": "App-tier grants are scoped to per-query need - no ALL PRIVILEGES, no s3:*, no +@all ~* on Redis, no superuser/db_owner/consoleAdmin. The account at the boundary holds only the verbs and objects the app actually uses.",
+        "default": false
+      },
+      "bulk_read_volume_anomaly_alerted": {
+        "type": "boolean",
+        "title": "Bulk-Read Volume Anomaly Alerted",
+        "description": "Volume/rate anomalies (rows-read-per-minute, full-table-scan bursts, large result-set transfers) emit alerts on bulk-read deviations consistent with T1213."
+      },
+      "privileged_access_via_pam_with_session_recording": {
+        "type": "boolean",
+        "title": "Privileged Access via PAM with Session Recording",
+        "description": "DBA / break-glass access transits a recorded PAM / jump host with MFA, time-boxed approval, and session recording. Direct DBA credentials are not held on workstations.",
+        "default": false
+      },
+      "mgmt_paths_subject_to_same_pep_controls": {
+        "type": "boolean",
+        "title": "Mgmt Paths Subject to Same PEP Controls",
+        "description": "Every management-plane path (mgmt VLAN, DBaaS support tunnel, monitoring agent, replication, backup agent) enforces the same authn/authz/inspection as the primary app-tier crossing.",
+        "default": false
+      },
+      "data_tier_ingress_scoped_per_workload_identity": {
+        "type": "boolean",
+        "title": "Data-Tier Ingress Scoped Per Workload Identity",
+        "description": "Ingress rules scope source to per-app workload identity (per-service SG / SPIFFE SVID / per-app IAM DB role); no flat app-tier->all-databases allow rule.",
+        "default": false
+      },
+      "data_tier_transit_encrypted": {
+        "type": "boolean",
+        "title": "Data-Tier Transit Encrypted",
+        "description": "App-to-data-store traffic crossing into the data tier is TLS-encrypted with a modern profile (TLS 1.2+); cleartext listeners disabled at the data store.",
+        "default": false
+      },
+      "backup_destinations_in_approved_region_and_account": {
+        "type": "boolean",
+        "title": "Backup Destinations in Approved Region and Account",
+        "description": "Backups/snapshots are only written/copied/shared to pre-approved destinations within boundary trust scope (no public bucket, no untrusted cross-account share, no unrestricted region copy).",
+        "default": false
+      },
+      "backup_egress_audited_separately": {
+        "type": "boolean",
+        "title": "Backup Egress Audited Separately",
+        "description": "Backup/snapshot channel emits its own audit trail (snapshot share events, backup-vault policy changes, cross-region copies) to a tamper-resistant store outside data-tier admin scope."
+      },
+      "kms_admin_separated_from_db_admin": {
+        "type": "boolean",
+        "title": "KMS Admin Separated from DB Admin",
+        "description": "Principals authorised for KMS key-admin actions (ScheduleKeyDeletion, DisableKey, PutKeyPolicy, key export) are disjoint from principals operating the data store.",
+        "default": false
+      },
+      "kms_key_protection_policy_enforced": {
+        "type": "boolean",
+        "title": "KMS Key Protection Policy Enforced",
+        "description": "Wrapping KMS/HSM key has automated rotation enabled per documented cryptoperiod AND multi-party approval / pause window for destructive lifecycle (scheduled deletion, disable, export)."
+      },
+      "data_tier_crossings_audit_logged_to_tamper_resistant_store": {
+        "type": "boolean",
+        "title": "Data-Tier Crossings Audit-Logged to Tamper-Resistant Store",
+        "description": "Every data-tier crossing (successful connection, failed auth, DDL, DML at sensitivity threshold) is logged and ships to a tamper-resistant store outside DBA administrative scope.",
+        "default": false
+      },
+      "failed_auth_and_admin_events_alerted": {
+        "type": "boolean",
+        "title": "Failed Auth and Admin Events Alerted",
+        "description": "Failed authentication attempts and privileged / admin events (role/grant changes, DDL, bulk-read anomalies) generate alerts on a defined path (SIEM, pager)."
+      }
+    },
+    "required": [
+      "data_store_publicly_routable",
+      "data_tier_crossing_only_via_app_pep",
+      "per_workload_db_identity_used",
+      "data_tier_credentials_short_lived",
+      "least_privilege_db_account",
+      "bulk_read_volume_anomaly_alerted",
+      "privileged_access_via_pam_with_session_recording",
+      "mgmt_paths_subject_to_same_pep_controls",
+      "data_tier_ingress_scoped_per_workload_identity",
+      "data_tier_transit_encrypted",
+      "backup_destinations_in_approved_region_and_account",
+      "backup_egress_audited_separately",
+      "kms_admin_separated_from_db_admin",
+      "kms_key_protection_policy_enforced",
+      "data_tier_crossings_audit_logged_to_tamper_resistant_store",
+      "failed_auth_and_admin_events_alerted"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_workload_db_identity_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_db_account"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_access_via_pam_with_session_recording"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_transit_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kms_admin_separated_from_db_admin"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kms_key_protection_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_credentials_short_lived"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_store_publicly_routable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_crossing_only_via_app_pep"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_ingress_scoped_per_workload_identity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mgmt_paths_subject_to_same_pep_controls"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_crossings_audit_logged_to_tamper_resistant_store"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_egress_audited_separately"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_read_volume_anomaly_alerted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/failed_auth_and_admin_events_alerted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_destinations_in_approved_region_and_account"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

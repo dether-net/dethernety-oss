@@ -1,0 +1,412 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "managed_core_ruleset_deployed": {
+        "type": "boolean",
+        "title": "Managed Core Ruleset Deployed",
+        "description": "A maintained managed/core ruleset (OWASP CRS or a vendor baseline such as AWSManagedRulesCommonRuleSet) is attached to the WAF policy. True attests the baseline rule group is present in the active policy; false means no managed baseline is in effect.",
+        "default": false
+      },
+      "ruleset_covers_owasp_top10": {
+        "type": "boolean",
+        "title": "Ruleset Covers OWASP Top 10",
+        "description": "The attached managed/core ruleset covers the OWASP Top 10 injection/XSS/RCE/LFI/RFI/SSRF classes (no critical paranoia/category groups disabled). True attests the baseline's coverage of those classes is intact.",
+        "default": false
+      },
+      "crs_ruleset_updated": {
+        "type": "boolean",
+        "title": "Core Ruleset Kept Current",
+        "description": "The managed/core ruleset is kept on a current/auto-updating version so newly-disclosed exploit signatures are picked up. True attests automatic ruleset version updates are enabled (or a documented current-version process keeps it current).",
+        "default": false
+      },
+      "waf_engine_mode": {
+        "type": "string",
+        "enum": [
+          "BLOCKING",
+          "DETECTION_ONLY",
+          "COUNT"
+        ],
+        "title": "WAF Engine Mode",
+        "description": "The active enforcement mode of the WAF rule engine. BLOCKING (SecRuleEngine On / policy Prevention mode, with no managed rule group forced to Count) means matching malicious traffic is actively dropped before reaching application logic. DETECTION_ONLY and COUNT merely log/observe matches without blocking, so injection/XSS/RCE still reach the origin. Only BLOCKING is the secure value that stops exploitation rather than recording it."
+      },
+      "waf_anomaly_threshold_effective": {
+        "type": "boolean",
+        "title": "Anomaly Threshold Tuned",
+        "description": "Whether the anomaly-scoring inbound/outbound threshold and paranoia level have been deliberately tuned for this application (rather than left at a default that either over-blocks legitimate traffic or sets the bar so high that real attacks fall below the block score). A tuned threshold is what makes blocking mode effective without being silently disabled by operators reacting to false positives. Secure value is true.",
+        "default": false
+      },
+      "false_positive_tuning_process": {
+        "type": "boolean",
+        "title": "False-Positive Tuning Process",
+        "description": "Whether a deliberate, documented false-positive management process exists (exception/allow-list rules, staged tuning, monitored before/after metrics) so blocking mode is sustained operationally instead of being downgraded to detection-only the first time a legitimate request is blocked. The presence of this process is what keeps the WAF in enforcing mode over time. Secure value is true."
+      },
+      "virtual_patching_custom_rules_maintained": {
+        "type": "boolean",
+        "title": "Virtual-Patching Custom Rules Maintained",
+        "description": "Attestation that app-specific and emerging-CVE custom rules (a virtual-patching layer) are deployed alongside the managed/core ruleset, blocking targeted exploit patterns and zero-day signatures the baseline does not yet cover until the application is patched. True = a maintained virtual-patch layer is present.",
+        "default": false
+      },
+      "custom_rule_review_cadence_days": {
+        "type": "integer",
+        "title": "Custom Rule Review Cadence (Days)",
+        "description": "Maximum interval (in days) between scheduled reviews of the custom virtual-patching rule set, ensuring the layer is kept current against newly-disclosed CVEs and that stale or superseded rules are retired. A cadence at or under the review threshold (<=90 days) indicates the layer is actively maintained rather than set-and-forgotten."
+      },
+      "tls_inspection_enabled": {
+        "type": "boolean",
+        "title": "Inbound TLS Termination / Inspection Enabled",
+        "description": "Whether the WAF terminates/decrypts inbound HTTPS at the edge so request payloads are inspected in cleartext rather than passed through encrypted. When true, every WAF rule can actually see the decrypted request body and headers; without termination, attacks ride uninspected inside the TLS tunnel.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The minimum TLS protocol version the WAF negotiates on the inbound listener. The secure baseline is TLS 1.2 or higher (with TLS 1.3 supported); negotiating tls1_2_or_higher ensures the termination point uses a modern, non-deprecated handshake so decryption-for-inspection rests on a strong transport-crypto floor."
+      },
+      "cipher_suites_strong_only": {
+        "type": "string",
+        "enum": [
+          "aead_with_forward_secrecy_only",
+          "any_legacy_cbc_rc4_3des_null_or_export_suite_accepted"
+        ],
+        "title": "Strong Cipher Suites Only",
+        "description": "Whether the inbound TLS listener is restricted to strong AEAD/forward-secret cipher suites only (no export, RC4, 3DES, CBC-with-SHA1, or other weak/legacy ciphers). The secure value aead_with_forward_secrecy_only keeps the termination handshake on forward-secret authenticated encryption."
+      },
+      "request_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting Enabled",
+        "description": "Whether rate-based rules are attached to the WAF policy to throttle abusive request volume per client over a time window (e.g. AWS WAF RateBasedStatement, Azure rate-limit custom rule, ModSecurity collection thresholds) on traffic-bearing endpoints (login, search, API). Enabling rate limiting blunts application-layer flooding, credential stuffing, brute force, and scraping.",
+        "default": false
+      },
+      "bot_mitigation_enabled": {
+        "type": "boolean",
+        "title": "Bot Mitigation Enabled",
+        "description": "Whether anti-automation / bot-mitigation controls are attached to the WAF policy (e.g. AWS Bot Control managed rule group, vendor bot management, JS/device challenge). True when automated-traffic detection and mitigation is active. Bot mitigation complements raw rate limiting by distinguishing automated abuse (scraping, credential stuffing) from legitimate clients.",
+        "default": false
+      },
+      "rate_limit_action": {
+        "type": "string",
+        "enum": [
+          "block",
+          "captcha",
+          "challenge",
+          "count",
+          "allow",
+          "none"
+        ],
+        "title": "Rate Limit / Bot Action",
+        "description": "The action applied when a rate-based or bot-mitigation rule matches. Only an enforcing action (block, captcha, challenge) actually throttles abusive volume; count/allow merely observe and do not stop the abuse. The secure-firing values are the enforcing actions."
+      },
+      "waf_request_body_inspection_enabled": {
+        "type": "boolean",
+        "title": "Request Body Inspection Enabled",
+        "description": "Attests that WAF request-body access/inspection is enabled so payloads (POST bodies, multipart uploads) are parsed and screened rather than passed through uninspected. When false, oversized bodies and web-shell upload payloads bypass content rules.",
+        "default": false
+      },
+      "file_upload_limits_enforced": {
+        "type": "boolean",
+        "title": "File Upload Limits Enforced",
+        "description": "Attests that request-body size limits and content-type allow-lists are enforced on inspected bodies (max body/upload size, permitted MIME types), constraining oversized-upload abuse and disallowed file types. When false, large or arbitrary-content uploads reach the origin.",
+        "default": false
+      },
+      "http_protocol_validation_enabled": {
+        "type": "boolean",
+        "title": "HTTP Protocol Validation Enabled",
+        "description": "Attests that HTTP protocol-enforcement rules are active — including an allowed-method allow-list — rejecting malformed or non-conforming requests at the WAF. When false, anomalous methods and protocol violations are forwarded to the origin.",
+        "default": false
+      },
+      "request_smuggling_protection_enabled": {
+        "type": "boolean",
+        "title": "Request Smuggling Protection Enabled",
+        "description": "Attests that the WAF rejects requests with ambiguous or conflicting framing (e.g. simultaneous/duplicate Content-Length and Transfer-Encoding headers), defending against HTTP request smuggling (CWE-444) where front-end and origin disagree on request boundaries. When false, desync attacks can poison the request stream.",
+        "default": false
+      },
+      "direct_to_origin_blocked": {
+        "type": "boolean",
+        "title": "Direct-to-Origin Access Blocked",
+        "description": "Attests that the origin server's IP is not directly reachable from the internet — the origin's network/security-group rules deny inbound HTTP(S) except from the WAF/edge, so an attacker who discovers the origin IP cannot route around the WAF. True when direct-to-origin access is blocked.",
+        "default": false
+      },
+      "origin_access_restricted_to_waf": {
+        "type": "boolean",
+        "title": "Origin Access Restricted to WAF",
+        "description": "Attests that the only sanctioned path to the origin is through the WAF, enforced by an authenticated channel: authenticated origin pulls / origin mTLS, an allow-list of WAF egress IPs on the origin, or a private origin fronted by OAI/OAC. True when origin access is cryptographically or network-restricted to the WAF.",
+        "default": false
+      },
+      "origin_access_enforcement_mechanism": {
+        "type": "string",
+        "enum": [
+          "authenticated_origin_pull_mtls",
+          "waf_egress_ip_allowlist",
+          "private_origin_oai_oac",
+          "none"
+        ],
+        "title": "Origin Access Enforcement Mechanism",
+        "description": "Which mechanism enforces WAF-only origin access, for assessor context. Not itself a trigger — the boolean attestations direct_to_origin_blocked and origin_access_restricted_to_waf carry the polarity."
+      },
+      "waf_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "WAF Events Logged to SIEM",
+        "description": "WAF block/allow events — including the matched rule id, client IP, request URI, and the action taken — are emitted and shipped to a central SIEM rather than discarded or retained only locally. Attested true when WAF logging is enabled and forwarded to the SIEM pipeline.",
+        "default": false
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "WAF event logs are aggregated into the workspace's central log/SIEM platform (shared canonical attribute) so they are correlatable across components and queryable for investigation, rather than siloed per-edge. Attested true when the central aggregation pipeline ingests this component's events.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Log Retention (Days)",
+        "description": "Number of days WAF/SIEM event logs are retained (shared canonical attribute). A retention horizon of at least 90 days makes slow-burn and historical attacks investigable after the fact."
+      },
+      "waf_fails_closed_on_error": {
+        "type": "boolean",
+        "title": "WAF Fails Closed on Error",
+        "description": "The WAF's behaviour when the inspection engine is unavailable is a deliberate, documented decision: for high-assurance apps the posture fails CLOSED (traffic is denied) rather than silently passing uninspected requests to the origin. Attested true when the fail-closed posture is configured and documented."
+      }
+    },
+    "required": [
+      "managed_core_ruleset_deployed",
+      "ruleset_covers_owasp_top10",
+      "crs_ruleset_updated",
+      "waf_engine_mode",
+      "waf_anomaly_threshold_effective",
+      "false_positive_tuning_process",
+      "virtual_patching_custom_rules_maintained",
+      "custom_rule_review_cadence_days",
+      "tls_inspection_enabled",
+      "min_tls_version",
+      "cipher_suites_strong_only",
+      "request_rate_limiting_enabled",
+      "bot_mitigation_enabled",
+      "rate_limit_action",
+      "waf_request_body_inspection_enabled",
+      "file_upload_limits_enforced",
+      "http_protocol_validation_enabled",
+      "request_smuggling_protection_enabled",
+      "direct_to_origin_blocked",
+      "origin_access_restricted_to_waf",
+      "waf_audit_logging_enabled",
+      "centralized_log_aggregation",
+      "log_retention_days",
+      "waf_fails_closed_on_error"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cipher_suites_strong_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/direct_to_origin_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/origin_access_restricted_to_waf"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/origin_access_enforcement_mechanism"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crs_ruleset_updated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/file_upload_limits_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/http_protocol_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_core_ruleset_deployed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_smuggling_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ruleset_covers_owasp_top10"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/virtual_patching_custom_rules_maintained"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_anomaly_threshold_effective"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_engine_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_request_body_inspection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bot_mitigation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limit_action"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_fails_closed_on_error"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_audit_logging_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/custom_rule_review_cadence_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/false_positive_tuning_process"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,394 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "hardware_backed_credential_storage_used": {
+        "type": "boolean",
+        "title": "Hardware-Backed Credential Storage Used",
+        "description": "Attested true when tokens/credentials on this untrusted device are stored exclusively in the OS-protected, ideally hardware-backed keystore (iOS Keychain / Secure Enclave, Android Keystore / StrongBox, or EncryptedSharedPreferences) rather than in plaintext SharedPreferences, NSUserDefaults, plist, SQLite, or sandbox files. When false the credentials are recoverable from a lost, stolen, or rooted device, which is exactly this exposure. Maps to dossier config_surface 'local_credential_storage_hardware_backed' (secure_value=hardware_backed_keystore). MASVS-STORAGE-1 / MASVS-CRYPTO secure key storage.",
+        "default": false
+      },
+      "tokens_in_plaintext_device_storage": {
+        "type": "boolean",
+        "title": "Tokens In Plaintext Device Storage",
+        "description": "Interpreted true when tokens, session credentials, or secrets are observed persisted in cleartext in app-readable device storage — SharedPreferences XML, NSUserDefaults, plist, plaintext SQLite, caches, or sandbox files — outside the keystore. Modeled as a positive interpreted boolean (fired with is_true) so detection is polarity-safe by construction and never pattern-matches a composite storage string. Corresponds to the insecure_value 'plaintext_or_app_readable_storage' of dossier 'local_credential_storage_hardware_backed'.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Sensitive Data Encrypted At Rest",
+        "description": "Shared workspace attestation: sensitive data (PII, tokens, secrets) persisted on the device outside the keystore is encrypted at rest with a key held in the keystore (e.g. AES-GCM under a Keystore-held key), rather than written as cleartext caches/logs/temp files/WebView storage. Fires (is_false) when cleartext sensitive data is present at rest. Reuses the cross-cutting encrypted_at_rest vocabulary; maps to dossier config_surface 'no_sensitive_data_in_cleartext_at_rest' (secure_value=encrypted_or_absent). MASVS-STORAGE-2 / MASVS-CRYPTO-1."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport Enforced",
+        "description": "Attestation: all app-to-backend traffic is carried over TLS only, with cleartext transport impossible (Android Network Security Config cleartextTrafficPermitted=false / iOS App Transport Security left on, NSAllowsArbitraryLoads not set). True on a hardened mobile client. When false, the channel can fall back to cleartext HTTP and a rogue/user-installed CA on the hostile device can MITM and intercept tokens and PII in transit (MASVS-NETWORK-1). Shared workspace vocabulary — name matches the gateway/dataFlow transport facet.",
+        "default": false
+      },
+      "cleartext_http_permitted": {
+        "type": "boolean",
+        "title": "Cleartext HTTP Permitted",
+        "description": "Interpreted boolean over the composite transport-trust config (Android cleartextTrafficPermitted, iOS NSAllowsArbitraryLoads / NSExceptionAllowsInsecureHTTPLoads): true when the app is configured to permit cleartext HTTP to the backend (or a broad insecure-HTTP exception). Fires the exposure because permitted cleartext lets the hostile-device adversary read/alter the channel. Modeled as an interpreted boolean rather than a raw substring match so the secure baseline (cleartext denied) stays silent (MASVS-NETWORK-1).",
+        "default": false
+      },
+      "certificate_pinning_enabled": {
+        "type": "boolean",
+        "title": "Certificate Pinning Enabled",
+        "description": "Attestation: the app pins the backend's certificate/public key (Android <pin-set> SHA-256 SPKI pins with a backup pin; iOS URLSession delegate / pinning lib), so a malicious CA or user-installed root on a compromised/rooted device cannot transparently MITM the channel. True on a hardened client. When false the app relies on system trust only and a user-installed root CA on the hostile device intercepts TLS and harvests tokens/PII (MASVS-NETWORK-2).",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Attestation: the mobile client fully validates the backend server certificate chain (no disabled hostname verification, no trust-all/accept-any TrustManager or insecure URLSession delegate). True on a hardened client. When false, certificate validation is bypassed and any presented certificate is accepted, enabling trivial MITM regardless of pinning or TLS. Shared workspace vocabulary — name matches the dataFlow certificate-validation facet."
+      },
+      "root_jailbreak_detection_enabled": {
+        "type": "boolean",
+        "title": "Root/Jailbreak Detection Enabled",
+        "description": "Interpreted boolean: true when the app detects a rooted/jailbroken runtime and gates or restricts sensitive flows on a positive verdict (defence-in-depth, MASVS-RESILIENCE-1). False fires this exposure — the app runs identically on a rooted/jailbroken device with no check or response, so OS sandbox guarantees protecting the keystore and screen are silently undermined. Assessor interprets per dossier config key 'jailbreak_root_detection' (secure: detected_and_responded, insecure: no_detection).",
+        "default": false
+      },
+      "server_verified_app_integrity_attestation": {
+        "type": "boolean",
+        "title": "Server-Verified App Integrity Attestation",
+        "description": "Interpreted boolean: true when the backend server-side verifies the request comes from a genuine, untampered instance of the real app on a genuine device before trusting it — Android Play Integrity (deviceIntegrity MEETS_DEVICE_INTEGRITY/MEETS_STRONG_INTEGRITY, appLicensingVerdict LICENSED) and/or iOS App Attest (DCAppAttestService Secure-Enclave assertion validated server-side) — and the app resists tampering/repackaging. False fires this exposure — the server trusts any client claiming to be the app, leaving a repackaged forged app indistinguishable from the genuine one. Consolidates the jailbreak/attestation and repackaging vectors' server-verified app-integrity facet. Maps to dossier config key 'device_app_attestation' (secure: server_verified_attestation, insecure: no_attestation); MASVS-RESILIENCE.",
+        "default": false
+      },
+      "secrets_hardcoded_in_config_or_iac": {
+        "type": "boolean",
+        "title": "Secrets Hardcoded In App Binary Or Config",
+        "description": "Shared workspace concept: long-lived API keys, signing secrets, or backend shared secrets are embedded in the app binary/resources (APK/IPA) or its bundled config rather than provisioned at runtime over an authenticated channel. On a hostile device an attacker decompiles the package on their own hardware and recovers any such secret by string/entropy analysis. Fires when secrets are present in the binary (insecure); the assessor confirms via static analysis of the decompiled package (dossier: anti_tamper_no_hardcoded_secrets — insecure_value hardcoded_secrets_present). MASVS-RESILIENCE / MASVS-CODE; OWASP Secrets Management.",
+        "default": false
+      },
+      "access_token_ttl_minutes": {
+        "type": "integer",
+        "title": "Access Token TTL (Minutes)",
+        "description": "Lifetime of the mobile session's access token in minutes. Short-lived tokens (minutes) bound the replay window of a token stolen off a lost or compromised device; long-lived tokens let a stolen bearer token be replayed until expiry. The exposure fires when the TTL exceeds the short-lived threshold. (RFC 9700 OAuth 2.0 Security BCP; OAuth BCP for native apps.)"
+      },
+      "sender_constrained": {
+        "type": "boolean",
+        "title": "Access Token Sender-Constrained",
+        "description": "Whether the access token is sender-constrained (bound to the device's key via DPoP per RFC 9449 or mTLS per RFC 8705) rather than a plain bearer token. When false, a token exfiltrated from device storage/logs can be replayed verbatim from attacker hardware. Shared workspace vocabulary attribute. The exposure fires when sender-constraint is absent (is_false).",
+        "default": false
+      },
+      "refresh_token_rotation_enabled": {
+        "type": "boolean",
+        "title": "Refresh Token Rotation Enabled",
+        "description": "Whether refresh tokens are rotated on use with reuse-detection (RFC 9700). Without rotation, a stolen refresh token mints fresh access tokens indefinitely and replay goes undetected. Shared workspace vocabulary attribute. The exposure fires when rotation is absent (is_false)."
+      },
+      "server_side_revocation_supported": {
+        "type": "boolean",
+        "title": "Server-Side Token Revocation Supported",
+        "description": "Whether the backend exposes a server-side revocation/logout path that immediately invalidates a device's access and refresh tokens (e.g. on reported device loss/theft). Without it, stolen-token access persists until natural expiry with no recovery — recovery must be server-side because the org cannot manage the unmanaged device. Shared workspace vocabulary attribute. The exposure fires when no revocation path exists (is_false)."
+      },
+      "excluded_from_device_backup": {
+        "type": "boolean",
+        "title": "Sensitive Data Excluded From Device Backup",
+        "description": "Attested true when sensitive data (tokens, credentials, PII) is excluded from OS/cloud device backups — Android android:allowBackup=\"false\" or backup/dataExtractionRules excluding secret stores, and iOS Keychain items using a ...ThisDeviceOnly accessibility class so they are never written to iCloud/iTunes backups. False (the firing/insecure state) means secrets ride into backups (allowBackup=true, not ThisDeviceOnly) and can leak to an attacker who restores or harvests the backup.",
+        "default": false
+      },
+      "screen_capture_protection_enabled": {
+        "type": "boolean",
+        "title": "Screen Capture Protection Enabled",
+        "description": "Attested true when sensitive screens block screenshots/screen-recording and resist overlay/tapjacking — Android sets WindowManager.LayoutParams.FLAG_SECURE on sensitive windows (plus filterTouchesWhenObscured), and iOS hides/blurs sensitive content in the app-switcher snapshot. False (the firing/insecure state) means sensitive screens are freely screenshot, recorded, or overlaid, leaking displayed secrets/PII.",
+        "default": false
+      },
+      "sensitive_clipboard_hygiene": {
+        "type": "boolean",
+        "title": "Sensitive Clipboard & Keyboard Hygiene",
+        "description": "Attested true when secret-entry fields enforce clipboard/keyboard hygiene — secrets are not auto-copied to the shared (cross-app, long-lived) clipboard and secret fields use secure/no-suggestion input types (iOS isSecureTextEntry / autocorrectionType=.no; Android inputType textNoSuggestions/textPassword). False (the firing/insecure state) means passwords/tokens are placed on the shared clipboard or cached by the keyboard, where other apps on the device can read them.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked In Logs",
+        "description": "Shared-workspace attribute: attested true when credentials, tokens, and PII are excluded/masked from device logs (logcat / NSLog / crash-reporting SDKs) and debug logging is stripped from release builds. False (the firing/insecure state) means secrets are written to device logs that are readable on a rooted device or harvested by crash-reporting services (CWE-532).",
+        "default": false
+      },
+      "deep_link_origin_validated": {
+        "type": "boolean",
+        "title": "Deep Link Origin Validated",
+        "description": "Interpreted boolean: deep-link / custom-URL-scheme / intent handlers validate the origin and parameters of the inbound link and re-check authorization server-side before acting. True when handlers treat the link as untrusted input and verify it; false (the firing/insecure state) when a crafted link or intent can drive a sensitive action or leak data without origin/authorization checks. (MASVS-PLATFORM.)",
+        "default": false
+      },
+      "deep_link_url_scheme_validation": {
+        "type": "string",
+        "enum": [
+          "validated_authorized",
+          "unvalidated_deep_links"
+        ],
+        "title": "Deep Link / URL Scheme Validation",
+        "description": "Real config-surface property (dossier deep_link_url_scheme_validation): whether inbound deep links / custom URL schemes / intents are validated and authorized. Secure value 'validated_authorized' (handlers validate origin+params, prefer verified App Links, minimize exported components). Fires on the insecure value 'unvalidated_deep_links' where a crafted link/intent triggers sensitive actions or leaks data without checks. (MASVS-PLATFORM.)"
+      },
+      "server_side_allowlist_validation": {
+        "type": "boolean",
+        "title": "Server-Side Allowlist Validation",
+        "description": "Shared workspace-vocabulary interpreted boolean: the backend re-validates every request from the untrusted mobile client with allow-list input validation and authorization independent of any client-side gate. True when server-side allow-list validation is enforced; false (the firing/insecure state) when the backend relies on client-supplied input being well-formed or on the app to enforce business rules. (OWASP Input Validation; trust-boundary principle.)",
+        "default": false
+      },
+      "client_asserted_state_trusted_serverside": {
+        "type": "boolean",
+        "title": "Client-Asserted State Trusted Server-Side",
+        "description": "Interpreted boolean: whether the backend trusts client-asserted state (entitlements, prices, identifiers, geofence/jailbreak/integrity claims) supplied by the mobile app. True (the firing/insecure state) when the server trusts client-side flags or client-supplied business state, so a tampered or instrumented app can bypass enforcement; the secure posture is false — client claims are advisory and the server is the authority. (Trust-boundary principle; OWASP Input Validation.)",
+        "default": false
+      },
+      "biometric_local_auth_gates_secrets": {
+        "type": "boolean",
+        "title": "Biometric/Local-Auth Gates Secrets",
+        "description": "Interpreted attestation: access to keystore-held secrets and sensitive in-app actions is gated behind a device biometric/local-auth challenge (Android BiometricPrompt before key use; iOS Keychain items with a biometry-bound SecAccessControl, e.g. .biometryCurrentSet). True when a local-auth challenge is genuinely required before secrets are usable; false (the exposure) when secrets/sensitive actions are usable with no biometric/local-auth challenge, so an attacker with a momentarily-unlocked or stolen device can exercise stored credentials. Maps to dossier config_surface 'biometric_local_auth_gating' (secure=biometric_gated_keys, insecure=no_local_auth); MASVS-AUTH local-auth.",
+        "default": false
+      },
+      "keys_bound_to_user_authentication": {
+        "type": "boolean",
+        "title": "Keystore Keys Bound To User Authentication",
+        "description": "Interpreted attestation: keystore keys protecting secrets are cryptographically bound to user authentication so the OS will not release/use them without a fresh local-auth challenge (Android keys created with setUserAuthenticationRequired(true); iOS SecAccessControl with biometry/userPresence so the Secure Enclave enforces presence). True when keys are auth-bound; false (the exposure) when keys are created without setUserAuthenticationRequired / without a biometry-bound SecAccessControl, leaving keys usable on a stolen unlocked device. Distinct facet of dossier 'biometric_local_auth_gating' covering the key-binding mechanism rather than the action gate.",
+        "default": false
+      }
+    },
+    "required": [
+      "hardware_backed_credential_storage_used",
+      "tokens_in_plaintext_device_storage",
+      "encrypted_at_rest",
+      "tls_only_transport",
+      "cleartext_http_permitted",
+      "certificate_pinning_enabled",
+      "server_certificate_validated",
+      "root_jailbreak_detection_enabled",
+      "server_verified_app_integrity_attestation",
+      "secrets_hardcoded_in_config_or_iac",
+      "access_token_ttl_minutes",
+      "sender_constrained",
+      "refresh_token_rotation_enabled",
+      "server_side_revocation_supported",
+      "excluded_from_device_backup",
+      "screen_capture_protection_enabled",
+      "sensitive_clipboard_hygiene",
+      "secrets_masked_in_logs",
+      "deep_link_origin_validated",
+      "deep_link_url_scheme_validation",
+      "server_side_allowlist_validation",
+      "client_asserted_state_trusted_serverside",
+      "biometric_local_auth_gates_secrets",
+      "keys_bound_to_user_authentication"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/biometric_local_auth_gates_secrets"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sender_constrained"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_revocation_supported"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_asserted_state_trusted_serverside"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_allowlist_validation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_pinning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cleartext_http_permitted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_bound_to_user_authentication"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_hardcoded_in_config_or_iac"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deep_link_origin_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deep_link_url_scheme_validation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/root_jailbreak_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_capture_protection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_clipboard_hygiene"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_verified_app_integrity_attestation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/excluded_from_device_backup"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hardware_backed_credential_storage_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tokens_in_plaintext_device_storage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Session",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_token_ttl_minutes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/refresh_token_rotation_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

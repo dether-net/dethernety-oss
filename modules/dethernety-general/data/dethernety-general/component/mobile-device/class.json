@@ -1,0 +1,9 @@
+{
+  "id": "39e3ed6b-b1b8-405c-a1af-1f1eb936c2f0",
+  "name": "Mobile Device",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "An untrusted, unmanaged consumer mobile device running the system's app or accessing it via browser. Carries local token/credential storage, jailbreak/root and device-theft risk, and operates entirely outside organizational management.",
+  "category": "Client Devices",
+  "status": "draft"
+}

@@ -1,0 +1,633 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLSv1.0",
+          "TLSv1.1",
+          "TLSv1.2",
+          "TLSv1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Lowest TLS/SSL protocol version the proxy will negotiate when terminating client connections (nginx ssl_protocols floor). Secure floor is TLSv1.2 or TLSv1.3; SSLv3/TLSv1.0/TLSv1.1 are broken (BEAST/POODLE-class) and enable downgrade. Exposure fires when the floor is a legacy version."
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted assessment of nginx ssl_protocols: true when the negotiated set still includes any of SSLv3/TLSv1.0/TLSv1.1 (the secure config lists only 'TLSv1.2 TLSv1.3'). Modeled as an interpreted boolean rather than a substring match on the directive string so the composite value is read by interpretation, not pattern. Fires on the insecure state.",
+        "default": false
+      },
+      "strong_cipher_suite_enforced": {
+        "type": "boolean",
+        "title": "Strong Cipher Suite Enforced",
+        "description": "Interpreted assessment of nginx ssl_ciphers: true when the offered cipher list aligns with Mozilla intermediate/modern and excludes NULL/MD5/RC4/3DES/EXPORT/anonymous (aNULL) suites. Modeled as an interpreted boolean because the raw directive (e.g. 'HIGH:!aNULL:!MD5:!RC4') excludes weak ciphers with '!' yet still mentions their names as substrings — a regex/contains match would false-fire on the hardened value. As an exposure this fires when strong ciphers are NOT enforced (is_false).",
+        "default": false
+      },
+      "hsts_enabled": {
+        "type": "boolean",
+        "title": "HSTS Enabled",
+        "description": "Whether the proxy emits an HTTP Strict-Transport-Security response header (nginx 'add_header Strict-Transport-Security ... always') with a long max-age, forcing clients onto HTTPS and mitigating SSL-strip/downgrade per RFC 6797. Secure state is true; this exposure fires when HSTS is absent (is_false)."
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Whether the proxy presents a currently-valid (not expired, correctly-chained, hostname-matching) server certificate on the client-facing TLS leg, with OCSP stapling enabling revocation checking. Secure state is true; this exposure fires when the served certificate is invalid/expired or revocation cannot be checked (is_false)."
+      },
+      "waf_blocking_mode_enabled": {
+        "type": "boolean",
+        "title": "WAF Blocking Mode Enabled",
+        "description": "True only when ModSecurity SecRuleEngine is set to 'On' so the WAF actually executes disruptive/blocking actions. False when SecRuleEngine is 'DetectionOnly' (rules processed and logged but attacks never blocked — effectively fail-open) or 'Off' (engine disabled). Interpreted boolean over the raw SecRuleEngine directive value in modsecurity.conf; fires on the insecure non-blocking modes. Secure baseline value: true.",
+        "default": false
+      },
+      "waf_request_body_inspection_enabled": {
+        "type": "boolean",
+        "title": "WAF Request Body Inspection Enabled",
+        "description": "True only when ModSecurity SecRequestBodyAccess is 'On', so POST/JSON/multipart request bodies are buffered and inspected by the WAF. False when SecRequestBodyAccess is 'Off', letting request-body attack payloads (injection/XSS in bodies) bypass inspection entirely even with the engine on. Interpreted boolean over the raw SecRequestBodyAccess directive. Secure baseline value: true.",
+        "default": false
+      },
+      "waf_anomaly_threshold_effective": {
+        "type": "boolean",
+        "title": "WAF Anomaly Threshold Effective",
+        "description": "True only when the OWASP CRS is deployed AND its anomaly scoring is configured to actually block — paranoia level set (tx.blocking_paranoia_level >= 1, default 1) and the inbound block threshold (tx.inbound_anomaly_score_threshold, default 5) low enough that malicious requests reach it. False when CRS is absent, or the threshold is raised so high (or paranoia level so low) that accumulated scores never trip a block — an untuned/neutered ruleset. Interpreted boolean derived from the raw CRS scoring/paranoia setvars (id:900000 / id:900110); the magnitude-dependent 'high enough to never block' condition is not a safe substring/threshold match on the raw value, so it is modelled as an interpreted boolean fired on the insecure interpretation. Secure baseline value: true.",
+        "default": false
+      },
+      "waf_fails_closed_on_error": {
+        "type": "boolean",
+        "title": "WAF Fails Closed On Error",
+        "description": "True only when the appliance is configured to fail CLOSED on a WAF/engine error — a ModSecurity processing error, body-size/parse limit, or connector fault results in the request being denied rather than passed through unfiltered. False when the proxy fails OPEN, forwarding traffic to the backend unfiltered whenever the WAF errors out (the request-limit-action / error-handling posture that silently bypasses inspection). Interpreted boolean over the appliance's error-handling posture. Secure baseline value: true.",
+        "default": false
+      },
+      "ambiguous_length_headers_rejected": {
+        "type": "boolean",
+        "title": "Ambiguous Length Headers Rejected",
+        "description": "Interpreted-boolean attestation: the proxy rejects requests carrying conflicting message-length framing (both Content-Length and Transfer-Encoding, duplicate/obsolete-line-folded CL, or a TE the proxy does not honour) rather than forwarding an ambiguously-framed request to the backend. Secure (true) when the proxy normalizes to a single unambiguous framing or 400s the request; insecure (false) when it accepts CL/TE conflicts that the backend may interpret differently — the precondition for CL.TE / TE.CL request smuggling. The condition fires on the insecure (false) state.",
+        "default": false
+      },
+      "http_parsing_strict_consistent": {
+        "type": "boolean",
+        "title": "HTTP Parsing Strict And Consistent",
+        "description": "Interpreted-boolean attestation: the proxy and the backend it fronts parse HTTP messages identically and strictly — same handling of bare LF vs CRLF line endings, leading/trailing header whitespace, duplicate headers, chunk-extension/trailer edge cases, and nginx error_page-redirect URI handling (CVE-2019-20372). Secure (true) when proxy and upstream agree on a strict canonical parse so no request-boundary divergence exists; insecure (false) when parsing differs between hops, enabling desync where one hop sees a request the other does not. The condition fires on the insecure (false) state.",
+        "default": false
+      },
+      "http2_downgrade_desync_mitigated": {
+        "type": "boolean",
+        "title": "HTTP/2 Downgrade Desync Mitigated",
+        "description": "Interpreted-boolean attestation: when the proxy terminates HTTP/2 (or HTTP/3) from clients and forwards to the backend over HTTP/1.1, it sanitizes the downgrade — validating/normalizing pseudo-headers, rejecting injected CR/LF and smuggled CL/TE in HTTP/2 header values, and bounding chunked re-encoding — so an HTTP/2-to-HTTP/1.1 boundary cannot be desynced. Secure (true) when downgrade smuggling is mitigated; insecure (false) when raw HTTP/2 header content is re-emitted into HTTP/1.1 unchecked (H2.CL / H2.TE desync). The condition fires on the insecure (false) state.",
+        "default": false
+      },
+      "affected_by_published_smuggling_cve": {
+        "type": "boolean",
+        "title": "Affected By Published Smuggling CVE",
+        "description": "Interpreted-boolean derived from the running nginx/ModSecurity build (dossier config key 'nginx / ModSecurity version (patch level)'): the appliance runs a version affected by a published request-smuggling / desync advisory — notably nginx CVE-2019-20372 (error_page request smuggling) — or any open CISA KEV smuggling entry, i.e. it is below the relevant advisory fix version. Secure (false) when the build is past all relevant smuggling-advisory fix versions; insecure (true) when it is a pre-fix or EoL build. The condition fires on the insecure (true) state.",
+        "default": false
+      },
+      "upstream_tls_verification_enabled": {
+        "type": "boolean",
+        "title": "Upstream TLS Verification Enabled",
+        "description": "Whether the proxy validates the upstream (backend) HTTPS server certificate on the proxy-to-backend leg (nginx proxy_ssl_verify on, with proxy_ssl_trusted_certificate pointing at the backend CA bundle and proxy_ssl_name set). Secure = true. When false (proxy_ssl_verify off, the nginx default), the proxy-to-backend connection is unauthenticated and MITM-able, undermining end-to-end transport trust. Assessor interprets the raw proxy_ssl_verify / proxy_ssl_trusted_certificate directives into this boolean; fires when verification is absent.",
+        "default": false
+      },
+      "backend_only_reachable_via_proxy": {
+        "type": "boolean",
+        "title": "Backend Only Reachable Via Proxy",
+        "description": "Whether the backend application servers are reachable ONLY through the reverse proxy / WAF (network segmentation / firewall / security-group rules ensure the proxy is the sole ingress path). Secure = true. When false, backend application servers are directly internet-reachable and clients can bypass the proxy entirely, defeating WAF inspection, TLS termination policy, and access controls the appliance is meant to enforce. Attestation field verified about the deployment topology, not a single nginx directive.",
+        "default": false
+      },
+      "ssrf_protection_on_proxied_requests": {
+        "type": "boolean",
+        "title": "SSRF Protection On Proxied Requests",
+        "description": "Whether the proxy constrains where proxied/redirected requests may go so they cannot be coerced into reaching internal endpoints (proxy_pass bound to fixed trusted upstreams rather than attacker-influenced targets; no open-forwarding; redirect/Location handling validated; internal address ranges blocked). Secure = true. When false, permissive or attacker-influenced proxying enables SSRF to internal services the proxy is supposed to gate. Attestation field interpreting proxy_pass / redirect-handling posture; fires when SSRF guardrails are absent.",
+        "default": false
+      },
+      "forwarded_headers_sanitized": {
+        "type": "boolean",
+        "title": "Forwarded Headers Sanitized",
+        "description": "Interpreted-secure boolean: TRUE when the proxy strips or overwrites client-supplied X-Forwarded-For / X-Forwarded-Proto / X-Real-IP with trusted server-side values (e.g. proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; X-Forwarded-Proto $scheme;) rather than passing attacker-controlled copies through to the backend. FALSE (the firing/insecure state) means spoofable forwarded headers reach the upstream, enabling client-IP spoofing, IP-allowlist bypass, and auth/logging confusion. Derived from the nginx 'proxy_set_header (X-Forwarded-* / Host normalization)' config surface; secure_value is the authoritative overwrite directives, insecure_value forwards client headers unchanged.",
+        "default": false
+      },
+      "host_header_validated": {
+        "type": "boolean",
+        "title": "Host Header Validated",
+        "description": "Interpreted-secure boolean: TRUE when the proxy validates/normalizes the inbound Host header and sets it to a trusted server-side value (e.g. proxy_set_header Host $host; with a default-deny server_name / explicit virtual-host match) so untrusted Host values cannot reach the backend. FALSE (the firing/insecure state) means an attacker-supplied Host passes through, enabling Host-header injection, web-cache poisoning, password-reset poisoning, and auth-confusion routing. Part of the nginx 'proxy_set_header (X-Forwarded-* / Host normalization)' config surface.",
+        "default": false
+      },
+      "trusted_proxy_chain_configured": {
+        "type": "boolean",
+        "title": "Trusted Proxy Chain Configured",
+        "description": "Interpreted-secure boolean: TRUE when the appliance defines an explicit trusted upstream-proxy set (e.g. nginx set_real_ip_from / real_ip_header / real_ip_recursive, or equivalent trusted-hop configuration) so that only X-Forwarded-* values originating from known intermediaries are honored for the real client IP. FALSE (the firing/insecure state) means the proxy trusts forwarded headers from any source, so a directly-connecting attacker can forge the apparent client IP even when individual headers are otherwise set. Secondary trigger reinforcing forwarded-header trust hygiene."
+      },
+      "server_version_tokens_disabled": {
+        "type": "boolean",
+        "title": "Server Version Tokens Disabled",
+        "description": "True when the proxy suppresses its software/version banner in the Server header and error pages (nginx 'server_tokens off;'). The default 'on' leaks 'nginx/1.x.y', enabling version-specific exploit targeting. Fires (is_false) when version tokens are exposed.",
+        "default": false
+      },
+      "security_response_headers_enforced": {
+        "type": "boolean",
+        "title": "Security Response Headers Enforced",
+        "description": "True when the proxy adds the hardening response headers to fronted responses — X-Content-Type-Options: nosniff, X-Frame-Options/frame-ancestors CSP, and Referrer-Policy — via add_header ... always. Missing headers leave clients exposed to MIME-sniffing, clickjacking, and referrer leakage. Fires (is_false) when these headers are not enforced.",
+        "default": false
+      },
+      "error_responses_sanitized": {
+        "type": "boolean",
+        "title": "Error Responses Sanitized",
+        "description": "True when error/error_page responses are sanitized to generic content rather than verbose output that leaks internal paths, upstream identity, stack traces, or directory listings (autoindex off). Verbose errors aid reconnaissance and appliance-bypass. Fires (is_false) when error responses leak internal detail.",
+        "default": false
+      },
+      "backend_identifying_headers_stripped": {
+        "type": "boolean",
+        "title": "Backend Identifying Headers Stripped",
+        "description": "True when the proxy strips backend-identifying response headers (e.g. Server, X-Powered-By, X-AspNet-Version, upstream framework banners) via proxy_hide_header before relaying to the client. Passing them through leaks backend stack/version detail. Fires (is_false) when backend identity headers are relayed unchanged."
+      },
+      "request_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Request Rate Limiting Enabled",
+        "description": "Interpreted boolean (secure-polarity): true when the proxy enforces L7 per-client request-rate limiting — an nginx limit_req_zone is declared in http{} and limit_req is applied to sensitive/all locations with a sane rate+burst (per ngx_http_limit_req_module). False when no rate zone is configured, leaving an unbounded request rate to backends. Fires (is_false) on the insecure absence of rate limiting.",
+        "default": false
+      },
+      "connection_limits_enforced": {
+        "type": "boolean",
+        "title": "Connection Limits Enforced",
+        "description": "Interpreted boolean (secure-polarity): true when the proxy caps concurrent per-client connections — an nginx limit_conn_zone is declared and limit_conn applied (ngx_http_limit_conn_module) so a single source cannot exhaust the connection pool. False when no connection cap exists. Fires (is_false) on the insecure absence of connection limiting.",
+        "default": false
+      },
+      "slowloris_timeouts_configured": {
+        "type": "boolean",
+        "title": "Slowloris Timeouts Configured",
+        "description": "Interpreted boolean (secure-polarity): true when slowloris/slow-POST-mitigating client timeouts are tightened — client_header_timeout, client_body_timeout and send_timeout (ngx_http_core_module) set to short app-appropriate values rather than left unbounded or at very large values. False when timeouts are loose/unbounded, enabling a slow client to hold connections open. Fires (is_false) on the insecure loose-timeout state.",
+        "default": false
+      },
+      "request_size_limits_enforced": {
+        "type": "boolean",
+        "title": "Request Size Limits Enforced",
+        "description": "Interpreted boolean (secure-polarity): true when request body/header size caps are in place — client_max_body_size sized to the app (not 0/unbounded) and large_client_header_buffers at a sane bound (ngx_http_core_module) to prevent memory-exhaustion DoS and oversized-header abuse. False when client_max_body_size 0 (unbounded) without justification. Fires (is_false) on the insecure unbounded state."
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Canonical reused secure-polarity boolean: true when upstream/edge L7 DoS protection fronts the appliance (e.g. an upstream scrubbing/CDN/WAF DoS tier or equivalent volumetric and application-layer flood protection) so the proxy is not the sole line of defense against floods. False when the appliance has no upstream L7 DoS protection and can be overwhelmed directly. Fires (is_false) on the insecure absence of DoS protection."
+      },
+      "status_endpoints_access_restricted": {
+        "type": "boolean",
+        "title": "Status Endpoints Access Restricted",
+        "description": "True when the proxy's introspection/status surface (nginx stub_status, ModSecurity/metrics endpoints) is gated to trusted networks or authenticated administrators rather than reachable from untrusted networks. Assessor verifies via the location blocks serving /status, /nginx_status, /metrics that an allow/deny ACL (e.g. allow 10.0.0.0/8; deny all;) or auth is enforced and the endpoint is not bound to a public listener. False when stub_status or management/metrics endpoints answer to untrusted/internet clients.",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet Reachable",
+        "description": "Canonical workspace attestation: true when the appliance's administrative/configuration interfaces are confined to a management network or VPN and are not reachable from the public internet. For this proxy/WAF, covers the admin/config UI and any out-of-band management listener. False when the proxy admin/config interface is internet-exposed.",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control Plane API Not Publicly Exposed",
+        "description": "Canonical workspace attestation: true when the appliance's control-plane/configuration API is not bound to or reachable from public/untrusted networks. False when the management/config API answers untrusted callers, broadening the attack surface beyond the data-plane proxy path."
+      },
+      "worker_process_runs_unprivileged": {
+        "type": "boolean",
+        "title": "Worker Process Runs Unprivileged",
+        "description": "True when nginx worker processes drop to a dedicated unprivileged account (the `user` directive set to e.g. nginx/www-data) rather than running as root. Assessor verifies via `grep '^user' /etc/nginx/nginx.conf` and `ps -o user= -C nginx` that worker rows are never root (only the master may be root). False when workers run as root / not least-privilege, amplifying the blast radius of a proxy compromise. Maps to dossier config key `user`.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least Privilege Access Enforced",
+        "description": "Canonical workspace attestation: true when the appliance enforces least-privilege for its own runtime and operators (no excess OS capabilities, scoped admin roles, no broad ambient privilege). False when the appliance runs with excess privilege that magnifies the impact of a compromise of its control surface."
+      },
+      "config_file_permissions_restricted": {
+        "type": "boolean",
+        "title": "Config File Permissions Restricted",
+        "description": "True when the proxy/WAF configuration files (nginx.conf, /etc/nginx/, /etc/modsecurity/, CRS setup) are owned by root/admin and not group/world-writable, with restrictive modes (e.g. 0640/0644, dirs 0750). Assessor verifies via `stat`/`find -perm` over the config tree that no config file is writable by untrusted or service accounts. False when config file integrity/permissions are weak (world-writable or service-account-writable config)."
+      },
+      "access_logging_enabled": {
+        "type": "boolean",
+        "title": "Access Logging Enabled",
+        "description": "True when nginx access logging is enabled to a collected destination with a SIEM-suitable log_format (client IP, request line, status, upstream). The nginx access_log directive (ngx_http_log_module) must not be set to 'access_log off;'. When false, proxied requests — including attacks reaching the appliance — leave no record, blinding detection.",
+        "default": false
+      },
+      "waf_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "WAF Audit Logging Enabled",
+        "description": "True when ModSecurity transaction audit logging is active — SecAuditEngine set to RelevantOnly (or On) with SecAuditLog pointed at a collected path. When false (SecAuditEngine Off or SecAuditLog unset), blocked/flagged WAF events are not recorded, so attacks against the protected apps that the WAF sees are never captured for incident response or SIEM forwarding.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored On Separate System",
+        "description": "True when the appliance's access and WAF audit logs are shipped off-host to a SIEM or separate log-collection system rather than kept only on the appliance. When false, logs are local-only and lost or tampered with on a proxy compromise, and no central correlation/detection occurs.",
+        "default": false
+      },
+      "blocked_request_alerting_enabled": {
+        "type": "boolean",
+        "title": "Blocked Request Alerting Enabled",
+        "description": "True when alerting is configured to notify on blocked or anomalous requests (e.g. WAF deny events / anomaly-score spikes raise a SIEM alert). When false, even captured attack events sit unread, so adversary activity against the fronted apps goes unnoticed in practice."
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "Canonical hazard flag: the running nginx and/or libModSecurity/CRS build is affected by a published, exploitable advisory (e.g. CVE-2019-20372 and later) that has NOT been patched — cross-check `nginx -v` / the ModSecurity build against the nginx security advisory list and CISA KEV. True when a known, patchable RCE/critical CVE remains open on the internet-facing appliance. Secure value is false (no open known-exploitable CVE); the exposure fires when true.",
+        "default": false
+      },
+      "proxy_engine_supported_version": {
+        "type": "boolean",
+        "title": "Proxy Engine Supported Version",
+        "description": "Secure-polarity attestation: the nginx and ModSecurity v3 build in production is a vendor-supported, non-end-of-life release that still receives security fixes (`nginx -v` resolves to a current supported branch; libModSecurity is a maintained v3 build). True when the engine is on a supported, non-EoL version. Secure value is true; the exposure fires when this is false (an EoL/unsupported build that no longer receives advisory fixes).",
+        "default": false
+      },
+      "crs_ruleset_updated": {
+        "type": "boolean",
+        "title": "CRS Ruleset Updated",
+        "description": "Secure-polarity attestation: the OWASP CRS rule set deployed under ModSecurity is on a current maintained release and is refreshed on a defined cadence, so new attack signatures and rule fixes are present. True when the CRS ruleset is up to date. Secure value is true; combined with a missed patch SLA this contributes to the exposure (stale signatures plus unpatched engine)."
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Canonical secure-polarity attestation: security patches for this internet-facing edge appliance (nginx, libModSecurity, CRS, and OS) are applied within the organization's remediation SLA — e.g. CISA-KEV-listed and critical CVEs patched within the mandated window. True when patching meets the SLA. Secure value is true; the exposure fires when patching lags the SLA and the CRS ruleset is also stale."
+      }
+    },
+    "required": [
+      "min_tls_version",
+      "weak_tls_versions_enabled",
+      "strong_cipher_suite_enforced",
+      "hsts_enabled",
+      "server_certificate_validated",
+      "waf_blocking_mode_enabled",
+      "waf_request_body_inspection_enabled",
+      "waf_anomaly_threshold_effective",
+      "waf_fails_closed_on_error",
+      "ambiguous_length_headers_rejected",
+      "http_parsing_strict_consistent",
+      "http2_downgrade_desync_mitigated",
+      "affected_by_published_smuggling_cve",
+      "upstream_tls_verification_enabled",
+      "backend_only_reachable_via_proxy",
+      "ssrf_protection_on_proxied_requests",
+      "forwarded_headers_sanitized",
+      "host_header_validated",
+      "trusted_proxy_chain_configured",
+      "server_version_tokens_disabled",
+      "security_response_headers_enforced",
+      "error_responses_sanitized",
+      "backend_identifying_headers_stripped",
+      "request_rate_limiting_enabled",
+      "connection_limits_enforced",
+      "slowloris_timeouts_configured",
+      "request_size_limits_enforced",
+      "ddos_protection_in_place",
+      "status_endpoints_access_restricted",
+      "edge_management_interfaces_not_internet_reachable",
+      "control_plane_api_not_publicly_exposed",
+      "worker_process_runs_unprivileged",
+      "least_privilege_access_enforced",
+      "config_file_permissions_restricted",
+      "access_logging_enabled",
+      "waf_audit_logging_enabled",
+      "logs_stored_on_separate_system",
+      "blocked_request_alerting_enabled",
+      "unpatched_known_rce_cve",
+      "proxy_engine_supported_version",
+      "crs_ruleset_updated",
+      "edge_appliance_patched_within_sla"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/status_endpoints_access_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/worker_process_runs_unprivileged"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/strong_cipher_suite_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/upstream_tls_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_only_reachable_via_proxy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ssrf_protection_on_proxied_requests"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ambiguous_length_headers_rejected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/error_responses_sanitized"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/forwarded_headers_sanitized"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_header_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/http_parsing_strict_consistent"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http2_downgrade_desync_mitigated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/security_response_headers_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_version_tokens_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_anomaly_threshold_effective"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_blocking_mode_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_fails_closed_on_error"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_request_body_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_identifying_headers_stripped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_proxy_chain_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/affected_by_published_smuggling_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_engine_supported_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/crs_ruleset_updated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/connection_limits_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/slowloris_timeouts_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_size_limits_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/blocked_request_alerting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_file_permissions_restricted"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

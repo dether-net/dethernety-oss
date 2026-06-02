@@ -1,0 +1,389 @@
+[
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether every sensitive flow traverses TLS (or an equivalent encrypted tunnel such as IPsec) with no reachable cleartext/plaintext path — HTTP redirected to HTTPS, database and internal service links also encrypted.",
+    "security_impact": "Satisfies \"TLS enforced on all flows (no cleartext fallback)\" — one of its OR-conditions — firing when tls_only_transport is true (alongside insecure_transport_denied). When this protection is present the countermeasure mitigates network sniffing of cleartext traffic and AiTM interception (ATT&CK M1041 Encrypt Sensitive Information, D3FEND D3-ET Encrypted Tunnels).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm a plaintext HTTP request to the host is redirected to HTTPS rather than served in the clear.",
+        "command": "curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\\n' http://<host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "301/308 redirect to an https:// URL (secure) — a 200 served over plain HTTP, or any sensitive content returned without redirect, is insecure",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm TLS is offered on the service port and the plaintext path is closed; for internal/DB flows confirm the encrypted listener is the only one reachable.",
+        "command": "testssl.sh --protocols https://<host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS offered on the service port and the plaintext path closed; for internal/DB flows confirm the encrypted listener is the only one reachable",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "api",
+        "instruction": "For object-store flows, confirm TLS is required (not merely available) via the bucket transport policy.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bucket policy Deny on aws:SecureTransport=false (AWS Security Hub control S3.5 PASSED) — confirms TLS is required, not merely available",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "insecure_transport_denied",
+    "option_description": "Whether cleartext/plaintext fallback is denied — bare HTTP refused or redirected to HTTPS, no opportunistic downgrade, no permitted unencrypted fallback for protected flows.",
+    "security_impact": "Satisfies \"TLS enforced on all flows (no cleartext fallback)\" — one of its OR-conditions — firing when insecure_transport_denied is true (alongside tls_only_transport). Present means no unencrypted fallback remains for an on-path attacker to force, mitigating cleartext sniffing (ATT&CK M1041, D3FEND D3-ET).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm a plaintext HTTP request is refused or redirected rather than serving content over the clear channel.",
+        "command": "curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\\n' http://<host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "301/308 redirect to an https:// URL (secure) — a 200 served over plain HTTP, or any sensitive content returned without redirect, is insecure",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the plaintext listener is closed and only the TLS listener is reachable on the protected port.",
+        "command": "testssl.sh --protocols https://<host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS offered on the service port and the plaintext path closed; for internal/DB flows confirm the encrypted listener is the only one reachable",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "api",
+        "instruction": "For object-store flows, confirm a policy actively denies non-TLS requests rather than merely supporting TLS.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bucket policy Deny on aws:SecureTransport=false (AWS Security Hub control S3.5 PASSED) — confirms cleartext is denied, not merely TLS-capable",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "The minimum negotiable TLS version. Secure posture is TLS 1.2 floor with TLS 1.3 preferred; SSLv2/SSLv3/TLS 1.0/TLS 1.1 (deprecated by RFC 8996) are disabled.",
+    "security_impact": "Satisfies \"Minimum TLS version enforced (TLS 1.2 floor, 1.3 preferred)\" — firing when min_tls_version equals tls1_2_or_higher. Enforcing the floor blocks protocol-downgrade attacks (POODLE/legacy-class), mitigating ATT&CK T1562-style downgrade (D3FEND D3-ET).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocol versions the service accepts and confirm no deprecated version is offered.",
+        "command": "nmap --script ssl-enum-ciphers -p <port> <host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2 and/or TLSv1.3 sections present; any SSLv3 / TLSv1.0 / TLSv1.1 section listed is insecure",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Actively attempt a deprecated-version handshake and confirm the server rejects it.",
+        "command": "openssl s_client -connect <host>:<port> -tls1_1 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake FAILS / connection refused for tls1_1 (and -ssl3, -tls1) = secure; a successful handshake on a deprecated version is insecure",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher"
+    ]
+  },
+  {
+    "option_name": "cipher_suites_strong_only",
+    "option_description": "The cipher-suite policy. Secure posture offers only AEAD suites with forward secrecy (GCM/ChaCha20-Poly1305 over ECDHE/DHE); legacy CBC/RC4/3DES/NULL/anonymous/EXPORT/static-RSA suites are disabled.",
+    "security_impact": "Satisfies \"Strong forward-secret AEAD cipher suites only\" — one of its OR-conditions — firing when cipher_suites_strong_only equals aead_with_forward_secrecy_only (alongside perfect_forward_secrecy_enabled). Present removes weak/broken-cipher exploitation (RC4/Sweet32/NULL/EXPORT), mitigating ATT&CK M1041.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate accepted cipher suites and confirm only forward-secret AEAD suites are offered with no weak suites present.",
+        "command": "nmap --script ssl-enum-ciphers -p <port> <host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only GCM/CHACHA20-POLY1305 ECDHE/DHE (forward-secret AEAD) suites listed with strength 'A'; presence of RC4/3DES/NULL/EXPORT/anon = insecure",
+        "source": "Mozilla Server Side TLS (Intermediate & Modern configurations)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm no weak/insecure cipher findings and that forward secrecy is reported for all offered suites, per protocol.",
+        "command": "testssl.sh --cipher-per-proto https://<host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No weak/insecure cipher findings; forward secrecy reported for all offered suites",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "aead_with_forward_secrecy_only"
+    ]
+  },
+  {
+    "option_name": "perfect_forward_secrecy_enabled",
+    "option_description": "Whether ephemeral (ECDHE/DHE) key exchange is enabled so compromise of a long-term key cannot decrypt past recorded sessions.",
+    "security_impact": "Satisfies \"Strong forward-secret AEAD cipher suites only\" — one of its OR-conditions — firing when perfect_forward_secrecy_enabled is true (alongside cipher_suites_strong_only). Present ensures recorded traffic stays unreadable after key compromise, mitigating store-now-decrypt-later sniffing (ATT&CK M1041).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm the negotiated/offered suites use ephemeral ECDHE/DHE key exchange (forward secrecy) for every protocol.",
+        "command": "testssl.sh --cipher-per-proto https://<host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No weak/insecure cipher findings; forward secrecy reported for all offered suites",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Cross-check via the cipher enumeration that all listed suites are ECDHE/DHE-based rather than static-RSA key exchange.",
+        "command": "nmap --script ssl-enum-ciphers -p <port> <host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only GCM/CHACHA20-POLY1305 ECDHE/DHE (forward-secret AEAD) suites listed with strength 'A'; presence of any non-forward-secret static-RSA suite is insecure",
+        "source": "Mozilla Server Side TLS (Intermediate & Modern configurations)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the client performs full peer-certificate validation: chain to a trusted CA, hostname match in subjectAlternativeName, within validity, adequate key (RSA>=2048/ECDSA P-256), SHA-256 signature — not skipped.",
+    "security_impact": "Satisfies \"Server certificate validated (trusted chain + hostname)\" — one of its OR-conditions — firing when server_certificate_validated is true (alongside tls_root_trust_managed). Present defeats certificate spoofing via invalid-cert acceptance and AiTM substitution (ATT&CK T1557, D3FEND D3-CERO).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Open a verified TLS connection with hostname (SNI) and confirm the chain validates and the certificate matches the host.",
+        "command": "openssl s_client -connect <host>:<port> -servername <host> -verify_return_error </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' and the CN/SAN matches the host = secure; 'self signed certificate' / 'certificate has expired' / verify error = insecure",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the presented certificate's validity dates, SAN, key size and signature algorithm for adequacy.",
+        "command": "echo | openssl s_client -connect <host>:<port> 2>/dev/null | openssl x509 -noout -dates -subject -ext subjectAltName -text | grep -E 'Public-Key|Signature Algorithm'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notAfter in the future, SAN contains the FQDN, Public-Key >= 2048 bit (RSA) or P-256 (EC), Signature Algorithm sha256 — anything weaker is insecure",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "tls_root_trust_managed",
+    "option_description": "Whether the trusted-CA root store is curated and actively maintained — no rogue, expired, or unnecessary root CAs.",
+    "security_impact": "Satisfies \"Server certificate validated (trusted chain + hostname)\" — one of its OR-conditions — firing when tls_root_trust_managed is true (alongside server_certificate_validated). A curated trust store ensures validation rests only on legitimate anchors, mitigating cert spoofing (ATT&CK T1557, D3FEND D3-CERO).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the client/host trust store for unexpected, expired, or rogue root CAs and confirm a maintenance process governs additions and removals.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trust store contains only expected, in-date roots from a maintained list; any unknown, expired, or organisation-injected rogue root CA is a finding",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate the system trust store and check each root's validity dates, looking for expired or unexpected anchors.",
+        "command": "trust list --filter=ca-anchors 2>/dev/null || awk -v cmd='openssl x509 -noout -subject -enddate' '/BEGIN/{c=\"\"} {c=c $0 ORS} /END/{print c | cmd; close(cmd)}' /etc/ssl/certs/ca-certificates.crt",
+        "file_path": "/etc/ssl/certs/ca-certificates.crt",
+        "navigation": null,
+        "expected_output": "Each listed anchor is an expected, in-date root CA; expired notAfter dates or unrecognised issuers indicate an unmanaged or compromised trust store",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "service_to_service_mtls_enforced",
+    "option_description": "Whether mutual TLS (client-certificate authentication) is enforced on flows that require it — service-to-service, internal east-west, privileged API — so the client is authenticated, not only the server.",
+    "security_impact": "Satisfies \"Mutual TLS / client authentication where required\" — one of its OR-conditions — firing when service_to_service_mtls_enforced is true (alongside peer_authentication_mtls_mode_strict). Present authenticates both peers, mitigating unauthenticated-peer access on sensitive flows (D3FEND D3-ET).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm the server requests a client certificate (CertificateRequest) on flows that require mutual authentication.",
+        "command": "openssl s_client -connect <host>:<port> </dev/null 2>&1 | grep -i 'Acceptable client certificate CA names\\|request'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server sends a CertificateRequest (lists acceptable client CA names) on mTLS-required flows; a flow that needs client auth but never requests a client cert is insecure",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positively test that a connection without a client certificate is rejected on the mTLS-required flow.",
+        "command": "openssl s_client -connect <host>:<port> -servername <host> </dev/null 2>&1 | grep -iE 'alert|handshake failure|certificate required'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection without a client cert is refused (handshake failure / certificate required alert) = secure; a completed handshake with no client cert means mTLS is not enforced",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "peer_authentication_mtls_mode_strict",
+    "option_description": "Whether mTLS peer-authentication runs in STRICT mode (no permissive plaintext fallback) with per-server TLS session-cache scoping so session reuse cannot bypass per-host client-cert checks (cf. CVE-2025-23419).",
+    "security_impact": "Satisfies \"Mutual TLS / client authentication where required\" — one of its OR-conditions — firing when peer_authentication_mtls_mode_strict is true (alongside service_to_service_mtls_enforced). Present closes the TLS session-reuse client-cert bypass (CVE-2025-23419, D3FEND D3-ET) and forbids permissive cleartext fallback.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm peer authentication is STRICT and the TLS session cache is scoped per server so a session from one virtual server cannot be reused against another to bypass client-cert auth.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm TLS session-cache is scoped so a session from one virtual server cannot be reused against another to bypass client-cert auth (cf. CVE-2025-23419); patch nginx >= 1.27.4/1.26.3",
+        "source": "CVE-2025-23419 — nginx TLS session-reuse client-cert authentication bypass"
+      },
+      {
+        "type": "command",
+        "instruction": "For a service mesh (e.g. Istio), confirm the PeerAuthentication mTLS mode is STRICT rather than PERMISSIVE.",
+        "command": "kubectl get peerauthentication -A -o jsonpath='{range .items[*]}{.metadata.namespace}{\"/\"}{.metadata.name}{\": \"}{.spec.mtls.mode}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "mtls.mode is STRICT for the protected namespaces/workloads; PERMISSIVE (which still accepts plaintext) is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "downgrade_and_renegotiation_protected",
+    "option_description": "The downgrade and renegotiation posture: TLS_FALLBACK_SCSV honoured (no forced fallback / downgrade sentinel absent) and only secure RFC 5746 renegotiation permitted.",
+    "security_impact": "Satisfies \"Downgrade & renegotiation protection + HSTS\" — one of its OR-conditions — firing when downgrade_and_renegotiation_protected equals downgrade_sentinel_absent_and_secure_renegotiation_only (alongside hsts_enabled). Present blocks protocol/cipher downgrade attacks (ATT&CK T1562, D3FEND D3-ET).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Force a fallback handshake with TLS_FALLBACK_SCSV and confirm the server rejects the downgrade.",
+        "command": "openssl s_client -connect <host>:<port> -fallback_scsv -no_tls1_3 -no_tls1_2 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server rejects the downgraded fallback handshake (inappropriate fallback alert) = secure; a successful forced-downgrade is insecure",
+        "source": "OWASP Transport Layer Security Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Check that the server reports secure renegotiation support and refuses insecure client-initiated renegotiation.",
+        "command": "testssl.sh --renegotiation https://<host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure (RFC 5746) renegotiation supported and insecure / client-initiated renegotiation refused (DoS-safe) = secure; insecure renegotiation allowed is insecure",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "downgrade_sentinel_absent_and_secure_renegotiation_only"
+    ]
+  },
+  {
+    "option_name": "hsts_enabled",
+    "option_description": "Whether a Strict-Transport-Security header is returned with an adequate max-age so browsers never fall back to HTTP for protected origins.",
+    "security_impact": "Satisfies \"Downgrade & renegotiation protection + HSTS\" — one of its OR-conditions — firing when hsts_enabled is true (alongside downgrade_and_renegotiation_protected). Present prevents browser HTTP fallback / SSL-strip downgrade (ATT&CK T1562, D3FEND D3-ET).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch the response headers and confirm the Strict-Transport-Security header is present with a long max-age.",
+        "command": "curl -s -D- https://<host>/ -o /dev/null | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Strict-Transport-Security: max-age=63072000; includeSubDomains; preload present (a long max-age, ideally 2 years) = secure; header absent = insecure",
+        "source": "OWASP HTTP Strict Transport Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "certificate_lifecycle_managed",
+    "option_description": "Whether certificates are issued and rotated before expiry through an automated/governed process (ACME/cert-manager/managed service) with adequate key sizes — not long-lived hand-managed certs that silently expire.",
+    "security_impact": "Satisfies \"Managed certificate lifecycle (rotation, key size, not expired)\" — one of its OR-conditions — firing when certificate_lifecycle_managed is true. Present prevents expiry-gap cert spoofing and outage, mitigating certificate-spoofing-via-invalid-cert acceptance (D3FEND D3-CERO Certificate Rotation/Revocation).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the live certificate's expiry to confirm it is comfortably in-date and on a short renewal cadence.",
+        "command": "echo | openssl s_client -connect <host>:<port> 2>/dev/null | openssl x509 -noout -enddate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notAfter date comfortably in the future and on a short renewal cadence (~90 days lifetime per Mozilla) = secure; long-lived or near-expiry = lifecycle gap",
+        "source": "Mozilla Server Side TLS (Intermediate & Modern configurations)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an automated renewal mechanism and a documented rotation runbook are in place; for IPsec/non-TLS flows confirm IKE rekey and approved crypto.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of automated renewal (ACME/cert-manager/managed cert service) and a rotation runbook; for IPsec/non-TLS flows confirm IKE rekey + approved crypto (AES-GCM, SHA-256+, ECDH/X25519)",
+        "source": "NIST SP 800-77 Rev. 1 — Guide to IPsec VPNs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "certificate_max_validity_days",
+    "option_description": "The maximum certificate validity period in days; <=398 is the secure short-cadence threshold (shorter, e.g. ~90 days per Mozilla, is preferred).",
+    "security_impact": "Satisfies \"Managed certificate lifecycle (rotation, key size, not expired)\" — its second OR-group — firing when certificate_max_validity_days is <= 398. A bounded lifetime limits exposure of a compromised key and forces regular rotation (D3FEND D3-CERO Certificate Rotation/Revocation).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the certificate's notBefore and notAfter and compute the validity span to confirm it does not exceed 398 days.",
+        "command": "echo | openssl s_client -connect <host>:<port> 2>/dev/null | openssl x509 -noout -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The span between notBefore and notAfter is <= 398 days (ideally ~90) = secure; a longer validity period is a lifecycle gap",
+        "source": "Mozilla Server Side TLS (Intermediate & Modern configurations)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the issuance policy / CA profile caps the maximum certificate lifetime at or below 398 days.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuance policy or ACME/CA profile documents a maximum lifetime of <= 398 days; profiles allowing multi-year certs are a finding",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "398"
+    ]
+  }
+]

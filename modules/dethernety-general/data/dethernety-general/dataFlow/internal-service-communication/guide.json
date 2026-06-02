@@ -1,0 +1,362 @@
+[
+  {
+    "option_name": "service_to_service_mtls_enforced",
+    "option_description": "Attestation that east-west service-to-service traffic on this flow is encrypted AND mutually authenticated (mTLS) on every hop with no plaintext fallback — typically realised via Istio PeerAuthentication mtls.mode=STRICT (or Linkerd/Consul Connect equivalents) covering the destination workload.",
+    "security_impact": "References \"Plaintext east-west traffic (no mTLS)\" — this attribute is the sole OR-trigger; the exposure fires when service_to_service_mtls_enforced is false, mapping to MITRE T1040 (network sniffing). Aligns with NIST SP 800-207 ZTA principle of explicit per-session authentication and RFC 8705 mutually-authenticated TLS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate every PeerAuthentication in the cluster and report its mtls.mode — verify each application workload is covered by STRICT.",
+        "command": "kubectl get peerauthentication --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}\t{.spec.mtls.mode}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every applicable workload is covered by a PeerAuthentication with mtls.mode=STRICT. PERMISSIVE / DISABLE values, or no PeerAuthentication at all in app namespaces, indicate the flow accepts cleartext.",
+        "source": "Istio PeerAuthentication reference (istio.io)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the destination workload from a non-mesh client with plaintext HTTP and then with openssl s_client to confirm both that plaintext is refused and that the server requests a client certificate (true mutual auth).",
+        "command": "kubectl exec -n <client-ns> <client-pod> -- curl -v --http1.1 http://<server-svc>.<server-ns>.svc.cluster.local/ ; kubectl exec -n <client-ns> <client-pod> -- openssl s_client -connect <server-svc>.<server-ns>.svc.cluster.local:443 -showcerts </dev/null 2>&1 | grep -E 'Verify return code|Peer certificate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plaintext probe is REJECTED when STRICT mTLS is enforced. s_client shows both ends presenting certificates with 'Verify return code: 0 (ok)'. A successful plaintext response, or a TLS handshake where the server does not request a client cert, proves the flow is not mTLS-enforced.",
+        "source": "Istio Security concepts (istio.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "peer_authentication_mtls_mode_strict",
+    "option_description": "Interpreted attestation that the PeerAuthentication policies covering this flow's destination workload set mtls.mode=STRICT at the most specific applicable level (workload-selector > namespace > mesh-wide), including any port-level overrides — no PERMISSIVE / DISABLE / UNSET leaks a plaintext fallback path.",
+    "security_impact": "References \"mTLS PERMISSIVE downgrade\" — this attribute is the sole OR-trigger; the exposure fires when peer_authentication_mtls_mode_strict is false (MITRE T1557 Adversary-in-the-Middle). A single PERMISSIVE override anywhere on the resolution chain is sufficient to fail the check, per Istio policy precedence (workload > namespace > mesh).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List PeerAuthentications across all namespaces along with their mtls.mode and any portLevelMtls overrides, then walk the precedence chain for the destination workload (workload-selector beats namespace beats mesh-wide).",
+        "command": "kubectl get peerauthentication --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}\tselector={.spec.selector}\tmode={.spec.mtls.mode}\tport={.spec.portLevelMtls}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At each precedence level reachable from the destination workload + port, mtls.mode resolves to STRICT. Any PERMISSIVE, DISABLE, or UNSET on the resolution chain (including unset = inherited PERMISSIVE default) fails the attestation.",
+        "source": "Istio PeerAuthentication reference (istio.io)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From outside the mesh (a pod without a sidecar in a non-injected namespace), attempt a plaintext TCP connection to each port of the destination service. Anything that succeeds is a PERMISSIVE leak.",
+        "command": "kubectl run probe --rm -it --restart=Never --image=curlimages/curl -n <non-mesh-ns> -- curl -v --max-time 5 http://<server-svc>.<server-ns>.svc.cluster.local:<port>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused / reset on every reachable port. A successful plaintext response proves a PERMISSIVE (or DISABLE) downgrade is in effect for that port.",
+        "source": "Istio Security concepts (istio.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "identity_propagated_cryptographically",
+    "option_description": "Attestation that each workload on this east-west flow proves its identity via a cryptographic per-workload credential — SPIFFE SVID, mesh-issued service-account X.509, or Vault PKI cert presented in the mTLS handshake — not by source IP, hostname, DNS name, or a shared bearer token.",
+    "security_impact": "References \"No per-workload identity (IP- or shared-token trust)\" — this attribute is the sole OR-trigger; the exposure fires when identity_propagated_cryptographically is false, mapping to MITRE T1078 (Valid Accounts / impersonation). Direct embodiment of NIST SP 800-207 ZTA tenet 2 (all communication is secured regardless of network location) and SPIFFE's per-workload identity substrate.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the peer cert presented by a workload to its callers and inspect the SAN for a SPIFFE URI keyed to the pod's ServiceAccount.",
+        "command": "kubectl exec -n <ns> <pod> -c istio-proxy -- openssl s_client -connect <server>:443 -showcerts </dev/null 2>&1 | openssl x509 -noout -text | grep -E 'URI:spiffe://|Subject:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificate SAN contains a SPIFFE ID of the form 'spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>'. Absence of a SPIFFE URI, or a wildcard/shared subject, indicates identity is not per-workload.",
+        "source": "SPIFFE SVID specification (spiffe.io); Istio Security concepts (istio.io)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "If SPIRE is the SVID source, review the SPIRE server registration entries to confirm each workload has both node-attestation and workload-attestation selectors strong enough to prevent impersonation.",
+        "command": "kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each registered workload has node-attestation selectors (k8s_psat:cluster, k8s_psat:agent_ns) AND workload-attestation selectors (k8s:ns, k8s:sa, k8s:pod-uid). Entries keyed only on namespace under-attest identity.",
+        "source": "SPIRE concepts — node and workload attestation (spiffe.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "east_west_microsegmentation_enforced",
+    "option_description": "Attestation that east-west pod-to-pod traffic is microsegmented by a default-deny NetworkPolicy baseline (per namespace, ingress AND egress) so any-to-any reachability is blocked by default and explicit allows are layered on top.",
+    "security_impact": "References \"Flat pod network (no default-deny NetworkPolicy)\" — this attribute is one of two OR-triggers (alongside east_west_within_segment_restricted); the exposure fires when east_west_microsegmentation_enforced is false, mapping to MITRE T1021 (Remote Services / lateral movement). CIS Kubernetes Benchmark requires per-namespace NetworkPolicy coverage.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Iterate every namespace and report any default-deny NetworkPolicy (podSelector matches all pods, policyTypes contains both Ingress and Egress).",
+        "command": "for ns in $(kubectl get ns -o name | cut -d/ -f2); do echo \"=== $ns ===\"; kubectl get networkpolicy -n $ns -o jsonpath='{range .items[?(@.spec.podSelector.matchLabels == null)]}{.metadata.name}\t{.spec.policyTypes}{\"\\n\"}{end}'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each application namespace lists at least one NetworkPolicy whose podSelector is {} and whose policyTypes contains BOTH 'Ingress' and 'Egress'. A namespace with no NetworkPolicies, or only podSelector-scoped policies, has no default-deny.",
+        "source": "Kubernetes NetworkPolicy documentation (kubernetes.io)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a probe pod in one app namespace, try to reach a service in another app namespace that has no explicit allow rule. Default-deny should drop the connection.",
+        "command": "kubectl run probe --rm -it --restart=Never --image=curlimages/curl -n <app-ns> -- curl -sS --max-time 5 http://<other-app-svc>.<other-app-ns>.svc.cluster.local/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Probe times out / is refused when default-deny is in place AND no explicit allow exists. A 200 OK across namespaces proves default-deny is absent.",
+        "source": "Calico kubernetes-policy advanced tutorial (docs.tigera.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "east_west_within_segment_restricted",
+    "option_description": "Attestation that east-west allow rules are scoped per-workload (podSelector / service-account) rather than coarse 'any pod in namespace X to any pod in namespace Y' — otherwise segmentation is operationally void once any pod in the allowed namespace is compromised.",
+    "security_impact": "References \"Flat pod network (no default-deny NetworkPolicy)\" — this attribute is one of two OR-triggers (alongside east_west_microsegmentation_enforced); the exposure fires when east_west_within_segment_restricted is false (MITRE T1021). Calico explicitly flags coarse 'any pod in namespace X' allows as an anti-pattern that recreates the flat network.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Dump every NetworkPolicy and inspect its from/to selectors — confirm they target podSelector.matchLabels or service-account labels, not bare namespaceSelector.",
+        "command": "kubectl get networkpolicy --all-namespaces -o json | jq '.items[] | {ns:.metadata.namespace, name:.metadata.name, ingress_from:.spec.ingress[]?.from, egress_to:.spec.egress[]?.to}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingress 'from' / egress 'to' rules use podSelector.matchLabels (or namespaceSelector + podSelector) identifying a specific workload. Rules with only a wide namespaceSelector, or empty allow-all selectors, indicate coarse segmentation.",
+        "source": "Kubernetes NetworkPolicy documentation (kubernetes.io); Calico kubernetes-policy advanced tutorial (docs.tigera.io)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check with mesh AuthorizationPolicy: when the sensitive workload is mesh-managed, the allow source should be keyed on SPIFFE principal / ServiceAccount, not on namespace alone.",
+        "command": "kubectl get authorizationpolicy --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}\tprincipals={.spec.rules[*].from[*].source.principals}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source side lists explicit principals (spiffe://.../sa/<service-account>). Empty 'from' or namespace-only selectors fail this check.",
+        "source": "Istio Security concepts — AuthorizationPolicy (istio.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_authorization_at_crossing",
+    "option_description": "Attestation that each east-west call is gated by a least-privilege authorization policy (e.g. Istio AuthorizationPolicy) keyed on the caller's workload identity (SPIFFE principal / ServiceAccount) — a valid mTLS identity is still denied access to endpoints it has no business calling.",
+    "security_impact": "References \"No per-call service-to-service authorization\" — this attribute is one of two OR-triggers (alongside internal_interface_reauthenticates_calls); the exposure fires when least_privilege_authorization_at_crossing is false (MITRE T1021 lateral movement). Embodies the NIST SP 800-207 ZTA tenet of dynamic per-request authorization.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List AuthorizationPolicy resources and confirm sensitive workloads have ALLOW rules tied to specific source principals — not allow-all-mTLS-callers.",
+        "command": "kubectl get authorizationpolicy --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}\t{.spec.action}\t{.spec.rules}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sensitive workloads (databases, secret stores, admin APIs) are covered by an AuthorizationPolicy with action=ALLOW and rules.from.source.principals listing only the SPIFFE/SA identities that should reach them. Absence of any policy, or empty 'from' (allow-all), means per-call authz is not enforced.",
+        "source": "Istio Security concepts — AuthorizationPolicy (istio.io)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive denial test: from a pod whose SA is NOT in the AuthorizationPolicy, attempt to reach the protected endpoint. Should return 403.",
+        "command": "kubectl exec -n <unrelated-ns> <unrelated-pod> -- curl -sS -o /dev/null -w '%{http_code}\\n' http://<protected-svc>.<protected-ns>.svc.cluster.local/<protected-path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response code 403 (RBAC: access denied). A 200/2xx from an unrelated workload proves per-call authz is missing.",
+        "source": "Istio Security concepts (istio.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "internal_interface_reauthenticates_calls",
+    "option_description": "Attestation that the callee re-authenticates and re-authorizes every individual east-west call against the caller's attested workload identity rather than trusting the mTLS handshake alone or a once-per-session check.",
+    "security_impact": "References \"No per-call service-to-service authorization\" — this attribute is one of two OR-triggers (alongside least_privilege_authorization_at_crossing); the exposure fires when internal_interface_reauthenticates_calls is false. Aligns with NIST SP 800-207 ZTA tenet 6 (authentication and authorization are dynamic and strictly enforced before access is allowed) and RFC 8705 §3 binding of identity to each request.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the callee's request-handling middleware (Envoy filters or application code): every request must read the peer principal (e.g. X-Forwarded-Client-Cert or filter-injected SPIFFE ID) and apply authorization. A check performed only at connection establishment fails.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-request authorization observed in code review or middleware config — principal extracted from peer cert / XFCC and matched against an ACL on every call.",
+        "source": "Istio Security concepts (istio.io)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Establish one mTLS session as an authorized caller, then over the same session attempt to hit a path the caller is NOT authorized for. Per-call authz should produce 403 even though the connection is established.",
+        "command": "kubectl exec -n <caller-ns> <caller-pod> -- sh -c 'curl -sS -o /dev/null -w \"%{http_code}\\n\" http://<svc>/allowed-path ; curl -sS -o /dev/null -w \"%{http_code}\\n\" http://<svc>/denied-path'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First call returns 2xx, second returns 403. A 2xx on the denied path indicates the callee is trusting the handshake instead of re-checking authorization per request.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "shared_service_credentials_used",
+    "option_description": "Attestation (inverted: true = insecure): whether workloads on this east-west flow authenticate to peers or backing stores using a long-lived shared bearer token / API key baked into images, ConfigMaps, or environment variables and reused across multiple Deployments.",
+    "security_impact": "References \"Shared long-lived service credentials reused everywhere\" — this attribute is the sole OR-trigger; the exposure fires when shared_service_credentials_used is true (note inverted polarity), mapping to MITRE T1552.001 (Credentials in Files). SPIFFE's short-lived per-workload SVID model and NIST SP 800-207 ZTA dynamic-credential guidance are the secure alternative.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Survey Secrets, ConfigMaps, and Deployment env / volumeMounts across namespaces for tokens or API keys referenced by multiple distinct Deployments.",
+        "command": "kubectl get secrets --all-namespaces -o json | jq '.items[] | select(.type==\"Opaque\") | {ns:.metadata.namespace, name:.metadata.name, keys:(.data|keys)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service-to-service auth is performed via short-lived SVIDs / mesh identity / Vault dynamic creds. The same long-lived token mounted by multiple distinct Deployments / Services is a shared credential and an attestation failure.",
+        "source": "SPIFFE concepts — short-lived rotated identities (spiffe.io)"
+      },
+      {
+        "type": "command",
+        "instruction": "Grep Deployment manifests for env vars or volume mounts referencing the same Secret name across workloads.",
+        "command": "kubectl get deploy --all-namespaces -o json | jq -r '.items[] | {ns:.metadata.namespace, name:.metadata.name, secrets:[.spec.template.spec.containers[].env[]?.valueFrom.secretKeyRef.name, .spec.template.spec.volumes[]?.secret.secretName] | map(select(.!=null))}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each workload references its own scoped Secret. A single Secret name appearing under multiple distinct Deployments is evidence of credential sharing.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Attestation that every east-west service-to-service request is captured into a central log store (mesh access logs forwarded to Loki/Elastic/CloudWatch) with source.principal and destination.principal populated so lateral movement is correlatable after the fact.",
+    "security_impact": "References \"Unmonitored east-west — silent lateral movement\" — this attribute is one of two OR-triggers (alongside access_audit_trail_enabled); the exposure fires when centralized_log_aggregation is false (MITRE T1021). CIS Kubernetes Benchmark recommends shipping mesh access logs to a central retention store.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a Telemetry resource (or equivalent) configures access logging and that istiod is emitting access-log config.",
+        "command": "kubectl get telemetry --all-namespaces -o yaml ; kubectl logs -n istio-system -l app=istiod --tail=50 | grep -i 'accesslog'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Telemetry resource configures access logging for the mesh (envoy access logs forwarded to a central sink). Absence of any Telemetry / access-log config means east-west requests are not centrally logged.",
+        "source": "Istio Security concepts — observability (istio.io)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the central log store for east-west records over the last hour and confirm source.principal / destination.principal are populated with SPIFFE/SA identities.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero count, with both source and destination principals being SPIFFE / SA identities. Empty or all-unknown principals means logs exist but lack identity context.",
+        "source": "Istio Security concepts (istio.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Attestation that an audit trail of east-west access decisions exists (caller/callee identity, path, outcome) AND anomaly-detection rules fire on new caller-callee pairs or volume spikes against the baseline.",
+    "security_impact": "References \"Unmonitored east-west — silent lateral movement\" — this attribute is one of two OR-triggers (alongside centralized_log_aggregation); the exposure fires when access_audit_trail_enabled is false (MITRE T1021). BeyondCorp / zero-trust east-west guidance frames anomaly detection on new caller-callee pairs as the primary lateral-movement signal.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the SIEM / observability platform for rules that alert on (a) a never-before-seen source.principal -> destination.service pair, and (b) east-west request volume > N standard deviations above baseline per workload.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rule of each kind exists, is enabled, and has fired (or has a documented test-fire) in the last 90 days. No such rules means lateral movement will not generate an alert.",
+        "source": "Google Cloud — BeyondCorp / zero-trust (cloud.google.com)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample a known caller-callee pair and confirm the audit trail records caller principal, callee, path, and outcome (allow/deny).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit records show all four fields populated per request; decisions (allow/deny) are distinguishable and queryable.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "management_plane_isolated_from_data_plane",
+    "option_description": "Attestation that app-namespace pods cannot directly reach the Kubernetes control plane — kube-apiserver privileged endpoints, etcd, and the kubelet read/write port 10250 — from the data plane. Enforced via egress NetworkPolicy ipBlock.except carve-outs (or equivalent CNI policy).",
+    "security_impact": "References \"Privileged control-plane reachable from app pods\" — this attribute is one of two OR-triggers (alongside cloud_metadata_endpoint_blocked); the exposure fires when management_plane_isolated_from_data_plane is false, mapping to MITRE T1611 (Escape to Host) and T1552.005. Codified by the CIS Kubernetes Benchmark control-plane isolation controls.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a probe pod in an app namespace, attempt connections to kubernetes.default.svc, the kubelet read/write port on a node, and a known etcd endpoint. All should be blocked.",
+        "command": "kubectl run probe --rm -it --restart=Never --image=curlimages/curl -n <app-ns> -- sh -c 'curl -sS --max-time 5 -k https://kubernetes.default.svc/api/v1/namespaces ; curl -sS --max-time 5 https://<node-ip>:10250/pods'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All probes fail (timeout / connection refused / 403) when egress NetworkPolicy correctly excludes control-plane endpoints. A 200/2xx from any of them proves the app namespace can reach a privileged route.",
+        "source": "CIS Kubernetes Benchmark — network policy and metadata isolation (cisecurity.org)"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect egress NetworkPolicies for explicit ipBlock.except carve-outs covering the control-plane CIDR, kube-apiserver service, and kubelet port 10250.",
+        "command": "kubectl get networkpolicy --all-namespaces -o json | jq '.items[] | select(.spec.policyTypes | index(\"Egress\")) | {ns:.metadata.namespace, name:.metadata.name, egress:.spec.egress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress rules in app namespaces explicitly exclude the control-plane CIDR / kube-apiserver service / kubelet port 10250 — typically via 'except' blocks under ipBlock. Absent egress restriction means privileged endpoints are reachable.",
+        "source": "Kubernetes NetworkPolicy documentation — ipBlock.except (kubernetes.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cloud_metadata_endpoint_blocked",
+    "option_description": "Attestation that the cloud-provider instance metadata endpoint (169.254.169.254 — IMDS) is unreachable from app-namespace pods, blocked via egress NetworkPolicy ipBlock.except or equivalent host-level filter.",
+    "security_impact": "References \"Privileged control-plane reachable from app pods\" — this attribute is one of two OR-triggers (alongside management_plane_isolated_from_data_plane); the exposure fires when cloud_metadata_endpoint_blocked is false, mapping to MITRE T1552.005 (Cloud Instance Metadata API credential harvesting). Mandated by the CIS Kubernetes Benchmark metadata-isolation controls.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an app-namespace pod, attempt to reach 169.254.169.254 (IMDSv1 path). The connection must be refused or dropped.",
+        "command": "kubectl run probe --rm -it --restart=Never --image=curlimages/curl -n <app-ns> -- curl -sS --max-time 5 http://169.254.169.254/latest/meta-data/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection times out or returns 'connection refused'. A 200 OK with metadata content proves the metadata endpoint is reachable and the pod can harvest the node's IAM credentials.",
+        "source": "CIS Kubernetes Benchmark — network policy and metadata isolation (cisecurity.org)"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect egress NetworkPolicies for explicit ipBlock.except entries covering 169.254.169.254/32 (or the broader 169.254.0.0/16 link-local range).",
+        "command": "kubectl get networkpolicy --all-namespaces -o json | jq '.items[] | select(.spec.policyTypes | index(\"Egress\")) | {ns:.metadata.namespace, name:.metadata.name, egress:.spec.egress}' | grep -E '169.254|except'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress allow rules carry an ipBlock with an 'except' list that includes 169.254.169.254/32. Absence of such an exclusion (and absence of a host-level filter) means the metadata endpoint is reachable from app pods.",
+        "source": "Kubernetes NetworkPolicy documentation — ipBlock.except (kubernetes.io)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

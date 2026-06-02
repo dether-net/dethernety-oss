@@ -1,0 +1,9 @@
+{
+  "id": "5ea503cc-b336-4f9d-8ae3-69ae06e76666",
+  "name": "VPN Gateway",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A VPN gateway — also called a remote-access concentrator, IPsec/SSL VPN, WireGuard/OpenVPN endpoint, or tunnel terminator — that terminates encrypted remote-access tunnels and admits external users into internal zones. A bridge between untrusted and trusted networks. The place to look for the VPN gateway, remote-access VPN, tunnel endpoint, or the device admitting remote users into the internal network.",
+  "category": "Network Security",
+  "status": "draft"
+}

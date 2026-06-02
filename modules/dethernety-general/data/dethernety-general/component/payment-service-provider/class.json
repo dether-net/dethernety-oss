@@ -1,0 +1,9 @@
+{
+  "id": "21280de4-4549-4ca8-88de-f6d812042995",
+  "name": "Payment Service Provider",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "A payment service provider (PSP) — also called a payment gateway, card processor, Stripe/Adyen/Braintree, or merchant acquirer — an external service that processes card or transaction data on the system's behalf. A PCI-scoped, high-value financial integration outside the trust boundary. The place to look for the PSP, payment gateway, card processor, or the external service handling payments and transactions.",
+  "category": "External Services",
+  "status": "draft"
+}

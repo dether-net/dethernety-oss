@@ -1,0 +1,329 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "automated_backups_configured": {
+        "type": "boolean",
+        "title": "Automated Backups Configured",
+        "description": "Authorized backup tool runs scheduled/automated backups of in-scope assets (CIS 11.2). Secure true.",
+        "default": false
+      },
+      "backup_rpo_hours": {
+        "type": "integer",
+        "title": "Backup Recovery Point Objective (Hours)",
+        "description": "Recovery point objective in hours; <=168 (weekly or tighter) secure (CIS 11.2; M1053)."
+      },
+      "data_recovery_process_documented": {
+        "type": "boolean",
+        "title": "Data Recovery Process Documented",
+        "description": "Documented data-recovery process reviewed annually (CIS 11.1). Secure true."
+      },
+      "backups_encrypted": {
+        "type": "boolean",
+        "title": "Backups Encrypted at Rest",
+        "description": "Backup data encrypted at rest on the backup store (CIS 11.3 / NIST SP 800-209). Secure true.",
+        "default": false
+      },
+      "backups_encrypted_in_transit": {
+        "type": "boolean",
+        "title": "Backups Encrypted in Transit",
+        "description": "Backup data encrypted in transit to/from the destination (CIS 11.3). Secure true.",
+        "default": false
+      },
+      "backup_keys_in_separate_trust_domain": {
+        "type": "boolean",
+        "title": "Backup Keys in Separate Trust Domain",
+        "description": "Backup encryption keys held in a separate trust domain from production data-tier credentials (NIST SP 800-209). Secure true."
+      },
+      "backup_immutability_enabled": {
+        "type": "boolean",
+        "title": "Backup Immutability Enabled",
+        "description": "WORM immutability enabled on the backup store (S3 Object Lock / vault lock). Anti-ransomware. Secure true.",
+        "default": false
+      },
+      "object_lock_retention_mode": {
+        "type": "string",
+        "enum": [
+          "COMPLIANCE",
+          "GOVERNANCE",
+          "NONE"
+        ],
+        "title": "Object Lock Retention Mode",
+        "description": "Object Lock/WORM retention mode. COMPLIANCE = strong immutable (root cannot delete, retention cannot shorten); GOVERNANCE bypassable; NONE no lock. Secure value COMPLIANCE."
+      },
+      "offline_airgapped_backup_exists": {
+        "type": "boolean",
+        "title": "Offline / Air-Gapped Backup Exists",
+        "description": "At least one offline/air-gapped/off-site recovery copy unreachable from production (CIS 11.4; M1053; 3-2-1). Secure true.",
+        "default": false
+      },
+      "backup_copy_in_separate_account_or_region": {
+        "type": "boolean",
+        "title": "Backup Copy in Separate Account or Region",
+        "description": "At least one backup copy in a separate cloud account/region/trust domain from production (CIS 11.4; M1053). Secure true.",
+        "default": false
+      },
+      "backup_access_restricted": {
+        "type": "boolean",
+        "title": "Backup Access Restricted to Separate Trust Domain",
+        "description": "Backup storage + restore path authenticate independently of primary-data credentials; delete/management least-privileged to a dedicated backup role (NIST SP 800-209; mitigates T1490). Secure true.",
+        "default": false
+      },
+      "mfa_delete_enabled": {
+        "type": "boolean",
+        "title": "MFA Delete Enabled",
+        "description": "Deleting a backup version or changing versioning/protection state requires a second factor (S3 MFA Delete). Secure true (mitigates T1490/T1485).",
+        "default": false
+      },
+      "restoration_tested_rto": {
+        "type": "boolean",
+        "title": "Restoration Tested with RTO Measured",
+        "description": "Backup recovery exercised on cadence for a sampling of assets with RTO measured (CIS 11.5; M1053). Secure true.",
+        "default": false
+      },
+      "restore_test_interval_days": {
+        "type": "integer",
+        "title": "Restore Test Interval (Days)",
+        "description": "Days since last documented restore test; <=90 (quarterly) secure, >3 months non-compliant (CIS 11.5)."
+      },
+      "backup_integrity_verification": {
+        "type": "boolean",
+        "title": "Backup Integrity Verification",
+        "description": "Backups integrity-checked (checksums on write/restore-validation) so corruption/tamper detected before reliance (NIST SP 800-209; D3-RD). Secure true.",
+        "default": false
+      },
+      "object_versioning_enabled": {
+        "type": "boolean",
+        "title": "Object Versioning Enabled",
+        "description": "Version history enabled on the backup store so a clean pre-incident version can be restored (M1053). Secure true.",
+        "default": false
+      },
+      "point_in_time_recovery_enabled": {
+        "type": "boolean",
+        "title": "Point-in-Time Recovery Enabled",
+        "description": "PITR/continuous backup enabled so restore to a moment before corruption is possible. Secure true.",
+        "default": false
+      },
+      "backup_retention_days": {
+        "type": "integer",
+        "title": "Backup Retention (Days)",
+        "description": "Days the retention/versioning policy keeps recovery points; >=30 secure (must span detection window)."
+      },
+      "backup_job_monitoring_enabled": {
+        "type": "boolean",
+        "title": "Backup Job Monitoring Enabled",
+        "description": "Backup job success/failure + Object Lock/versioning state changes actively monitored (NIST SP 800-209; CIS 11.1). Secure true.",
+        "default": false
+      },
+      "backup_failure_alerting_enabled": {
+        "type": "boolean",
+        "title": "Backup Failure Alerting Enabled",
+        "description": "Backup-job failures and protection-state changes raise an alert (CIS 11.1). Secure true.",
+        "default": false
+      }
+    },
+    "required": [
+      "automated_backups_configured",
+      "backup_rpo_hours",
+      "data_recovery_process_documented",
+      "backups_encrypted",
+      "backups_encrypted_in_transit",
+      "backup_keys_in_separate_trust_domain",
+      "backup_immutability_enabled",
+      "object_lock_retention_mode",
+      "offline_airgapped_backup_exists",
+      "backup_copy_in_separate_account_or_region",
+      "backup_access_restricted",
+      "mfa_delete_enabled",
+      "restoration_tested_rto",
+      "restore_test_interval_days",
+      "backup_integrity_verification",
+      "object_versioning_enabled",
+      "point_in_time_recovery_enabled",
+      "backup_retention_days",
+      "backup_job_monitoring_enabled",
+      "backup_failure_alerting_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_delete_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_access_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backups_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backups_encrypted_in_transit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_keys_in_separate_trust_domain"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_backups_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_copy_in_separate_account_or_region"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_immutability_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_integrity_verification"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_rpo_hours"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/object_lock_retention_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/object_versioning_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/offline_airgapped_backup_exists"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/point_in_time_recovery_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/restoration_tested_rto"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_recovery_process_documented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/restore_test_interval_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_failure_alerting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_job_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

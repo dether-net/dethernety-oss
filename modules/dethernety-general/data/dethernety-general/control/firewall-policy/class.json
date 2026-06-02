@@ -1,0 +1,9 @@
+{
+  "id": "a0b98314-5888-43b4-90a9-f44db20a1026",
+  "name": "Firewall Policy",
+  "classType": "control",
+  "type": "Firewall Policy",
+  "description": "Firewall policy — also called firewall rules, the ACL/rule set, security-group or NACL configuration, or allow/deny lists — the rule set governing which traffic may cross network boundaries and defining the enforced segmentation posture. The configured policy, distinct from the firewall that enforces it. The place to look for firewall rules, the network ACL/rule set, security-group config, or the policy controlling cross-zone traffic.",
+  "category": "Network Security",
+  "status": "draft"
+}

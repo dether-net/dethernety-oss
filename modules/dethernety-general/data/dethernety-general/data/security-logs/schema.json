@@ -1,0 +1,350 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper-Evident",
+        "description": "Audit trail integrity-protected/tamper-evident — append-only/WORM (AU-9(1)), hash-chain/signing (AU-9(3)), change-detection alerting, log access monitored; fires is_false (mutable, clearable without trace).",
+        "default": false
+      },
+      "file_integrity_monitoring_enabled": {
+        "type": "boolean",
+        "title": "File Integrity Monitoring Enabled",
+        "description": "FIM/change-detection on the log store alerts on any modification/deletion of existing records; fires is_false."
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored On Separate System",
+        "description": "Audit records replicated to a physically different system than the audited host (AU-9(2)) so host compromise can't erase the only copy; fires is_false.",
+        "default": false
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "Log collection/retention centralized off-host (SIEM/aggregation tier) near-real-time; fires is_false (siloed per-host).",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Read/management access to the audit store restricted to need-to-know least-privilege and periodically reviewed; fires is_false (broadly accessible). Absorbs read-access restriction (PCI 10.5.1).",
+        "default": false
+      },
+      "audit_management_restricted_to_privileged_subset": {
+        "type": "boolean",
+        "title": "Audit Management Restricted To Privileged Subset",
+        "description": "Access to audit/logging MANAGEMENT (configure/modify/delete records + pipeline) limited to a privileged subset; fires is_false. NIST AU-9(4).",
+        "default": false
+      },
+      "log_access_monitored": {
+        "type": "boolean",
+        "title": "Log Access Monitored",
+        "description": "All access to the logs is itself recorded and monitored (audit-of-the-audit); fires is_false. PCI 10.2.3; AU-9 alerting."
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Full set of security-relevant event classes captured (auth success/fail, authz failures, privileged actions, account/auth changes, audit-log access, audit start/stop/pause, object create/delete); fires is_false. PCI 10.2; NIST AU-2/AU-12.",
+        "default": false
+      },
+      "required_record_fields_complete": {
+        "type": "boolean",
+        "title": "Required Record Fields Complete",
+        "description": "Each record carries the fields to reconstruct an event (what/when/where/source/outcome/identity); fires is_false. NIST AU-3; PCI 10.3; CIS 8.5.",
+        "default": false
+      },
+      "clocks_synced_to_trusted_time_source": {
+        "type": "boolean",
+        "title": "Clocks Synced To Trusted Time Source",
+        "description": "System clocks generating timestamps synced to a trusted UTC/atomic source (approved NTP); fires is_false (free-running/manipulated). NIST AU-8; PCI 10.6; CIS 8.4.",
+        "default": false
+      },
+      "timestamps_in_utc": {
+        "type": "boolean",
+        "title": "Timestamps In UTC",
+        "description": "Timestamps recorded in/normalizable to UTC so multi-source records collapse to one timeline; fires is_false. NIST AU-8."
+      },
+      "time_source_access_restricted": {
+        "type": "boolean",
+        "title": "Time Source Access Restricted",
+        "description": "Access to time data restricted and time-setting changes controlled+logged; fires is_false. PCI 10.6.3."
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Log Retention Days",
+        "description": "Days audit-log history retained before rotation/aging. Fires lt 365 (PCI 10.7 12-month floor; CIS 8.10 floors 90). Short retention destroys evidence."
+      },
+      "log_storage_sized_for_retention": {
+        "type": "boolean",
+        "title": "Log Storage Sized For Retention",
+        "description": "Storage sized to hold the full retention window without premature rotation/overwrite; fires is_false. CIS 8.3; NIST AU-4."
+      },
+      "log_flood_overflow_protection": {
+        "type": "boolean",
+        "title": "Log Flood Overflow Protection",
+        "description": "Pipeline resists adversary log-flooding forcing rotation/overwrite (rate limits/quotas, headroom, overflow alerting); fires is_false."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Log records forwarded exclusively over encrypted+authenticated transport (syslog-over-TLS), never cleartext; fires is_false. OWASP Logging.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted At Rest",
+        "description": "Log store + archives encrypted at rest with strong managed-key crypto; fires is_false (plaintext store readable). NIST 800-92; AU-9(3).",
+        "default": false
+      },
+      "pii_excluded_from_logs": {
+        "type": "boolean",
+        "title": "PII Excluded From Logs",
+        "description": "Sensitive PII/payment/secrets/tokens/session-ids excluded or masked from records; fires is_false (confidentiality breach + credential-harvest target). OWASP Logging.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked In Logs",
+        "description": "Masking/redaction at log-emission redacts any secret/token reaching the logging path; fires is_false. (Secondary to pii_excluded_from_logs.)"
+      },
+      "logging_failure_alerting_enabled": {
+        "type": "boolean",
+        "title": "Logging Failure Alerting Enabled",
+        "description": "Stop/pause/reconfigure/silent-failure of the logging pipeline raises an alert; fires is_false. PCI 10.2.6; NIST AU-9/AU-5.",
+        "default": false
+      },
+      "log_review_cadence_defined": {
+        "type": "boolean",
+        "title": "Log Review Cadence Defined",
+        "description": "Collected logs reviewed on a defined enforced cadence so tampering/gaps/IoCs are detected; fires is_false (collected-but-unreviewed). PCI 10.6; CIS 8.11; NIST AU-6.",
+        "default": false
+      }
+    },
+    "required": [
+      "audit_log_tamper_evident",
+      "file_integrity_monitoring_enabled",
+      "logs_stored_on_separate_system",
+      "centralized_log_aggregation",
+      "least_privilege_access_enforced",
+      "audit_management_restricted_to_privileged_subset",
+      "security_events_fully_logged",
+      "required_record_fields_complete",
+      "clocks_synced_to_trusted_time_source",
+      "timestamps_in_utc",
+      "time_source_access_restricted",
+      "log_retention_days",
+      "log_storage_sized_for_retention",
+      "log_flood_overflow_protection",
+      "tls_only_transport",
+      "encrypted_at_rest",
+      "pii_excluded_from_logs",
+      "secrets_masked_in_logs",
+      "logging_failure_alerting_enabled",
+      "log_review_cadence_defined"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_management_restricted_to_privileged_subset"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_access_monitored"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_review_cadence_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logging_failure_alerting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/required_record_fields_complete"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_flood_overflow_protection"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_storage_sized_for_retention"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Centralization Forwarding",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_excluded_from_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Integrity Tamper Evidence",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/file_integrity_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Time Synchronization",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/clocks_synced_to_trusted_time_source"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/time_source_access_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/timestamps_in_utc"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

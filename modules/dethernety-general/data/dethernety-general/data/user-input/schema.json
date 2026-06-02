@@ -1,0 +1,388 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "server_side_allowlist_validation": {
+        "type": "boolean",
+        "title": "Server-Side Allow-List Validation",
+        "description": "Untrusted input validated server-side at the trust boundary against an allow-list (anchored regex/length/charset + semantic business-range); fires is_false (absent/deny-list-only/client-side-only). Also the contributing input-validation control for SQL/NoSQL/LDAP injection.",
+        "default": false
+      },
+      "validation_is_client_side_only": {
+        "type": "boolean",
+        "title": "Validation Is Client-Side Only",
+        "description": "Only validation is client-side JS with no server-side counterpart; fires is_true (security-worthless)."
+      },
+      "denylist_filtering_used": {
+        "type": "boolean",
+        "title": "Deny-List Filtering Used",
+        "description": "Validation relies on a deny-list/blacklist instead of an allow-list; fires is_true (trivially bypassed)."
+      },
+      "parameterized_queries_used": {
+        "type": "boolean",
+        "title": "Parameterized Queries Used",
+        "description": "All DB access (SQL/NoSQL/LDAP/XPath) binds untrusted input via parameterized/prepared statements; fires is_false. Primary SQLi defense.",
+        "default": false
+      },
+      "dynamic_query_string_concatenation": {
+        "type": "boolean",
+        "title": "Dynamic Query String Concatenation",
+        "description": "Untrusted input concatenated/interpolated into a query string; fires is_true (root cause of injection).",
+        "default": false
+      },
+      "least_privilege_db_account": {
+        "type": "boolean",
+        "title": "Least-Privilege DB Account",
+        "description": "The app's DB account runs least-privilege (no DBA/admin; minimal verbs) so a successful injection is bounded; fires is_false. Distinct from least_privilege_access_enforced (DB-account grant scope, not general data access)."
+      },
+      "contextual_output_encoding_applied": {
+        "type": "boolean",
+        "title": "Contextual Output Encoding Applied",
+        "description": "Untrusted data encoded for its exact output context (HTML/attr/JS/CSS/URL) via auto-escaping; fires is_false. Primary XSS defense.",
+        "default": false
+      },
+      "unsafe_html_sinks_used": {
+        "type": "boolean",
+        "title": "Unsafe HTML Sinks Used",
+        "description": "Untrusted data flows into unsafe sinks (innerHTML/eval/dangerouslySetInnerHTML) without DOMPurify; fires is_true."
+      },
+      "content_security_policy_enforced": {
+        "type": "boolean",
+        "title": "Content Security Policy Enforced",
+        "description": "Per-app CSP header set as XSS defense-in-depth; fires is_false (absent)."
+      },
+      "user_input_in_shell_command_string": {
+        "type": "boolean",
+        "title": "User Input In Shell Command String",
+        "description": "Untrusted input concatenated into a shell command string (system/popen/shell=True/exec(String)); fires is_true.",
+        "default": false
+      },
+      "os_commands_avoided_or_arg_array_used": {
+        "type": "boolean",
+        "title": "OS Commands Avoided Or Arg-Array Used",
+        "description": "OS ops use native library funcs, or argument-array spawn (no shell) with allow-listed command + validated args; fires is_false."
+      },
+      "native_deserialization_of_untrusted_data": {
+        "type": "boolean",
+        "title": "Native Deserialization Of Untrusted Data",
+        "description": "App natively/binary-deserializes attacker-controlled input via an RCE sink (ObjectInputStream/pickle/unserialize/BinaryFormatter); fires is_true.",
+        "default": false
+      },
+      "deserialization_class_allowlist_or_signed_payloads": {
+        "type": "boolean",
+        "title": "Deserialization Class Allow-List Or Signed Payloads",
+        "description": "Where native deser is required, class allow-list/filter AND/OR signed-then-verified payloads constrain it; fires is_false."
+      },
+      "xml_external_entities_disabled": {
+        "type": "boolean",
+        "title": "XML External Entities Disabled",
+        "description": "XML parser disallows DOCTYPE / external general+parameter entities; fires is_false (XXE).",
+        "default": false
+      },
+      "entity_expansion_limits_enforced": {
+        "type": "boolean",
+        "title": "Entity Expansion Limits Enforced",
+        "description": "Parser bounds entity expansion (secure-processing/defusedxml) so nested entities can't exhaust memory/CPU; fires is_false (billion-laughs).",
+        "default": false
+      },
+      "file_paths_canonicalized_and_contained": {
+        "type": "boolean",
+        "title": "File Paths Canonicalized And Contained",
+        "description": "User-controlled paths canonicalised + confined to an allow-listed base dir (or discarded for random names); fires is_false (path traversal/LFI).",
+        "default": false
+      },
+      "outbound_fetch_destination_allowlisted": {
+        "type": "boolean",
+        "title": "Outbound Fetch Destination Allow-Listed",
+        "description": "Server-side fetches from user URLs constrained by a scheme/host/port allow-list (redirects disabled/re-validated); fires is_false (SSRF).",
+        "default": false
+      },
+      "private_and_metadata_targets_blocked": {
+        "type": "boolean",
+        "title": "Private And Metadata Targets Blocked",
+        "description": "Fetches reject private (RFC1918), loopback, link-local, and cloud-metadata (169.254.169.254) targets; fires is_false (SSRF-to-metadata).",
+        "default": false
+      },
+      "upload_extension_allowlist_and_magic_byte_validation": {
+        "type": "boolean",
+        "title": "Upload Extension Allow-List And Magic-Byte Validation",
+        "description": "Uploads validated by extension allow-list + magic-byte inspection (client Content-Type distrusted); fires is_false.",
+        "default": false
+      },
+      "uploads_stored_nonexecutable_outside_webroot": {
+        "type": "boolean",
+        "title": "Uploads Stored Non-Executable Outside Webroot",
+        "description": "Uploads stored outside the webroot in a non-executable directory; fires is_false (web-shell precondition).",
+        "default": false
+      },
+      "uploads_randomly_renamed": {
+        "type": "boolean",
+        "title": "Uploads Randomly Renamed",
+        "description": "Uploads renamed to a random/UUID server-defined name (original discarded); fires is_false."
+      },
+      "request_size_and_complexity_limits_enforced": {
+        "type": "boolean",
+        "title": "Request Size And Complexity Limits Enforced",
+        "description": "Max request/field/upload sizes enforced before processing + bounded archive extraction; fires is_false (oversized-payload/decompression-bomb DoS).",
+        "default": false
+      },
+      "redos_safe_regexes": {
+        "type": "boolean",
+        "title": "ReDoS-Safe Regexes",
+        "description": "Validation regexes over untrusted input are anchored with bounded quantifiers, no catastrophic-backtracking wildcards; fires is_false (ReDoS).",
+        "default": false
+      },
+      "bindable_field_allowlist_enforced": {
+        "type": "boolean",
+        "title": "Bindable Field Allow-List Enforced",
+        "description": "Request-to-object binding restricted to an allow-list of bindable fields (or via a DTO omitting sensitive fields); fires is_false (mass assignment / over-posting).",
+        "default": false
+      }
+    },
+    "required": [
+      "server_side_allowlist_validation",
+      "validation_is_client_side_only",
+      "denylist_filtering_used",
+      "parameterized_queries_used",
+      "dynamic_query_string_concatenation",
+      "least_privilege_db_account",
+      "contextual_output_encoding_applied",
+      "unsafe_html_sinks_used",
+      "content_security_policy_enforced",
+      "user_input_in_shell_command_string",
+      "os_commands_avoided_or_arg_array_used",
+      "native_deserialization_of_untrusted_data",
+      "deserialization_class_allowlist_or_signed_payloads",
+      "xml_external_entities_disabled",
+      "entity_expansion_limits_enforced",
+      "file_paths_canonicalized_and_contained",
+      "outbound_fetch_destination_allowlisted",
+      "private_and_metadata_targets_blocked",
+      "upload_extension_allowlist_and_magic_byte_validation",
+      "uploads_stored_nonexecutable_outside_webroot",
+      "uploads_randomly_renamed",
+      "request_size_and_complexity_limits_enforced",
+      "redos_safe_regexes",
+      "bindable_field_allowlist_enforced"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_query_string_concatenation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/parameterized_queries_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_allowlist_validation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_input_in_shell_command_string"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/denylist_filtering_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_db_account"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/os_commands_avoided_or_arg_array_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/validation_is_client_side_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "File Upload Validation",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/upload_extension_allowlist_and_magic_byte_validation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/uploads_stored_nonexecutable_outside_webroot"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/uploads_randomly_renamed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Mass Assignment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bindable_field_allowlist_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Output Encoding",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/contextual_output_encoding_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/content_security_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unsafe_html_sinks_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Parser Hardening Xxe",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/entity_expansion_limits_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/xml_external_entities_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Path Ssrf Safety",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/file_paths_canonicalized_and_contained"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/outbound_fetch_destination_allowlisted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_and_metadata_targets_blocked"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Safe Deserialization",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/native_deserialization_of_untrusted_data"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deserialization_class_allowlist_or_signed_payloads"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Size Complexity Limits",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/redos_safe_regexes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_size_and_complexity_limits_enforced"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

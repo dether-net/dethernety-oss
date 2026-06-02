@@ -1,0 +1,309 @@
+[
+  {
+    "option_name": "nids_sensor_coverage_at_chokepoints",
+    "option_description": "Whether network IDS sensors are deployed at all major ingress/egress and inter-zone chokepoints and are actively analyzing live traffic, so no path to critical segments is uninspected.",
+    "security_impact": "Satisfies \"Sensor coverage at chokepoints and critical hosts\" — fires as one of that rule's OR-conditions when nids_sensor_coverage_at_chokepoints is true (co-trigger with hids_on_critical_hosts). Present coverage closes the blind spots an attacker would otherwise traverse undetected, supporting D3FEND D3-NTA network traffic analysis and ATT&CK mitigation M1031.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the sensor-placement / network-tap diagram against the actual network architecture and confirm each chokepoint carrying traffic to critical assets has a SPAN/tap-fed or inline sensor.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A sensor-placement / network-tap diagram cross-checked against the network architecture, confirming each chokepoint carrying traffic to critical assets has a SPAN/tap-fed or inline sensor. NIST SP 800-94 treats sensor placement as a core deployment decision for network-based IDPS.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a benign known-signature trigger (e.g. an EICAR test pattern) across each segment of interest and confirm a corresponding alert appears on the sensor/SIEM, proving the path is genuinely inspected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A test probe sent across each segment of interest produces a corresponding alert on the sensor/SIEM, proving the path is actually inspected and not a coverage hole.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "hids_on_critical_hosts",
+    "option_description": "Whether host-based IDS/IPS agents are installed, running, and reporting on the inventory of critical hosts (crown-jewel servers, domain controllers, sensitive workloads), complementing network sensors with host-level visibility.",
+    "security_impact": "Satisfies \"Sensor coverage at chokepoints and critical hosts\" — fires as one of that rule's OR-conditions when hids_on_critical_hosts is true (co-trigger with nids_sensor_coverage_at_chokepoints). Host sensors also see traffic that is encrypted on the wire but cleartext on the host, closing part of the encrypted blind spot (CIS Control 13).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On each critical host, confirm a HIDS/host-IPS agent (e.g. Wazuh/OSSEC, vendor host-IPS, or EDR with an IPS module) is installed and actively reporting to the central console.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per critical host: a HIDS/host-IPS agent is installed and actively reporting to the central console. CIS Control 13 calls for a host-based intrusion prevention solution on enterprise assets.",
+        "source": "CIS Controls v8 Control 13 - Network Monitoring and Defense"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Reconcile the deployed host-sensor inventory against the asset inventory of critical hosts and confirm none are uncovered.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Agent-coverage report showing the deployed host-sensor inventory reconciled against the asset inventory, with no critical host uncovered.",
+        "source": "CIS Controls v8 Control 13 - Network Monitoring and Defense"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "detection_rules_present_and_enabled",
+    "option_description": "Whether signature/detection rulesets are loaded and the relevant rule categories are enabled (not disabled wholesale to silence noise), so the sensor actually compares traffic against known-malicious patterns.",
+    "security_impact": "Satisfies \"Signature detection enabled with current rulesets\" — fires as one of that rule's OR-conditions when detection_rules_present_and_enabled is true (co-trigger with threat_signatures_current). Loaded, enabled rules realise D3FEND D3-NTSA network traffic signature analysis.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run the config test and list loaded rule files to confirm a non-trivial rule count and that relevant categories are enabled (vendor NGFW: confirm the threat-prevention profile shows enabled signature categories).",
+        "command": "suricata -T -c /etc/suricata/suricata.yaml | grep -i rules; ls /var/lib/suricata/rules/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Config test reports a non-trivial loaded rule count and rule files present; relevant categories enabled in suricata.yaml/enable.conf. (Command shape per Suricata operation; vendor NGFW equivalent: threat-prevention profile shows enabled signature categories.)",
+        "source": "MITRE D3FEND D3-NTSA Network Traffic Signature Analysis"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the rule-enablement config to confirm exploit, C2, scanning, and lateral-movement categories are enabled rather than left at default-only samples.",
+        "command": null,
+        "file_path": "/etc/suricata/enable.conf",
+        "navigation": null,
+        "expected_output": "Relevant rule categories (ET/Talos/vendor exploit, C2, scanning, lateral-movement) explicitly enabled, not an empty or default-only sample set.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "threat_signatures_current",
+    "option_description": "Whether signature/content feeds are updated automatically and frequently (at least daily), so the engine detects newly-weaponized exploits rather than relying on stale signatures.",
+    "security_impact": "Satisfies \"Signature detection enabled with current rulesets\" — fires as one of that rule's OR-conditions when threat_signatures_current is true (co-trigger with detection_rules_present_and_enabled). Current signatures keep D3-NTSA detection effective against current threats (also the supply-chain/content-currency facet).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a scheduled update job is enabled and the rules file was modified recently (vendor NGFW: confirm the dynamic-update schedule for Antivirus/Threat content shows recent successful pulls).",
+        "command": "systemctl status suricata-update.timer; stat -c '%y' /var/lib/suricata/rules/suricata.rules",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An enabled scheduled update job and a recent rules-file modification time (within ~24h). NIST SP 800-94 recommends keeping IDPS software and signatures updated. (Vendor NGFW: dynamic-update schedule shows recent successful pulls.)",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "behavior_monitoring_enabled",
+    "option_description": "Whether anomaly/behavioral (baseline-deviation) detection runs alongside signature matching, so novel/zero-day and slow-and-low activity with no matching signature can still be flagged.",
+    "security_impact": "Satisfies \"Anomaly and behavioral detection complementing signatures\" — fires as one of that rule's OR-conditions when behavior_monitoring_enabled is true (co-trigger with network_flow_logging_enabled). Maps to D3FEND statistical/community-deviation analysis (D3-NTCD, D3-ANAA), catching what signatures miss.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a behavioral/anomaly capability is active (NBA appliance, ML/anomaly module in the IDS/NDR platform, or protocol-anomaly rules enabled) with an established traffic baseline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence a behavioral/anomaly capability is active with an established traffic baseline. NIST SP 800-94 recommends using multiple detection methodologies because each has distinct strengths/weaknesses.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "network_flow_logging_enabled",
+    "option_description": "Whether network flow telemetry (NetFlow/IPFIX/cloud flow logs) is collected from chokepoints and fed into anomaly detection and threat hunting, rather than captured and discarded.",
+    "security_impact": "Satisfies \"Anomaly and behavioral detection complementing signatures\" — fires as one of that rule's OR-conditions when network_flow_logging_enabled is true (co-trigger with behavior_monitoring_enabled). Flow records feed D3FEND D3-NTCD community-deviation and D3-NTA traffic analysis.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query the analytics/SIEM platform to confirm flow records for the monitored segments are present and searchable, not merely captured at the collector.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow records present and queryable in the analytics/SIEM platform for the monitored segments. NIST SP 800-94 NBA and D3FEND D3-NTCD both consume flow/connection telemetry for baseline-deviation detection.",
+        "source": "MITRE D3FEND D3-NTA Network Traffic Analysis"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "tls_inspection_enabled",
+    "option_description": "Whether the IDS has visibility into encrypted (TLS) traffic — via decryption/inspection at a chokepoint or via host sensors that see cleartext on the endpoint — so encrypted channels are not a detection blind spot.",
+    "security_impact": "Satisfies \"Encrypted-traffic visibility\" — fires as that rule's sole OR-condition when tls_inspection_enabled is true. Closes the false-negative source D3FEND D3-NTSA explicitly identifies (encryption/obfuscation), mitigating evasion via encryption (ATT&CK T1573).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm either a decrypt/inspect policy on the NGFW/proxy for in-scope TLS traffic, or documented host-sensor coverage that compensates for the on-the-wire encryption blind spot.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Either a decrypt/inspect policy on the NGFW/proxy for in-scope TLS traffic, or documented host-sensor coverage that compensates for the encrypted-traffic blind spot. D3FEND D3-NTSA explicitly identifies encryption as a false-negative source for network signature analysis.",
+        "source": "MITRE D3FEND D3-NTSA Network Traffic Signature Analysis"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether IDS/IPS alerts and logs are forwarded to a centralized, monitored SIEM/SOC and correlated with other telemetry, rather than retained only on the sensor.",
+    "security_impact": "Satisfies \"Alerts aggregated and acted on under SLA\" — fires as one of that rule's OR-conditions when centralized_log_aggregation is true (co-triggers: monitored_response_function_present, clocks_synced_to_trusted_time_source). An alert nobody sees provides no protection; SIEM is the complementary aggregation layer (CIS Control 13).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm IDS alert events are arriving in the central SIEM (eve.json / syslog forwarding configured and events visible), correlated with other sources.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IDS alert events visible in the central SIEM (eve.json / syslog forwarding configured and arriving). NIST SP 800-94 positions SIEM as a complementary technology aggregating IDPS output. CIS Control 13 calls for centralized security event alerting.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "monitored_response_function_present",
+    "option_description": "Whether a monitored SOC/MDR function (internal or managed) triages IDS alerts under documented response SLAs, so detections translate into action rather than accumulating unread.",
+    "security_impact": "Satisfies \"Alerts aggregated and acted on under SLA\" — fires as one of that rule's OR-conditions when monitored_response_function_present is true (co-triggers: centralized_log_aggregation, clocks_synced_to_trusted_time_source). CIS Control 13 requires an enterprise process to investigate and respond to events.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the alerting/escalation runbook for documented response-time SLAs and confirm monitored coverage exists (SOC rota / ticketing of alerts).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An alerting/escalation runbook with response-time SLAs and evidence of monitored coverage (SOC rota / ticketing of alerts). CIS Control 13 requires a process to detect and respond to security events.",
+        "source": "CIS Controls v8 Control 13 - Network Monitoring and Defense"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Whether all sensors and log collectors are NTP-synced to a trusted source so multi-sensor event timestamps correlate reliably during investigation.",
+    "security_impact": "Satisfies \"Alerts aggregated and acted on under SLA\" — fires as one of that rule's OR-conditions when clocks_synced_to_trusted_time_source is true (co-triggers: centralized_log_aggregation, monitored_response_function_present). Accurate common time is foundational to multi-sensor correlation (CIS Control 8.4).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On each sensor/collector, confirm NTP synchronization is active with a small offset to an approved source.",
+        "command": "timedatectl show -p NTPSynchronized; chronyc tracking",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NTPSynchronized=yes and a small offset to an approved source on each sensor/collector. CIS Control 8 (8.4) requires standardized time sync using at least two approved NTP sources.",
+        "source": "CIS Controls v8 - Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "ids_detection_tuned_and_reviewed",
+    "option_description": "Whether the IDS is tuned per-environment with documented suppression/threshold rationale and a periodic alert-quality review, so the signal is not drowned by noise nor silenced by over-suppression.",
+    "security_impact": "Satisfies \"Detection tuned for accuracy\" — fires as that rule's sole OR-condition when ids_detection_tuned_and_reviewed is true. Tuning maintains the low false-positive / acceptable false-negative balance NIST SP 800-94 requires for analysts to act on alerts.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review tuning records: suppression/threshold configuration, evidence of a periodic alert-quality review, and a defined process for adjusting rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Tuning records: suppression/threshold config, periodic alert-quality review, and a defined process for adjusting rules. NIST SP 800-94 recommends ongoing tuning to maintain detection accuracy and reduce false positives/negatives.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "ids_sensor_hardened_and_patched",
+    "option_description": "Whether the IDS/IDPS platform itself is hardened — management access restricted and software patched — so the sensor sitting in the traffic path is not an attack surface of its own.",
+    "security_impact": "Satisfies \"Sensor integrity and fail-safe behavior\" — fires as one of that rule's OR-conditions when ids_sensor_hardened_and_patched is true (co-triggers: ids_sensor_fail_mode_defined, ids_sensor_health_monitored). NIST SP 800-94 recommends securing the IDPS components, as the sensor is an attractive target.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the sensor management plane is access-restricted and the IDPS software is patched, with no self-exposed attack surface.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence the sensor management plane is access-restricted and patched. NIST SP 800-94 recommends securing the IDPS components.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "ids_sensor_fail_mode_defined",
+    "option_description": "Whether inline deployments have an intentional, documented fail-open or fail-closed posture aligned to risk appetite, rather than an undefined default behavior.",
+    "security_impact": "Satisfies \"Sensor integrity and fail-safe behavior\" — fires as one of that rule's OR-conditions when ids_sensor_fail_mode_defined is true (co-triggers: ids_sensor_hardened_and_patched, ids_sensor_health_monitored). NIST SP 800-94 notes inline IPS needs a deliberate fail-open vs fail-closed decision.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "For inline deployments, confirm a documented fail-open / fail-closed choice exists and is aligned to the organization's risk appetite.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented fail-open/closed choice for inline deployments. NIST SP 800-94 recommends securing the IDPS components and deciding fail behavior deliberately.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "ids_sensor_health_monitored",
+    "option_description": "Whether sensor health/heartbeat is monitored and alerts on loss, so a silently failed or degraded sensor does not create an undetected blind spot.",
+    "security_impact": "Satisfies \"Sensor integrity and fail-safe behavior\" — fires as one of that rule's OR-conditions when ids_sensor_health_monitored is true (co-triggers: ids_sensor_hardened_and_patched, ids_sensor_fail_mode_defined). NIST SP 800-94 notes a silently-dead sensor blinds detection.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an active sensor-health/heartbeat monitor is in place that alerts on sensor loss or degradation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active sensor-health/heartbeat monitor that alerts on loss. NIST SP 800-94 recommends securing the IDPS components so silent sensor death is detected.",
+        "source": "NIST SP 800-94 Guide to IDPS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

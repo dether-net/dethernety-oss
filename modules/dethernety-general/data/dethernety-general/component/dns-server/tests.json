@@ -1,0 +1,107 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "dnssec_validation": "no",
+      "named_below_cve_fix_line": true,
+      "named_patched_within_sla": false,
+      "open_recursion_enabled": true,
+      "recursion_acl_unrestricted": true,
+      "ddos_protection_in_place": false,
+      "response_rate_limiting_enabled": false,
+      "minimal_responses_enabled": false,
+      "zone_transfer_unrestricted": true,
+      "tsig_authenticated_transfers": false,
+      "transfers_gated_by_ip_only": true,
+      "tsig_authenticated_notify": false,
+      "dns_query_logging_enabled": false,
+      "access_audit_trail_enabled": false,
+      "logs_stored_on_separate_system": false,
+      "security_events_fully_logged": false,
+      "rndc_bound_to_loopback_only": false,
+      "rndc_key_configured": false,
+      "version_string_disclosed": true,
+      "listener_bound_to_any": true
+    },
+    "expectedExposures": [
+      "Unpatched named — remotely-exploitable poisoning & DoS CVEs",
+      "Cache poisoning / spoofed-answer injection",
+      "DNS tunneling / exfiltration over DNS undetected",
+      "Exposed / unauthenticated rndc control channel",
+      "Open recursive resolver — amplification & reflection DDoS",
+      "Version disclosure & over-exposed listener",
+      "Unrestricted zone transfer (AXFR) reconnaissance",
+      "Weak transfer/NOTIFY secret — IP-only spoofable trust"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "dnssec_validation": "auto",
+      "named_below_cve_fix_line": false,
+      "named_patched_within_sla": true,
+      "open_recursion_enabled": false,
+      "recursion_acl_unrestricted": false,
+      "ddos_protection_in_place": true,
+      "response_rate_limiting_enabled": true,
+      "minimal_responses_enabled": true,
+      "zone_transfer_unrestricted": false,
+      "tsig_authenticated_transfers": true,
+      "transfers_gated_by_ip_only": false,
+      "tsig_authenticated_notify": true,
+      "dns_query_logging_enabled": true,
+      "access_audit_trail_enabled": true,
+      "logs_stored_on_separate_system": true,
+      "security_events_fully_logged": true,
+      "rndc_bound_to_loopback_only": true,
+      "rndc_key_configured": true,
+      "version_string_disclosed": false,
+      "listener_bound_to_any": false
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "dnssec_validation": "no",
+      "named_below_cve_fix_line": false,
+      "named_patched_within_sla": true,
+      "open_recursion_enabled": false,
+      "recursion_acl_unrestricted": false,
+      "ddos_protection_in_place": true,
+      "response_rate_limiting_enabled": true,
+      "minimal_responses_enabled": true,
+      "zone_transfer_unrestricted": false,
+      "tsig_authenticated_transfers": true,
+      "transfers_gated_by_ip_only": false,
+      "tsig_authenticated_notify": true,
+      "dns_query_logging_enabled": true,
+      "access_audit_trail_enabled": true,
+      "logs_stored_on_separate_system": true,
+      "security_events_fully_logged": true,
+      "rndc_bound_to_loopback_only": true,
+      "rndc_key_configured": true,
+      "version_string_disclosed": false,
+      "listener_bound_to_any": false
+    },
+    "expectedExposures": [
+      "Cache poisoning / spoofed-answer injection"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Unpatched named — remotely-exploitable poisoning & DoS CVEs",
+      "DNS tunneling / exfiltration over DNS undetected",
+      "Exposed / unauthenticated rndc control channel",
+      "Open recursive resolver — amplification & reflection DDoS",
+      "Unrestricted zone transfer (AXFR) reconnaissance",
+      "Weak transfer/NOTIFY secret — IP-only spoofable trust"
+    ]
+  }
+]

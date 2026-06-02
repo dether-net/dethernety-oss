@@ -1,0 +1,906 @@
+[
+  {
+    "option_name": "vendor_security_attestations_reviewed",
+    "option_description": "Whether the third party holds a current, scope-relevant independent security attestation (SOC 2 Type II / ISO 27001) that has been reviewed within the assessment cycle, with the consumed service explicitly in scope.",
+    "security_impact": "One of the OR-triggers for \"Trusted-relationship supply-chain pivot\" — fires when false (no attestation, expired report, or a report whose scope excludes the consumed service), because without independent assurance the provider protects what it handles, a provider compromise can pivot inward (T1199) with no prior verification of the chain of trust.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the vendor risk file for a current independent security attestation covering the consumed service.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vendor risk file contains a current SOC 2 Type II / ISO 27001 report, reviewed within the assessment cycle, with the consumed service in scope; CIS 15.5 assessment evidence (questionnaire responses + audit results) on record",
+        "source": "cis-controls-v8-control-15"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the attestation's Trust Services Criteria coverage and that its scope/criteria genuinely match the consumed service before treating it as assurance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AICPA Trust Services Criteria coverage confirmed (Security at minimum); gaps tracked. Per secureframe SOC 2 vs questionnaire guidance, a SOC 2 report substitutes for re-asking questionnaire items only where its scope and trust criteria match",
+        "source": "secureframe-com-blog-soc-2-vs-security-questionnaires"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "service_provider_inventoried",
+    "option_description": "Whether this third party is recorded in the maintained service-provider inventory with a data-sensitivity classification and a designated enterprise contact/owner.",
+    "security_impact": "One of the OR-triggers for \"Trusted-relationship supply-chain pivot\" — fires when false (absent from inventory, or present without classification/owner), because trust granted to an uninventoried provider is unmanaged and unmonitored, so a provider compromise pivots inward unnoticed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Search the service-provider inventory for an entry covering this provider with a classification and a named owner.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CIS 15.1 inventory lists this provider with classification(s) and a designated enterprise contact; CIS 15.3 classification reflects data sensitivity, data volume, availability requirement, and applicable regulation",
+        "source": "cis-controls-v8-control-15"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the inventory entry carries a data-sensitivity classification (not just a name) so the trust is risk-rated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entry shows data-sensitivity classification and named enterprise owner/contact; an entry missing either counts as not inventoried",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dpa_and_subprocessors_reviewed",
+    "option_description": "Whether the executed agreement embeds security-requirement clauses and, where personal data is shared, a Data Processing Addendum (sub-processor, breach-notification, and data-location terms) is on file.",
+    "security_impact": "An OR-trigger for both \"Trusted-relationship supply-chain pivot\" and \"Excessive data exposure across the data-sharing boundary\" — fires when false (no security clauses / no DPA despite PII sharing), leaving the trust relationship contractually unbounded with no breach-notification obligation to surface a provider compromise and no contractual control over shared-PII handling.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the executed contract for embedded security-requirement clauses and the documented trust relationship.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CIS 15.4 evidence: executed agreement contains security requirement clauses; where personal data flows, a DPA is on file. NIST SA-9 trust relationship (SA-9(3)) and consistent-interests (SA-9(4)) documented",
+        "source": "cis-controls-v8-control-15"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a DPA on file names sub-processors, a breach-notification SLA, and permitted processing locations where PII is shared.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DPA on file naming sub-processors, breach-notification SLA, and permitted processing locations; aligns with GDPR Art.28-style processor obligations and the AWS-style DPA structure",
+        "source": "docs-aws-amazon-com-whitepapers-latest-navigating-gdpr-compliance-aws-data-processing-addendum-dpa-html"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "installed_integrations_reviewed_approved",
+    "option_description": "Whether organizational oversight and user roles for the external service are documented and a pre-reliance risk assessment was performed and approved by the designated authority before outsourcing the function.",
+    "security_impact": "One of the OR-triggers for \"Trusted-relationship supply-chain pivot\" — fires when false (no defined owner, no approved pre-reliance risk assessment), because the trust was extended without evaluating chain-of-trust confidence, widening the supply-chain pivot exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented pre-reliance risk assessment was approved by the designated authority before reliance, with oversight roles defined.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NIST SA-9 base: oversight and user roles documented; SA-9(1) risk assessment performed and approved by designated personnel before outsourcing the function; chain-of-trust confidence recorded",
+        "source": "csf-tools-nist-sp-800-53-r5-sa-9"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the approval predates the go-live / first reliance on the integration, not a retroactive sign-off.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Approval record is dated before the integration entered service; a defined owner and documented user roles are on file",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "api_keys_stored_in_secret_manager",
+    "option_description": "Attestation that the third-party API credential resolves at runtime from a secrets manager / injected environment, never hard-coded in source or committed to the repository.",
+    "security_impact": "One of the OR-triggers for \"Stolen or over-scoped API credential abuse\" — fires when false, because a hard-coded or committed key is directly exfiltratable and replayable (T1552) with no extra access required.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the credential resolves from a secrets manager / injected env var at runtime and is not committed, with a rotation schedule on record.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key resolves from a secrets manager / env injected at runtime, not committed; rotation schedule on record. Stripe key best-practice: never embed in code, rotate periodically, revoke on compromise",
+        "source": "docs-stripe-com-keys-best-practices"
+      },
+      {
+        "type": "command",
+        "instruction": "Grep the source tree and repo history for committed live key material.",
+        "command": "git grep -nE '(sk_live_|api[_-]?key|bearer )' -- . || trufflehog filesystem .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No live secret-key material found committed in the repository (a hit indicates an insecure-stored third-party credential)",
+        "source": "cheatsheetseries-owasp-org-cheatsheets-secrets-management-cheat-sheet-html"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "api_keys_rotated_regularly",
+    "option_description": "Attestation that the third-party API credential is rotated on a defined schedule and on staff offboarding.",
+    "security_impact": "One of the OR-triggers for \"Stolen or over-scoped API credential abuse\" — fires when false, because a never-rotated credential remains valid indefinitely once stolen, removing any natural blast-radius bound (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented rotation schedule exists and is enforced, including the secret-manager-resolved storage best practice.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key resolves from a secrets manager / env injected at runtime, not committed; rotation schedule on record. Stripe key best-practice: never embed in code, rotate periodically, revoke on compromise",
+        "source": "docs-stripe-com-keys-best-practices"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the provider dashboard, check the active key's creation/last-rotated date against the rotation policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Provider dashboard > API keys / Developers > key details > Created / Last used",
+        "expected_output": "Active key's last-rotation date falls within the documented rotation interval; an old creation date with no rotation history indicates the control is absent",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_app_scope_least_privilege",
+    "option_description": "Attestation that the OAuth scopes / API-key permissions granted to the provider are constrained to the integration's actually-used endpoints.",
+    "security_impact": "An OR-trigger for both \"Stolen or over-scoped API credential abuse\" and \"Over-broad outbound token scope\" — fires when false, because broad or default scopes let a stolen or misused credential act with excessive privilege across the provider API (NIST AC-6, RFC 9700 narrowest-scope).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Compare the granted scopes/permissions against the integration's actually-used endpoints for least privilege.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Granted scopes match the integration's used endpoints only; per RFC 9700 OAuth BCP, request the narrowest scope and prefer short-lived access tokens; NIST AC-6 least privilege applied to the service account",
+        "source": "rfc-editor-org-rfc-rfc9700-html"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the provider dashboard, view the key/app permission set and confirm only required resource scopes are enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Provider dashboard > API keys > Restricted key > resource permissions",
+        "expected_output": "Provider dashboard shows the key as a Restricted key with only required resource permissions enabled (Stripe: restricted-key scopes; not a full secret key)",
+        "source": "docs-stripe-com-keys-restricted-api-keys"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "full_scope_allowed_clients",
+    "option_description": "Attestation that the credential is an unrestricted full-access secret key / shared account / broad basic-auth credential rather than a restricted least-privilege key or OAuth client_credentials with minimal scopes.",
+    "security_impact": "One of the OR-triggers for \"Stolen or over-scoped API credential abuse\" — fires when true (inverted: the secure value is false), because a full-access key maximizes the blast radius when replayed (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the provider dashboard, determine whether the credential is a full/admin secret key or a restricted least-privilege key.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Provider dashboard > API keys > key type (Secret vs Restricted)",
+        "expected_output": "Provider dashboard shows the key as a Restricted key with only required resource permissions enabled (Stripe: restricted-key scopes; not a full secret key)",
+        "source": "docs-stripe-com-keys-restricted-api-keys"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Where OAuth is used, confirm the client_credentials grant requests only minimal scopes rather than full access, and that keys authenticate clients only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Where OAuth is used, the client_credentials grant requests only the minimal scopes; per OWASP API2 API keys authenticate clients only, never end-users, and tokens are validated for signature + expiry",
+        "source": "owasp-org-api-security-editions-2023-en-0xa2-broken-authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "outbound_token_scope_breadth",
+    "option_description": "Classification of the breadth of scopes/permissions granted to the third-party token, from least_privilege through full_access.",
+    "security_impact": "The OR-trigger for \"Over-broad outbound token scope\" — fires on the insecure complement (write_all / full_access), where broad OAuth scopes / key permissions granted by default exceed the integration's need; the least-privilege baseline values stay silent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Classify the provisioned scope/permission set into one of the enum buckets against the integration's actual need.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Granted scopes match the integration's used endpoints only; per RFC 9700 OAuth BCP, request the narrowest scope and prefer short-lived access tokens; NIST AC-6 least privilege applied to the service account",
+        "source": "rfc-editor-org-rfc-rfc9700-html"
+      },
+      {
+        "type": "gui",
+        "instruction": "Read the granted scopes/permissions from the provider dashboard and map them to the closest enum value (read-only/scoped vs write-all/full).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Provider dashboard > API keys / OAuth app > granted scopes",
+        "expected_output": "Provider dashboard shows the key as a Restricted key with only required resource permissions enabled (Stripe: restricted-key scopes; not a full secret key)",
+        "source": "docs-stripe-com-keys-restricted-api-keys"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "least_privilege",
+      "scoped",
+      "write_all",
+      "full_access"
+    ]
+  },
+  {
+    "option_name": "api_credential_age_days",
+    "option_description": "Age in days of the currently-active third-party API credential since its last rotation.",
+    "security_impact": "One of the OR-triggers for \"Stolen or over-scoped API credential abuse\" — fires when greater than the 90-day rotation maximum, because a long-lived static secret stays exploitable for the full window after exfiltration (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the active credential's creation / last-rotation timestamp from the provider dashboard and compute its age in days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Provider dashboard > API keys / Developers > key details > Created",
+        "expected_output": "Creation/last-rotation date of the active key; age in days computed from today's date (e.g. 42)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check against the documented rotation schedule to confirm the key has actually been rotated within policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key resolves from a secrets manager / env injected at runtime, not committed; rotation schedule on record. Stripe key best-practice: never embed in code, rotate periodically, revoke on compromise",
+        "source": "docs-stripe-com-keys-best-practices"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      90,
+      365
+    ]
+  },
+  {
+    "option_name": "offboarding_credential_revocation_enforced",
+    "option_description": "Attestation that a documented decommissioning process revokes the integration credential and removes access on staff departure / relationship termination.",
+    "security_impact": "One of the OR-triggers for \"Stolen or over-scoped API credential abuse\" — fires when false, because lingering, unrevoked credentials remain an exploitable foothold after offboarding (T1078, T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the decommissioning procedure for credential-revocation records on departure / termination.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CIS 15.7 evidence: decommissioning procedure with access-revocation records and data-destruction certification; orphaned keys/federation removed",
+        "source": "cis-controls-v8-control-15"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the NIST AC-2 account lifecycle is applied to the service/integration account.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NIST AC-2 account-management lifecycle applied to the service/integration account: disabled and removed on relationship termination",
+        "source": "AC-2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_signature_verified",
+    "option_description": "Whether the inbound callback/webhook handler cryptographically verifies the provider's signature header (HMAC over the raw unmodified body) against the signing secret before acting on the payload, rejecting on mismatch.",
+    "security_impact": "One of the OR-triggers for \"Forged or replayed inbound webhook / federation assertion\" — fires when false, because the endpoint then accepts forged webhook payloads (e.g. a fake payment-success event) driving fraudulent state changes (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the handler verifies the provider signature header over the raw body against the signing secret before acting and rejects on mismatch.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handler verifies the provider signature header against the endpoint signing secret over the RAW unmodified body before acting (Stripe: Stripe-Signature header, whsec_ secret, t=/v1= scheme); rejects on mismatch",
+        "source": "docs-stripe-com-webhooks-signature"
+      },
+      {
+        "type": "network_test",
+        "instruction": "POST an unsigned forged payload to the callback endpoint and confirm it is rejected, not processed.",
+        "command": "curl -X POST https://app.example/webhooks/provider -d '{\"forged\":true}' -H 'Content-Type: application/json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Request without a valid signature header is rejected (401/400), not processed",
+        "source": "docs-stripe-com-webhooks-signature"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_replay_timestamp_tolerance_enforced",
+    "option_description": "Whether the inbound callback handler enforces a timestamp/replay window (validating the signed t= timestamp and rejecting stale or previously-seen events) so a once-valid signed payload cannot be replayed.",
+    "security_impact": "One of the OR-triggers for \"Forged or replayed inbound webhook / federation assertion\" — fires when false, because a captured legitimate webhook can then be replayed (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the handler validates the signed timestamp against a tolerance window and rejects stale / already-seen events, alongside signature verification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handler verifies the provider signature header against the endpoint signing secret over the RAW unmodified body before acting (Stripe: Stripe-Signature header, whsec_ secret, t=/v1= scheme); rejects on mismatch",
+        "source": "docs-stripe-com-webhooks-signature"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Replay a previously-captured valid webhook (or one with an old t= timestamp) and confirm it is rejected as stale.",
+        "command": "curl -X POST https://app.example/webhooks/provider --data-binary @captured-event.json -H 'Stripe-Signature: <captured old t= signature>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Replayed event with a stale timestamp is rejected (400/401); a 2xx indicates no replay window is enforced",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "saml_assertion_signature_verified",
+    "option_description": "Where the third party is an identity-federation partner, whether the relying party validates the assertion/token signature against the partner's pinned signing certificate, rejecting unsigned or wrong-signer assertions.",
+    "security_impact": "One of the OR-triggers for \"Forged or replayed inbound webhook / federation assertion\" — fires when false, because forged (Golden SAML) assertions are then accepted, granting unauthorized cross-federation access (T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the relying party validates the assertion signature against the partner's pinned signing certificate and rejects unsigned / wrong-signer assertions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP validates SAML assertion signature, Issuer, AudienceRestriction, NotOnOrAfter, and recipient; signing certificate matches the federation partner. NIST 800-63C federation assurance applied",
+        "source": "SP-800-63C-4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify the configuration enforces signed assertions validated against the expected IdP certificate, rejecting unsigned ones.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per OWASP SAML cheat sheet: enforce signed assertions, validate against the expected IdP cert, reject unsigned/expired assertions; prevents forged/replayed assertions",
+        "source": "cheatsheetseries-owasp-org-cheatsheets-saml-security-cheat-sheet-html"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audience_claim_validated",
+    "option_description": "Whether the relying party validates the assertion AudienceRestriction / recipient (or OIDC aud claim) so a token minted for another service cannot be replayed against this one.",
+    "security_impact": "One of the OR-triggers for \"Forged or replayed inbound webhook / federation assertion\" — fires when false, because a stolen or cross-audience token then grants unauthorized cross-federation access (T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the relying party validates the AudienceRestriction / aud claim against this service's expected identifier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP validates SAML assertion signature, Issuer, AudienceRestriction, NotOnOrAfter, and recipient; signing certificate matches the federation partner. NIST 800-63C federation assurance applied",
+        "source": "SP-800-63C-4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the SAML/OIDC config for the configured expected audience/entity-id and that assertions for other audiences are rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per OWASP SAML cheat sheet: enforce signed assertions, validate against the expected IdP cert, reject unsigned/expired assertions; prevents forged/replayed assertions",
+        "source": "cheatsheetseries-owasp-org-cheatsheets-saml-security-cheat-sheet-html"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "issuer_claim_validated",
+    "option_description": "Whether the relying party validates the assertion Issuer (or OIDC iss claim) against the expected federation partner identifier.",
+    "security_impact": "One of the OR-triggers for \"Forged or replayed inbound webhook / federation assertion\" — fires when false, because an assertion from an unexpected or attacker-controlled issuer can then be accepted (T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the relying party validates the assertion Issuer / iss claim against the expected federation partner identifier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP validates SAML assertion signature, Issuer, AudienceRestriction, NotOnOrAfter, and recipient; signing certificate matches the federation partner. NIST 800-63C federation assurance applied",
+        "source": "SP-800-63C-4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the federation config for the pinned expected issuer/entity-id value the RP checks against.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per OWASP SAML cheat sheet: enforce signed assertions, validate against the expected IdP cert, reject unsigned/expired assertions; prevents forged/replayed assertions",
+        "source": "cheatsheetseries-owasp-org-cheatsheets-saml-security-cheat-sheet-html"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "expiry_claim_validated",
+    "option_description": "Whether the relying party enforces assertion/token freshness (NotOnOrAfter / exp) so an expired or replayed assertion is rejected.",
+    "security_impact": "One of the OR-triggers for \"Forged or replayed inbound webhook / federation assertion\" — fires when false, because expired or replayed assertions are then honored (T1606.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the relying party enforces NotOnOrAfter / exp freshness and rejects expired assertions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP validates SAML assertion signature, Issuer, AudienceRestriction, NotOnOrAfter, and recipient; signing certificate matches the federation partner. NIST 800-63C federation assurance applied",
+        "source": "SP-800-63C-4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Check that the config rejects expired assertions (and that clock-skew tolerance is bounded), per the OWASP SAML guidance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per OWASP SAML cheat sheet: enforce signed assertions, validate against the expected IdP cert, reject unsigned/expired assertions; prevents forged/replayed assertions",
+        "source": "cheatsheetseries-owasp-org-cheatsheets-saml-security-cheat-sheet-html"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_source_ip_allowlisted",
+    "option_description": "Whether the callback endpoint restricts source traffic to the provider's published IP egress ranges as defense-in-depth alongside (not instead of) signature verification.",
+    "security_impact": "Supporting context for \"Forged or replayed inbound webhook / federation assertion\" — it strengthens the defense layer but the cryptographic verification facets are the load-bearing triggers; an open callback endpoint widens the forged/replayed inbound surface.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a network/WAF rule allowlists the provider's documented webhook egress IP ranges to the callback path.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Network/WAF rule allowlists the provider's documented webhook egress IP ranges to the callback path; combined with (not instead of) signature verification",
+        "source": "docs-stripe-com-webhooks"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an IP outside the provider's published ranges, POST to the callback path and confirm it is blocked at the network layer.",
+        "command": "curl -v -X POST https://app.example/webhooks/provider -d '{}' -H 'Content-Type: application/json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection from a non-allowlisted source is refused/dropped (connection reset or 403 at the edge) before reaching the handler",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "connection_encrypted",
+    "option_description": "Whether outbound calls to the third-party endpoint are made over TLS (https://) rather than plaintext (http://).",
+    "security_impact": "One of the OR-triggers for \"Man-in-the-middle on the integration channel\" — fires when false, because plaintext calls expose shared data and credentials to interception/alteration in transit (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Open a TLS connection to the provider endpoint and confirm a valid certificate chain and TLS handshake (i.e. the channel is https/TLS, not plaintext).",
+        "command": "openssl s_client -connect api.provider.example:443 -tls1_2 </dev/null 2>/dev/null | openssl x509 -noout -dates -subject",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Valid, in-date certificate chain to the provider's hostname; handshake negotiates TLS 1.2 or 1.3",
+        "source": "wiki-mozilla-org-security-server-side-tls"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the integration client config / base URL to confirm the provider endpoint is configured as https:// rather than http://.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configured provider base URL uses the https:// scheme; no plaintext http:// endpoint in client config",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "upstream_tls_verification_enabled",
+    "option_description": "Whether the integration client validates the provider's TLS server certificate chain and hostname (verify=on / rejectUnauthorized:true) rather than disabling verification.",
+    "security_impact": "One of the OR-triggers for \"Man-in-the-middle on the integration channel\" — fires when false, because disabled validation lets a man-in-the-middle present a forged certificate and silently intercept or alter the channel (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the client code/config to confirm cert verification is NOT disabled (no verify=False / rejectUnauthorized:false / curl -k).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client code does NOT disable cert verification (no verify=False / rejectUnauthorized:false / curl -k); ASVS V9 requires authenticated, validated TLS for all external connections",
+        "source": "github-com-owasp-asvs-blob-master-4-0-en-0x17-v9-communications-md"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the provider presents a valid, in-date certificate chain for its hostname (a precondition for verification to be meaningful).",
+        "command": "openssl s_client -connect api.provider.example:443 -tls1_2 </dev/null 2>/dev/null | openssl x509 -noout -dates -subject",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Valid, in-date certificate chain to the provider's hostname; handshake negotiates TLS 1.2 or 1.3",
+        "source": "wiki-mozilla-org-security-server-side-tls"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Minimum TLS protocol version negotiated on the channel to the third-party provider (workspace-canonical TLS-version enum).",
+    "security_impact": "One of the OR-triggers for \"Man-in-the-middle on the integration channel\" — fires on the insecure value tls1_0_or_tls1_1_or_sslv3_accepted, which is downgrade-vulnerable and broken, enabling interception/alteration in transit (T1557); tls1_2_or_higher stays silent.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols/ciphers the channel will negotiate to determine the lowest accepted TLS version.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 api.provider.example",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLS 1.2/1.3 with strong ciphers offered; SSLv3/TLS1.0/1.1 absent",
+        "source": "nmap-org-nsedoc-scripts-ssl-enum-ciphers-html"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the handshake negotiates TLS 1.2+ on the connection to the provider.",
+        "command": "openssl s_client -connect api.provider.example:443 -tls1_2 </dev/null 2>/dev/null | openssl x509 -noout -dates -subject",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Valid, in-date certificate chain to the provider's hostname; handshake negotiates TLS 1.2 or 1.3",
+        "source": "wiki-mozilla-org-security-server-side-tls"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "pii_minimized_to_purpose",
+    "option_description": "Whether only the minimum necessary data (especially PII) is shared with the provider, with sensitive fields excluded or tokenized where not functionally required.",
+    "security_impact": "One of the OR-triggers for \"Excessive data exposure across the data-sharing boundary\" — fires when false, because full records / unnecessary PII leaving the boundary widen the blast radius of a provider breach and create compliance exposure (T1213).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Run a data-flow review of what fields leave the boundary to the provider and confirm only required fields are shared.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data-flow review shows only required fields leave the boundary; GDPR Art.5 data-minimisation honored; PII categories shared are documented and justified",
+        "source": "gdpr-info-eu-art-5-gdpr"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm shared PII follows NIST SP 800-122 confidentiality controls (classification, minimization, masking where feasible).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PII handling for shared data follows NIST SP 800-122 confidentiality controls (classification, minimization, masking where feasible)",
+        "source": "SP-800-122"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "subprocessor_list_reviewed",
+    "option_description": "Whether the provider's sub-processor list is disclosed and has been reviewed and accepted.",
+    "security_impact": "One of the OR-triggers for \"Excessive data exposure across the data-sharing boundary\" — fires when false, because undisclosed sub-processors extend data exposure to fourth parties outside the org's control (T1213).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the DPA sub-processor list is disclosed and reviewed against the data-location requirement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NIST SA-9(5) processing/storage/service-location restriction documented; DPA sub-processor list reviewed; CSA CCM data-residency / supply-chain controls mapped",
+        "source": "csf-tools-nist-sp-800-53-r5-sa-9"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Evaluate the disclosed sub-processor posture against CSA CCM supply-chain / data-privacy domains.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSA Cloud Controls Matrix domains (Supply Chain Management, Data Security & Privacy) used to evaluate the provider's residency and sub-processor posture",
+        "source": "cloudsecurityalliance-org-research-cloud-controls-matrix"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_residency_restriction",
+    "option_description": "Whether the provider's processing/storage/service location is constrained per requirement (restricted_documented / restricted_undocumented / unrestricted).",
+    "security_impact": "One of the OR-triggers for \"Excessive data exposure across the data-sharing boundary\" — fires on the insecure value 'unrestricted', where data may leave the required jurisdiction, creating GDPR/PII residency exposure outside the org's control (T1213).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the provider's processing/storage location is contractually restricted and documented per NIST SA-9(5).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NIST SA-9(5) processing/storage/service-location restriction documented; DPA sub-processor list reviewed; CSA CCM data-residency / supply-chain controls mapped",
+        "source": "csf-tools-nist-sp-800-53-r5-sa-9"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Map the provider's residency posture to CSA CCM data-residency controls and classify into the enum bucket.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSA Cloud Controls Matrix domains (Supply Chain Management, Data Security & Privacy) used to evaluate the provider's residency and sub-processor posture",
+        "source": "cloudsecurityalliance-org-research-cloud-controls-matrix"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "restricted_documented",
+      "restricted_undocumented",
+      "unrestricted"
+    ]
+  },
+  {
+    "option_name": "request_timeout_configured",
+    "option_description": "Whether outbound calls to the third-party provider are bounded by explicit connect/read timeouts.",
+    "security_impact": "One of the OR-triggers for \"Availability dependency / cascading outage\" — fires when false, because an unbounded call to a stalled provider blocks dependent threads and cascades the outage (T1499).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the client configures connect/read timeouts (alongside a circuit breaker and fallback path).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client configures connect/read timeouts and a CircuitBreaker (failureRateThreshold, slidingWindow, waitDurationInOpenState) with a fallback path; per Resilience4j config a tripped breaker fails fast instead of cascading",
+        "source": "resilience4j-readme-io-docs-circuitbreaker"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the integration client config for explicit non-default connect and read timeout values.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client config sets explicit connect/read timeouts (e.g. 2s/5s) rather than relying on unbounded library defaults",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "circuit_breaker_enabled",
+    "option_description": "Whether calls to the third-party provider are wrapped in a circuit breaker (failure-rate threshold, sliding window, open-state wait) that trips to fail fast on sustained provider failure.",
+    "security_impact": "One of the OR-triggers for \"Availability dependency / cascading outage\" — fires when false, because a hard single-vendor dependency with no breaker lets a provider outage or rate-limit cascade into the dependent system (T1499).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm provider calls are wrapped in a circuit breaker with a failure-rate threshold, sliding window, and open-state behavior.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client configures connect/read timeouts and a CircuitBreaker (failureRateThreshold, slidingWindow, waitDurationInOpenState) with a fallback path; per Resilience4j config a tripped breaker fails fast instead of cascading",
+        "source": "resilience4j-readme-io-docs-circuitbreaker"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the provider's availability-requirement classification and SLA used to size the breaker thresholds.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SLA on record; CIS 15.3 availability-requirement classification used to size resilience; single-vendor lock-in risk noted",
+        "source": "cis-controls-v8-control-15"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "graceful_degradation_enabled",
+    "option_description": "Whether a fallback / graceful-degradation path exists so the dependent system continues in a reduced mode when the third-party provider is unavailable.",
+    "security_impact": "One of the OR-triggers for \"Availability dependency / cascading outage\" — fires when false, because with no fallback a provider outage or SLA breach halts the dependent system (T1499).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a fallback path exists that lets the dependent system continue in a reduced mode when the provider is unavailable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client configures connect/read timeouts and a CircuitBreaker (failureRateThreshold, slidingWindow, waitDurationInOpenState) with a fallback path; per Resilience4j config a tripped breaker fails fast instead of cascading",
+        "source": "resilience4j-readme-io-docs-circuitbreaker"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the SLA and availability classification to confirm the degraded mode meets the dependent system's continuity requirement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SLA on record; CIS 15.3 availability-requirement classification used to size resilience; single-vendor lock-in risk noted",
+        "source": "cis-controls-v8-control-15"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_interaction_logging_enabled",
+    "option_description": "Whether outbound calls to and inbound callbacks from the third party are logged with correlation IDs and retained per policy.",
+    "security_impact": "One of the OR-triggers for \"Unmonitored third-party interactions\" — fires when false, because unlogged interactions blind anomaly detection and incident response, so credential abuse, forged callbacks, or provider compromise go undetected.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect logs for third-party request/response metadata with correlation IDs and retention.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs show third-party request/response metadata (endpoint, status, latency, correlation id) with Authorization/keys redacted; CIS 15.6 continuous monitoring evidence present",
+        "source": "cis-controls-v8-control-15"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the log-retention policy covers third-party interaction logs for the required window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention policy on record covering third-party interaction logs; logs present for the full required retention window",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether credentials (Authorization headers, API keys, tokens) are redacted from third-party interaction logs.",
+    "security_impact": "One of the OR-triggers for \"Unmonitored third-party interactions\" — fires when false, because secrets logged in cleartext (CWE-532) turn the log store into a credential-leak source.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Search third-party interaction logs for any cleartext secret material.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No secret material in logs (guard against CWE-532 sensitive-info-in-log); OWASP logging guidance followed",
+        "source": "cheatsheetseries-owasp-org-cheatsheets-logging-cheat-sheet-html"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm Authorization headers, API keys, and tokens appear redacted/masked in the captured interaction logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs show third-party request/response metadata (endpoint, status, latency, correlation id) with Authorization/keys redacted; CIS 15.6 continuous monitoring evidence present",
+        "source": "cis-controls-v8-control-15"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "provider_security_monitoring_enabled",
+    "option_description": "Whether the provider's security advisories, release notes, and breach/dark-web signals are continuously monitored.",
+    "security_impact": "One of the OR-triggers for \"Unmonitored third-party interactions\" — fires when false, because provider incidents and known-vulnerable integration code then go unnoticed (CIS 15.6 continuous monitoring).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SCA shows the provider SDK on a supported version and that provider advisories/release notes and breach signals are monitored.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCA shows the provider SDK on a supported, non-vulnerable version (OWASP A06 vulnerable/outdated components); CIS 15.4 monitoring includes provider release notes / dark-web signals",
+        "source": "owasp-org-top10-2021-a06-2021-vulnerable-and-outdated-components"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify a named owner/process subscribes to and triages the provider's advisory and breach feeds on a defined cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented continuous-monitoring process with a named owner ingesting provider advisories, release notes, and breach/dark-web signals",
+        "source": "cis-controls-v8-control-15"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

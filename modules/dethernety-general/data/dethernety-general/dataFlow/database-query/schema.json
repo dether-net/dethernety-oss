@@ -1,0 +1,266 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "parameterized_queries_used": {
+        "type": "boolean",
+        "title": "Parameterized Queries Used",
+        "description": "Attestation: every statement issued on this data flow is constructed via a parameterised/prepared API (PreparedStatement, $1/$2 placeholders, named-binding ORM) so the SQL text and user-supplied values travel as separate fields. When false, untrusted input can alter query structure (UNION SELECT, stacked statements) and the flow's own legitimate result-set channel becomes a bulk-exfiltration path. Verified by code review and SAST (CodeQL / Semgrep sql-injection packs) on every query-construction path in the data-access layer; corroborated by pgaudit showing PREPARE/EXECUTE pairs rather than fully-substituted ad-hoc SQL. Grounded in OWASP Top 10 2021 A03 Injection.",
+        "default": false
+      },
+      "dynamic_query_string_concatenation": {
+        "type": "boolean",
+        "title": "Dynamic Query String Concatenation",
+        "description": "Attestation: at least one code path on this data flow builds SQL by concatenating or interpolating untrusted input directly into the query string (string-format, plus-concatenation, template substitution). When true, the SQL parser cannot distinguish data from structure and the path is exploitable for injection regardless of any sibling validation. Independent of parameterized_queries_used because a flow may use prepared statements on most paths while still concatenating on one outlier helper; both triggers are kept so either failure mode fires the exposure.",
+        "default": false
+      },
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Flow TLS Encrypted",
+        "description": "Attestation: the application-to-database flow is TLS-encrypted end to end (PostgreSQL hostssl + sslmode>=require on the client; MySQL REQUIRE SSL; managed equivalents enforce in-transit encryption). When false, every query and every result-set row traverses the wire in plaintext and is readable by any on-path attacker (rogue VPC node, compromised network appliance, mis-scoped peering).",
+        "default": false
+      },
+      "data_tier_transit_encrypted": {
+        "type": "boolean",
+        "title": "Data-Tier Transit Encrypted",
+        "description": "Canonical workspace attestation that the data-tier transport (this DB flow's underlying channel) is encrypted in transit — the cross-class twin of flow_tls_encrypted shared with API Call / gateway flows so a single workspace baseline drives both. When false, the cleartext-sniffing exposure fires on this flow.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Attestation: the application validates the database server's TLS certificate (full chain-of-trust AND hostname/identity, e.g. PostgreSQL sslmode=verify-full with sslrootcert pinned, JDBC sslVerifyServerCertificate=true / VERIFY_IDENTITY) before sending credentials or queries. False when the driver is configured with sslmode=require/prefer/allow, verify-ca without hostname check, or a custom TrustManager that trusts any certificate — at which point an on-path attacker can terminate TLS with a self-signed cert and harvest credentials and result rows.",
+        "default": false
+      },
+      "tls_root_trust_managed": {
+        "type": "boolean",
+        "title": "TLS Root Trust Managed",
+        "description": "Attestation: the TLS trust anchor used by the client for this flow is a pinned, narrowly-scoped CA bundle (e.g. sslrootcert pointing at the specific CA that signed the DB, or an internal PKI root) rather than the OS-wide public trust store or no trust anchor at all. False when the client trusts any cert chained to any public CA, has an empty/unmanaged trust store, or uses a 'trust all certs' TrustManager — which collapses certificate validation even if sslmode is nominally set to verify-full.",
+        "default": false
+      },
+      "per_workload_db_identity_used": {
+        "type": "boolean",
+        "title": "Per-Workload DB Identity Used",
+        "description": "Attests that the application authenticates to the database as its OWN distinct DB principal (per-workload login role) rather than via a shared service account or root/superuser. Per-workload identity is the precondition for credible audit attribution and least-privilege scoping on this dataFlow; a shared account collapses blast-radius and accountability, and makes a leaked credential indistinguishable from any sibling workload. Secure when true.",
+        "default": false
+      },
+      "data_tier_credentials_short_lived": {
+        "type": "boolean",
+        "title": "Data-Tier Credentials Short-Lived",
+        "description": "Attests that the DB credentials used on this flow are short-lived and broker-issued (Vault dynamic database secrets, RDS/Cloud SQL IAM auth tokens, X.509 short-life certs) with a bounded TTL (<= 24h) and revoke-on-shutdown, rather than a static long-lived password persisted in .env, a k8s Secret, or git history. Static long-lived DB passwords are the dominant root cause of post-breach lateral movement to the data tier — a single .env exfiltration grants indefinite, fully-impersonating access on this flow. Secure when true.",
+        "default": false
+      },
+      "least_privilege_db_account": {
+        "type": "boolean",
+        "title": "Least-Privilege DB Account",
+        "description": "Attestation: the DB principal used on this application-to-database flow holds ONLY the rights its workload requires — per-object grants scoped to the specific tables and verbs the workload actually issues, with rolsuper=f / rolcreatedb=f / rolcreaterole=f / rolbypassrls=f and no membership in catch-all roles. True when grants are object-scoped; false when the principal holds SUPERUSER, db_owner, or GRANT ALL (CIS PostgreSQL Benchmark — least-privilege role attributes; PostgreSQL 18 GRANT reference). When false, any application-side bug that lets an attacker run one DB call lets them run any DB call — including dumping every table or creating a backdoor role.",
+        "default": false
+      },
+      "bulk_read_volume_anomaly_alerted": {
+        "type": "boolean",
+        "title": "Bulk-Read Volume Anomaly Alerted",
+        "description": "Attestation that out-of-band anomaly detection (DAM, RDS/Cloud SQL Performance Insights, or SIEM rule) watches this database-query flow for per-principal volume spikes (rows returned / bytes shipped) and routes alerts to an on-call owner. When false, a single SELECT * over a large table — accidental or weaponised via SQLi / stolen credential / insider — leaves through this legitimate flow as one 'normal' query response with no one watching.",
+        "default": false
+      },
+      "bulk_export_monitored_and_alerted": {
+        "type": "boolean",
+        "title": "Bulk Export Monitored and Alerted",
+        "description": "Attestation that bulk-export operations on this flow (large result sets, multi-table breadth, or sustained high-row-count fetches per principal) are continuously monitored with a defined threshold and alert routing — the OWASP API Security 'per-account quota / volume anomaly' compensating control for cases where in-app LIMIT caps are bypassed. When false, exfiltration via the legitimate query channel is indistinguishable from normal traffic.",
+        "default": false
+      },
+      "pii_excluded_from_logs": {
+        "type": "boolean",
+        "title": "PII Excluded from Logs",
+        "description": "Attestation: raw PII (card numbers, emails, SSNs, names) bound into query parameters is NOT written to the database/driver log store. Secure when pgaudit.log_parameter is OFF in production AND the application's driver/ORM SQL-logging layer is set to log statement text only (no bind values), so a breach of the log store does not become a parallel breach of the PII table. Fires when raw bind values are mirrored into logs.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Logs",
+        "description": "Attestation: secret material that may appear in queries on this flow (auth tokens, API keys, password-reset tokens passed as bind values, encryption keys) is masked or excluded in any captured query/error log. Secure when the log pipeline scrubs/masks known secret fields before persistence. Fires when secrets traverse this flow as raw bind values and reach the log store unredacted.",
+        "default": false
+      },
+      "data_store_publicly_routable": {
+        "type": "boolean",
+        "title": "Data Store Publicly Routable",
+        "description": "Interpreted attestation: the database endpoint serving this flow is reachable from the public internet — its security group / firewall allows 0.0.0.0/0 (or ::/0) on the DB port, OR listen_addresses is bound to all interfaces on a publicly-routable NIC. Secure value is false (the DB sits in a private subnet / is only reachable from the app tier). When true, mass internet scanners discover the listener within hours and credential-stuff against any known/leaked role — the precondition for the public-listener brute-force vector.",
+        "default": false
+      },
+      "data_tier_ingress_scoped_per_workload_identity": {
+        "type": "boolean",
+        "title": "Data-Tier Ingress Scoped Per Workload Identity",
+        "description": "Interpreted attestation: ingress to the data tier on this flow is constrained to the specific application workload's identity — security-group source is the app-tier SG (not 0.0.0.0/0, not a shared bastion SG, not a broad VPC CIDR), and pg_hba.conf / equivalent restricts the source range to that workload. Secure value is true. When false, any host that can reach the VPC (or the internet) can attempt the DB port — the network half of the brute-force precondition that pairs with data_store_publicly_routable.",
+        "default": false
+      }
+    },
+    "required": [
+      "parameterized_queries_used",
+      "dynamic_query_string_concatenation",
+      "flow_tls_encrypted",
+      "data_tier_transit_encrypted",
+      "server_certificate_validated",
+      "tls_root_trust_managed",
+      "per_workload_db_identity_used",
+      "data_tier_credentials_short_lived",
+      "least_privilege_db_account",
+      "bulk_read_volume_anomaly_alerted",
+      "bulk_export_monitored_and_alerted",
+      "pii_excluded_from_logs",
+      "secrets_masked_in_logs",
+      "data_store_publicly_routable",
+      "data_tier_ingress_scoped_per_workload_identity"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_workload_db_identity_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_db_account"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_transit_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_root_trust_managed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_credentials_short_lived"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_store_publicly_routable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_tier_ingress_scoped_per_workload_identity"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_query_string_concatenation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/parameterized_queries_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_export_monitored_and_alerted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bulk_read_volume_anomaly_alerted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_excluded_from_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

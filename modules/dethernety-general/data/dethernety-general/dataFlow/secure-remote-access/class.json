@@ -1,0 +1,9 @@
+{
+  "id": "5f88d821-1513-4c08-b9ed-7ea0aed3ac86",
+  "name": "Secure Remote Access",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Secure remote access — also called VPN traffic, a bastion/jump-host session, remote admin access, or an encrypted tunnel into internal zones — encrypted administrative or user sessions entering trusted networks via VPN or bastion. A bridge from untrusted to trusted. The place to look for remote access, VPN/bastion sessions, jump-host traffic, or encrypted admin entry into the internal network.",
+  "category": "Network Traffic",
+  "status": "draft"
+}

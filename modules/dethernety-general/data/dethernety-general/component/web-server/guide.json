@@ -1,0 +1,922 @@
+[
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Lowest TLS/SSL protocol version the server will negotiate (nginx ssl_protocols / Apache SSLProtocol). A secure posture offers only TLS 1.2 and TLS 1.3; offering SSLv3/TLS1.0/TLS1.1 permits a downgrade attack.",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when min_tls_version is the deprecated value tls1_0_or_tls1_1_or_sslv3_accepted, letting an on-path attacker force a downgrade to a broken protocol (POODLE/BEAST) and decrypt session traffic (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the negotiated TLS versions from the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -i 'ssl_protocols'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3; (secure) vs a line including TLSv1 or TLSv1.1 (insecure)",
+        "source": "nginx ngx_http_ssl_module — TLS termination directives"
+      },
+      {
+        "type": "command",
+        "instruction": "Scan the listener with testssl.sh to see which protocol versions actually negotiate.",
+        "command": "testssl.sh --protocols https://target:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.2/1.3 offered; SSLv2/SSLv3/TLS1.0/TLS1.1 reported as 'not offered' (secure) or 'offered (NOT ok)' (insecure)",
+        "source": "testssl.sh — Testing TLS/SSL encryption anywhere on any port"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate offered protocols/ciphers on the wire with nmap.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 target",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 sections present; no TLSv1.0/TLSv1.1 sections and no ciphers graded D/F",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "strong_cipher_suite_enforced",
+    "option_description": "Interpreted assertion that the negotiated cipher suites exclude weak/legacy ciphers (RC4, DES/3DES, EXPORT, NULL, MD5, non-PFS) and offer only forward-secret AEAD suites (ECDHE+GCM/ChaCha20, Mozilla Intermediate/Modern). Set via nginx ssl_ciphers / Apache SSLCipherSuite.",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when strong_cipher_suite_enforced is false (weak ciphers not disabled), enabling weak-crypto MITM / decryption of intercepted traffic (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the configured cipher list and preference flag from the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'ssl_ciphers|ssl_prefer_server_ciphers'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "Mozilla-generated ssl_ciphers line; ssl_prefer_server_ciphers off for TLS1.3-only / on for intermediate",
+        "source": "Mozilla SSL Configuration Generator (nginx)"
+      },
+      {
+        "type": "command",
+        "instruction": "Scan which ciphers actually negotiate per protocol with testssl.sh.",
+        "command": "testssl.sh --cipher-per-proto https://target:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only forward-secret AEAD ciphers offered; no RC4/3DES/EXPORT/NULL flagged",
+        "source": "Mozilla Server Side TLS — Recommended Configurations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "hsts_enabled",
+    "option_description": "Whether HTTP Strict-Transport-Security is served with an effective policy (max-age >= 2 years, includeSubDomains), forcing HTTPS and defeating SSL-strip/downgrade (RFC 6797).",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when hsts_enabled is false (HSTS absent or ineffective), so an on-path attacker can strip TLS on the first request and downgrade the client to plaintext (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the HSTS response header served over HTTPS.",
+        "command": "curl -sI https://target/ | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "strict-transport-security: max-age=63072000; includeSubDomains (secure) vs no such header (insecure)",
+        "source": "RFC 6797 HTTP Strict Transport Security (HSTS)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the HSTS add_header directive is present in the running config with an effective max-age.",
+        "command": "nginx -T 2>/dev/null | grep -i 'add_header Strict-Transport-Security'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;",
+        "source": "nginx ngx_http_headers_module — add_header for security headers"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Interpreted assertion that the served certificate is valid: CA-issued (not self-signed for public), unexpired, full chain, strong key (>=2048-bit RSA / 256-bit ECDSA) and SHA-256+ signature.",
+    "security_impact": "One of the OR-triggers of \"Weak TLS termination\" — fires when server_certificate_validated is false (expired/self-signed/weak-key cert), undermining endpoint authentication and enabling adversary-in-the-middle (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch the served certificate and inspect its dates, subject and issuer.",
+        "command": "openssl s_client -connect target:443 -servername target </dev/null 2>/dev/null | openssl x509 -noout -dates -subject -issuer",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notAfter in future; issuer is a trusted CA; subject matches host",
+        "source": "testssl.sh — Testing TLS/SSL encryption anywhere on any port"
+      },
+      {
+        "type": "command",
+        "instruction": "Run a full TLS scan to grade certificate chain, key strength and signature algorithm.",
+        "command": "testssl.sh https://target:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificate section: trusted chain, key >=2048-bit RSA / 256-bit ECDSA, SHA-256+ signature, not expired",
+        "source": "testssl.sh — Testing TLS/SSL encryption anywhere on any port"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "software_version_patched",
+    "option_description": "True when the server software (nginx/Apache/etc.) is running a current stable patched release within the patch SLA, not a version affected by an open RCE/DoS advisory.",
+    "security_impact": "Trigger of \"Unpatched server-software CVE (RCE / DoS)\" — fires when software_version_patched is false, meaning the running version is behind a known advisory (e.g. CVE-2024-24990 HTTP/3 use-after-free, CVE-2025-23419 TLS session-reuse, CVE-2023-44487 HTTP/2 Rapid Reset) directly exploitable on an internet-facing server (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running server version string and compare against the vendor advisory page for known-fixed releases.",
+        "command": "nginx -v 2>&1; apachectl -v 2>/dev/null; httpd -v 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "version string compared against the vendor advisory page for known-fixed releases",
+        "source": "nginx security advisories — version-CVE mapping"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the running release sits past the fixed version for every open advisory affecting the product, and that the deployment meets the organization's patch SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No open RCE/DoS advisory applies to the running build; patch SLA met",
+        "source": "MITRE ATT&CK T1190 Exploit Public-Facing Application"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "days_since_last_security_patch",
+    "option_description": "Number of days since the server software was last patched/updated. A long-unpatched internet-facing server accumulates exposure to newly-disclosed advisories.",
+    "security_impact": "Secondary OR-trigger of \"Unpatched server-software CVE (RCE / DoS)\" — fires above the patch-SLA threshold (30 days), reinforcing patch-currency for T1190 exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare the package/build install timestamp against today and report elapsed days.",
+        "command": "dpkg -l nginx 2>/dev/null; rpm -qi nginx 2>/dev/null | grep -i 'install date'; stat -c '%y' $(command -v nginx)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Install/build date; elapsed days computed against today (should be within the 30-day patch SLA)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Cross-check the package manager log for the most recent upgrade of the web-server package.",
+        "command": "grep -i nginx /var/log/dpkg.log /var/log/apt/history.log 2>/dev/null | tail; grep -i nginx /var/log/yum.log /var/log/dnf.rpm.log 2>/dev/null | tail",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Most recent upgrade/install entry for the web-server package; date used to compute elapsed days",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      3,
+      12,
+      45,
+      180
+    ]
+  },
+  {
+    "option_name": "experimental_http3_quic_enabled",
+    "option_description": "True when the experimental HTTP/3 (QUIC) listener is enabled (nginx ngx_http_v3). The secure value is false (QUIC off unless required) because enabling it widens the attack surface.",
+    "security_impact": "Insecure-widening OR-trigger of \"Unpatched server-software CVE (RCE / DoS)\" — fires on is_true, since the experimental QUIC listener was the vector for CVE-2024-24990 (use-after-free worker crash) and expands the exploitable surface (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check whether an HTTP/3 QUIC listener is configured in the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -E 'listen .* quic|http3 on'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "No match (HTTP/3 off = secure) vs a 'listen ... quic' or 'http3 on' line (enabled = insecure-widening)",
+        "source": "nginx ngx_http_ssl_module — TLS termination directives"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the host for an advertised HTTP/3 endpoint over UDP/443.",
+        "command": "nmap -sU -p 443 target; curl -sI --http3 https://target/ 2>/dev/null | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No HTTP/3 service responding (secure) vs an HTTP/3 alt-svc / successful --http3 response (enabled)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "server_version_tokens_disabled",
+    "option_description": "True when version/banner disclosure is suppressed — nginx server_tokens off, Apache ServerTokens Prod + ServerSignature Off — so the Server header and error pages do not leak the exact product version. nginx/Apache default to disclosing it.",
+    "security_impact": "An is_false-firing OR-trigger of BOTH \"Unpatched server-software CVE (RCE / DoS)\" and \"Server hardening gaps & info disclosure\" — when false, exact version tokens fingerprint the stack, easing targeted CVE selection (T1592.002) and accelerating T1190 exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the server_tokens directive in the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -i server_tokens",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "server_tokens off; (secure) vs on/absent — default is on (insecure)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the Server response header on the wire.",
+        "command": "curl -sI https://target/ | grep -i '^server:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "server: nginx (no version) or removed entirely (secure) vs server: nginx/1.30.0 (insecure)",
+        "source": "OWASP Secure Headers Project"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache, check the ServerTokens / ServerSignature directives.",
+        "command": "apachectl -t -D DUMP_RUN_CFG 2>/dev/null; grep -RiE 'ServerTokens|ServerSignature' /etc/apache2 /etc/httpd",
+        "file_path": "httpd.conf / apache2.conf",
+        "navigation": null,
+        "expected_output": "ServerTokens Prod and ServerSignature Off (secure); default Full/On (insecure)",
+        "source": "Apache httpd 2.4 mod_core directives (ServerTokens/TraceEnable/Options)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "worker_process_runs_unprivileged",
+    "option_description": "Whether the web server worker processes run as a dedicated unprivileged user (e.g. nginx/www-data) rather than root. Set via the nginx 'user' directive; the master binds privileged ports then drops privilege.",
+    "security_impact": "OR-trigger of \"Web-shell foothold via writable webroot / excessive privilege\" — fires when worker_process_runs_unprivileged is false, since root-running workers mean a worker compromise yields root and any dropped web shell executes with full privilege (T1505.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the configured worker user from the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -iE '^\\s*user '",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "user nginx; (non-root)",
+        "source": "nginx ngx_core_module — worker process privilege (user directive)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the running worker processes are not owned by root.",
+        "command": "ps -eo user,comm | grep -E 'nginx|httpd|apache' | grep -v root",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "worker rows owned by www-data/nginx, not root (secure)",
+        "source": "nginx ngx_core_module — worker process privilege (user directive)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webroot_writable_by_server_user",
+    "option_description": "Whether the webroot/code directories are writable by the serving (worker) user. The INSECURE value is true; least privilege (AC-6) requires the serving user to have read-only access to the served document root.",
+    "security_impact": "OR-trigger of \"Web-shell foothold via writable webroot / excessive privilege\" — fires when webroot_writable_by_server_user is true, since write+serve on the same path lets an attacker drop and then execute a server-side script (T1505.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List webroot ownership/permissions and search for files writable by the serving user.",
+        "command": "ls -la /var/www/html && find /var/www -perm -0002 -type f",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no world/group-writable files; serving user lacks write (secure)",
+        "source": "NIST SP 800-53 Rev 5 AC-6 Least Privilege"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the worker user specifically cannot write the document root.",
+        "command": "find /var/www -writable -user www-data -type f 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no rows (serving user cannot write the served document root = secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "http_method_allow_list_enforced",
+    "option_description": "True when dangerous/unused HTTP write methods are disabled and only needed verbs are exposed (GET/HEAD/POST as needed; TraceEnable Off; no PUT/DELETE/WebDAV PROPFIND/MKCOL unless required).",
+    "security_impact": "OR-trigger of BOTH \"Web-shell foothold via writable webroot / excessive privilege\" and \"Server hardening gaps & info disclosure\" — fires when http_method_allow_list_enforced is false, since an enabled PUT/WebDAV turns a write primitive into a web-shell upload path (T1505.003) and TRACE enables cross-site tracing / method fingerprinting (T1592.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Allow header advertised by an OPTIONS request.",
+        "command": "curl -s -X OPTIONS -i https://target/ | grep -i '^allow:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Allow: GET, HEAD, POST only (secure) vs includes PUT/DELETE/TRACE/PROPFIND (insecure)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "command",
+        "instruction": "Probe whether TRACE is enabled (cross-site tracing).",
+        "command": "curl -s -X TRACE -i https://target/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "405 Method Not Allowed / 501 (secure) vs 200 echoing the request (insecure — TRACE enabled)",
+        "source": "Apache httpd 2.4 mod_core directives (ServerTokens/TraceEnable/Options)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "directory_autoindex_disabled",
+    "option_description": "True when automatic directory listing is disabled — nginx has no 'autoindex on;' (off is default), Apache uses 'Options -Indexes'. When enabled, a directory without an index file returns an 'Index of /' page exposing the full file tree.",
+    "security_impact": "OR-trigger of \"Server hardening gaps & info disclosure\" — fires when directory_autoindex_disabled is false (autoindex on / Options Indexes), leaking the file layout (backups, configs, source) for targeted retrieval (T1083).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for any autoindex on; directives in the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -i autoindex",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "no autoindex on; lines (off is default = secure); any 'autoindex on;' is insecure",
+        "source": "nginx ngx_http_autoindex_module — directory listing"
+      },
+      {
+        "type": "command",
+        "instruction": "Request a directory with no index file and look for a generated listing.",
+        "command": "curl -s https://target/somedir/ | grep -i 'Index of'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no 'Index of /' page returned (secure) vs an HTML directory listing (insecure)",
+        "source": "Apache httpd 2.4 mod_core directives (ServerTokens/TraceEnable/Options)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sample_apps_and_default_content_removed",
+    "option_description": "True when shipped default/sample/welcome files and demo pages are removed from the webroot. Vendor-default content fingerprints the product and version and may itself carry known vulnerabilities.",
+    "security_impact": "OR-trigger of \"Server hardening gaps & info disclosure\" — fires when sample_apps_and_default_content_removed is false, since default index/sample/test content aids stack enumeration (T1592.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Probe for common vendor default pages on the served host.",
+        "command": "for p in / /index.nginx-debian.html /icons/ /manual/ /test.php /info.php; do echo -n \"$p \"; curl -s -o /dev/null -w '%{http_code}\\n' https://target$p; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "404 for vendor default/sample paths (removed = secure) vs 200 returning the shipped default/sample content (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the served document root for shipped default index pages, sample apps and demo/test content.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No vendor default/sample/demo files present in the served document root",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "status_endpoints_access_restricted",
+    "option_description": "True when built-in status/admin endpoints (nginx stub_status, Apache mod_status server-status, /admin) are IP-restricted (allow 127.0.0.1; deny all;) or disabled, rather than reachable from the internet.",
+    "security_impact": "OR-trigger of \"Server hardening gaps & info disclosure\" — fires when status_endpoints_access_restricted is false, since publicly-reachable /server-status / /nginx_status leak internal metrics, connections, request paths and config for reconnaissance (T1595.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Request the status endpoints from an external network and read the HTTP code.",
+        "command": "curl -s -o /dev/null -w '%{http_code}\\n' https://target/server-status; curl -s -o /dev/null -w '%{http_code}\\n' https://target/nginx_status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/404 from public source (secure) vs 200 with status output (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the status locations are gated by an access rule in the running config.",
+        "command": "nginx -T 2>/dev/null | grep -iA3 -E 'stub_status|server-status|location .*/admin'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "status/admin locations carry allow 127.0.0.1; deny all; (or auth) — not openly reachable",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dotfiles_and_vcs_metadata_blocked",
+    "option_description": "Attested true when the server denies direct access to VCS metadata and dotfiles under webroot (e.g. nginx 'location ~ /\\.(git|svn|env) { deny all; }') OR those files are kept out of the served document root.",
+    "security_impact": "OR-trigger of \"Sensitive-file / path exposure\" — fires when dotfiles_and_vcs_metadata_blocked is false (e.g. GET /.git/config or /.env returns 200 with contents), leaking source and secrets (T1083).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Probe common dotfile / VCS-metadata paths and read the HTTP codes.",
+        "command": "for p in /.git/config /.env /.svn/entries; do echo -n \"$p \"; curl -s -o /dev/null -w '%{http_code}\\n' https://target$p; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/404 for every probe (secure) vs 200 returning file contents (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm a deny rule for dotfiles/VCS metadata exists in the running config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'location ~ .*\\\\\\.(git|svn|env)|deny all'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "A location block denying ^/\\.(git|svn|env) (secure), or files confirmed absent from webroot",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "backup_and_swap_files_excluded_from_webroot",
+    "option_description": "Attested true when editor swap/backup and database/dump files (*.bak, *.old, *.swp, *.sql, config.php~) are denied by server rules OR absent from the served document root.",
+    "security_impact": "OR-trigger of \"Sensitive-file / path exposure\" — fires when backup_and_swap_files_excluded_from_webroot is false (e.g. GET /backup.sql or /config.php.bak returns 200), leaking source/credentials (T1083).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Probe common backup/swap filenames and read the HTTP codes.",
+        "command": "for p in /backup.sql /config.php.bak /index.php~ /database.old; do echo -n \"$p \"; curl -s -o /dev/null -w '%{http_code}\\n' https://target$p; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/404 for every probe (secure) vs 200 returning file contents (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm a deny rule for backup/swap extensions exists in the running config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'location ~\\* .*\\\\\\.(bak|old|swp|sql)'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "A location block denying \\.(bak|old|swp|sql)$ (secure), or such files confirmed absent from webroot",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "path_traversal_protection_enabled",
+    "option_description": "Attested true when the server normalizes and rejects path-traversal sequences (../, %2e%2e, encoded null/dot-segment tricks) so files outside the intended served subtree cannot be reached via crafted URLs.",
+    "security_impact": "Secondary OR-trigger of \"Sensitive-file / path exposure\" — fires when path_traversal_protection_enabled is false, since traversal can reach the same VCS metadata / env / backup files even when direct dotfile deny rules exist (T1083).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Send crafted traversal URLs and confirm they are normalized/rejected rather than serving files outside the subtree.",
+        "command": "for p in /../../etc/passwd /%2e%2e%2f%2e%2e%2fetc%2fpasswd /..%2f..%2fetc%2fpasswd; do echo -n \"$p \"; curl -s -o /dev/null -w '%{http_code}\\n' https://target$p; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "400/403/404 for every probe (normalized/rejected = secure) vs 200 returning a file outside the served subtree (insecure)",
+        "source": "OWASP Top 10 A05:2021 Security Misconfiguration"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review alias/root/location handling for unsafe trailing-slash alias patterns that re-enable traversal, and confirm URI normalization is on.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No misconfigured alias allowing dot-segment escape; server normalizes encoded dot-segments before mapping to filesystem",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "x_content_type_options_nosniff_set",
+    "option_description": "True when the server sends X-Content-Type-Options: nosniff on responses (including error responses via the 'always' flag), preventing browser MIME-type sniffing.",
+    "security_impact": "OR-trigger of \"Missing security response headers\" — fires when x_content_type_options_nosniff_set is false, allowing MIME-sniffing-based content interpretation attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the X-Content-Type-Options header on the wire.",
+        "command": "curl -sI https://target/ | grep -i x-content-type-options",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "x-content-type-options: nosniff present (secure) vs absent (insecure)",
+        "source": "OWASP Secure Headers Project"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the add_header directive is present with the 'always' flag so it applies to error responses.",
+        "command": "nginx -T 2>/dev/null | grep -i 'add_header'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header X-Content-Type-Options nosniff always; (applies to error responses too)",
+        "source": "nginx ngx_http_headers_module — add_header for security headers"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "frame_ancestors_restricted",
+    "option_description": "True when framing is restricted to defeat clickjacking — either X-Frame-Options: deny/sameorigin or a CSP frame-ancestors directive scoping who may embed the content.",
+    "security_impact": "OR-trigger of \"Missing security response headers\" — fires when frame_ancestors_restricted is false (no anti-framing control), permitting clickjacking.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for an anti-framing header on the wire.",
+        "command": "curl -sI https://target/ | grep -iE 'x-frame-options|content-security-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "X-Frame-Options deny/sameorigin or a CSP frame-ancestors directive present (secure) vs neither (insecure)",
+        "source": "OWASP Secure Headers Project"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the framing-control add_header is present in the running config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'add_header (X-Frame-Options|Content-Security-Policy)'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header X-Frame-Options DENY always; or a CSP with frame-ancestors set",
+        "source": "nginx ngx_http_headers_module — add_header for security headers"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "referrer_policy_set",
+    "option_description": "True when the server emits a Referrer-Policy header (e.g. no-referrer or strict-origin-when-cross-origin) limiting referrer leakage to third parties.",
+    "security_impact": "OR-trigger of \"Missing security response headers\" — fires when referrer_policy_set is false, so the default leaky referrer behavior exposes URLs/paths to third parties.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the Referrer-Policy header on the wire.",
+        "command": "curl -sI https://target/ | grep -i referrer-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "referrer-policy with a restrictive value (no-referrer / strict-origin-when-cross-origin) present (secure) vs absent (insecure)",
+        "source": "OWASP Secure Headers Project"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the Referrer-Policy add_header is present in the running config.",
+        "command": "nginx -T 2>/dev/null | grep -i 'add_header Referrer-Policy'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;",
+        "source": "nginx ngx_http_headers_module — add_header for security headers"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_body_size_capped",
+    "option_description": "Interpreted from nginx client_max_body_size / Apache LimitRequestBody. True when an explicit bounded request-body size limit is configured; false when bodies are unbounded (client_max_body_size 0) or sized so large that memory/disk can be exhausted.",
+    "security_impact": "OR-trigger of \"Request-handling denial of service\" — fires when request_body_size_capped is false (unbounded), enabling memory/disk exhaustion via oversized uploads or slow-POST (T1499.004).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the configured request-body limit from the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -i client_max_body_size",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "a bounded value (e.g. 10m). default is 1m; '0' means unlimited (insecure)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "command",
+        "instruction": "For Apache, check the LimitRequestBody directive.",
+        "command": "grep -RiE 'LimitRequestBody' /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "httpd.conf / apache2.conf",
+        "navigation": null,
+        "expected_output": "An explicit bounded LimitRequestBody value (secure) vs 0/absent (unbounded = insecure)",
+        "source": "Apache httpd 2.4 mod_core directives (ServerTokens/TraceEnable/Options)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "slowloris_timeouts_configured",
+    "option_description": "Interpreted from nginx client_body_timeout / client_header_timeout / keepalive_timeout (or Apache RequestReadTimeout). True when timeouts are tightened for internet exposure so a slow client cannot hold worker/connection slots open.",
+    "security_impact": "OR-trigger of \"Request-handling denial of service\" — fires when slowloris_timeouts_configured is false (slack defaults 60s/60s/75s), the primary enabler of Slowloris / slow-POST connection-exhaustion DoS (T1499.004).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the client/keepalive timeouts from the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'client_body_timeout|client_header_timeout|keepalive_timeout'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "tightened values; defaults are 60s/60s/75s (acceptable but high for internet-facing)",
+        "source": "nginx ngx_http_core_module — banner, methods, body/header limits"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache, check the mod_reqtimeout RequestReadTimeout directive.",
+        "command": "grep -RiE 'RequestReadTimeout' /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "httpd.conf / apache2.conf",
+        "navigation": null,
+        "expected_output": "RequestReadTimeout with tightened header/body bounds (secure) vs absent (slowloris-exposed)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_rate_limiting_enabled",
+    "option_description": "Interpreted from nginx limit_req_zone+limit_req / limit_conn (or Apache mod_ratelimit / mod_qos). True when per-IP request-rate and/or concurrent-connection limits are applied to internet-facing endpoints.",
+    "security_impact": "OR-trigger of \"Request-handling denial of service\" — fires when request_rate_limiting_enabled is false, leaving public endpoints open to volumetric L7 floods and HTTP/2 Rapid Reset stream-reset abuse (CVE-2023-44487; T1499.004).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for rate/connection-limiting directives in the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'limit_req|limit_conn'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "limit_req_zone and limit_req directives present on login/API paths",
+        "source": "nginx ngx_http_limit_req_module — request rate limiting"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache, check for mod_qos / mod_ratelimit configuration.",
+        "command": "grep -RiE 'QS_|mod_qos|SetOutputFilter RATE_LIMIT' /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "httpd.conf / apache2.conf",
+        "navigation": null,
+        "expected_output": "mod_qos per-IP connection limits or mod_ratelimit applied to public endpoints (secure) vs none (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_framing_normalized_front_back",
+    "option_description": "Whether the server enforces a single unambiguous request-framing interpretation consistent with its upstream — rejecting requests presenting both Content-Length and Transfer-Encoding, or relying on a deterministic CL/TE precedence shared with the front-end.",
+    "security_impact": "OR-trigger of \"HTTP request smuggling / desync\" — fires when request_framing_normalized_front_back is false, since CL/TE disagreement between this server and an upstream proxy enables request smuggling/desync (cache poisoning, auth bypass, request hijacking; T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run a smuggling test tool against the endpoint to detect framing desync.",
+        "command": "Use a smuggling test tool (e.g. Burp HTTP Request Smuggler / smuggler.py) against the endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no CL.TE / TE.CL / TE.TE desync detected (secure)",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the server and its upstream share a deterministic CL/TE precedence and that CL+TE requests are rejected rather than forwarded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Single consistent framing interpretation; conflicting CL+TE requests rejected",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ambiguous_length_headers_rejected",
+    "option_description": "Whether the server rejects (rather than normalizes or forwards) requests with conflicting or duplicate length-determining headers (duplicate Content-Length, CL+TE together, or malformed chunked framing).",
+    "security_impact": "OR-trigger of \"HTTP request smuggling / desync\" — fires when ambiguous_length_headers_rejected is false, letting an attacker craft a request that this server and the upstream parse differently to smuggle a hidden request past front-end controls (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send requests with duplicate Content-Length, CL+TE together, and malformed chunked framing and observe the response.",
+        "command": "Use a smuggling test tool (e.g. Burp HTTP Request Smuggler / smuggler.py) against the endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "server rejects ambiguous requests with 4xx (secure) vs normalizes/forwards them (insecure)",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the server's framing-rejection posture (duplicate CL, CL+TE, malformed chunked) rejects rather than normalizes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ambiguous length-header requests are rejected, not silently normalized",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "http2_downgrade_desync_mitigated",
+    "option_description": "Whether the server avoids unsafe HTTP/2-to-HTTP/1.1 downgrade translation to the upstream that re-introduces CL/TE ambiguity (H2.CL / H2.TE desync). Secure value is true (downgrade hardened or end-to-end HTTP/2 with validated framing).",
+    "security_impact": "OR-trigger of \"HTTP request smuggling / desync\" — fires when http2_downgrade_desync_mitigated is false, since rewriting front-end HTTP/2 framing into ambiguous HTTP/1.1 framing the backend mis-parses enables smuggling (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run an H2.CL/H2.TE downgrade-desync test against the endpoint.",
+        "command": "Use a smuggling test tool (e.g. Burp HTTP Request Smuggler / smuggler.py) with HTTP/2 downgrade tests against the endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no H2.CL / H2.TE downgrade desync detected (secure)",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the proxy's HTTP/2-to-HTTP/1.1 translation configuration; confirm framing is re-validated on downgrade or end-to-end HTTP/2 is used.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Downgrade translation re-validates framing, or end-to-end HTTP/2 with validated framing is in use",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "obsolete_transfer_encoding_tolerated",
+    "option_description": "Whether the server tolerates obfuscated or obsolete Transfer-Encoding tokens (whitespace tricks, duplicate TE headers, 'Transfer-Encoding: identity') instead of strictly normalizing or rejecting them. Secure value is false.",
+    "security_impact": "OR-trigger of \"HTTP request smuggling / desync\" — fires when obsolete_transfer_encoding_tolerated is true, since TE.TE desync becomes possible where this server and the upstream disagree on which TE header is authoritative (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send obfuscated/duplicate Transfer-Encoding tokens and observe whether they are rejected.",
+        "command": "Use a smuggling test tool (e.g. Burp HTTP Request Smuggler / smuggler.py) with TE.TE obfuscation tests against the endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "server rejects obfuscated/duplicate TE tokens (secure = tolerated:false) vs tolerates/forwards them (insecure)",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the server strictly normalizes or rejects whitespace-prefixed TE, duplicate TE and TE: identity rather than forwarding them.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Obsolete/obfuscated Transfer-Encoding requests are rejected, not tolerated",
+        "source": "HTTP Desync Attacks: Request Smuggling Reborn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "affected_by_published_smuggling_cve",
+    "option_description": "Whether the running server version is affected by a known open request-smuggling/desync advisory (e.g. nginx CVE-2019-20372 error_page internal-redirect request smuggling). Secure value is false (past the fixed release).",
+    "security_impact": "OR-trigger of \"HTTP request smuggling / desync\" — fires when affected_by_published_smuggling_cve is true, since the framing weakness is exploitable regardless of other hardening (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running server version and compare against vendor desync/smuggling advisories.",
+        "command": "nginx -v 2>&1; apachectl -v 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "version compared against e.g. nginx CVE-2019-20372 fixed release; build confirmed past the relevant fix (secure)",
+        "source": "nginx security advisories — version-CVE mapping"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the running build is past the fixed release for known desync CVEs and that error_page internal redirects are not exploitable.",
+        "command": "Confirm server version is past known smuggling/HTTP-2 CVE fixes (e.g. nginx CVE-2019-20372) and that error_page internal redirects are not exploitable",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "version >= fixed release for known desync CVEs",
+        "source": "nginx security advisories — version-CVE mapping"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "access_logging_enabled",
+    "option_description": "Whether the web server has both access logging and error logging enabled (e.g. nginx access_log/error_log set to real paths, not 'off').",
+    "security_impact": "OR-trigger of \"Inadequate access/error logging\" — fires when access_logging_enabled is false, so exploitation attempts and post-compromise activity go unrecorded (hindering detection of T1190 and concealing T1070 log tampering).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the access/error log directives from the running nginx config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'access_log|error_log'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "access_log and error_log paths set (not 'off'); ideally piped/forwarded",
+        "source": "nginx ngx_http_log_module — access logging"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache, confirm CustomLog and ErrorLog are configured.",
+        "command": "grep -RiE 'CustomLog|ErrorLog' /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "httpd.conf / apache2.conf",
+        "navigation": null,
+        "expected_output": "CustomLog and ErrorLog set to real paths (secure) vs disabled/absent (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "external_siem_forwarding_enabled",
+    "option_description": "Whether access/error logs are forwarded to a central logging system / SIEM (syslog shipping, log agent) rather than kept local-only.",
+    "security_impact": "OR-trigger of \"Inadequate access/error logging\" — fires when external_siem_forwarding_enabled is false, since logs that live only on the host can be cleared by an attacker (T1070), crippling detection and forensics.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check whether logs are piped/forwarded off-host in the web-server logging config.",
+        "command": "nginx -T 2>/dev/null | grep -iE 'access_log|error_log'",
+        "file_path": "nginx.conf",
+        "navigation": null,
+        "expected_output": "access_log/error_log piped to a forwarder, or paths picked up by a shipping agent (not local-only)",
+        "source": "nginx ngx_http_log_module — access logging"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a log shipper/agent (rsyslog/syslog, Fluent Bit, Vector, etc.) forwards the access/error logs off-host to a central SIEM, and verify arrival in the SIEM.",
+        "command": "systemctl status rsyslog fluent-bit vector 2>/dev/null; grep -RiE 'nginx|access.log|error.log' /etc/rsyslog.d /etc/fluent-bit /etc/vector 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active shipper with the web-server log paths in its inputs; corresponding events visible in the SIEM (secure) vs no forwarding (local-only = insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

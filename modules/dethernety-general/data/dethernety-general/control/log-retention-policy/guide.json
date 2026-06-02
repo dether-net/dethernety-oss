@@ -1,0 +1,381 @@
+[
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Number of days audit/security logs are preserved in hot, queryable storage. >= 90 days is the CIS 8.10 hot-retention floor.",
+    "security_impact": "Satisfies the policy exposure \"Adequate retention period enforced\" — one of its AND-conditions (log_retention_days >= 90 together with retention_schedule_enforced) — confirming a >=90-day window survives so a later-discovered intrusion still has evidence. Mitigates insufficient-retention evidence destruction (ATT&CK mitigation M1047, Audit).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented audit-log-management process for a defined hot-retention period.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented audit-log-management process states a defined retention period >=90 days for hot logs (and an explicit archival period for compliance). Absent or sub-90-day = insecure.",
+        "source": "CIS Controls v8 Control 8 (8.1, 8.10)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the live retention/ILM policy in the log platform / SIEM and confirm it meets the documented period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "In the log platform / SIEM, inspect the index or data-retention policy (e.g. retention setting on the index, lifecycle/ILM policy, or storage-class transition rule) and confirm the configured retention >= the documented period.",
+        "expected_output": "Configured retention >=90 days (secure) vs default/short rotation that overwrites within days (insecure).",
+        "source": "CIS Controls v8 Control 8 (8.10)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "retention_schedule_enforced",
+    "option_description": "Whether an automated, auditable retention schedule (ILM / lifecycle policy / retention-lock) enforces the retention window rather than relying on manual cleanup.",
+    "security_impact": "Satisfies the policy exposure \"Adequate retention period enforced\" — the second AND-condition alongside log_retention_days >= 90 — firing when retention_schedule_enforced is true, so the window is upheld automatically and logs are neither deleted early nor kept past lawful disposal.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the documented log-management process names an automated enforcement mechanism and that the live policy matches it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented log-management process names the enforcement mechanism (ILM/lifecycle policy/retention lock) and is reviewed at least annually; the live policy matches the document.",
+        "source": "CIS Controls v8 Control 8 (8.1)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the log platform, open the lifecycle/ILM or retention-lock policy and confirm it is active and scheduled (not disabled or manual).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log platform / SIEM -> index or bucket lifecycle / ILM policy view; confirm a retention/lifecycle policy is attached, enabled, and its phase transitions match the documented period.",
+        "expected_output": "An enabled, automated lifecycle/ILM/retention-lock policy is attached to the log store (secure) vs no policy / manual cleanup (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether audit records are forwarded to and retained on a physically/logically separate system in a distinct trust domain, so a host compromise cannot erase its own only copy (NIST AU-9(2)).",
+    "security_impact": "Satisfies the policy exposure \"Off-box centralized aggregation enforced\" — one of its AND-conditions (with centralized_log_aggregation) — firing when logs_stored_on_separate_system is true. Mitigates host-log clearing/deletion (ATT&CK T1070.001/.002) by preserving an off-box copy the compromised host cannot reach.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the architecture to confirm audit records are stored on a system separate from the audited host.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture review shows audit records are stored in a repository on a physically different system or component than the audited system, at a defined frequency. Logs only on the originating host = insecure.",
+        "source": "NIST SP 800-53 AU-9(2) Store on Separate Physical Systems or Components"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify a representative host's logs exist off-box and survive local deletion.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm a representative host's logs are present in the off-box store and that deleting them locally does not lose the off-box copy.",
+        "source": "NIST SP 800-92 (transmit/store lifecycle)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether all log sources are aggregated centrally (SIEM / central log platform) under one governed retention policy across enterprise assets (CIS 8.9).",
+    "security_impact": "Satisfies the policy exposure \"Off-box centralized aggregation enforced\" — the second AND-condition alongside logs_stored_on_separate_system — firing when centralized_log_aggregation is true, so all sources retain under one policy and no single host holds the only copy.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the documented process centralizes audit-log collection and retention (typically a SIEM).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit-log collection and retention are centralized to the extent possible per the documented process (typically a SIEM). Per-host-only logging with no central collector = insecure.",
+        "source": "CIS Controls v8 Control 8 (8.9)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Enumerate logging-capable assets and confirm each forwards to the central platform.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enumerate logging-capable assets and confirm each forwards to the central platform; gaps in coverage = partial.",
+        "source": "CIS Controls v8 Control 8 (8.2, 8.9)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether stored audit data uses WORM/immutable retention-lock plus cryptographic integrity protection (hash chaining/signing), so tampering or deletion is prevented or detectable (NIST AU-9(1)/(3)).",
+    "security_impact": "Satisfies the policy exposure \"Log integrity / tamper-evidence enforced\" — one of its OR-triggers (the other being log_pipeline_integrity_protected) — firing when audit_log_tamper_evident is true. Mitigates stored-log manipulation (ATT&CK T1565.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit trails use write-once media and/or cryptographic integrity protection.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit trails are written to hardware-enforced write-once media (AU-9(1)) and/or cryptographic mechanisms protect the integrity of audit information and tools (AU-9(3)). Freely-mutable in-place logs = insecure.",
+        "source": "NIST SP 800-53 AU-9(1) Hardware Write-Once Media; AU-9(3) Cryptographic Protection"
+      },
+      {
+        "type": "gui",
+        "instruction": "On the log store, confirm WORM/retention-lock is enabled and that deleting a within-retention record is rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "On the log store (e.g. object store with object-lock/compliance mode, or SIEM immutable index), confirm a retention-lock/WORM mode is enabled and that an attempt to delete/modify a retained record within the window is rejected.",
+        "expected_output": "Delete/modify of a within-retention record is denied (secure) vs succeeds (insecure).",
+        "source": "NIST SP 800-92 (integrity protection of stored logs)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_pipeline_integrity_protected",
+    "option_description": "Whether the log pipeline is integrity-protected end to end — across collection, transport, and at-rest storage — with no unprotected hop where records can be altered.",
+    "security_impact": "An OR-trigger of the policy exposure \"Log integrity / tamper-evidence enforced\" (alongside audit_log_tamper_evident), AND a required AND-condition of \"Authenticated, encrypted log forwarding enforced\" (with authenticated_log_forwarders_required). Both fire when log_pipeline_integrity_protected is true, confirming records cannot be altered in transit or at rest (ATT&CK T1565.001/.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Trace the pipeline (collection -> transport -> storage) and confirm integrity is preserved at every hop with no unprotected segment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each pipeline stage applies an integrity safeguard — authenticated/encrypted transport plus integrity checks at rest — with no cleartext or mutable-in-place hop. Any unprotected hop = insecure.",
+        "source": "NIST SP 800-92 (transmit and store phase integrity protection)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture a forwarding hop and confirm transport carries integrity protection (TLS/authenticated channel), corroborating the at-rest WORM/integrity check.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Capture/inspect a forwarding session and confirm it is TLS-protected and the collector rejects unauthenticated senders.",
+        "source": "NIST SP 800-92 (transmit phase)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "audit_management_restricted_to_privileged_subset",
+    "option_description": "Whether read access to audit data and the ability to configure/clear/manage logging are limited to a small, explicitly authorized privileged subset (NIST AU-9(4)/(6)).",
+    "security_impact": "Satisfies the policy exposure \"Audit-data access and management restricted\" — its sole trigger — firing when audit_management_restricted_to_privileged_subset is true. Mitigates adversaries disabling/modifying cloud logging (ATT&CK T1562.008) by denying unauthorized principals the rights to reconfigure or clear logs.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit-management and audit-data read access are authorized to only a defined privileged subset.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access to management of audit-logging functionality is authorized to only a defined subset of privileged users/roles (AU-9(4)); read access to audit information is similarly scoped (AU-9(6)); detection of unauthorized access/modification/deletion raises an alert (AU-9).",
+        "source": "NIST SP 800-53 AU-9, AU-9(4) Access by Subset of Privileged Users, AU-9(6) Read-Only Access"
+      },
+      {
+        "type": "gui",
+        "instruction": "List which roles can read logs and which can change retention/forwarding/deletion settings; confirm both are limited to the privileged subset.",
+        "command": null,
+        "file_path": null,
+        "navigation": "In the log platform's role/permission model, list which roles can read logs and which can change retention/forwarding/deletion settings; confirm both are limited to the privileged subset.",
+        "expected_output": "Only the named privileged roles hold audit-data read and audit-management rights (secure) vs all operators (insecure).",
+        "source": "NIST SP 800-53 AU-9(4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_access_monitored",
+    "option_description": "Whether unauthorized access, modification, or deletion of logs generates an alert — supporting detection that strengthens the access-restriction control.",
+    "security_impact": "Supporting (CONTEXTUAL_EVIDENCE) context for the policy exposure \"Audit-data access and management restricted\" (AU-9 alerting facet); it is not itself an OR-trigger of that rule's condition (audit_management_restricted_to_privileged_subset is), but alerting on unauthorized access/modification/deletion strengthens the same control and helps detect ATT&CK T1562.008 attempts.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm detection of unauthorized access/modification/deletion of audit data raises an alert.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Detection of unauthorized access/modification/deletion raises an alert (AU-9); supporting detection that strengthens the access-restriction control.",
+        "source": "NIST SP 800-53 AU-9, AU-9(4) Access by Subset of Privileged Users, AU-9(6) Read-Only Access"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify alert rules exist for audit-log access/change/deletion events and have fired or been tested.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A detection/alert rule for unauthorized audit-data access, modification, or deletion is present and demonstrably triggers (test event raises an alert) — vs no monitoring of log-access events.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "authenticated_log_forwarders_required",
+    "option_description": "Whether log forwarders mutually authenticate and transmit over a TLS-protected channel rather than emitting cleartext/unauthenticated UDP syslog.",
+    "security_impact": "Satisfies the policy exposure \"Authenticated, encrypted log forwarding enforced\" — one of its AND-conditions (with log_pipeline_integrity_protected) — firing when authenticated_log_forwarders_required is true. Mitigates log transit interception/spoofing (ATT&CK T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm log transmission uses an authenticated, encrypted channel with forwarders presenting validated credentials/certs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log transmission uses an authenticated, encrypted channel; forwarders present credentials/certs the collector validates. Plain cleartext syslog over UDP without authentication = insecure.",
+        "source": "NIST SP 800-92 (protect confidentiality and integrity of logs in transit)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture a forwarding session and confirm it is TLS-protected and the collector rejects unauthenticated senders.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Capture/inspect a forwarding session and confirm it is TLS-protected and the collector rejects unauthenticated senders.",
+        "source": "NIST SP 800-92 (transmit phase)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_storage_sized_for_retention",
+    "option_description": "Whether logging destinations are provisioned (and monitored) to hold the full retention window so logs are not silently rotated/evicted before the retention period elapses (CIS 8.3 / AU-4).",
+    "security_impact": "Satisfies the policy exposure \"Storage sized for the retention window\" — one of its OR-triggers (the other being log_flood_overflow_protection) — firing when log_storage_sized_for_retention is true, ensuring logs are not truncated before the configured window completes.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logging destinations maintain adequate, monitored storage to comply with the retention period.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logging destinations maintain adequate storage to comply with the audit-log-management process; capacity is monitored so rotation never truncates within the retention window.",
+        "source": "CIS Controls v8 Control 8 (8.3)"
+      },
+      {
+        "type": "gui",
+        "instruction": "On the log store, compare provisioned capacity and current daily ingest against the retention window to confirm headroom.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log platform / SIEM storage or capacity dashboard; compare allocated storage and ingest rate against (daily volume x retention days) to confirm the window fits within capacity.",
+        "expected_output": "Provisioned capacity exceeds projected volume for the full retention window (secure) vs capacity that rotates logs out early (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_flood_overflow_protection",
+    "option_description": "Whether capacity is monitored and alerted with log-flood/overflow protection, so a burst of events does not cause rotation to silently drop records.",
+    "security_impact": "Satisfies the policy exposure \"Storage sized for the retention window\" — one of its OR-triggers (the other being log_storage_sized_for_retention) — firing when log_flood_overflow_protection is true, preventing silent loss of records under load.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm capacity monitoring/alerting and flood/overflow handling are in place so event bursts do not silently lose records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logging destinations maintain adequate storage to comply with the audit-log-management process; capacity is monitored so rotation never truncates within the retention window.",
+        "source": "CIS Controls v8 Control 8 (8.3)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Verify ingest/queue back-pressure or rate-limit handling and a capacity/overflow alert exist in the collector or SIEM.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log collector / SIEM ingestion settings and alerting; confirm a capacity/ingest-volume alert is configured and back-pressure/buffering (not silent drop) handles flood conditions.",
+        "expected_output": "Capacity alerts plus buffering/back-pressure on overflow are configured (secure) vs unmonitored ingest that silently drops on overflow (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Whether logging assets synchronize to >= 2 approved/authenticated time sources so cross-source timelines are accurate and trustworthy (CIS 8.4 / AU-8).",
+    "security_impact": "Satisfies the policy exposure \"Trusted time synchronization and secure end-of-retention disposal\" — one of its AND-conditions (with secure_disposal_at_end_of_retention) — firing when clocks_synced_to_trusted_time_source is true, so a correlated forensic timeline across sources can be reconstructed and trusted.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm at least two synchronized approved time sources are configured across logging-capable assets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least two synchronized time sources are configured across enterprise assets where supported. Unsynchronized clocks or a single NTP source = weaker.",
+        "source": "CIS Controls v8 Control 8 (8.4)"
+      },
+      {
+        "type": "command",
+        "instruction": "On a representative logging host, check clock-sync status and the number of reachable upstream sources.",
+        "command": "timedatectl status   # or: chronyc sources",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "System clock synchronized: yes, with two or more reachable upstream sources (secure).",
+        "source": "CIS Controls v8 Control 8 (8.4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "secure_disposal_at_end_of_retention",
+    "option_description": "Whether logs are securely sanitized (Clear/Purge/Destroy per NIST SP 800-88r2) at end of retention rather than left recoverable in backups/snapshots.",
+    "security_impact": "Satisfies the policy exposure \"Trusted time synchronization and secure end-of-retention disposal\" — one of its AND-conditions (with clocks_synced_to_trusted_time_source) — firing when secure_disposal_at_end_of_retention is true, so retained audit data containing sensitive information is not recoverable after lawful disposal.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm end-of-retention disposal follows a documented, logged sanitization method matched to media and impact.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "End-of-retention disposal follows a documented sanitization method (Clear / Purge / Destroy) matched to media type and confidentiality impact; disposal is logged.",
+        "source": "NIST SP 800-88 Rev. 2 Guidelines for Media Sanitization"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review disposal records to confirm logs past the retention window were sanitized and are no longer recoverable (including from backups/snapshots).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Disposal log entries show expired logs sanitized on schedule; no residual recoverable copies linger in backups/snapshots (secure) vs indefinite/recoverable retention (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  }
+]

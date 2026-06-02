@@ -1,0 +1,9 @@
+{
+  "id": "8117d978-b95b-44d2-a413-28f3e62ebf7f",
+  "name": "Source Code & Artifact Repository",
+  "classType": "component",
+  "type": "STORE",
+  "description": "A source-code and artifact repository — also called Git/GitHub/GitLab/Bitbucket, an artifact registry, container/image registry, Nexus/Artifactory, or package repo — that stores source, build artifacts, and container images feeding deployments. The origin of the supply chain into production. The place to look for the code repository, Git host, artifact/package/container registry, or where source and build outputs are stored.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

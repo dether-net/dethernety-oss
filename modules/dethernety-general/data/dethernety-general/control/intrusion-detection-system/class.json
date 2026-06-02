@@ -1,0 +1,9 @@
+{
+  "id": "4edea111-09f2-4d95-b328-04b70f2c9376",
+  "name": "Intrusion Detection System",
+  "classType": "control",
+  "type": "Intrusion Detection System",
+  "description": "An intrusion detection system (IDS) — also called IPS, network/host intrusion detection, NIDS/HIDS, Snort/Suricata, or anomaly detection — a control that monitors network and host activity for known-malicious or anomalous patterns and raises alerts. The place to look for IDS/IPS, intrusion detection, network anomaly monitoring, or signature/behavior-based attack detection.",
+  "category": "Detection",
+  "status": "draft"
+}

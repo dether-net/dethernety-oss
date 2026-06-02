@@ -1,0 +1,122 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "passwords_one_way_hashed": false,
+      "adaptive_memory_hard_hash_used": false,
+      "per_credential_salt_used": false,
+      "adequate_work_factor": false,
+      "secrets_stored_in_dedicated_secret_manager": false,
+      "secrets_hardcoded_in_config_or_iac": true,
+      "tls_only_transport": false,
+      "hsts_enforced": false,
+      "rate_limiting_or_lockout_enabled": false,
+      "breached_password_screening_enabled": false,
+      "mfa_available": false,
+      "max_consecutive_failed_attempts": 100,
+      "generic_failure_responses": false,
+      "constant_time_login_responses": false,
+      "password_min_length": 0,
+      "password_max_length_cap_below_64": true,
+      "composition_rules_or_forced_rotation_imposed": true,
+      "key_rotation_enabled": false,
+      "forced_reset_or_revocation_on_compromise": false,
+      "secrets_masked_in_logs": false,
+      "transmitted_in_url_or_query": true,
+      "least_privilege_access_enforced": false,
+      "pepper_stored_separately": false
+    },
+    "expectedExposures": [
+      "Credentials transmitted in cleartext",
+      "Credentials leaked to logs or URLs",
+      "Over-broad access to the credential store",
+      "Weak / unsalted / fast password hashes",
+      "Hardcoded / unvaulted API, SSH and private keys",
+      "Plaintext or reversibly-encrypted password storage",
+      "No rotation or revocation on compromise",
+      "Online brute force and credential stuffing",
+      "Username enumeration via differential responses",
+      "Weak credential-strength policy"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "passwords_one_way_hashed": true,
+      "adaptive_memory_hard_hash_used": true,
+      "per_credential_salt_used": true,
+      "adequate_work_factor": true,
+      "secrets_stored_in_dedicated_secret_manager": true,
+      "secrets_hardcoded_in_config_or_iac": false,
+      "tls_only_transport": true,
+      "hsts_enforced": true,
+      "rate_limiting_or_lockout_enabled": true,
+      "breached_password_screening_enabled": true,
+      "mfa_available": true,
+      "max_consecutive_failed_attempts": 0,
+      "generic_failure_responses": true,
+      "constant_time_login_responses": true,
+      "password_min_length": 8,
+      "password_max_length_cap_below_64": false,
+      "composition_rules_or_forced_rotation_imposed": false,
+      "key_rotation_enabled": true,
+      "forced_reset_or_revocation_on_compromise": true,
+      "secrets_masked_in_logs": true,
+      "transmitted_in_url_or_query": false,
+      "least_privilege_access_enforced": true,
+      "pepper_stored_separately": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "passwords_one_way_hashed": true,
+      "adaptive_memory_hard_hash_used": true,
+      "per_credential_salt_used": true,
+      "adequate_work_factor": true,
+      "secrets_stored_in_dedicated_secret_manager": true,
+      "secrets_hardcoded_in_config_or_iac": false,
+      "tls_only_transport": true,
+      "hsts_enforced": true,
+      "rate_limiting_or_lockout_enabled": true,
+      "breached_password_screening_enabled": true,
+      "mfa_available": true,
+      "max_consecutive_failed_attempts": 0,
+      "generic_failure_responses": true,
+      "constant_time_login_responses": true,
+      "password_min_length": 0,
+      "password_max_length_cap_below_64": false,
+      "composition_rules_or_forced_rotation_imposed": false,
+      "key_rotation_enabled": true,
+      "forced_reset_or_revocation_on_compromise": true,
+      "secrets_masked_in_logs": true,
+      "transmitted_in_url_or_query": false,
+      "least_privilege_access_enforced": true,
+      "pepper_stored_separately": true
+    },
+    "expectedExposures": [
+      "Weak credential-strength policy"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Credentials transmitted in cleartext",
+      "Credentials leaked to logs or URLs",
+      "Over-broad access to the credential store",
+      "Weak / unsalted / fast password hashes",
+      "Hardcoded / unvaulted API, SSH and private keys",
+      "Plaintext or reversibly-encrypted password storage",
+      "No rotation or revocation on compromise",
+      "Online brute force and credential stuffing",
+      "Username enumeration via differential responses",
+      "Weak credential-strength policy"
+    ]
+  }
+]

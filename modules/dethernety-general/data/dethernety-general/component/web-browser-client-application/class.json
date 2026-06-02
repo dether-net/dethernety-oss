@@ -1,0 +1,9 @@
+{
+  "id": "978aef9b-a3e7-4fd0-b3b3-c7faf137078a",
+  "name": "Web Browser / Client Application",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "A web browser or client application — also called the SPA, frontend, browser client, mobile/desktop app, or user agent — the untrusted client software through which end users interact, rendering the UI and holding tokens, session state, and cached data client-side. Runs entirely outside server control. The place to look for the browser, frontend/SPA, client app, or the user-side software rendering the interface and holding session data.",
+  "category": "Client Devices",
+  "status": "draft"
+}

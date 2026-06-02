@@ -1,0 +1,200 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "ingress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Ingress Default-Deny Enforced",
+        "description": "Default-deny inbound with finite (proto, port, destination) allow-list cross-referenced to asset inventory. No any/any/allow; no shadow public IP.",
+        "default": false
+      },
+      "waf_active_blocking_on_public_web": {
+        "type": "boolean",
+        "title": "WAF in Active Blocking Mode",
+        "description": "WAF in BLOCKING mode in front of every public HTTP app (OWASP CRS / equivalent), not monitor-only.",
+        "default": false
+      },
+      "remote_access_via_ztna_or_mfa_vpn": {
+        "type": "boolean",
+        "title": "Remote Access via ZTNA or MFA-Protected VPN",
+        "description": "Remote access via ZTNA or VPN with phishing-resistant MFA AND tunnel exits into segmented zone with per-app authz (not flat LAN).",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliances Patched Within SLA",
+        "description": "Every internet-facing edge appliance on vendor-supported non-EOL firmware; no KEV-listed CVE past CISA BOD 22-01 deadline (15d internet-facing).",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet-Reachable",
+        "description": "Admin/mgmt planes of edge appliances bind to internal mgmt VLAN only; not reachable from public internet. Admin via bastion/ZTNA.",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Upstream volumetric (L3/L4) + L7 DDoS protection covers every public entry point (CDN/Shield/Cloudflare/Akamai) with engagement runbook.",
+        "default": false
+      },
+      "egress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Egress Default-Deny Enforced",
+        "description": "Outbound default-deny with FQDN allowlist; client-side DoH to public resolvers blocked so corp DNS inspection cannot be bypassed.",
+        "default": false
+      },
+      "dns_hardened": {
+        "type": "boolean",
+        "title": "DNS Hardened",
+        "description": "Authoritative DNS: DNSSEC+DS at parent, no dangling CNAMEs (continuous takeover monitoring), DMARC p=reject + SPF -all + DKIM, registrar MFA+lock.",
+        "default": false
+      },
+      "cloud_objects_not_anonymously_public": {
+        "type": "boolean",
+        "title": "Cloud Object Storage Not Anonymously Public",
+        "description": "No bucket (S3/Blob/GCS) holding non-public data permits anonymous read/write; account-level public-access-block enforced.",
+        "default": false
+      },
+      "perimeter_crossings_logged_and_centralized": {
+        "type": "boolean",
+        "title": "Perimeter Crossings Logged and Centralized",
+        "description": "Every perimeter ingress/egress (firewall flow logs, VPN, WAF, VPC flow logs) shipped to central tamper-resistant store separate from audited devices; >=90d online.",
+        "default": false
+      }
+    },
+    "required": [
+      "ingress_default_deny_enforced",
+      "waf_active_blocking_on_public_web",
+      "remote_access_via_ztna_or_mfa_vpn",
+      "edge_appliance_patched_within_sla",
+      "edge_management_interfaces_not_internet_reachable",
+      "ddos_protection_in_place",
+      "egress_default_deny_enforced",
+      "dns_hardened",
+      "cloud_objects_not_anonymously_public",
+      "perimeter_crossings_logged_and_centralized"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_access_via_ztna_or_mfa_vpn"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dns_hardened"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_default_deny_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ingress_default_deny_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_active_blocking_on_public_web"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/perimeter_crossings_logged_and_centralized"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_objects_not_anonymously_public"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

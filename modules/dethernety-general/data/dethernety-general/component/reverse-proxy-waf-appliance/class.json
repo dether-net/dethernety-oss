@@ -1,0 +1,9 @@
+{
+  "id": "4040841b-5db7-46b2-80c7-a2bca302816d",
+  "name": "Reverse Proxy / WAF Appliance",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A reverse proxy or WAF appliance — also called an Nginx/HAProxy reverse proxy, edge proxy, application gateway, or web application firewall front end — an intermediary that inspects, filters, and forwards HTTP traffic in front of application servers. Runtime host of WAF logic, distinct from the rules it enforces. The place to look for the reverse proxy, WAF appliance, edge HTTP proxy, or the filtering intermediary fronting web apps.",
+  "category": "Edge & Traffic",
+  "status": "draft"
+}

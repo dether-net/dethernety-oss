@@ -1,0 +1,534 @@
+[
+  {
+    "option_name": "automated_backups_configured",
+    "option_description": "Whether an authorized backup tool runs scheduled/automated backups of in-scope assets rather than relying on manual initiation (CIS 11.2).",
+    "security_impact": "Satisfies \"Automated backups at adequate frequency (RPO)\" — fires when automated_backups_configured is true (together with backup_rpo_hours <= 168 and data_recovery_process_documented). Providing this protection underpins ATT&CK M1053 Data Backup, removing human-omission as a recovery gap against T1485/T1486/T1490.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup tooling and schedule to confirm an authorized tool runs recurring jobs across in-scope assets without manual initiation, with recent successful job records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An authorized backup tool with a configured recurring schedule covering in-scope assets, and recent successful job records (secure) vs manual/absent jobs (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.2"
+      },
+      {
+        "type": "command",
+        "instruction": "For an AWS Backup-managed environment, list configured backup plans to confirm scheduled rules exist and cover the in-scope resources.",
+        "command": "aws backup list-backup-plans && aws backup list-backup-selections --backup-plan-id <plan-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more backup plans with scheduled rules and resource selections covering in-scope assets (secure) vs no plans / no selections (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_rpo_hours",
+    "option_description": "The recovery point objective in hours — the maximum tolerable data-loss window implied by backup frequency; weekly (168h) or tighter is compliant (CIS 11.2; M1053).",
+    "security_impact": "One of the OR-conditions of \"Automated backups at adequate frequency (RPO)\" — fires when backup_rpo_hours is <= 168 (with automated_backups_configured true and data_recovery_process_documented true). Bounding the data-loss window provides ATT&CK M1053 Data Backup coverage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Derive the maximum tolerable data-loss window from the backup schedule/policy; weekly cadence or tighter (with more frequent backups for sensitive data) maps to RPO <= 168 hours.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup schedule shows at least weekly cadence for in-scope assets (more frequent for sensitive data) and a defined RPO (secure) vs sparse/undefined cadence (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.2; ATT&CK M1053 Data Backup"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS Backup, read the schedule expression on each plan rule to compute the backup interval, and convert the tightest cadence to hours for the RPO.",
+        "command": "aws backup get-backup-plan --backup-plan-id <plan-id> --query 'BackupPlan.Rules[].ScheduleExpression'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A cron/rate schedule indicating at least weekly cadence (e.g. daily) giving RPO <= 168h (secure) vs intervals longer than a week (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      24,
+      4,
+      168
+    ]
+  },
+  {
+    "option_name": "data_recovery_process_documented",
+    "option_description": "Whether a written data-recovery / contingency process exists covering scope, recovery prioritization, and backup security, reviewed at least annually (CIS 11.1).",
+    "security_impact": "One of the OR-conditions of \"Automated backups at adequate frequency (RPO)\" — fires when data_recovery_process_documented is true (with automated_backups_configured true and backup_rpo_hours <= 168). It is the governing procedure the rest of the M1053 backup control rests on.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request and review the data-recovery / contingency plan; confirm it names in-scope assets, recovery prioritization, and how backup data is secured, and shows evidence of review within the last 12 months.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A written data-recovery / contingency plan that names in-scope assets, recovery prioritization, and how backup data is secured; reviewed within the last 12 months (secure) vs absent/stale (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.1"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backups_encrypted",
+    "option_description": "Whether backup data is encrypted at rest on the backup store (SSE, vault encryption, or equivalent) so a backup copy is not a softer target than primary data (CIS 11.3; NIST SP 800-209).",
+    "security_impact": "Satisfies \"Backups encrypted at rest and in transit\" — fires when backups_encrypted is true (together with backups_encrypted_in_transit and backup_keys_in_separate_trust_domain). Provides recovery-data confidentiality equivalent to source-data controls.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the backup tool/storage has server-side or client-side encryption enabled for backup data, equivalent to source-data controls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup tool/storage shows server-side or client-side encryption enabled for backup data with transport encryption for transfers, equivalent to source-data controls (secure) vs unencrypted backups (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.3"
+      },
+      {
+        "type": "command",
+        "instruction": "For an S3-backed backup destination, query the bucket's at-rest encryption configuration.",
+        "command": "aws s3api get-bucket-encryption --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a ServerSideEncryptionConfiguration (e.g. aws:kms or AES256) (secure) vs ServerSideEncryptionConfigurationNotFoundError (insecure) — for an S3-backed backup destination.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure (backups receive equivalent protection)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backups_encrypted_in_transit",
+    "option_description": "Whether backup transfers to/from the destination use TLS or an equivalent encrypted channel (CIS 11.3).",
+    "security_impact": "One of the OR-conditions of \"Backups encrypted at rest and in transit\" — fires when backups_encrypted_in_transit is true (with backups_encrypted and backup_keys_in_separate_trust_domain). Protects backup data on the wire so transfers are not a softer target than primary data.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the backup tool transfers data to/from the destination over TLS or an equivalent encrypted channel (check transfer settings / endpoint scheme).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup tool/storage shows server-side or client-side encryption enabled for backup data with transport encryption for transfers, equivalent to source-data controls (secure) vs unencrypted backups (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.3"
+      },
+      {
+        "type": "command",
+        "instruction": "For an S3-backed destination, confirm a bucket policy denies non-TLS access so all backup transfers are forced over HTTPS.",
+        "command": "aws s3api get-bucket-policy --bucket <backup-bucket> --query 'Policy' | grep -i aws:SecureTransport",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy statement denying requests where aws:SecureTransport is false (secure) vs no such statement / plaintext transfers permitted (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_keys_in_separate_trust_domain",
+    "option_description": "Whether backup encryption keys are held in a KMS/trust domain distinct from production data-tier credentials, so a production compromise cannot decrypt backups (NIST SP 800-209).",
+    "security_impact": "One of the OR-conditions of \"Backups encrypted at rest and in transit\" — fires when backup_keys_in_separate_trust_domain is true (with backups_encrypted and backups_encrypted_in_transit). Separating key custody removes a single point of compromise for backup confidentiality.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm backup encryption keys are managed in a KMS/trust domain distinct from production data-tier credentials; review key-policy/IAM grants to verify production identities cannot use the backup keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup-destination IAM/ACL grants show delete/management restricted to a dedicated backup role separate from production identities; restore path authenticates to the control plane independently (secure) vs shared/production credentials able to delete backups (insecure).",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure (restoration path authenticates independently of data-tier credentials)"
+      },
+      {
+        "type": "command",
+        "instruction": "For an AWS KMS-backed backup key, read its key policy and confirm grants are limited to the backup role/account, not production data-tier principals.",
+        "command": "aws kms get-key-policy --key-id <backup-cmk-id> --policy-name default",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key policy grants encrypt/decrypt only to the dedicated backup role/account (secure) vs production data-tier principals listed as key users (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_immutability_enabled",
+    "option_description": "Whether WORM immutability (S3 Object Lock / vault lock) is enabled on the backup store so backups cannot be overwritten or deleted within the retention window — the core anti-ransomware property (CIS 11.4; M1053).",
+    "security_impact": "Satisfies \"Backup immutability (WORM / Object Lock)\" — fires when backup_immutability_enabled is true (together with object_lock_retention_mode = COMPLIANCE). Mitigates T1490 Inhibit System Recovery, T1485 Data Destruction, and T1486 Data Encrypted for Impact by preventing deletion/overwrite of historical versions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For an S3-backed backup destination, read the bucket's Object Lock configuration to confirm WORM is enabled.",
+        "command": "aws s3api get-object-lock-configuration --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockConfiguration with ObjectLockEnabled=Enabled and a Rule.DefaultRetention.Mode of COMPLIANCE plus a retention period (secure) vs an error 'ObjectLockConfigurationNotFoundError' or Mode=GOVERNANCE (weaker — bypassable with s3:BypassGovernanceRetention) (insecure).",
+        "source": "AWS S3 documentation — Object Lock considerations (get-object-lock-configuration; compliance mode cannot be overwritten/deleted by any user including root)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm individual backup object versions actually carry retention (not just the bucket default).",
+        "command": "aws s3api get-object-retention --bucket <backup-bucket> --key <object-key>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention.Mode=COMPLIANCE with a future RetainUntilDate on backup object versions (secure) vs no retention returned (insecure).",
+        "source": "AWS S3 documentation — Object Lock considerations (s3:GetObjectRetention to view retention mode/period)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "object_lock_retention_mode",
+    "option_description": "The Object Lock/WORM retention mode: COMPLIANCE (root cannot delete or shorten retention — strong immutable), GOVERNANCE (bypassable by privileged roles), or NONE (no lock). Secure value is COMPLIANCE.",
+    "security_impact": "Satisfies \"Backup immutability (WORM / Object Lock)\" — fires when object_lock_retention_mode is COMPLIANCE (with backup_immutability_enabled true). COMPLIANCE mode is the only value that resists T1490/T1485/T1486 even from a privileged/root attacker; GOVERNANCE is bypassable and NONE provides no protection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the bucket-level default Object Lock retention mode for an S3-backed destination.",
+        "command": "aws s3api get-object-lock-configuration --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockConfiguration with ObjectLockEnabled=Enabled and a Rule.DefaultRetention.Mode of COMPLIANCE plus a retention period (secure) vs an error 'ObjectLockConfigurationNotFoundError' or Mode=GOVERNANCE (weaker — bypassable with s3:BypassGovernanceRetention) (insecure).",
+        "source": "AWS S3 documentation — Object Lock considerations (get-object-lock-configuration; compliance mode cannot be overwritten/deleted by any user including root)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the retention mode applied to actual backup object versions, since per-object retention can differ from the bucket default.",
+        "command": "aws s3api get-object-retention --bucket <backup-bucket> --key <object-key>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention.Mode=COMPLIANCE with a future RetainUntilDate on backup object versions (secure) vs Mode=GOVERNANCE or no retention (insecure).",
+        "source": "AWS S3 documentation — Object Lock considerations (s3:GetObjectRetention to view retention mode/period)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "COMPLIANCE"
+    ]
+  },
+  {
+    "option_name": "offline_airgapped_backup_exists",
+    "option_description": "Whether at least one recovery copy is offline / air-gapped / off-site and unreachable from production networks or credentials (CIS 11.4; M1053; the 3-2-1 isolation property).",
+    "security_impact": "One of the two OR-groups satisfying \"Isolated / air-gapped copy (3-2-1)\" — fires when offline_airgapped_backup_exists is true (the alternate group is backup_copy_in_separate_account_or_region). An isolated copy mitigates T1490/T1485/T1486 by surviving a full production compromise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Obtain evidence that at least one copy of backups lives offline or air-gapped and is unreachable from production networks/credentials.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that a copy of backups lives offline or in an account/region/site separate from production, version-controlled (secure) vs all copies co-located and reachable from production credentials (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.4; ATT&CK M1053 (copy backups to isolated accounts/regions)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a production host/credential, attempt to reach the offline/air-gapped backup target to confirm it is genuinely unreachable from the production trust domain.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection/authentication to the isolated backup copy fails from production-side networks and credentials (secure) vs reachable/usable from production (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_copy_in_separate_account_or_region",
+    "option_description": "Whether at least one backup copy resides in a separate cloud account/region/trust domain from production, so a single-account compromise cannot destroy all copies (CIS 11.4; M1053).",
+    "security_impact": "The alternate OR-group satisfying \"Isolated / air-gapped copy (3-2-1)\" — fires when backup_copy_in_separate_account_or_region is true (the other group is offline_airgapped_backup_exists). Cross-account/region isolation mitigates T1490/T1485 by removing a single point of destruction.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify at least one backup copy resides in a separate cloud account/region/trust domain from production.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that a copy of backups lives offline or in an account/region/site separate from production, version-controlled (secure) vs all copies co-located and reachable from production credentials (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.4; ATT&CK M1053 (copy backups to isolated accounts/regions)"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS Backup with cross-account/cross-region copy, list copy jobs to confirm backups are replicated to a destination vault in a separate account or region.",
+        "command": "aws backup list-copy-jobs --by-state COMPLETED",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Completed copy jobs whose DestinationBackupVaultArn is in a different account/region from the source (secure) vs no cross-account/region copy jobs (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_access_restricted",
+    "option_description": "Whether backup storage and the restore path authenticate independently of production data-tier credentials, with delete/management least-privileged to a dedicated backup role (NIST SP 800-209; mitigates T1490).",
+    "security_impact": "Satisfies \"Backup access restricted to a separate trust domain with MFA-delete\" — fires when backup_access_restricted is true (together with mfa_delete_enabled). Independent authentication removes the shared-credential single point of failure exploited in T1490 Inhibit System Recovery.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup-destination IAM/ACL grants and restore path to confirm delete/management is restricted to a dedicated backup role separate from production identities, authenticating independently.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup-destination IAM/ACL grants show delete/management restricted to a dedicated backup role separate from production identities; restore path authenticates to the control plane independently (secure) vs shared/production credentials able to delete backups (insecure).",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure (restoration path authenticates independently of data-tier credentials)"
+      },
+      {
+        "type": "command",
+        "instruction": "For an S3-backed destination, read the bucket policy and confirm delete/management actions are granted only to the dedicated backup principal, not production roles.",
+        "command": "aws s3api get-bucket-policy --bucket <backup-bucket> --query 'Policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy grants s3:DeleteObject* / management to a dedicated backup role only (secure) vs production/app principals able to delete or manage backups (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mfa_delete_enabled",
+    "option_description": "Whether deleting a backup version or changing the versioning/protection state requires a second authentication factor (S3 MFA Delete or equivalent) — raises the bar against credential theft deleting backups (mitigates T1490/T1485).",
+    "security_impact": "Satisfies \"Backup access restricted to a separate trust domain with MFA-delete\" — fires when mfa_delete_enabled is true (together with backup_access_restricted). A second-factor gate on deletion mitigates T1490/T1485 by defeating stolen credentials alone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For an S3-backed versioned backup bucket, read the versioning configuration to confirm MFA Delete is enabled.",
+        "command": "aws s3api get-bucket-versioning --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status=Enabled and MFADelete=Enabled (secure) vs MFADelete=Disabled or absent (insecure). MFA Delete can only be set via CLI/API by the bucket owner, not the console.",
+        "source": "AWS S3 documentation — S3 Versioning / MFA Delete (get-bucket-versioning; MFA delete adds a second auth factor to delete versions or change versioning state)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For non-S3 backup platforms, confirm an equivalent second-factor gate is required before deleting backup versions or changing versioning/protection state.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation/config showing a second factor is enforced on backup deletion / protection-state change (secure) vs single-factor deletion permitted (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "restoration_tested_rto",
+    "option_description": "Whether backup recovery is actually exercised on a cadence for a sampling of in-scope assets with recovery time (RTO) measured and recorded — an untested backup is not a recovery capability (CIS 11.5; M1053).",
+    "security_impact": "Satisfies \"Restoration regularly tested (RTO) with integrity verification\" — fires when restoration_tested_rto is true (with restore_test_interval_days <= 90 and backup_integrity_verification true). Validated restores ensure the M1053 backup control is usable against T1486/T1485/T1490 when needed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request restore-test records for a sampling of assets and confirm they show successful restoration with measured RTO.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Restore-test records dated within the last 3 months for a sampling of assets, showing successful restoration and measured RTO (secure) vs no test within the quarter / no records (insecure — CIS treats >3 months as non-compliant).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "restore_test_interval_days",
+    "option_description": "Days elapsed since the last documented restore test; quarterly (90 days) or tighter is compliant, >3 months is non-compliant (CIS 11.5).",
+    "security_impact": "One of the OR-conditions of \"Restoration regularly tested (RTO) with integrity verification\" — fires when restore_test_interval_days is <= 90 (with restoration_tested_rto true and backup_integrity_verification true). A recent test window keeps the recovery capability proven against T1486/T1485.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "From the restore-test records, determine the days elapsed since the most recent documented restore test.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Most recent restore-test record dated within the last 90 days (secure) vs last test more than 3 months ago / no records (insecure — CIS treats >3 months as non-compliant).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery) — Safeguard 11.5"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      90,
+      14
+    ]
+  },
+  {
+    "option_name": "backup_integrity_verification",
+    "option_description": "Whether backups are integrity-checked (checksums on write and/or restore validation) so corruption or tampering is detected before reliance (NIST SP 800-209; supports D3-RD Restore Database).",
+    "security_impact": "One of the OR-conditions of \"Restoration regularly tested (RTO) with integrity verification\" — fires when backup_integrity_verification is true (with restoration_tested_rto and restore_test_interval_days <= 90). Detecting corruption/tamper before reliance underpins D3-RD and mitigates relying on a poisoned backup (T1485/T1486).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the backup tool performs checksum/integrity verification on write, or that restore-validation tests confirm recovered-data integrity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup tool reports checksum/integrity verification on jobs, or restore-validation confirms recovered data integrity (secure) vs no verification mechanism (insecure). For S3 uploads with Object Lock, Content-MD5 / checksum headers are required, providing upload integrity verification.",
+        "source": "NIST SP 800-209 Security Guidelines for Storage Infrastructure (restoration assurance); AWS S3 documentation — Object Lock upload integrity (Content-MD5/checksum required)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "object_versioning_enabled",
+    "option_description": "Whether version history is enabled on the backup store so a clean pre-incident version can be restored after overwrite or corruption (M1053).",
+    "security_impact": "Satisfies \"Retention, versioning, and point-in-time recovery\" — fires when object_versioning_enabled is true (together with point_in_time_recovery_enabled and backup_retention_days >= 30). Version history mitigates T1486/T1485 by preserving a clean pre-incident copy.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For an S3-backed backup destination, read the versioning status to confirm object versions are retained.",
+        "command": "aws s3api get-bucket-versioning --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status=Enabled (object versions retained, enabling restore to a prior version) (secure) vs Status=Suspended/absent (insecure). For databases, verify PITR/continuous-backup is enabled in the engine's backup config.",
+        "source": "ATT&CK M1053 Data Backup (enable cloud versioning); AWS S3 documentation — S3 Versioning"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "point_in_time_recovery_enabled",
+    "option_description": "Whether PITR / continuous backup is enabled so a restore to a precise moment before corruption is possible, rather than being limited to the last full backup.",
+    "security_impact": "One of the OR-conditions of \"Retention, versioning, and point-in-time recovery\" — fires when point_in_time_recovery_enabled is true (with object_versioning_enabled and backup_retention_days >= 30). PITR mitigates T1486/T1485 by enabling restore to a clean moment before corruption/encryption.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm versioning/continuous-backup is enabled for the backup target; for object stores verify versioning status, and for databases verify PITR/continuous-backup in the engine's backup config.",
+        "command": "aws s3api get-bucket-versioning --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status=Enabled (object versions retained, enabling restore to a prior version) (secure) vs Status=Suspended/absent (insecure). For databases, verify PITR/continuous-backup is enabled in the engine's backup config.",
+        "source": "ATT&CK M1053 Data Backup (enable cloud versioning); AWS S3 documentation — S3 Versioning"
+      },
+      {
+        "type": "command",
+        "instruction": "For an RDS database, confirm continuous backups / PITR by reading the instance's backup retention setting (non-zero enables PITR).",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[].BackupRetentionPeriod'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero BackupRetentionPeriod (PITR enabled) (secure) vs 0 (PITR disabled) (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_retention_days",
+    "option_description": "Number of days the retention/versioning policy keeps recovery points; >= 30 days is compliant so retention spans the realistic incident-detection window (CIS 11; M1053).",
+    "security_impact": "One of the OR-conditions of \"Retention, versioning, and point-in-time recovery\" — fires when backup_retention_days is >= 30 (with object_versioning_enabled and point_in_time_recovery_enabled). Adequate retention mitigates slow-burn corruption / delayed-detonation ransomware (T1486/T1485) by keeping a clean pre-incident point recoverable.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine from the documented retention/versioning policy how many days recovery points are kept, and confirm it spans the realistic incident-detection window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented retention/versioning policy retaining recovery points across the realistic incident-detection window (secure, >= 30 days) vs single-copy / very-short retention (insecure).",
+        "source": "CIS Controls v8 Control 11 (Data Recovery); ATT&CK M1053 Data Backup"
+      },
+      {
+        "type": "command",
+        "instruction": "For an S3-backed destination, inspect lifecycle rules or Object Lock default retention to confirm versions are retained at least 30 days.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <backup-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lifecycle/noncurrent-version expiration retaining versions >= 30 days (secure) vs expiration shorter than the detection window (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      90,
+      365
+    ]
+  },
+  {
+    "option_name": "backup_job_monitoring_enabled",
+    "option_description": "Whether backup job success/failure and Object Lock/versioning state changes are actively monitored, so a silently-failing backup is caught before it is needed (NIST SP 800-209; CIS 11.1).",
+    "security_impact": "Satisfies \"Backup job monitoring and failure alerting\" — fires when backup_job_monitoring_enabled is true (together with backup_failure_alerting_enabled). Monitoring backup and protection-state events keeps the M1053 control trustworthy against silent failure.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm monitoring is wired to backup-job results and to changes of Object Lock / versioning state, with recent events demonstrating coverage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting wired to backup-job results and to changes of Object Lock / versioning state (e.g. CloudTrail + CloudWatch alarms on backup events), with recent alerts demonstrating coverage (secure) vs no monitoring/alerting (insecure).",
+        "source": "AWS S3 documentation — Object Lock events & notifications (CloudTrail/CloudWatch); NIST SP 800-209 (incident response/recovery, monitoring)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "backup_failure_alerting_enabled",
+    "option_description": "Whether backup-job failures and protection-state changes raise an actionable alert to operators (CIS 11.1).",
+    "security_impact": "One of the OR-conditions of \"Backup job monitoring and failure alerting\" — fires when backup_failure_alerting_enabled is true (with backup_job_monitoring_enabled). Actionable failure alerting ensures a silently-failing backup is caught before it is needed, sustaining M1053 recovery readiness.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Verify backup-job failures and protection-state changes raise an actionable alert; review recent alerts/notifications to confirm the path works.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting wired to backup-job results and to changes of Object Lock / versioning state (e.g. CloudTrail + CloudWatch alarms on backup events), with recent alerts demonstrating coverage (secure) vs no monitoring/alerting (insecure).",
+        "source": "AWS S3 documentation — Object Lock events & notifications (CloudTrail/CloudWatch); NIST SP 800-209 (incident response/recovery, monitoring)"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS Backup, confirm a backup vault notification / events configuration exists that delivers BACKUP_JOB_FAILED events to an alerting topic.",
+        "command": "aws backup get-backup-vault-notifications --backup-vault-name <vault>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A notification config including BACKUP_JOB_FAILED (and copy/restore failure) events delivered to an SNS topic (secure) vs no notification configuration (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

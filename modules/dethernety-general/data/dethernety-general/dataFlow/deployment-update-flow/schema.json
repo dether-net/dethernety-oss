@@ -1,0 +1,261 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "artifact_supply_chain_signed_provenance_verified": {
+        "type": "boolean",
+        "title": "Signed Provenance Verified on Artifact Admission",
+        "description": "Attests that the deploying environment cryptographically verifies a SLSA provenance attestation (or equivalent signed in-toto attestation) on every artifact before admission, with the signature chained to a pinned builder identity, OIDC issuer, and expected source repo/ref — never admitting an artifact pulled by tag alone. When false, the channel will accept tampered or substituted artifacts (SLSA bypass).",
+        "default": false
+      },
+      "commits_signed": {
+        "type": "boolean",
+        "title": "Commits on Deploy Ref Are Signed",
+        "description": "Attestation: every commit on the deploy ref is cryptographically signed (GPG, SSH, S/MIME, or keyless Sigstore/gitsign) and verified. Insecure (false) when recent commits on the deploy ref show 'no signature' under `git log --show-signature`. Secure value: true.",
+        "default": false
+      },
+      "required_signatures_enforced_on_deploy_ref": {
+        "type": "boolean",
+        "title": "Required-Signatures Rule Enforced on Deploy Ref",
+        "description": "Attestation: the repository ruleset / branch protection on the deploy ref enforces the `required_signatures` rule (integrity change control), so unsigned commits are rejected at push time rather than relying on contributor discipline. Insecure (false) when no `required_signatures` entry is present under `gh api repos/:owner/:repo/rules/branches/<deploy-ref>`. Secure value: true.",
+        "default": false
+      },
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": {
+        "type": "boolean",
+        "title": "Per-Environment Short-Lived CI/CD Identity",
+        "description": "Attestation that the CI/CD pipeline authenticates to each target environment with a distinct, short-lived, federated workload identity (e.g. GitHub Actions OIDC pinned by sub/audience to repo:<owner>/<repo>:environment:<env>, federated to per-environment cloud roles) rather than a single long-lived static cloud credential shared across all environments. True when every environment has a separate OIDC-federated identity with environment-scoped trust pins AND no long-lived org-wide cloud key sits in repo secrets; false when a shared static credential authenticates deploys to multiple environments — a single token leak collapses blast radius to every environment at once.",
+        "default": false
+      },
+      "deploy_ref_protected_branch_only": {
+        "type": "boolean",
+        "title": "Deploy Restricted to Protected Branch/Tag",
+        "description": "Attests that the deploy workflow / environment is gated so it can only fire from a protected branch (or protected tag) — i.e. GitHub environment deployment_branch_policy.protected_branches=true, or an equivalent ref restriction in the CI platform. When false, a push to any branch (including a fork PR) can drive the deploy flow.",
+        "default": false
+      },
+      "deploy_required_reviewers_configured": {
+        "type": "boolean",
+        "title": "Required Human Reviewers on Deploy",
+        "description": "Attests that the deployment environment (e.g. prod) has required human reviewers configured as an environment protection rule — so a deploy cannot proceed without explicit approval, even from a protected branch. When false, the channel runs unattended on every qualifying push.",
+        "default": false
+      },
+      "secrets_injected_at_runtime_not_baked_in": {
+        "type": "boolean",
+        "title": "Secrets Injected at Runtime (Not Baked)",
+        "description": "Attests that secrets traversing the deployment channel are injected into the running workload at deploy/start time from an external secret store (Vault Agent, Secrets-Store CSI, External Secrets Operator) — never embedded in the image, ConfigMap, Dockerfile, or build artifact carried by the flow. When false, credentials baked into the artifact ride the channel into every environment.",
+        "default": false
+      },
+      "secret_scanning_enabled": {
+        "type": "boolean",
+        "title": "Blocking Secret Scanner on Artifact and Manifests",
+        "description": "Attests that the deploy pipeline runs a blocking secret scanner (gitleaks, trufflehog, trivy --scanners secret, detect-secrets) on the artifact AND on rendered Helm/Kustomize manifests before applying — catching credentials that slipped past commit-time hooks. When false, embedded secrets traverse the flow undetected.",
+        "default": false
+      },
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Deploy Channel Carried Over TLS End-to-End",
+        "description": "Attestation: the deployment channel (registry pull, kube-apiserver call, GitOps webhook) is carried over TLS 1.2+ end-to-end with no cleartext fallback. False fires the exposure: cleartext or downgraded transport on the deploy flow opens classic MITM artifact substitution.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Strictly Validated",
+        "description": "Attestation: the deploying client strictly validates the server certificate (trusted CA chain, SAN match, no self-signed acceptance) on every connection in the deploy flow. False fires the exposure: accepting self-signed or unvalidated TLS lets an on-path attacker terminate the channel and substitute the artifact or deploy verb.",
+        "default": false
+      },
+      "artifact_references_immutable_digest_pinned": {
+        "type": "boolean",
+        "title": "Artifacts Referenced by Immutable Digest",
+        "description": "Attestation that every manifest crossing this deployment flow references its artifact by immutable digest (sha256:...) rather than a mutable tag (:latest, :prod, :stable). When false, the registry can repoint the tag to a different (malicious) digest after admission-time verification, so pods restarting later pull a substituted image under the same tag — what policy verified is no longer what runs.",
+        "default": false
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Deploy Events Streamed to Central Aggregator",
+        "description": "Attests that deploy events crossing this flow are streamed to a central, out-of-account audit log/SIEM (true) — when false, deploy events never reach a tamper-evident aggregator and post-incident attribution is guesswork.",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Destination Tamper-Evident",
+        "description": "Attests that the audit log destination is tamper-evident — write-once / append-only / cryptographically chained, hosted in an account the deploying identity cannot edit (true). When false, an attacker with cluster-admin or the deploy identity can erase their tracks even if logs are forwarded.",
+        "default": false
+      },
+      "drift_detection_enabled": {
+        "type": "boolean",
+        "title": "Continuous Drift Detection Enabled",
+        "description": "Attests that the deployment flow runs continuous reconciliation (GitOps controller such as Argo CD selfHeal / Flux, or terraform plan -detailed-exitcode wired to alerts) against a declared source-of-truth, so any out-of-band change to running config is detected and alerted. Insecure value (false) fires this exposure: out-of-band kubectl/console changes go unnoticed.",
+        "default": false
+      },
+      "running_config_matches_baseline": {
+        "type": "boolean",
+        "title": "Running Config Matches Declared Baseline",
+        "description": "Attests that, at assessment time, the running configuration of the target environment is in sync with the declared source-of-truth baseline (argocd app diff / flux diff / terraform plan reports no differences). Insecure value (false) fires this exposure: drift is currently present and persisting because no reconciliation evicted it.",
+        "default": false
+      }
+    },
+    "required": [
+      "artifact_supply_chain_signed_provenance_verified",
+      "commits_signed",
+      "required_signatures_enforced_on_deploy_ref",
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys",
+      "deploy_ref_protected_branch_only",
+      "deploy_required_reviewers_configured",
+      "secrets_injected_at_runtime_not_baked_in",
+      "secret_scanning_enabled",
+      "flow_tls_encrypted",
+      "server_certificate_validated",
+      "artifact_references_immutable_digest_pinned",
+      "centralized_log_aggregation",
+      "audit_log_tamper_evident",
+      "drift_detection_enabled",
+      "running_config_matches_baseline"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cicd_pipeline_identity_per_environment_no_long_lived_keys"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deploy_ref_protected_branch_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deploy_required_reviewers_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_scanning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_injected_at_runtime_not_baked_in"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_references_immutable_digest_pinned"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_supply_chain_signed_provenance_verified"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/commits_signed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/drift_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/required_signatures_enforced_on_deploy_ref"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/running_config_matches_baseline"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

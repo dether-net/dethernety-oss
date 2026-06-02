@@ -1,0 +1,258 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "ingress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Ingress Default-Deny Enforced",
+        "description": "Inbound ruleset terminates in deny-all; only an explicit allow-list permits traffic. Secure true.",
+        "default": false
+      },
+      "egress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Egress Default-Deny Enforced",
+        "description": "Outbound traffic defaults to deny with a scoped egress allow-list. Secure true.",
+        "default": false
+      },
+      "least_privilege_rules_scoped": {
+        "type": "boolean",
+        "title": "Least-Privilege Rules Scoped",
+        "description": "Allow rules name specific source/destination/port/protocol tied to a business need. Secure true.",
+        "default": false
+      },
+      "no_any_any_permit_rules": {
+        "type": "boolean",
+        "title": "No Any/Any Permit Rules",
+        "description": "No any/any or any-service permit rules exist in the ruleset. Secure true."
+      },
+      "interface_acls_enforce_segmentation": {
+        "type": "boolean",
+        "title": "Interface ACLs Enforce Segmentation",
+        "description": "Trust zones are separated by the firewall at path splits via interface ACLs. Secure true.",
+        "default": false
+      },
+      "east_west_microsegmentation_enforced": {
+        "type": "boolean",
+        "title": "East-West Microsegmentation Enforced",
+        "description": "Inter-segment (east-west) traffic is filtered; SMB/RDP/WinRM blocked without business need. Secure true.",
+        "default": false
+      },
+      "security_profiles_on_allow_rules": {
+        "type": "boolean",
+        "title": "Security Profiles on Allow Rules",
+        "description": "Allow rules carry threat-prevention / IPS / AV / URL inspection profiles. Secure true.",
+        "default": false
+      },
+      "ips_threat_prevention_enabled": {
+        "type": "boolean",
+        "title": "IPS / Threat-Prevention Enabled",
+        "description": "The IPS / threat-prevention engine is enabled on the firewall. Secure true.",
+        "default": false
+      },
+      "denied_traffic_logging_enabled": {
+        "type": "boolean",
+        "title": "Denied Traffic Logging Enabled",
+        "description": "Denied and security-relevant allowed traffic is logged off-box to a SIEM. Secure true.",
+        "default": false
+      },
+      "implicit_deny_logged": {
+        "type": "boolean",
+        "title": "Implicit Deny Logged",
+        "description": "The implicit deny-all rule logs dropped traffic. Secure true."
+      },
+      "firewall_ruleset_documented_and_owned": {
+        "type": "boolean",
+        "title": "Ruleset Documented and Owned",
+        "description": "Ruleset is documented from risk analysis with each rule owned and justified. Secure true.",
+        "default": false
+      },
+      "firewall_rules_recertified_on_cadence": {
+        "type": "boolean",
+        "title": "Rules Recertified on Cadence",
+        "description": "Rules are reviewed on a defined cadence; stale and shadowed rules are removed. Secure true.",
+        "default": false
+      },
+      "firewall_change_control_enforced": {
+        "type": "boolean",
+        "title": "Change Control Enforced",
+        "description": "Rule changes pass approved change control with security-impact analysis. Secure true.",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Management Plane Not Internet-Reachable",
+        "description": "Admin/management interface restricted to permitted-IP / management network, plaintext disabled. Secure true.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Appliance Patched Within SLA",
+        "description": "Firewall firmware is patch-current with no known-exploited pre-auth CVEs. Secure true.",
+        "default": false
+      }
+    },
+    "required": [
+      "ingress_default_deny_enforced",
+      "egress_default_deny_enforced",
+      "least_privilege_rules_scoped",
+      "no_any_any_permit_rules",
+      "interface_acls_enforce_segmentation",
+      "east_west_microsegmentation_enforced",
+      "security_profiles_on_allow_rules",
+      "ips_threat_prevention_enabled",
+      "denied_traffic_logging_enabled",
+      "implicit_deny_logged",
+      "firewall_ruleset_documented_and_owned",
+      "firewall_rules_recertified_on_cadence",
+      "firewall_change_control_enforced",
+      "edge_management_interfaces_not_internet_reachable",
+      "edge_appliance_patched_within_sla"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_rules_scoped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/no_any_any_permit_rules"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/east_west_microsegmentation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_default_deny_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ingress_default_deny_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/interface_acls_enforce_segmentation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ips_threat_prevention_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_profiles_on_allow_rules"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/denied_traffic_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/implicit_deny_logged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/firewall_change_control_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/firewall_rules_recertified_on_cadence"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/firewall_ruleset_documented_and_owned"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

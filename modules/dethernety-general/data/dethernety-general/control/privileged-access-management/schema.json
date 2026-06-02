@@ -1,0 +1,420 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "privileged_credentials_vaulted": {
+        "type": "boolean",
+        "title": "Privileged Credentials Vaulted",
+        "description": "All human and non-human privileged credentials (admin passwords, root/DB keys, service-account secrets, API keys, SSH keys, tokens) are stored exclusively in a central encrypted vault, with applications fetching them at runtime rather than holding standing copies.",
+        "default": false
+      },
+      "credential_rotation_enforced": {
+        "type": "boolean",
+        "title": "Credential Rotation Enforced",
+        "description": "Automatic credential rotation is enforced on a recurring cycle, including rotate-after-checkin one-time-use handling for high-value accounts.",
+        "default": false
+      },
+      "credential_rotation_max_days": {
+        "type": "integer",
+        "title": "Maximum Credential Rotation Interval (days)",
+        "description": "Maximum number of days a privileged credential may remain valid before automatic rotation; a hardened configuration keeps this within a 30-90 day window (<= 90)."
+      },
+      "secrets_in_secret_manager_not_repo": {
+        "type": "boolean",
+        "title": "Secrets Resolved From Vault, Not Hardcoded",
+        "description": "No privileged credentials or secrets are hardcoded in source code or configuration files; secrets are resolved from the vault at runtime.",
+        "default": false
+      },
+      "vault_at_rest_encryption_strength": {
+        "type": "string",
+        "enum": [
+          "AES_256",
+          "AES_128",
+          "NONE"
+        ],
+        "title": "Vault At-Rest Encryption Strength",
+        "description": "Encryption algorithm/strength protecting the vault contents at rest; the secure state is AES_256."
+      },
+      "no_standing_admin_privileges_jit_required": {
+        "type": "boolean",
+        "title": "JIT Elevation With Zero Standing Privilege",
+        "description": "Elevated privileges are granted just-in-time on request for a bounded task window and automatically revoked at task end or timeout, and no identity holds permanent membership in highly-privileged groups (Domain Admins, root, cloud Owner). The load-bearing control: admins carry no standing elevation between tasks, eliminating the standing-admin surface escalation abuse depends on.",
+        "default": false
+      },
+      "max_elevation_window_hours": {
+        "type": "integer",
+        "title": "Maximum JIT Elevation Window (hours)",
+        "description": "Maximum lifetime in hours of a granted just-in-time elevation before automatic revocation. A bounded window (<=4h) caps the time any elevated session can be abused.",
+        "minimum": 0
+      },
+      "periodic_privilege_recertification": {
+        "type": "boolean",
+        "title": "Privileged Access Recertified",
+        "description": "Eligibility for privileged-access elevation is periodically recertified (e.g. quarterly) so stale or no-longer-needed entitlements are removed, keeping the JIT eligibility set scoped to current least-privilege need. Also covers periodic recertification and auto-revoke-on-expiry of standing grants in the approval workflow."
+      },
+      "bastion_mediates_all_admin_access": {
+        "type": "boolean",
+        "title": "All Admin Access Brokered, No Bypass Path",
+        "description": "All RDP/SSH/DB/cloud-CLI admin access is proxied through a central PAM gateway/jump host that enforces protocol and command filtering, AND direct-to-target admin network paths are blocked by segmentation so the broker cannot be bypassed. True when every privileged session is mediated by the broker and no out-of-band path to the target's management ports exists.",
+        "default": false
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "boolean",
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "The broker requires phishing-resistant MFA (PIV/FIDO2/WebAuthn at AAL2/AAL3) bound per-user before any session begins, and no SMS/OTP/push fallback authenticators are permitted. True when only hardware-bound, origin-bound authenticators are accepted, defeating AiTM/token-replay downgrade.",
+        "default": false
+      },
+      "provisioning_requires_approval": {
+        "type": "boolean",
+        "title": "Governed Privileged-Grant Approval Workflow",
+        "description": "Every privileged grant requires a formal request carrying business justification routed through a tiered approval workflow before access is provisioned, and access auto-revokes on expiry. The assessor verifies a documented, enforced (not advisory) request-and-approve gate governs all privileged grants.",
+        "default": false
+      },
+      "segregation_of_duties_enforced": {
+        "type": "boolean",
+        "title": "Separation of Duties on Approval Path",
+        "description": "Separation of duties is enforced on the approval path per AC-5: the requester cannot approve their own privileged grant, and the security-admin role is separated from the audit role. The assessor confirms the workflow rejects self-approval and that approval and oversight responsibilities sit with distinct principals.",
+        "default": false
+      },
+      "break_glass_dual_control_enforced": {
+        "type": "boolean",
+        "title": "Break-Glass Dual-Control Enforced",
+        "description": "Emergency break-glass access is pre-defined and requires dual-control (two-person) activation, fires immediate alerts on use, is fully recorded, and mandates post-use review. Converts ungoverned shared emergency credentials into a governed, auditable path.",
+        "default": false
+      },
+      "break_glass_max_window_hours": {
+        "type": "integer",
+        "title": "Maximum Break-Glass Window (hours)",
+        "description": "Maximum lifetime in hours of a break-glass emergency access grant before it auto-expires. A short, bounded window (e.g. <= 4h) is the secure state; the grant cannot persist beyond it."
+      },
+      "dedicated_attributable_admin_accounts_enforced": {
+        "type": "boolean",
+        "title": "Dedicated, Attributable Admin Accounts",
+        "description": "Privileged actions run only from dedicated, individually-attributable admin accounts — never the operator's daily-use account and never a shared/generic admin account — so every privileged action maps to exactly one identifiable human. Folds the no-shared-admin-accounts requirement.",
+        "default": false
+      },
+      "service_account_inventory_governed": {
+        "type": "boolean",
+        "title": "Privileged & Service Account Discovery",
+        "description": "All privileged and service accounts across Windows/Unix/DB/cloud/network estates are auto-discovered on at least a monthly cadence, with newly-created privileged accounts detected within 24-48h, so rogue or orphaned admin accounts are surfaced rather than persisting unseen.",
+        "default": false
+      },
+      "dormant_account_disable_window_days": {
+        "type": "integer",
+        "title": "Dormant Admin Account Disable Window (days)",
+        "description": "Maximum bounded inactivity window, in days, after which a dormant privileged account is auto-disabled. Secure when <=45 days; a large or unbounded value leaves dormant accounts available for takeover."
+      },
+      "offboarding_credential_revocation_enforced": {
+        "type": "boolean",
+        "title": "Same-Day Departure Access Revocation",
+        "description": "Privileged access for a departing person is revoked same-day on departure, closing the gap where an offboarded human's admin account could be retained or hijacked for persistence."
+      },
+      "privileged_access_via_pam_with_session_recording": {
+        "type": "boolean",
+        "title": "Privileged Session Recording Enabled",
+        "description": "Every privileged session is fully recorded (screen, keystroke, and command capture) so privileged activity is reconstructable and non-repudiable.",
+        "default": false
+      },
+      "identity_access_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Privileged Activity Audit Logged",
+        "description": "Every privileged action is logged with full context to centralized, externally-stored audit logs that the recorded admin cannot alter or delete (AU-9 separation of audit administration from the audited).",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Logs Tamper-Evident",
+        "description": "Privileged audit/session logs are signed or otherwise immutable so any alteration or deletion is detectable, preserving non-repudiation of privileged misuse.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Privileged Log Retention (days)",
+        "description": "Retention period in days for privileged session recordings and audit logs; >=90 days ensures sufficient history for forensic reconstruction and persistence detection."
+      },
+      "privileged_session_anomaly_monitoring": {
+        "type": "boolean",
+        "title": "Privileged Session Anomaly Monitoring",
+        "description": "Privileged sessions/accounts are monitored in real time for atypical usage (off-hours activity, mass account creation, unusual targets) with alerting, detecting account-manipulation persistence.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum TLS Version (Broker Transport)",
+        "description": "Minimum TLS protocol version negotiated on connections to the PAM broker and between broker and vault. A secure value (TLS1.2 or TLS1.3) means SSLv3 and early-TLS are disabled, preventing on-path downgrade and interception of brokered credentials."
+      },
+      "cipher_suites_strong_only": {
+        "type": "boolean",
+        "title": "Strong Cipher Suites Only",
+        "description": "Interpreted boolean: true when only strong AEAD cipher suites with ECDHE forward secrecy are permitted and weak suites (NULL/RC4/MD5/export) are disabled on the broker transport. Modeled as a boolean to avoid substring polarity traps on composite cipher strings.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Broker Certificate Validated",
+        "description": "The broker and broker-to-vault TLS endpoints present and validate server certificates (chain, hostname, expiry), preventing an adjacent attacker from impersonating the broker or vault on the brokered session."
+      }
+    },
+    "required": [
+      "privileged_credentials_vaulted",
+      "credential_rotation_enforced",
+      "credential_rotation_max_days",
+      "secrets_in_secret_manager_not_repo",
+      "vault_at_rest_encryption_strength",
+      "no_standing_admin_privileges_jit_required",
+      "max_elevation_window_hours",
+      "periodic_privilege_recertification",
+      "bastion_mediates_all_admin_access",
+      "phishing_resistant_authenticator_required",
+      "provisioning_requires_approval",
+      "segregation_of_duties_enforced",
+      "break_glass_dual_control_enforced",
+      "break_glass_max_window_hours",
+      "dedicated_attributable_admin_accounts_enforced",
+      "service_account_inventory_governed",
+      "dormant_account_disable_window_days",
+      "offboarding_credential_revocation_enforced",
+      "privileged_access_via_pam_with_session_recording",
+      "identity_access_audit_logging_enabled",
+      "audit_log_tamper_evident",
+      "log_retention_days",
+      "privileged_session_anomaly_monitoring",
+      "min_tls_version",
+      "cipher_suites_strong_only",
+      "server_certificate_validated"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dedicated_attributable_admin_accounts_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/break_glass_dual_control_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dormant_account_disable_window_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_standing_admin_privileges_jit_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/provisioning_requires_approval"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segregation_of_duties_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/break_glass_max_window_hours"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/max_elevation_window_hours"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/offboarding_credential_revocation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/periodic_privilege_recertification"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cipher_suites_strong_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vault_at_rest_encryption_strength"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_rotation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_rotation_max_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_credentials_vaulted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_in_secret_manager_not_repo"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bastion_mediates_all_admin_access"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_access_audit_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_access_via_pam_with_session_recording"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_session_anomaly_monitoring"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_account_inventory_governed"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

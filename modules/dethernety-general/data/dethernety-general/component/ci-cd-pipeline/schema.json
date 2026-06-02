@@ -1,0 +1,536 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "pull_request_target_with_untrusted_checkout": {
+        "type": "boolean",
+        "title": "pull_request_target Checks Out Untrusted PR Head",
+        "description": "Interpreted: a workflow uses the on: pull_request_target trigger AND checks out the untrusted PR head (github.event.pull_request.head.ref/.sha) while secrets and a writable GITHUB_TOKEN are available to the job. This is the canonical Poisoned Pipeline Execution path — fork-contributor code runs on the runner with the base repo's privileges (OWASP CICD-SEC-4). The assessor sets this true when a pull_request_target workflow both checks out the PR head and exposes secrets; false when pull_request_target is avoided, or used read-only and never checking out/executing untrusted head code.",
+        "default": false
+      },
+      "untrusted_input_in_run_step": {
+        "type": "boolean",
+        "title": "Untrusted Context Interpolated Into run: Step",
+        "description": "Interpreted: attacker-controllable context (github.event.* — PR title, branch/head ref name, issue/comment body) is interpolated directly into a run: shell step (e.g. ${{ github.event.pull_request.title }} inlined into a command), allowing shell command injection that executes on the runner with pipeline privileges. The assessor sets this true when any run: block inlines untrusted github.event.* values; false when untrusted context is bound to an env: variable and referenced as \"$VAR\" inside the script. Modelled as an interpreted boolean (not a raw-string regex) so it is polarity-safe — the secure env-var form does not false-fire.",
+        "default": false
+      },
+      "third_party_actions_pinned_to_commit_sha": {
+        "type": "boolean",
+        "title": "Third-Party Actions Pinned to Commit SHA",
+        "description": "Interpreted: every third-party GitHub Action referenced in workflows (uses:) is pinned to a full-length 40-char commit SHA rather than a mutable tag/branch (@v4, @main, @latest). True when all action references are SHA-pinned (immutable); false when any is a mutable tag/branch that a compromised or hijacked upstream maintainer can repoint to malicious code — the tj-actions/changed-files supply-chain compromise (CVE-2025-30066). The assessor evaluates the raw uses: directives and reports this boolean; do not pattern-match the composite reference string. Fires on the insecure (unpinned) config.",
+        "default": false
+      },
+      "artifact_references_immutable_digest_pinned": {
+        "type": "boolean",
+        "title": "Artifact References Pinned to Immutable Digest",
+        "description": "Shared workspace vocabulary: artifacts and external references consumed and deployed by the pipeline (container base images, deploy manifests, actions, dependencies) are referenced by an immutable content digest (e.g. image@sha256:...) rather than a mutable tag that an attacker or upstream can repoint to a substituted build output. True when all such references are digest-pinned; false when any resolves through a mutable tag the publisher can move — so a tampered or substituted artifact transparently reaches production under the same reference (mutable-artifact substitution; OWASP CICD-SEC-9 / T1195.002). Fires on the insecure (unpinned) config.",
+        "default": false
+      },
+      "third_party_action_policy": {
+        "type": "string",
+        "enum": [
+          "allow_all",
+          "verified_only",
+          "selected_allowlist",
+          "verified_and_sha_pinned"
+        ],
+        "title": "Org/Repo Allowed-Actions Policy",
+        "description": "Org/repo Actions permissions policy governing which external actions may execute. 'allow_all' (Allow all actions and reusable workflows, no SHA-pin requirement) lets any marketplace, typosquatted, or repointed action run in the pipeline — the insecure value this rule fires on. 'verified_and_sha_pinned' (Allow select actions + 'Require actions pinned to full length commit SHA') is the secure baseline; 'verified_only' / 'selected_allowlist' are intermediate restrictions. From dossier 'allowed-actions allowlist policy' (gh api repos/{owner}/{repo}/actions/permissions/selected-actions)."
+      },
+      "frozen_lockfile_with_integrity_hashes": {
+        "type": "boolean",
+        "title": "Frozen Lockfile With Integrity Hashes",
+        "description": "Interpreted boolean: true when build-time dependencies resolve from a committed lockfile (e.g. pnpm-lock.yaml / package-lock.json) carrying per-package integrity= digests AND CI installs with --frozen-lockfile / npm ci (no unpinned semver ranges resolved at build time), so transitive dependencies cannot be silently substituted by a moved/republished upstream package. False — no lockfile, unpinned ranges, or installs that mutate the lockfile — lets a higher-version public typosquat or a substituted mutable dependency be pulled into the build (dependency confusion; OWASP CICD-SEC-3). Assessor verifies via the dossier 'dependency pinning + lockfile integrity' inspect (ls lockfiles + grep integrity + confirm --frozen-lockfile/ci). Modelled as an interpreted boolean rather than a raw-string match. Fires on the insecure config.",
+        "default": false
+      },
+      "internal_scope_registry_namespace_claimed": {
+        "type": "boolean",
+        "title": "Internal Scope Pinned to Private Registry and Claimed Publicly",
+        "description": "Interpreted boolean: true when internal package names/scopes resolve from the private registry only (scoped .npmrc / registry config pinning the internal @scope to the private host, and the namespace is claimed/reserved on the public registry) so a build never falls back to a public-registry resolution for an internal name. False — public-registry resolution permitted for internal package names, or the internal scope is unclaimed publicly — is the core dependency-confusion exposure: an attacker publishes a higher-version package under the same name on the public registry and the resolver prefers it.",
+        "default": false
+      },
+      "dependency_vulnerability_scanning_enabled": {
+        "type": "boolean",
+        "title": "Dependency / SCA Vulnerability Scanning Enabled",
+        "description": "Interpreted boolean (aligned to the workspace-canonical name): true when CI runs software-composition-analysis / SBOM + dependency-vulnerability scanning on resolved dependencies (e.g. an SCA gate that fails the build on known-malicious or vulnerable packages). False leaves a malicious or vulnerable substituted dependency undetected after resolution — a secondary trigger that, absent pinning/namespace controls, removes the last detection layer for dependency-chain abuse (OWASP CICD-SEC-3)."
+      },
+      "github_token_write_scope_granted": {
+        "type": "boolean",
+        "title": "GITHUB_TOKEN Granted Broad Write Scope",
+        "description": "Interpreted assessment of the workflow GITHUB_TOKEN 'permissions' block: true when the job-level token is granted broad write scope — permissions omitted (broad default), 'contents: write', or 'write-all' — rather than the least-privilege 'contents: read' at workflow top level with elevation per-job only where needed. A standing write token lets a compromised step push code, mint releases, or move tags (OWASP CICD-SEC-2). Modelled as an interpreted boolean rather than a substring match on the raw permissions directive so the trigger is polarity-safe; the assessor reads .github/workflows/*.yml 'permissions:' blocks. Subsumes the prior github_token_permissions_scope contextual enum.",
+        "default": false
+      },
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": {
+        "type": "boolean",
+        "title": "Per-Environment Federated Identity, No Long-Lived Keys",
+        "description": "Shared-workspace attestation: true when the pipeline authenticates to cloud providers via short-lived, per-environment OIDC-federated identity (id-token: write + role-to-assume, trust policy pinning repository/ref/environment claims) and stores NO long-lived cloud access keys as CI secrets. Fires (is_false) when long-lived keys (e.g. aws-access-key-id/aws-secret-access-key) are stored in secrets and passed to the job — standing credentials that persist and leak (Codecov-style exfiltration; OWASP CICD-SEC-6).",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Pipeline Identity Scoped to Least Privilege",
+        "description": "Shared-workspace attestation: true when the pipeline identity and its cloud role are scoped to the minimum privileges required for the deploy, with no over-broad role bindings or wildcard cloud permissions attached to the federated/CI identity. Fires (is_false) when the pipeline identity carries standing privilege beyond what the build/deploy needs, enabling additional-role abuse from a compromised step."
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Build Logs",
+        "description": "Whether all sensitive values that are not auto-registered GitHub secrets (decoded tokens, JWTs, derived credentials) are registered with ::add-mask:: and never echoed to build logs/artifacts. False when a run: step echoes ${{ secrets.* }}, prints decoded credentials, or debug-logs env without masking — the leak path by which derived/decoded secret values are harvested from build logs/artifacts (OWASP CICD-SEC-6, Codecov breach class).",
+        "default": false
+      },
+      "secrets_stored_in_dedicated_secret_manager": {
+        "type": "boolean",
+        "title": "Secrets Sourced From Dedicated Secret Manager",
+        "description": "Whether pipeline credentials are sourced from a dedicated secret manager / short-lived OIDC federation rather than persisted as long-lived CI variables. False when long-lived cloud keys or tokens are stored as CI secrets (aws-access-key-id/secret-access-key passed to the job) — the standing credentials a poisoned step exfiltrates and reuses (long-lived CI credential / secret exfiltration, Codecov class).",
+        "default": false
+      },
+      "secret_scanning_enabled": {
+        "type": "boolean",
+        "title": "Secret Scanning Enforced in CI",
+        "description": "Whether committed source/IaC/workflow files are scanned for embedded secrets (truffleHog/gitleaks/GitGuardian) in CI and pre-commit. False when no secret scanner is enforced, allowing hardcoded credentials to persist in the repo and be consumed by the pipeline as standing access (Insufficient Credential Hygiene, OWASP CICD-SEC-6)."
+      },
+      "per_secret_access_scoping": {
+        "type": "boolean",
+        "title": "Secrets Scoped Per Environment/Job",
+        "description": "Whether secrets are scoped per environment/job (production secrets gated behind environment protection rules and unavailable to arbitrary branches/workflows) rather than broadly exposed to every workflow. False when prod secrets are available to any branch/workflow, widening the set of secrets a poisoned step can exfiltrate in one compromise."
+      },
+      "artifact_supply_chain_signed_provenance_verified": {
+        "type": "boolean",
+        "title": "Signed Build Provenance Produced and Verified at Deploy",
+        "description": "Interpreted: the pipeline generates signed, non-falsifiable SLSA in-toto build provenance for every artifact AND deploy admission verifies that provenance + signature against a pinned identity/issuer before promotion (e.g. actions/attest-build-provenance + cosign verify / Sigstore policy-controller ClusterImagePolicy). True when provenance is both produced at build and verified at the deploy gate; false when artifacts are unsigned unverifiable blobs or admission accepts them without a cosign verify / policy gate. The insecure (false) state is the SolarWinds build-system tampering / improper artifact integrity validation class (OWASP CICD-SEC-9).",
+        "default": false
+      },
+      "required_signatures_enforced_on_deploy_ref": {
+        "type": "boolean",
+        "title": "Required Signatures Enforced on Deploy Ref",
+        "description": "Interpreted: only cryptographically signed commits/artifacts may reach the protected deploy ref, anchoring provenance to a verified identity — branch-protection required_signatures.enabled on the protected deploy ref AND/OR a deploy-admission signature gate (cosign verify) that blocks unsigned artifacts. True when an enforcing signature/admission gate is in place; false/unset when unsigned or forged commits/artifacts are accepted to feed the build and reach production (Invalid Code Signature, T1036.001). Verified via gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '.required_signatures.enabled' plus the deploy-admission verify step.",
+        "default": false
+      },
+      "deploy_ref_protected_branch_only": {
+        "type": "boolean",
+        "title": "Deploy Ref Reachable Only Via Protected Branch",
+        "description": "Whether the deploy branch is reachable only via the protected-branch flow (PR + protection), so unreviewed code cannot land directly. Insecure (false) when direct pushes to the deploy ref are possible (deployment_branch_policy not restricting to the protected branch). Verified via gh api repos/{owner}/{repo}/branches/{branch}/protection.",
+        "default": false
+      },
+      "deploy_required_reviewers_configured": {
+        "type": "boolean",
+        "title": "Deployment Environment Required Reviewers Configured",
+        "description": "Whether the production deployment environment has required_reviewers (environment-scoped approval) configured so privileged deploys are gated. Insecure (false) when the environment has empty protection_rules and prod secrets are available to any branch/workflow. Verified via gh api repos/{owner}/{repo}/environments/production protection_rules.required_reviewers.",
+        "default": false
+      },
+      "required_approving_review_count": {
+        "type": "integer",
+        "title": "Required Approving Review Count",
+        "description": "Branch-protection required_pull_request_reviews.required_approving_review_count on the protected deploy branch. Insecure when < 1 (no required PR reviews), letting a single compromised identity land unreviewed code the pipeline builds and ships. Secure baseline >= 1 (ideally 2) with code-owner reviews. Verified via gh api repos/{owner}/{repo}/branches/{branch}/protection.",
+        "minimum": 0
+      },
+      "required_status_checks_strict": {
+        "type": "boolean",
+        "title": "Strict Required Status Checks on Deploy Branch",
+        "description": "Branch-protection required_status_checks.strict on the deploy branch — merges require passing, up-to-date CI gates. Insecure (false) when status checks are absent/advisory, so untested or failing code can bypass the pipeline into the deploy branch. Verified via gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '.required_status_checks'."
+      },
+      "force_pushes_allowed_on_deploy_ref": {
+        "type": "boolean",
+        "title": "Force Pushes Allowed on Deploy Ref",
+        "description": "Branch-protection allow_force_pushes.enabled on the deploy branch. Insecure (true) when history can be rewritten on the protected ref, defeating change control and letting unreviewed history reach the build. Secure baseline false. Verified via gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '.allow_force_pushes.enabled'."
+      },
+      "branch_protection_enforced_for_admins": {
+        "type": "boolean",
+        "title": "Branch Protection Enforced for Admins",
+        "description": "Branch-protection enforce_admins.enabled on the deploy branch — protection rules apply to admins too. Insecure (false) when admins bypass review/checks and push directly to the deploy ref. Modelled positive-secure (true = protection applies) so the insecure firing state is is_false. Verified via gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '.enforce_admins.enabled'."
+      },
+      "deployment_environment_protection_configured": {
+        "type": "boolean",
+        "title": "Deployment Environment Protection Configured",
+        "description": "Whether the production deployment environment has protection rules (deployment_branch_policy restricting to the protected branch, with environment-scoped secrets). Insecure (false) when prod can be deployed from any branch/workflow with no environment gate. Verified via gh api repos/{owner}/{repo}/environments/production."
+      },
+      "self_hosted_runner_used": {
+        "type": "boolean",
+        "title": "Self-Hosted Runner In Use",
+        "description": "Whether any workflow targets a self-hosted runner (runs-on: self-hosted) rather than GitHub-hosted runners. Self-hosted runners are the precondition for runner-compromise and persistent-foothold risk; on GitHub-hosted runners the host is disposable and managed, so this exposure does not apply. Assessor: grep -rn 'runs-on:.*self-hosted' .github/workflows/ (any match => true).",
+        "default": false
+      },
+      "runner_ephemeral_jit": {
+        "type": "boolean",
+        "title": "Self-Hosted Runner Is Ephemeral / JIT",
+        "description": "Whether the self-hosted runner is ephemeral / just-in-time (registered per-job via run.sh --jitconfig and torn down after one job) rather than a persistent, reused host. A persistent runner (false) lets untrusted PR code that compromises one job persist as a privileged foothold for subsequent builds (OWASP CICD-SEC-4). Secure value: true. Assessor verifies the runner registration mode (org/repo Actions runner config; --ephemeral / JIT). Fires when a self-hosted runner is NOT ephemeral."
+      },
+      "repository_visibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "private"
+        ],
+        "title": "Repository Visibility",
+        "description": "Visibility of the repository whose workflows the self-hosted runner serves. A public repo accepts pull requests from arbitrary external contributors, so attacker-authored PR code can run on (and compromise) the runner — the highest-blast-radius case for a self-hosted runner. Insecure (firing) value when combined with a self-hosted runner: public."
+      },
+      "egress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Runner Egress Default-Deny Enforced",
+        "description": "Shared workspace attribute: whether the runner's outbound network is default-deny (e.g. step-security/harden-runner with egress-policy: block, or a host/network policy on the self-hosted runner) so only explicitly allowed destinations are reachable. Secure value: true. When false, a poisoned build step on the runner has an open path to exfiltrate secrets or reach attacker C2 (OWASP CICD-SEC-4; T1567). Fires (with a self-hosted runner) when egress is NOT default-deny.",
+        "default": false
+      },
+      "app_tier_egress_destination_allowlisted": {
+        "type": "boolean",
+        "title": "Runner Egress Destinations Allowlisted",
+        "description": "Shared workspace attribute: whether the runner's permitted outbound destinations are constrained to a known FQDN/registry allowlist (package mirrors, container registries, the GitHub API) rather than arbitrary internet hosts. Secure value: true. Complements default-deny: even with deny-by-default, an over-broad allowlist re-opens the exfiltration path. Fires (with a self-hosted runner) when egress destinations are NOT allowlisted."
+      },
+      "pipeline_run_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Pipeline Run Audit Logging Enabled",
+        "description": "Attested true when workflow runs, deployment approvals, secret access, and runner-registration events are captured in the pipeline/org audit log. False fires this exposure: a build-system compromise goes unlogged, so it is undetectable and unreconstructable (OWASP CICD-SEC-10; NIST SP 800-92). Assessor verifies via the org audit-log API (e.g. gh api /orgs/{org}/audit-log) returning recent workflow/deploy/secret events.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored Off-Box on Separate System",
+        "description": "Attested true when the pipeline audit log is streamed off-box to an external system (SIEM / log-archive) the build infrastructure cannot tamper with. False fires this exposure: on-box-only logs are wiped or altered by the same compromise that produced them, defeating post-incident reconstruction. Shared workspace vocabulary — keep the name aligned across components."
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "Attested true when pipeline logs are streamed into a centralized SIEM/aggregation platform for correlation and alerting rather than living only in per-repo run logs. False fires this exposure: scattered, uncorrelated logs mean a cross-repo build-system compromise is not surfaced. Shared workspace vocabulary."
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Attested true when security-relevant pipeline events — deployment approvals, secret access, runner registration/de-registration, permission changes — are fully captured (not just job pass/fail). False fires this exposure: the high-value events an attacker abuses are invisible. Shared workspace vocabulary."
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Actor-Attributed Access Audit Trail Enabled",
+        "description": "Attested true when who triggered, approved, or accessed each workflow run / secret is recorded with actor identity in a retained audit trail. False fires this exposure: there is no record of who drove a deploy, so a compromised identity cannot be traced. Shared workspace vocabulary."
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Audit Log Retention (Days)",
+        "description": "Number of days the pipeline audit log is retained off-box. Below ~90 days a build-system compromise that dwells (SolarWinds-style) is unreconstructable because the relevant events have already aged out. Fires this exposure when retention is shorter than the 90-day floor."
+      }
+    },
+    "required": [
+      "pull_request_target_with_untrusted_checkout",
+      "untrusted_input_in_run_step",
+      "third_party_actions_pinned_to_commit_sha",
+      "artifact_references_immutable_digest_pinned",
+      "third_party_action_policy",
+      "frozen_lockfile_with_integrity_hashes",
+      "internal_scope_registry_namespace_claimed",
+      "dependency_vulnerability_scanning_enabled",
+      "github_token_write_scope_granted",
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys",
+      "least_privilege_access_enforced",
+      "secrets_masked_in_logs",
+      "secrets_stored_in_dedicated_secret_manager",
+      "secret_scanning_enabled",
+      "per_secret_access_scoping",
+      "artifact_supply_chain_signed_provenance_verified",
+      "required_signatures_enforced_on_deploy_ref",
+      "deploy_ref_protected_branch_only",
+      "deploy_required_reviewers_configured",
+      "required_approving_review_count",
+      "required_status_checks_strict",
+      "force_pushes_allowed_on_deploy_ref",
+      "branch_protection_enforced_for_admins",
+      "deployment_environment_protection_configured",
+      "self_hosted_runner_used",
+      "runner_ephemeral_jit",
+      "repository_visibility",
+      "egress_default_deny_enforced",
+      "app_tier_egress_destination_allowlisted",
+      "pipeline_run_audit_logging_enabled",
+      "logs_stored_on_separate_system",
+      "centralized_log_aggregation",
+      "security_events_fully_logged",
+      "access_audit_trail_enabled",
+      "log_retention_days"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cicd_pipeline_identity_per_environment_no_long_lived_keys"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/github_token_write_scope_granted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_dedicated_secret_manager"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_secret_access_scoping"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_scanning_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_default_deny_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/self_hosted_runner_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/app_tier_egress_destination_allowlisted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/runner_ephemeral_jit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_references_immutable_digest_pinned"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_supply_chain_signed_provenance_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/frozen_lockfile_with_integrity_hashes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_scope_registry_namespace_claimed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pull_request_target_with_untrusted_checkout"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/required_signatures_enforced_on_deploy_ref"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_actions_pinned_to_commit_sha"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/untrusted_input_in_run_step"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_vulnerability_scanning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_action_policy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pipeline_run_audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/repository_visibility"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Change Control",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deploy_ref_protected_branch_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deploy_required_reviewers_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/required_approving_review_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/branch_protection_enforced_for_admins"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_environment_protection_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/force_pushes_allowed_on_deploy_ref"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/required_status_checks_strict"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,622 @@
+[
+  {
+    "option_name": "pkce_required",
+    "option_description": "Attestation that the IdP MANDATES PKCE (S256, with code_challenge bound to code_verifier) on the authorization-code flow for ALL clients — public and confidential — and rejects /authorize requests lacking a code_challenge.",
+    "security_impact": "References \"Authorization code interception and replay\" — one of its OR-conditions — firing when pkce_required is false (a captured authorization code can be exchanged at /token by any party because nothing binds the code to the legitimate client instance).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Proxy/inspect the /authorize request initiated by the RP and read the query parameters.",
+        "command": "# Proxy/inspect the /authorize request initiated by the RP and read the query parameters",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "response_type=code AND code_challenge=<43+ chars> AND code_challenge_method=S256. Absence of code_challenge or method=plain is insecure.",
+        "source": "RFC 7636 §4; RFC 9700 §2.1.1; OAuth 2.1 draft"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Replay the /authorize request omitting code_challenge to prove PKCE is required, not merely accepted.",
+        "command": "# Replay the /authorize request omitting code_challenge",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IdP rejects with invalid_request — proves PKCE is required, not merely accepted (defends against PKCE-downgrade).",
+        "source": "RFC 9700 §2.1.1; PKCE downgrade-attack analysis"
+      },
+      {
+        "type": "api",
+        "instruction": "Inspect the IdP's OpenID Connect discovery document for code_challenge_methods_supported, and inspect tenant/client policy to confirm PKCE is enforced (not merely advertised) for every registered client.",
+        "command": "curl -sS https://<idp_host>/.well-known/openid-configuration | jq '.code_challenge_methods_supported'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "[\"S256\"] (no \"plain\"); a tenant-level setting or per-client flag confirms PKCE is mandatory for all clients.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "code_single_use_enforced",
+    "option_description": "Attestation that the IdP's /token endpoint accepts each authorization_code at most once — a second exchange returns invalid_grant and the access/refresh tokens issued from the first exchange are invalidated.",
+    "security_impact": "References \"Authorization code interception and replay\" — one of its OR-conditions — firing when code_single_use_enforced is false (a captured code can be replayed for additional token issuance after the legitimate RP has redeemed it).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Exchange an authorization_code at /token, then immediately replay the same code and observe the response.",
+        "command": "# Exchange an authorization_code at /token, then immediately replay the same code",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First exchange succeeds; second exchange returns invalid_grant. RFC 9700 recommends invalidating tokens issued from the first exchange too.",
+        "source": "RFC 6749 §4.1.2; RFC 9700 §2.1.1"
+      },
+      {
+        "type": "api",
+        "instruction": "After replaying the code, attempt to call /userinfo or a protected resource with the access_token issued from the first exchange to confirm RFC 9700 §2.1.1 token-invalidation behaviour.",
+        "command": "curl -sS -H \"Authorization: Bearer <access_token_from_first_exchange>\" https://<idp_host>/userinfo",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401 invalid_token after the replay attempt — proves derived tokens were invalidated, not merely the second code rejected.",
+        "source": "RFC 9700 §2.1.1"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "authorization_code_ttl_seconds",
+    "option_description": "Lifetime in seconds for which the IdP will accept an authorization_code at /token after issuance. RFC 6749 §4.1.2 and RFC 9700 recommend codes be short-lived (≤60s; up to 120s tolerated).",
+    "security_impact": "References \"Authorization code interception and replay\" — one of its OR-conditions — firing when authorization_code_ttl_seconds is greater than 120 (a lingering code gives an interception-and-replay adversary a wide window to race the legitimate RP to the token endpoint).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Exchange an authorization_code at /token to confirm single-use behaviour and observe the documented TTL.",
+        "command": "# Exchange an authorization_code at /token, then immediately replay the same code",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First exchange succeeds; second exchange returns invalid_grant. RFC 9700 recommends invalidating tokens issued from the first exchange too.",
+        "source": "RFC 6749 §4.1.2; RFC 9700 §2.1.1"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Issue an /authorize request to obtain a fresh code, then wait past the documented TTL before attempting to redeem it at /token.",
+        "command": "# Capture code from /authorize, sleep <ttl+10>s, then POST to /token",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "/token returns invalid_grant once the TTL is exceeded — measured TTL ≤120s is acceptable; ≤60s is recommended.",
+        "source": "RFC 6749 §4.1.2; RFC 9700 §2.1.1"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Read the IdP tenant or realm policy that controls authorization-code lifetime (e.g. Keycloak realm token settings, Okta authorization-server policies, Auth0 tenant settings).",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Realm/Tenant settings -> Tokens -> 'Authorization code lifespan' (or vendor equivalent)",
+        "expected_output": "Configured value is ≤60s (recommended) or at worst ≤120s.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      60,
+      120
+    ]
+  },
+  {
+    "option_name": "pkce_method_s256_required",
+    "option_description": "Attestation that the IdP enforces code_challenge_method=S256 on every /authorize request and rejects requests that omit code_challenge or present a non-S256 method.",
+    "security_impact": "References \"PKCE downgrade attack\" — one of its OR-conditions — firing when pkce_method_s256_required is false (an active MITM can coerce the client into omitting PKCE or falling back to plain, turning an eavesdropped code_challenge into a usable code_verifier — RFC 7636 §7.2).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send an /authorize request with code_challenge_method=plain and confirm the IdP rejects it.",
+        "command": "# Send an /authorize request with code_challenge_method=plain",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IdP rejects (invalid_request) — only S256 is honoured.",
+        "source": "RFC 7636 §7.2; RFC 9700"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IdP discovery document and confirm code_challenge_methods_supported lists S256 only.",
+        "command": "curl -sS https://<idp_host>/.well-known/openid-configuration | jq '.code_challenge_methods_supported'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "[\"S256\"] — \"plain\" must not be advertised or accepted.",
+        "source": "RFC 7636 §4.3; OpenID Connect Discovery"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "code_challenge_method_plain_accepted",
+    "option_description": "Attestation that the IdP accepts code_challenge_method=plain (or silently falls back to plain when S256 verification fails) on the authorization endpoint.",
+    "security_impact": "References \"PKCE downgrade attack\" — one of its OR-conditions — firing when code_challenge_method_plain_accepted is true (an eavesdropper on the front channel can reuse the challenge as the verifier at /token, defeating the PKCE binding between the client instance and the authorization code).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send an /authorize request with code_challenge_method=plain to determine whether the IdP accepts it.",
+        "command": "# Send an /authorize request with code_challenge_method=plain",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IdP rejects (invalid_request) — only S256 is honoured. If the IdP issues a code, complete the exchange at /token using the challenge value as the verifier — if /token accepts, plain is silently honoured.",
+        "source": "RFC 7636 §7.2; RFC 9700"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe for silent fallback: send /authorize with a malformed S256 challenge and watch whether the IdP downgrades to plain validation at /token.",
+        "command": "# /authorize with code_challenge=<short> and code_challenge_method=S256, then /token with code_verifier equal to code_challenge",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "/token rejects (invalid_grant) — confirms no silent plain fallback. Acceptance signals a downgrade window.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "oidc_nonce_validated",
+    "option_description": "Attestation that the RP generates a per-session nonce, includes it in the /authorize request, AND verifies on callback that the same value is echoed in the id_token's nonce claim.",
+    "security_impact": "References \"ID Token replay via missing or unchecked nonce\" — its sole OR-condition — firing when oidc_nonce_validated is false (a captured ID Token can be replayed across user-agent sessions; see GHSA-3gx8-q682-38mx where nonce was generated but never compared).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture an /authorize request then decode the returned id_token and inspect the nonce claim.",
+        "command": "# Capture /authorize then decode the returned id_token and inspect the nonce claim",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "id_token.nonce equals the value sent in /authorize. Replaying a previously-used id_token MUST be rejected by the RP.",
+        "source": "OpenID Connect Core 1.0 §3.1.2.1, §3.1.3.7; GHSA-3gx8-q682-38mx (roadiz nonce-never-validated advisory)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect RP source code or framework configuration to confirm BOTH nonce generation per /authorize AND comparison on id_token receipt are wired up (the common bug is generation without verification).",
+        "command": "grep -RInE '(nonce|id_token)' <rp_codebase>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both nonce write (on /authorize build) and nonce read+compare (on /callback id_token parse) are present in the auth handler.",
+        "source": "OpenID Connect Core 1.0 §3.1.3.7"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "oauth_state_bound_and_verified",
+    "option_description": "Attestation that the RP generates a high-entropy per-request `state` value on /authorize, binds it to the user-agent session (cookie or server-side store), and verifies it byte-for-byte on /callback before accepting the authorization response.",
+    "security_impact": "References \"Login CSRF via missing or unbound state parameter\" — its sole OR-condition — firing when oauth_state_bound_and_verified is false (the authentication-response leg is unbound from the initiating session, enabling login-CSRF and session-fixation as called out in RFC 6749 §10.12).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture two consecutive /authorize requests and tamper with the state on /callback to observe the RP's behaviour.",
+        "command": "# Capture two consecutive /authorize requests and the /callback handler behaviour",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "`state` differs across requests, is >=128 bits of entropy, and tampering with it on /callback causes the RP to reject the response.",
+        "source": "RFC 6749 §10.12; RFC 9700 §4.7; OWASP CSRF Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Issue a /callback from a different browser session (no matching session cookie) carrying a valid-for-elsewhere state and confirm the RP rejects it (session binding, not just value comparison).",
+        "command": "# Replay /callback?code=...&state=... in a fresh session with no matching cookie",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP rejects — state is bound to the session-store key, not merely echoed.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "redirect_uri_exact_match_enforced",
+    "option_description": "Attestation that the IdP matches the inbound redirect_uri against the registered allowlist using exact byte-for-byte string comparison — no wildcards, no regex, no path-prefix, no scheme/host normalisation (localhost ports for native apps excepted).",
+    "security_impact": "References \"redirect_uri pattern-match / open-redirect exploit\" — one of its OR-conditions — firing when redirect_uri_exact_match_enforced is false (pattern matching lets the attacker steer the authorization response to an attacker origin and capture the code or fragment-mode token — RFC 9700 §2.1.3).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send /authorize with redirect_uri variants (trailing slash, fragment, extra path, attacker-controlled subdomain) and confirm each is rejected.",
+        "command": "# Send /authorize with redirect_uri that differs by a trailing slash, fragment, extra path, or attacker-controlled subdomain",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IdP rejects with invalid_request/invalid_redirect_uri for every variant that is not byte-identical to a registered URI.",
+        "source": "RFC 9700 §2.1.3 (Redirect URI Validation); OAuth 2.1 draft"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP client-registration entry to confirm only exact HTTPS URIs are registered (no `*`, no regex anchors, no path-prefix templates).",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Clients -> <client_id> -> 'Allowed Callback URLs' / 'Valid Redirect URIs'",
+        "expected_output": "List contains only literal https:// URIs that the RP actually uses; no wildcard or pattern entries.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "post_login_returnto_allowlisted",
+    "option_description": "Attestation that the RP validates post-login returnTo / RelayState / continue parameters against a server-side allowlist of internal paths, refusing to redirect off-origin.",
+    "security_impact": "References \"redirect_uri pattern-match / open-redirect exploit\" — one of its OR-conditions — firing when post_login_returnto_allowlisted is false (the authentication response leg is weaponised to phish users or leak codes via Referer — RFC 9700 §4.10).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send a login URL with a returnTo pointing at an external origin and observe whether the RP follows it after authentication.",
+        "command": "# Send a login URL with ?returnTo=https://attacker.example/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "After auth, the RP refuses to redirect off-origin; redirects only to allowlisted internal paths.",
+        "source": "OWASP Unvalidated Redirects Cheat Sheet; RFC 9700 §4.10"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Grep the RP codebase for the returnTo / RelayState / continue handler to confirm it validates against a server-side allowlist (not regex on hostname, which is bypassable).",
+        "command": "grep -RInE '(returnTo|RelayState|continue|next)\\s*=' <rp_codebase>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handler resolves the supplied value against a static list of internal paths, or rejects any value with a scheme/authority component.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "saml_assertion_signature_verified",
+    "option_description": "Attestation that the SP verifies the IdP's XML-DSig signature on the SAML Assertion (and ideally the Response) using a pinned IdP certificate, with signature-wrapping defences (canonicalisation + reference validation rejecting wrapped/duplicate Assertions).",
+    "security_impact": "References \"SAML signature wrapping, replay, and audience confusion\" — one of its OR-conditions — firing when saml_assertion_signature_verified is false (full SP impersonation via tampered SAMLResponse — see CVE-2022-23607, CVE-2024-45409).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit unsigned and signature-wrapping variants of a SAMLResponse to the SP's ACS endpoint and confirm rejection.",
+        "command": "# Submit a SAMLResponse with a tampered Assertion, a stale NotOnOrAfter, a different AudienceRestriction, and a replayed AssertionID",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects all four. XML signature-wrapping variants are also rejected.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SAML toolkit version in use carries fixes for XML signature-wrapping CVEs (CVE-2022-23607 python-saml; CVE-2024-45409 ruby-saml) and that the IdP signing certificate is pinned, not 'trust anything signed'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SP SAML config -> 'IdP Certificate' / 'Signing Cert' — confirm a fingerprint or PEM, not a CA bundle reference",
+        "expected_output": "Toolkit version is on the patched line; signing cert is pinned by fingerprint or PEM.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "saml_audience_restriction_strict",
+    "option_description": "Attestation that the SP enforces Conditions/AudienceRestriction by exact match against its own EntityID (no wildcards, no prefix match) and rejects assertions issued for a different audience.",
+    "security_impact": "References \"SAML signature wrapping, replay, and audience confusion\" — one of its OR-conditions — firing when saml_audience_restriction_strict is false (cross-SP assertion confusion: an assertion legitimately issued for SP-A is accepted by SP-B).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit a SAMLResponse whose AudienceRestriction names a different SP's EntityID and confirm rejection.",
+        "command": "# Submit a SAMLResponse with a tampered Assertion, a stale NotOnOrAfter, a different AudienceRestriction, and a replayed AssertionID",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects all four. XML signature-wrapping variants are also rejected.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Read the SP's expected Audience / EntityID configuration and confirm it is a literal string the SP compares byte-for-byte (not a regex or prefix).",
+        "command": null,
+        "file_path": null,
+        "navigation": "SP SAML config -> 'EntityID' / 'Audience' — compare to the value in incoming Assertions' <AudienceRestriction>",
+        "expected_output": "Single literal EntityID configured; comparison is exact-match.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "saml_recipient_inresponseto_matched",
+    "option_description": "Attestation that the SP validates SubjectConfirmationData.Recipient against its own ACS URL and SubjectConfirmationData.InResponseTo against an AuthnRequest ID the SP actually issued.",
+    "security_impact": "References \"SAML signature wrapping, replay, and audience confusion\" — one of its OR-conditions — firing when saml_recipient_inresponseto_matched is false (unsolicited or cross-endpoint assertion injection succeeds).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inject an unsolicited assertion (no prior AuthnRequest) and a separate assertion whose Recipient is a different ACS URL; confirm both rejected.",
+        "command": "# Submit a SAMLResponse with a tampered Assertion, a stale NotOnOrAfter, a different AudienceRestriction, and a replayed AssertionID",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects all four. XML signature-wrapping variants are also rejected.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SP records issued AuthnRequest IDs in a server-side store and rejects responses whose InResponseTo is unknown or already-consumed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SP source / config -> 'AuthnRequest cache' / 'InResponseTo store' (e.g. session store or short-lived KV)",
+        "expected_output": "InResponseTo is matched against a stored request ID; unsolicited assertions are either rejected or governed by an explicit IdP-initiated-SSO toggle that is OFF by default.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "saml_assertion_replay_cache_active",
+    "option_description": "Attestation that the SP maintains a seen-AssertionID cache for the validity window (NotBefore..NotOnOrAfter) and rejects any AssertionID it has already consumed.",
+    "security_impact": "References \"SAML signature wrapping, replay, and audience confusion\" — one of its OR-conditions — firing when saml_assertion_replay_cache_active is false (a still-valid Assertion can be replayed within its lifetime).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Consume a SAML Assertion successfully, then resubmit the identical (still-valid) Assertion to the SP's ACS and confirm rejection on the second submission.",
+        "command": "# Submit a SAMLResponse with a tampered Assertion, a stale NotOnOrAfter, a different AudienceRestriction, and a replayed AssertionID",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SP rejects all four. XML signature-wrapping variants are also rejected.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SP's SAML toolkit configuration enables the AssertionID replay cache with a TTL at least as long as the maximum NotOnOrAfter window.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SP SAML config -> 'OneTimeUse' / 'Replay cache' / 'Assertion ID cache TTL'",
+        "expected_output": "Replay cache enabled, TTL ≥ assertion validity window.",
+        "source": "OWASP SAML Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "option_description": "Attestation that the IdP enforces a phishing-resistant authenticator (WebAuthn/FIDO2, smartcard) on the authentication handshake — origin-bound credentials an Evilginx-class reverse-proxy phishing kit cannot relay.",
+    "security_impact": "References \"Phishing-driven MFA bypass via AiTM reverse proxy\" — one of its OR-conditions — firing when phishing_resistant_authenticator_required is false (an AiTM proxy can pass password + OTP/push through in real time and harvest the resulting session — NIST SP 800-63B AAL2/AAL3).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Attempt login as a privileged user with only a password and observe the authentication policy enforcement.",
+        "command": "Attempt login as a privileged user with only password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Login fails / second-factor challenge is mandatory. Bypass via legacy endpoint is also blocked.",
+        "source": "NIST SP 800-63B Rev 4 §4.2-4.3; OWASP Authentication Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP conditional-access / MFA policy for coverage gaps and confirm WebAuthn/FIDO2 (or smartcard) is the required factor, with password+OTP/push fallback disabled for the user population in scope.",
+        "command": "# Review the IdP conditional-access / MFA policy for coverage gaps (service accounts, legacy protocols, IP allowlist bypasses)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No identity class exempt from MFA except documented break-glass, which itself has compensating controls. Required authenticator class is phishing-resistant (WebAuthn/FIDO2 or smartcard).",
+        "source": "NIST SP 800-63B"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sender_constrained",
+    "option_description": "Attestation that access tokens (and where supported, session cookies) issued on the handshake are sender-constrained — mTLS-bound (RFC 8705, cnf.x5t#S256) or DPoP-bound (RFC 9449, cnf.jkt) — so a token harvested by an AiTM proxy, XSS, log leak, or malicious browser extension cannot be replayed from a different sender.",
+    "security_impact": "References both \"Phishing-driven MFA bypass via AiTM reverse proxy\" (one of its OR-conditions, firing when sender_constrained is false) and \"Bearer access token theft and replay from a different sender\" (one of its OR-conditions, firing when sender_constrained is false) — without proof-of-possession (mTLS x5t#S256 or DPoP jkt cnf claim) plain bearer tokens are usable from any sender once stolen.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Decode an access_token (if JWT) and check for a cnf claim; or read the token-endpoint response for token_type.",
+        "command": "# Decode an access_token (if JWT) and check for cnf claim; or read the token-endpoint response for token_type",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "token_type=DPoP or the JWT contains a `cnf` claim (jkt or x5t#S256). Plain `Bearer` with no binding is the insecure case.",
+        "source": "RFC 9449 DPoP; RFC 8705 §3 (vetted in corpus)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Replay a captured access_token from a different client / different DPoP key / different mTLS client cert and confirm rejection.",
+        "command": "curl -sS -H \"Authorization: Bearer <stolen_token>\" https://<rs_host>/api/resource",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resource server returns 401 invalid_token (or invalid_dpop_proof) when the proof-of-possession does not match — confirms binding is enforced, not merely advertised.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Attestation that the authentication endpoint enforces per-account AND per-IP throttling with progressive delay, CAPTCHA escalation, or temporary lockout on repeated failures (per-IP alone is defeated by botnets).",
+    "security_impact": "References \"Credential stuffing and online brute force\" — one of its OR-conditions — firing when rate_limiting_or_lockout_enabled is false (mass replay of breached credential pairs or password guessing against privileged accounts becomes feasible — NIST SP 800-63B §5.2.2).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Issue many failed login attempts against a test account from a single IP, then from many IPs, to confirm both per-account and per-IP throttling fire.",
+        "command": "# Issue 100+ failed login attempts against a test account from one IP, then from many IPs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-account throttling triggers (responses slow / 429 / CAPTCHA / temp-lock) regardless of source IP diversity.",
+        "source": "NIST SP 800-63B Rev 4 §5.2.2; OWASP Authentication Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP brute-force / detection-policy configuration to confirm both per-account and per-IP keys are armed, with thresholds tuned to avoid trivial DoS-by-lockout.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Security -> 'Brute Force Protection' / 'Detections' / 'Sign-in risk policy'",
+        "expected_output": "Both per-account and per-IP throttles are enabled; thresholds documented; ~100-attempt ceiling per NIST.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "breached_password_screening_enabled",
+    "option_description": "Attestation that the authentication flow screens submitted (and newly chosen) passwords against a known-breached-credentials corpus (e.g. HaveIBeenPwned k-anonymity API, NIST SP 800-63B §5.1.1.2 compromised-credentials check) and rejects or steps-up on a hit.",
+    "security_impact": "References \"Credential stuffing and online brute force\" — one of its OR-conditions — firing when breached_password_screening_enabled is false (previously-leaked credential pairs remain usable, the precise attack credential-stuffing automates).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to set or log in with a known-pwned password (e.g. 'P@ssw0rd') and observe the response.",
+        "command": "# Attempt to set / log in with a known-pwned password (e.g. 'P@ssw0rd')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rejected at set-time, or step-up challenged / blocked at sign-in.",
+        "source": "NIST SP 800-63B Rev 4 §5.1.1.2"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the IdP password policy enables a compromised-credentials check (HaveIBeenPwned k-anonymity, or vendor equivalent) for both registration/change AND sign-in paths.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Authentication -> Password Policy -> 'Check against breached passwords' / 'Compromised credentials'",
+        "expected_output": "Feature enabled for both set-password and sign-in flows.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "transmitted_in_url_or_query",
+    "option_description": "Attestation that secrets (passwords, authorization codes, ID/access tokens, SAMLResponse) are carried in URL path or query string on this flow. The secure value is false — secrets MUST be in request bodies or headers.",
+    "security_impact": "References \"Secrets in URL leaking via Referer, logs, and browser history\" — one of its OR-conditions — firing when transmitted_in_url_or_query is true (URL-borne secrets end up in proxy/access logs, Referer headers to third-party origins, and shared browser history — RFC 9700 §4.3).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep web access logs for secret-bearing query parameters.",
+        "command": "grep -E '(password=|access_token=|id_token=|code=|SAMLResponse=)' <web_access_log>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No hits. Any hit is a sensitive-data-in-URL leak (becomes a Referer leak too).",
+        "source": "OWASP ASVS V9 / Authentication Cheat Sheet; RFC 9700 §4.3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture the handshake traffic (intercepting proxy or tcpdump+TLS-keys) and inspect every URL path/query for token/code/password material.",
+        "command": "# mitmproxy / Burp on the browser <-> IdP and browser <-> RP legs; export URLs and grep",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No secret material in any URL — codes/tokens appear only in POST bodies or Authorization headers.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Attestation that any secret material that traverses this flow is masked/redacted in proxy, gateway, and application access logs (and excluded from Referer propagation).",
+    "security_impact": "References \"Secrets in URL leaking via Referer, logs, and browser history\" — one of its OR-conditions — firing when secrets_masked_in_logs is false (even header/body-borne secrets leak via log retention and downstream analytics when unmasked).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review IdP and RP logging config for token-scrubbing on Authorization headers and form bodies.",
+        "command": "# Review IdP and RP logging config for token-scrubbing on Authorization headers and form bodies",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authorization headers and password/token form fields are redacted before write.",
+        "source": "OWASP Logging Cheat Sheet"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Trigger a handshake with a marker token value and grep proxy, gateway, app, and SIEM logs for the marker.",
+        "command": "grep -RIn '<marker_token_value>' <log_directories>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No hits — the marker appears only as '***' / '[REDACTED]' / a truncated digest. Plain marker presence anywhere in the log chain is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_token_ttl_minutes",
+    "option_description": "Time-to-live of access tokens issued on this authentication flow, in minutes. RFC 9700 recommends short-lived access tokens (commonly ≤60 minutes) paired with refresh-token rotation.",
+    "security_impact": "References \"Bearer access token theft and replay from a different sender\" — one of its OR-conditions — firing when access_token_ttl_minutes is greater than 60 (long-lived unbound bearer tokens dramatically widen the replay window after theft).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Decode an issued access_token (if JWT) and compute exp − iat in minutes; otherwise read the token-endpoint expires_in field.",
+        "command": "curl -sS -X POST https://<idp_host>/token -d 'grant_type=...' | jq '.expires_in' # then divide by 60",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "expires_in ≤ 3600 (≤60 minutes). For JWT tokens, (exp − iat)/60 ≤ 60.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect IdP token-lifetime policy for the access-token TTL applied to clients on this flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Token settings (per realm, tenant, or authorization-server) -> 'Access token lifespan'",
+        "expected_output": "Configured access-token lifespan ≤60 minutes; longer-lived needs documented refresh-token rotation justification.",
+        "source": "RFC 9700 §4"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      15,
+      30,
+      60
+    ]
+  }
+]

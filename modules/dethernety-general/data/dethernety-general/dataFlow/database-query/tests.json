@@ -1,0 +1,92 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "parameterized_queries_used": false,
+      "dynamic_query_string_concatenation": true,
+      "flow_tls_encrypted": false,
+      "data_tier_transit_encrypted": false,
+      "server_certificate_validated": false,
+      "tls_root_trust_managed": false,
+      "per_workload_db_identity_used": false,
+      "data_tier_credentials_short_lived": false,
+      "least_privilege_db_account": false,
+      "bulk_read_volume_anomaly_alerted": false,
+      "bulk_export_monitored_and_alerted": false,
+      "pii_excluded_from_logs": false,
+      "secrets_masked_in_logs": false,
+      "data_store_publicly_routable": true,
+      "data_tier_ingress_scoped_per_workload_identity": false
+    },
+    "expectedExposures": [
+      "Cleartext DB transport sniffing",
+      "TLS without server certificate validation (AiTM)",
+      "PII leakage via pgaudit / driver query logs",
+      "SQL injection enabling bulk exfiltration",
+      "Long-lived shared DB credentials reused indefinitely",
+      "Mass-data egress through legitimate flow (no LIMIT / no quota)",
+      "Over-privileged DB account turns small bug into database-wide breach",
+      "Publicly reachable DB listener scanned and brute-forced"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "parameterized_queries_used": true,
+      "dynamic_query_string_concatenation": false,
+      "flow_tls_encrypted": true,
+      "data_tier_transit_encrypted": true,
+      "server_certificate_validated": true,
+      "tls_root_trust_managed": true,
+      "per_workload_db_identity_used": true,
+      "data_tier_credentials_short_lived": true,
+      "least_privilege_db_account": true,
+      "bulk_read_volume_anomaly_alerted": true,
+      "bulk_export_monitored_and_alerted": true,
+      "pii_excluded_from_logs": true,
+      "secrets_masked_in_logs": true,
+      "data_store_publicly_routable": false,
+      "data_tier_ingress_scoped_per_workload_identity": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "parameterized_queries_used": true,
+      "dynamic_query_string_concatenation": false,
+      "flow_tls_encrypted": true,
+      "data_tier_transit_encrypted": true,
+      "server_certificate_validated": true,
+      "tls_root_trust_managed": true,
+      "per_workload_db_identity_used": true,
+      "data_tier_credentials_short_lived": true,
+      "least_privilege_db_account": true,
+      "bulk_read_volume_anomaly_alerted": true,
+      "bulk_export_monitored_and_alerted": true,
+      "pii_excluded_from_logs": true,
+      "secrets_masked_in_logs": true,
+      "data_store_publicly_routable": false,
+      "data_tier_ingress_scoped_per_workload_identity": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Cleartext DB transport sniffing",
+      "TLS without server certificate validation (AiTM)",
+      "PII leakage via pgaudit / driver query logs",
+      "SQL injection enabling bulk exfiltration",
+      "Long-lived shared DB credentials reused indefinitely",
+      "Mass-data egress through legitimate flow (no LIMIT / no quota)",
+      "Over-privileged DB account turns small bug into database-wide breach",
+      "Publicly reachable DB listener scanned and brute-forced"
+    ]
+  }
+]

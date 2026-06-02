@@ -1,0 +1,9 @@
+{
+  "id": "96f7e545-4481-4703-af31-0630cad029cb",
+  "name": "Deployment & Update Flow",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "The deployment and update flow — also called a release/rollout, artifact promotion, CD push, or deploy pipeline traffic — the movement of build artifacts and configuration from the pipeline into running environments. The conduit by which code reaches production. The place to look for deployments, releases/rollouts, artifact promotion, or the flow pushing builds and config into live environments.",
+  "category": "Operational Traffic",
+  "status": "draft"
+}

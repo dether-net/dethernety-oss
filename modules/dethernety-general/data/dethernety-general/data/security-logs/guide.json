@@ -1,0 +1,669 @@
+[
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether log records are protected against undetectable modification or deletion — append-only/WORM media, hash-chaining, or cryptographic signing — so any alteration of an existing record is detectable. The headline anti-cover-tracks property.",
+    "security_impact": "One of the OR-triggers for \"Logs not tamper-evident\" — fires when audit records are mutable flat files an attacker can edit or selectively delete without trace. Tamper-evidence (AU-9(1) write-once media, AU-9(3) cryptographic integrity) defeats ATT&CK Indicator Removal (T1070) and selective record tampering (T1565.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit trails are written to hardware-enforced write-once media or that cryptographic integrity mechanisms protect audit records (write-once on initial generation and backup; cryptographic mechanisms to protect integrity of audit information and tools).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of AU-9(1) write-once media and/or AU-9(3) cryptographic integrity protecting audit records. Absence of either = insecure.",
+        "source": "NIST SP 800-53 Rev 5 AU-9 / AU-9(1) / AU-9(3)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm tamper-detection is built in so a modified or deleted record is detectable, and that log data is copied to read-only media as soon as possible.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Tamper-detection present; a modified/deleted record is detectable and log data is copied to read-only media promptly.",
+        "source": "OWASP Logging Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "file_integrity_monitoring_enabled",
+    "option_description": "Whether file-integrity monitoring or change-detection software watches the log store such that existing log data cannot be changed without generating an alert.",
+    "security_impact": "One of the OR-triggers for \"Logs not tamper-evident\" — fires when no FIM/change-detection guards the log store, leaving record edits silent. FIM alerting on modification mitigates selective audit-record tampering (T1565.001) and in-transit modification at the destination.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a file integrity monitoring or change-detection tool is deployed on the logs so existing log data cannot be changed without generating an alert.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A FIM tool watches the log store and alerts on modification of existing log data.",
+        "source": "PCI DSS v4.0 Requirement 10.5.5"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm tamper-detection is built in so a modified or deleted record is detectable, with log data copied to read-only media as soon as possible.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Change-detection raises an alert on any modification of the audit store.",
+        "source": "OWASP Logging Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether audit records are stored in a repository on a physically different system or component than the one being audited, so a compromise of the monitored host cannot also erase its audit records.",
+    "security_impact": "One of the OR-triggers for \"Logs stored only locally — erased on host compromise\" — fires when logs live only on the generating host so a single host compromise lets the adversary clear the only copy (T1070.002). Off-host storage (AU-9(2)) and prompt backup to a difficult-to-alter central server defeat it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit records are stored in a repository that is part of a physically different system/component than the one being audited — logs land on a separate system, not only on the audited host.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit records replicated to a separate system per AU-9(2), not solely on the generating host.",
+        "source": "NIST SP 800-53 Rev 5 AU-9(2)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit log files are promptly backed up to a centralized secure server or environment difficult to alter; external-facing technology logs written to a secure central server.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs promptly backed up to a difficult-to-alter central server (PCI 10.5.3/10.5.4).",
+        "source": "PCI DSS v4.0 Requirement 10.5.3 / 10.5.4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether log collection and retention is centralized (e.g. a SIEM) across enterprise assets, so logs are aggregated off-host in near-real-time rather than remaining only on the source.",
+    "security_impact": "One of the OR-triggers for \"Logs stored only locally — erased on host compromise\" — fires when logs are siloed per-host with no off-host collection, so a host compromise can erase the only copy (T1070.002). Centralization (CIS 8.9) to a SIEM tier defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit-log collection and retention is centralized to the extent possible across enterprise assets (e.g. via a SIEM that centralizes multiple log sources) and receives this asset's logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A central aggregation tier (SIEM) exists and receives the asset's logs (Safeguard 8.9).",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.9"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logging is enabled across enterprise assets per the documented management process — the asset is identified as logging-capable and actually forwards.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Asset identified as logging-capable and forwarding per Safeguard 8.2.",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether read access to log data is limited to those with a business need and reviewed periodically — logs may contain sensitive data, and read access reveals what an attacker must erase.",
+    "security_impact": "One of the OR-triggers for \"Over-broad read/modify/delete access to logs\" — fires when logs are world-readable or broadly accessible. Least-privilege read access reviewed periodically (PCI 10.5.1, AU-9) mitigates unauthorized read access to the audit store (T1530) and reconnaissance of what to evade.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm read access to audit log files is limited to those with a business/job-related need — display/read access is restricted, not broadly granted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Read access restricted to business-need users (PCI 10.5.1).",
+        "source": "PCI DSS v4.0 Requirement 10.5.1"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm privileges to read log data are restricted and reviewed periodically — there is a periodic review of who can read logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Read privileges restricted with evidence of periodic review.",
+        "source": "OWASP Logging Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit information and audit logging tools are protected from unauthorized access, modification, and deletion.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit info/tools protected from unauthorized access/modification/deletion (AU-9).",
+        "source": "NIST SP 800-53 Rev 5 AU-9 / AU-9(4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_management_restricted_to_privileged_subset",
+    "option_description": "Whether access to management of the audit logging functionality is authorized only to a subset of privileged users, so general administrators cannot disable, reconfigure, or purge auditing.",
+    "security_impact": "One of the OR-triggers for \"Over-broad read/modify/delete access to logs\" — fires when audit management is broadly granted rather than restricted to a privileged subset (AU-9(4)), enabling adversaries to impair logging (T1562.002). Restricting audit-management defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm access to management of audit functionality is authorized only to a subset of privileged users, separate from general administration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit-management access restricted to a privileged subset per AU-9(4).",
+        "source": "NIST SP 800-53 Rev 5 AU-9 / AU-9(4)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit logging tools and audit information are protected from unauthorized modification and deletion, with management access controlled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit tools protected; management access controlled (AU-9).",
+        "source": "NIST SP 800-53 Rev 5 AU-9 / AU-9(4)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_access_monitored",
+    "option_description": "Whether all access to the logs is itself recorded and monitored, so an adversary reading or attempting to alter the audit trail is detected and unauthorized access/modification/deletion raises an alert.",
+    "security_impact": "One of the OR-triggers for \"Over-broad read/modify/delete access to logs\" — fires when there is no audit-of-the-audit, so tampering goes unseen. Recording and alerting on access to logs (PCI 10.2.3, AU-9) mitigates unauthorized read access (T1530) and impairing of defenses.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm all access to the logs is recorded and monitored — access to the audit log itself produces a record (logs access to all audit logs / log paths).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access to the audit log itself produces a record (PCI 10.2.3).",
+        "source": "OWASP Logging Cheat Sheet; PCI DSS v4.0 Requirement 10.2.3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm designated personnel/roles are alerted upon detection of unauthorized access, modification, or deletion of audit information.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting on unauthorized access/modification/deletion of audit info (AU-9).",
+        "source": "NIST SP 800-53 Rev 5 AU-9"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Whether the security-relevant event set is actually captured: authentication successes/failures, access-control/authorization failures, privileged/admin actions, account and auth-mechanism changes, access to audit logs, and audit-log start/stop/pause plus object create/delete.",
+    "security_impact": "One of the OR-triggers for \"Insufficient security-event coverage\" — fires when security-relevant event classes are partially or wholly uncaptured, letting malicious activity go unrecorded (T1562.006). Complete event selection (AU-2/AU-12, PCI 10.2.1-10.2.7) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm audit logs capture: individual access to sensitive data, all root/admin actions, access to all audit logs, invalid access attempts, use/modification of identification & authentication mechanisms and privileged account changes, starting/stopping/pausing of audit logs, and creation/deletion of system-level objects. Confirm each event class appears.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each of PCI 10.2.1-10.2.7 event classes is present in the logs.",
+        "source": "PCI DSS v4.0 Requirement 10.2.1–10.2.7"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the system identifies the event types it is capable of logging and provides audit-record generation capability for those event types — security-relevant events are selected for logging, not merely available.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security-relevant events selected and generated, not just capable (AU-2/AU-12).",
+        "source": "NIST SP 800-53 Rev 5 AU-2 / AU-12"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "required_record_fields_complete",
+    "option_description": "Whether each audit record contains the fields needed to reconstruct an event: what happened, when, where, source, outcome, and the user/identity — without which records are unusable for investigation and correlation.",
+    "security_impact": "One of the OR-triggers for \"Insufficient security-event coverage\" — fires when records are sparse (missing identity, source address, or outcome), defeating investigation even when events are captured. Complete record content (AU-3, PCI 10.3, CIS 8.5) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm each audit record establishes: what type of event occurred, when, where, the source of the event, and the outcome. Confirm a sample record contains all five.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sample record contains event type, time, location, source, and outcome (AU-3).",
+        "source": "NIST SP 800-53 Rev 5 AU-3"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm each record includes user ID, event type, date/time, success/failure indication, event source/origination, and affected resource/data identity; for sensitive-data assets capture event source, date, username, timestamp, source & destination addresses.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Record fields complete per PCI 10.3 and CIS 8.5 forensic field set.",
+        "source": "PCI DSS v4.0 Requirement 10.3; CIS Controls v8 Control 8 Safeguard 8.5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Whether system clocks generating timestamps are accurate and synchronized to a trusted time source (UTC/atomic-based NTP), so records from multiple sources correlate into a single accurate timeline.",
+    "security_impact": "One of the OR-triggers for \"Unsynchronized clocks defeating correlation\" — fires when free-running or unsynced clocks make cross-source event sequencing impossible (T1070.006). Trusted time synchronization (PCI 10.6, CIS 8.4, AU-8) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm all critical system clocks are synchronized using time-synchronization technology and at least one acceptable time server based on International Atomic Time or UTC is designated; access to time data is restricted and changes to time settings are logged.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Clocks synced to a designated UTC/atomic-based time server (PCI 10.6.1–10.6.3).",
+        "source": "PCI DSS v4.0 Requirement 10.6.1–10.6.3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm at least two synchronized time sources are configured across enterprise assets where supported, using approved NTP servers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least two approved NTP time sources configured where supported (Safeguard 8.4).",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm internal system clocks are used to generate timestamps for audit records at the organization-defined granularity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timestamps generated from synchronized internal clocks (AU-8).",
+        "source": "NIST SP 800-53 Rev 5 AU-8"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "timestamps_in_utc",
+    "option_description": "Whether audit-record timestamps are recorded in UTC (or with explicit timezone offset normalizing to UTC), so logs from different timezones merge into one unambiguous timeline.",
+    "security_impact": "One of the OR-triggers for \"Unsynchronized clocks defeating correlation\" — fires when local-timezone or ambiguous timestamps prevent reliable cross-source ordering during investigation (T1070.006). UTC/atomic-based timestamps (PCI 10.6) defeat it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm timestamps are anchored to a time server based on International Atomic Time or UTC, so records normalize to a single unambiguous timeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timestamps in UTC / atomic-time-anchored, not ambiguous local time (PCI 10.6.1–10.6.2).",
+        "source": "PCI DSS v4.0 Requirement 10.6.1–10.6.3"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample audit records and confirm each timestamp is in UTC or carries an explicit offset that normalizes to UTC, rather than naive local time without a zone.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sampled records show UTC timestamps or explicit zone offsets.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "time_source_access_restricted",
+    "option_description": "Whether access to time data is restricted and changes to time settings are logged, preventing an adversary from manipulating the clock to corrupt the timeline.",
+    "security_impact": "One of the OR-triggers for \"Unsynchronized clocks defeating correlation\" — fires when time-setting access is unrestricted, letting an attacker manipulate clocks to defeat correlation (T1070.006). Restricting time-data access and logging time changes (PCI 10.6.3) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm access to time data is restricted and that changes to time settings are logged, per the time-synchronization requirements.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Time-data access restricted; time-setting changes are logged (PCI 10.6.3).",
+        "source": "PCI DSS v4.0 Requirement 10.6.1–10.6.3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm at least one acceptable trusted time server is designated and time configuration cannot be altered by unprivileged users.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trusted time source designated; configuration change restricted to privileged users.",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Number of days audit records are retained before rotation/disposal. Short retention destroys forensic evidence and lets slow or late-discovered intrusions age out of the record.",
+    "security_impact": "One of the OR-triggers for \"Short or absent retention destroying evidence\" — fires when retention falls below the required window (PCI 12 months with 3 months immediately available; CIS floor 90 days) so evidence is silently rotated away (T1070). Adequate retention (PCI 10.7, CIS 8.10, AU-11) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit trail history is retained for at least one year, with at least the most recent three months immediately available for analysis.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": ">=12 months retention, with >=3 months immediately available (PCI 10.7).",
+        "source": "PCI DSS v4.0 Requirement 10.7"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit logs are retained across enterprise assets for a minimum of 90 days — verify the aggregation-tier retention config meets the floor.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Aggregation-tier retention config >= 90 days (Safeguard 8.10).",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.10"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit records are retained for the organization-defined period to support after-the-fact investigations, with log archival processes established for retention beyond what the original source can hold.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention period defined per AU-11; archival process per NIST SP 800-92.",
+        "source": "NIST SP 800-53 Rev 5 AU-11; NIST SP 800-92"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "365",
+      "90",
+      "30"
+    ]
+  },
+  {
+    "option_name": "log_storage_sized_for_retention",
+    "option_description": "Whether the log destination has sufficient storage to meet retention without premature rotation/overwrite that silently drops records — an availability/coverage failure an adversary can also induce by log flooding.",
+    "security_impact": "One of the OR-triggers for \"Short or absent retention destroying evidence\" — fires when an undersized store overwrites within the retention window, discarding genuine evidence. Adequate capacity sized to retention (CIS 8.3, AU-4) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logging destinations have storage sufficient to meet retention policy, complying with log-rotation and storage-size limits.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Storage sized so rotation does not discard within-window data (Safeguard 8.3).",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit log storage capacity is allocated to accommodate the organization-defined audit log retention requirements.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Storage capacity allocated to meet retention requirements (AU-4).",
+        "source": "NIST SP 800-53 Rev 5 AU-4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_flood_overflow_protection",
+    "option_description": "Whether the pipeline guards against log-flooding that overruns storage and forces rotation/overwrite of genuine evidence within the retention window (rate-limiting, backpressure, or alerting on abnormal volume).",
+    "security_impact": "One of the OR-triggers for \"Short or absent retention destroying evidence\" — fires when an adversary can flood events to exhaust storage and induce overwrite (T1499), discarding evidence within the window. Adequate storage capacity (CIS 8.3, AU-4) plus pipeline-failure monitoring defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logging destinations have storage sufficient to meet retention policy and comply with log-rotation/storage-size limits so a volume spike cannot prematurely overwrite within-window data.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Capacity and rotation limits prevent flood-induced overwrite within the retention window (Safeguard 8.3).",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a rate-limit, backpressure, or abnormal-volume alert protects the pipeline against deliberate log flooding, and that audit storage capacity is allocated to the retention requirement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Overflow protection present (rate-limit/backpressure/volume alert) alongside AU-4 allocated capacity.",
+        "source": "NIST SP 800-53 Rev 5 AU-4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether log data is transmitted to the collector over a secure (encrypted, authenticated) protocol when crossing untrusted networks, preventing interception or tampering in transit.",
+    "security_impact": "One of the OR-triggers for \"Logs unencrypted in transit / at rest\" — fires when logs are forwarded in cleartext (e.g. UDP syslog) over an untrusted network, allowing sniffing or modification before reaching the collector (T1040). Secure transmission (OWASP) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "If log data is sent over untrusted networks, confirm a secure transmission protocol is used — verify forwarding uses an encrypted channel (e.g. TLS), not cleartext, by inspecting the forwarder configuration and the on-the-wire transport.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Forwarding uses an encrypted (TLS) channel, not cleartext syslog/UDP.",
+        "source": "OWASP Logging Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture the log-forwarding session on the wire and confirm the transport negotiates TLS rather than carrying log records in plaintext.",
+        "command": "openssl s_client -connect <collector-host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake completes; payload is encrypted, no plaintext log records observable.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether stored/archived logs are encrypted at rest, protecting their confidentiality (logs may hold sensitive data) and supporting integrity protection of the archive.",
+    "security_impact": "One of the OR-triggers for \"Logs unencrypted in transit / at rest\" — fires when the log store is plaintext and readable to anyone with file access. At-rest encryption (NIST SP 800-92, AU-9(3)) defeats confidentiality breach of the broadly-visible, long-lived audit store.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logs are protected from breaches of confidentiality and integrity in storage and in transit, including archived logs — verify the log store/archive is encrypted at rest.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log store and archive confirmed encrypted at rest (NIST SP 800-92).",
+        "source": "NIST SP 800-92"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm cryptographic mechanisms protect the integrity of audit information and tools, applying cryptographic-storage guidance to the log store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cryptographic integrity protection on the log store (AU-9(3)) per OWASP storage guidance.",
+        "source": "NIST SP 800-53 Rev 5 AU-9(3); OWASP Cryptographic Storage Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pii_excluded_from_logs",
+    "option_description": "Whether sensitive personal/payment data (PAN, health/government identifiers, sensitive PII) is kept OUT of log records — logs are broadly visible and long-lived, so capturing PII turns the audit store into a confidentiality liability.",
+    "security_impact": "One of the OR-triggers for \"Sensitive data captured in readable logs\" — fires when sensitive PII/PAN is captured in readable log text (T1552.001), turning the audit store into a breach/credential-harvest target. Excluding PII (OWASP) plus restricted read access and at-rest encryption defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample records and confirm logs do NOT contain bank account or payment-card-holder data or sensitive PII (health/government identifiers), alongside other secrets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sampled records contain no PAN or sensitive PII.",
+        "source": "OWASP Logging Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm PII captured in logs is identified and protected/minimized, since logs may inadvertently capture sensitive information and must be protected for confidentiality.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PII in logs identified, minimized, and protected (NIST SP 800-92/800-122).",
+        "source": "NIST SP 800-92; NIST SP 800-122"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether secrets (passwords, session IDs, access tokens, connection strings, encryption keys) are masked or kept out of log records, so the broadly-visible audit store is not a credential-harvest target.",
+    "security_impact": "One of the OR-triggers for \"Sensitive data captured in readable logs\" — fires when authentication passwords, session values, tokens, connection strings, or keys appear in readable log text (T1552.001 unsecured credentials). Masking/excluding secrets (OWASP) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample records and confirm logs do NOT contain authentication passwords, session identification values, access tokens, database connection strings, or encryption keys/primary secrets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sampled records show secrets absent or masked.",
+        "source": "OWASP Logging Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logs may inadvertently capture sensitive information (e.g. passwords) and are protected/minimized for confidentiality, with masking applied where secrets would otherwise appear.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret-masking controls in place; confidentiality protection per NIST SP 800-92.",
+        "source": "NIST SP 800-92; NIST SP 800-122"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logging_failure_alerting_enabled",
+    "option_description": "Whether failures in the logging pipeline (collection stops, forwarder down, audit service stopped/paused) raise an alert, so an adversary disabling or impairing logging is detected.",
+    "security_impact": "One of the OR-triggers for \"Logging-pipeline failures undetected\" — fires when pipeline failures or adversary disabling of logging (T1562.002) go unnoticed. Logging start/stop/pause of audit logs (PCI 10.2.6), alerting on audit-tool tampering (AU-9), and review cadence (CIS 8.11) defeat it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm designated personnel/roles are alerted upon detection of unauthorized access, modification, or deletion of audit information — including impairment of the logging service.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting fires on audit-info/tool tampering and logging impairment (AU-9).",
+        "source": "NIST SP 800-53 Rev 5 AU-9"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm starting, stopping, and pausing of audit logs is itself logged so a disabled/impaired pipeline produces an alertable record.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit start/stop/pause events are recorded (PCI 10.2.6) and feed alerting.",
+        "source": "PCI DSS v4.0 Requirement 10.2.1–10.2.7"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_review_cadence_defined",
+    "option_description": "Whether logs are reviewed/analyzed on a defined cadence so tampering, gaps, and indicators of compromise are detected rather than only collected — the pipeline failure is silent if no one reviews.",
+    "security_impact": "One of the OR-triggers for \"Logging-pipeline failures undetected\" — fires when logs are collected but never reviewed, so anomalies and pipeline failures go undetected. A defined review cadence (PCI 10.6, CIS 8.11, AU-6) defeats it.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logs for systems handling sensitive data are reviewed at least daily and other logs reviewed periodically per risk assessment, with exceptions tracked.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Daily review for sensitive-data systems; periodic review with tracked exceptions (PCI 10.6).",
+        "source": "PCI DSS v4.0 Requirement 10.6"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit log reviews are conducted on a weekly or more frequent basis to detect anomalies — failing to review within seven days is non-compliant.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reviews conducted weekly or more often (Safeguard 8.11).",
+        "source": "CIS Controls v8 Control 8 Safeguard 8.11"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm system audit records are reviewed and analyzed at the organization-defined frequency for indications of inappropriate or unusual activity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review/analysis at defined frequency per AU-6.",
+        "source": "NIST SP 800-53 Rev 5 AU-6"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

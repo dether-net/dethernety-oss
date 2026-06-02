@@ -1,0 +1,92 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "encrypted_at_rest": false,
+      "storage_encryption_enabled": false,
+      "tde_enabled": false,
+      "backups_encrypted": false,
+      "at_rest_encryption_strength": "none",
+      "fips_validated_module": false,
+      "keys_managed_in_hsm_or_kms": false,
+      "envelope_encryption_kek_dek_split": false,
+      "key_rotation_enabled": false,
+      "key_rotation_period_days": 0,
+      "kms_key_protection_policy_enforced": false,
+      "kms_admin_separated_from_db_admin": false,
+      "customer_managed_key_used": false,
+      "secure_deletion_or_crypto_shred": false,
+      "key_management_audit_logging_enabled": false,
+      "secret_access_audited": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "encrypted_at_rest": true,
+      "storage_encryption_enabled": true,
+      "tde_enabled": true,
+      "backups_encrypted": true,
+      "at_rest_encryption_strength": "strong",
+      "fips_validated_module": true,
+      "keys_managed_in_hsm_or_kms": true,
+      "envelope_encryption_kek_dek_split": true,
+      "key_rotation_enabled": true,
+      "key_rotation_period_days": 0,
+      "kms_key_protection_policy_enforced": true,
+      "kms_admin_separated_from_db_admin": true,
+      "customer_managed_key_used": true,
+      "secure_deletion_or_crypto_shred": true,
+      "key_management_audit_logging_enabled": true,
+      "secret_access_audited": true
+    },
+    "expectedCountermeasures": [
+      "At-rest encryption enabled on all persisted stores",
+      "Customer-managed keys with crypto-shred deletion",
+      "FIPS-approved strong algorithm and key strength",
+      "Key rotation on a bounded cryptoperiod",
+      "Key-usage and key-management audit logging",
+      "Keys held in a dedicated KMS/HSM with envelope encryption",
+      "Least-privilege key policy with separation of duties"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "encrypted_at_rest": true,
+      "storage_encryption_enabled": true,
+      "tde_enabled": true,
+      "backups_encrypted": true,
+      "at_rest_encryption_strength": "none",
+      "fips_validated_module": true,
+      "keys_managed_in_hsm_or_kms": true,
+      "envelope_encryption_kek_dek_split": true,
+      "key_rotation_enabled": true,
+      "key_rotation_period_days": 0,
+      "kms_key_protection_policy_enforced": true,
+      "kms_admin_separated_from_db_admin": true,
+      "customer_managed_key_used": true,
+      "secure_deletion_or_crypto_shred": true,
+      "key_management_audit_logging_enabled": true,
+      "secret_access_audited": true
+    },
+    "expectedCountermeasures": [
+      "At-rest encryption enabled on all persisted stores",
+      "Customer-managed keys with crypto-shred deletion",
+      "Key rotation on a bounded cryptoperiod",
+      "Key-usage and key-management audit logging",
+      "Keys held in a dedicated KMS/HSM with envelope encryption",
+      "Least-privilege key policy with separation of duties"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

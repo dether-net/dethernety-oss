@@ -1,0 +1,270 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "permissions_granted_via_roles_only": {
+        "type": "boolean",
+        "title": "Permissions Granted Via Roles Only",
+        "description": "Every effective permission is conferred through a role assignment and there is no path to grant a permission except by assigning a role (INCITS 359 Core RBAC invariant): no principal holds permissions via direct user-to-permission grants, inline grants, or ad-hoc ACEs that bypass the role model. The assessor confirms there is no permission-to-user binding mechanism outside of roles. Secure (firing) value is true.",
+        "default": false
+      },
+      "deny_by_default_authorization": {
+        "type": "boolean",
+        "title": "Deny-by-Default Authorization",
+        "description": "The authorization engine fails closed: access is denied unless an explicitly authorizing role grants it, with no default-allow fallthrough on absence of a matching role. The assessor confirms the decision point returns deny when no role authorizes the request. Secure (firing) value is true.",
+        "default": false
+      },
+      "rbac_enforced_at_resource_pep": {
+        "type": "boolean",
+        "title": "RBAC Enforced at Resource PEP Without Bypass",
+        "description": "The role-based authorization decision is enforced at the resource / policy enforcement point (PEP) for every request, uniformly at system, application, and service levels (not only the UI), and there is no path that circumvents it — direct database connections, object-store access, admin consoles, and back-end APIs are all subject to the same role check, with no unauthenticated or non-RBAC route reaching the resource. Secure (firing) value is true.",
+        "default": false
+      },
+      "role_grants_least_privilege": {
+        "type": "boolean",
+        "title": "Role Grants Follow Least Privilege",
+        "description": "Each role authorizes only the accesses its task requires — permission sets are scoped to the minimum needed for the role's function with no broad grants beyond task need, and no role carries wildcard or admin-equivalent grants (e.g. '*' actions/resources, full-control or superuser permissions). Attested true when role definitions have been reviewed and confirmed to follow least privilege with no wildcard or all-access entries.",
+        "default": false
+      },
+      "privileged_roles_minimized": {
+        "type": "boolean",
+        "title": "Privileged Roles Minimized",
+        "description": "Privileged/admin roles are held by a minimal, named set of principals rather than broadly assigned, limiting the standing-escalation blast radius of any single compromised principal. Attested true when privileged-role membership is constrained to a documented minimal set.",
+        "default": false
+      },
+      "admins_use_separate_nonprivileged_accounts": {
+        "type": "boolean",
+        "title": "Admins Use Separate Non-Privileged Accounts",
+        "description": "Holders of privileged roles perform routine, non-administrative work from separate non-privileged roles/accounts, so day-to-day activity does not run with standing elevated privilege. Attested true when privileged principals operate under distinct non-privileged identities for routine tasks."
+      },
+      "segregation_of_duties_enforced": {
+        "type": "boolean",
+        "title": "Segregation of Duties Enforced",
+        "description": "Separation of duties is enforced over documented mutually-exclusive (toxic) duty pairs so no single principal can complete a sensitive end-to-end action alone (e.g. maker = checker), via Static SoD (a principal cannot be assigned both roles of a toxic pair) and/or Dynamic SoD (a principal cannot activate both roles in one session). The toxic combinations are concretely encoded as SSD/DSD constraints in the authorization engine and blocked at decision time. True when SoD is actively enforced by the access engine, not merely policy on paper.",
+        "default": false
+      },
+      "role_definitions_documented_and_governed": {
+        "type": "boolean",
+        "title": "Role Definitions Documented and Governed",
+        "description": "Every role has a documented purpose, named owner, and an explicitly defined permission set on record, so the role model is intelligible and authoritative rather than an opaque accretion of grants. Verified by inspecting the role catalog for per-role purpose/owner/permission-set documentation.",
+        "default": false
+      },
+      "role_change_control_enforced": {
+        "type": "boolean",
+        "title": "Role Change Control Enforced",
+        "description": "Role definitions and their permission sets are maintained under formal change control (request, review/approval, and recorded change history) so role-definition edits cannot drift ungoverned. Verified by inspecting the change-management process and audit trail for role-definition modifications.",
+        "default": false
+      },
+      "role_model_rationalized_no_explosion": {
+        "type": "boolean",
+        "title": "Role Model Rationalized (No Role Explosion)",
+        "description": "The role model is actively kept rationalized via role mining/consolidation and role hierarchy rather than accreting near-duplicate single-member roles, preventing role explosion that re-creates direct-grant behaviour. Verified by evidence of periodic role-mining/consolidation activity and absence of proliferating one-off roles."
+      },
+      "periodic_privilege_recertification": {
+        "type": "boolean",
+        "title": "Periodic Privilege Recertification",
+        "description": "Role/permission assignments are reviewed on a defined cadence via attestation campaigns: each grant is explicitly confirmed or revoked by an accountable reviewer and the recertification results are recorded. Workspace-canonical attribute reused across the access-governance corpus; secure (firing) value is true.",
+        "default": false
+      },
+      "recertification_max_interval_days": {
+        "type": "integer",
+        "title": "Recertification Maximum Interval (Days)",
+        "description": "Maximum elapsed days between successive access-recertification campaigns for a given assignment. A bounded cadence (e.g. <= 90 days, tighter for privileged roles) ensures access does not outlive its need; the protection is in place when the interval is at or below the policy threshold."
+      },
+      "centralized_authorization_directory": {
+        "type": "boolean",
+        "title": "Centralized Authorization Directory",
+        "description": "Access is centralized through a directory/IdP acting as a single source of truth, so grants and revocations apply consistently rather than across N disconnected role tables where stale access lingers. Secure (firing) value is true."
+      },
+      "joiner_mover_leaver_lifecycle_enforced": {
+        "type": "boolean",
+        "title": "Joiner-Mover-Leaver Lifecycle Enforced",
+        "description": "Role assignments are bound to identity-lifecycle events driven from the authoritative HR/identity source rather than ad-hoc requests: on hire (joiner) access is provisioned per least privilege from the assigned role's task scope, and on a mover/transfer event roles tied to the prior position are removed as part of granting the new position's roles, so a transferred principal does not retain standing access from previous duties (no privilege accumulation / role creep). Attested true when the joiner-mover-leaver process governs every role grant and change, with transfer workflows enforcing removal of superseded roles, not just addition of new ones.",
+        "default": false
+      },
+      "offboarding_credential_revocation_enforced": {
+        "type": "boolean",
+        "title": "Offboarding Credential Revocation Enforced",
+        "description": "On a leaver/termination event, all role assignments and access for the principal are revoked promptly within the defined policy window, removing the orphaned standing-access foothold a terminated principal would otherwise retain. Workspace-canonical offboarding revocation attestation. Attested true when termination triggers timely, complete deprovisioning.",
+        "default": false
+      },
+      "identity_access_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Identity & Access Audit Logging Enabled",
+        "description": "Identity and access events are captured to a centralized audit log (single source of truth). Workspace-canonical attestation: when true, access-control activity is recorded rather than going unlogged.",
+        "default": false
+      },
+      "role_assignment_changes_logged": {
+        "type": "boolean",
+        "title": "Role Assignment Changes Logged",
+        "description": "Role assignment and change events specifically — grant, revoke, role-definition edits, and privileged-membership changes — are recorded with the actor, target principal, role, and timestamp, making account manipulation and policy-weakening edits attributable (T1098, T1484). Distinct from generic access logging because it attests the role-mutation event coverage and the required field set.",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper-Evident",
+        "description": "The centralized audit store is tamper-protected (append-only / write-once / integrity-sealed) so logged role changes cannot be silently altered or deleted by an attacker covering tracks. Workspace-canonical attestation (AU-9).",
+        "default": false
+      }
+    },
+    "required": [
+      "permissions_granted_via_roles_only",
+      "deny_by_default_authorization",
+      "rbac_enforced_at_resource_pep",
+      "role_grants_least_privilege",
+      "privileged_roles_minimized",
+      "admins_use_separate_nonprivileged_accounts",
+      "segregation_of_duties_enforced",
+      "role_definitions_documented_and_governed",
+      "role_change_control_enforced",
+      "role_model_rationalized_no_explosion",
+      "periodic_privilege_recertification",
+      "recertification_max_interval_days",
+      "centralized_authorization_directory",
+      "joiner_mover_leaver_lifecycle_enforced",
+      "offboarding_credential_revocation_enforced",
+      "identity_access_audit_logging_enabled",
+      "role_assignment_changes_logged",
+      "audit_log_tamper_evident"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deny_by_default_authorization"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/joiner_mover_leaver_lifecycle_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/offboarding_credential_revocation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/periodic_privilege_recertification"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/permissions_granted_via_roles_only"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_roles_minimized"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rbac_enforced_at_resource_pep"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_change_control_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_definitions_documented_and_governed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_grants_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segregation_of_duties_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admins_use_separate_nonprivileged_accounts"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_authorization_directory"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recertification_max_interval_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_model_rationalized_no_explosion"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_access_audit_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_assignment_changes_logged"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,575 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed or Changed",
+        "description": "Shared-vocabulary attestation that the broker's shipped default accounts (e.g. RabbitMQ guest:guest) have been deleted or had their default credentials changed. False means a well-known default account remains usable, an immediate anonymous/default-credential foothold.",
+        "default": false
+      },
+      "default_guest_remotely_reachable": {
+        "type": "boolean",
+        "title": "Default Guest Account Remotely Reachable",
+        "description": "Interpreted boolean: the RabbitMQ built-in 'guest' user is present with its default password AND not restricted to loopback (loopback_users = none in rabbitmq.conf), so guest:guest can connect from remote networks. True is the insecure default-allow posture; the secure form deletes guest or sets loopback_users = guest.",
+        "default": false
+      },
+      "anonymous_access_allowed": {
+        "type": "boolean",
+        "title": "Anonymous Access Allowed",
+        "description": "Interpreted boolean derived from the broker auth configuration: clients can connect without credentials — e.g. RabbitMQ advertises the ANONYMOUS SASL mechanism in auth_mechanisms (rabbitmq.conf), or a Kafka listener accepts unauthenticated connections. True is insecure; the secure form restricts auth_mechanisms to PLAIN/AMQPLAIN/EXTERNAL (no ANONYMOUS).",
+        "default": false
+      },
+      "kafka_authorizer_enabled": {
+        "type": "boolean",
+        "title": "Kafka Authorizer Enabled",
+        "description": "Interpreted boolean: a Kafka authorizer is configured (authorizer.class.name set, e.g. org.apache.kafka.metadata.authorizer.StandardAuthorizer in server.properties) so topic/group ACLs are actually enforced. False means no authorization at all — any authenticated or anonymous principal has full access. Secure value is true."
+      },
+      "kafka_allow_everyone_if_no_acl_found": {
+        "type": "boolean",
+        "title": "Kafka allow.everyone.if.no.acl.found",
+        "description": "The Kafka allow.everyone.if.no.acl.found flag (server.properties). True makes any resource without an explicit ACL world-accessible (default-allow), which Confluent strongly discourages in production; a deleted/misconfigured ACL silently opens access. Secure value is false."
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Shared workspace attribute: whether broker principals are scoped to least-privilege rights (RabbitMQ per-vhost configure/write/read regexes scoped per role — producers write-only, consumers read-only — rather than '.*' on all three; Kafka explicit per-principal/per-topic ACLs rather than super-user or default-allow). False means application principals hold broad/wildcard rights, so any authenticated client can publish, consume, or reconfigure any queue/topic and a compromised low-privilege producer becomes a confused deputy.",
+        "default": false
+      },
+      "wildcard_acls_used": {
+        "type": "boolean",
+        "title": "Wildcard ACLs Used",
+        "description": "Interpreted boolean: whether any application principal is granted wildcard authorization — RabbitMQ set_permissions with configure/write/read all '.*' (full access across the vhost), or Kafka ACLs using resource/operation wildcards (or a wildcard-equivalent super-user grant). The assessor reads the raw permission regexes / ACL list (rabbitmqctl list_user_permissions, kafka-acls --list) and sets this true if a non-admin principal effectively has all-resource rights. Modelled as an interpreted boolean rather than regex-matching the raw '.*' string, since the secure scoped regexes can themselves legitimately contain '.*' fragments (e.g. 'app\\..*'), which would false-fire a substring match. True fires the exposure.",
+        "default": false
+      },
+      "per_topic_acls_enforced": {
+        "type": "boolean",
+        "title": "Per-Topic ACLs Enforced",
+        "description": "Interpreted boolean: whether per-topic/per-queue authorization is actually enforced — Kafka has authorizer.class.name set (StandardAuthorizer) with allow.everyone.if.no.acl.found = false AND explicit per-principal/per-topic ACLs present; RabbitMQ has scoped per-vhost permissions rather than a single broad grant. False means there is effectively no per-topic least-privilege boundary (no authorizer, default-allow, or a flat permission model), so any authenticated client reaches every topic/queue. False fires the exposure.",
+        "default": false
+      },
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Transport TLS Encrypted",
+        "description": "Whether broker transport (AMQP, Kafka client and inter-broker channels) runs over TLS rather than cleartext. INSECURE when false: a plaintext listener is reachable — RabbitMQ listeners.tcp on 5672 with no ssl_options, or Kafka listeners = PLAINTEXT://:9092 / security.inter.broker.protocol = PLAINTEXT — exposing credentials and message payloads to network sniffing and MITM modification. Secure value: true (AMQPS 5671 / Kafka SSL:// or SASL_SSL:// listeners and SSL/SASL_SSL inter-broker protocol).",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Whether the broker accepts ONLY TLS-protected connections, with no externally reachable cleartext listener remaining alongside the TLS one. INSECURE when false: a plaintext AMQP 5672 / Kafka PLAINTEXT 9092 listener is still reachable even though a TLS listener exists, so an attacker (or a misconfigured client) can be downgraded onto the cleartext port for sniffing/MITM. Secure value: true (plaintext listeners disabled or firewalled to trusted networks; only AMQPS/SSL/SASL_SSL reachable)."
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted flag: whether the broker's TLS listener still permits legacy TLS versions (TLSv1.0 / TLSv1.1) in addition to or instead of TLSv1.2/1.3. Derived from the raw protocol-version directive (RabbitMQ ssl_options.versions, Kafka ssl.enabled.protocols) rather than substring-matched, since a hardened value (TLSv1.2,TLSv1.3) excludes the weak versions but a raw match would false-fire. INSECURE when true: legacy TLS enables downgrade/MITM against the transport. Secure value: false (only TLSv1.2/TLSv1.3 negotiable)."
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Whether peer/certificate verification is enforced on the TLS connection (RabbitMQ ssl_options.verify = verify_peer; Kafka clients validate the broker via configured truststore). INSECURE when false: verify_none accepts any presented certificate, so an active attacker can terminate TLS with a forged certificate and perform a MITM even when 'TLS' is nominally enabled. Secure value: true (verify_peer / truststore-validated certificate chain).",
+        "default": false
+      },
+      "service_to_service_mtls_enforced": {
+        "type": "boolean",
+        "title": "Service-to-Service mTLS Enforced",
+        "description": "Whether mutual TLS is enforced so the broker requires a client certificate and rejects certless/anonymous TLS clients (RabbitMQ ssl_options.fail_if_no_peer_cert = true with verify_peer; Kafka ssl.client.auth = required). INSECURE when false: fail_if_no_peer_cert = false or ssl.client.auth = none lets an unauthenticated peer establish a connection, weakening the channel's resistance to impersonation/MITM on the inter-service path. Secure value: true (mTLS required, certless clients rejected)."
+      },
+      "data_store_publicly_routable": {
+        "type": "boolean",
+        "title": "Broker Listeners Publicly Routable",
+        "description": "Shared workspace attestation: the broker's data/messaging listeners (AMQP 5672/5671, Kafka 9092/9093, ActiveMQ OpenWire 61616) are bound to a publicly routable interface (0.0.0.0) and reachable from the internet rather than confined to a private/management network. True when the broker's listener is internet-reachable — a direct surface for credential abuse and known-CVE exploitation. Verify with 'ss -tlnp' that ports are bound to 127.0.0.1 / a private address and firewalled to trusted CIDRs.",
+        "default": false
+      },
+      "management_ui_internet_exposed": {
+        "type": "boolean",
+        "title": "Management UI Internet-Exposed",
+        "description": "The broker's administrative management plane — RabbitMQ management plugin HTTP API/UI on 15672 (15671 TLS), or an equivalent admin console — is listening on 0.0.0.0 and reachable from the internet. True when the management UI is internet-exposed, a high-value admin-takeover surface. Secure posture binds management.tcp.port to a private interface / firewalls it to trusted CIDRs so it is not publicly routable.",
+        "default": false
+      },
+      "segment_boundary_enforced": {
+        "type": "boolean",
+        "title": "Segment Boundary Enforced",
+        "description": "Shared workspace attestation: network segmentation confines the broker so it accepts connections only from a management/trusted network (enforced in both broker config and network policy / firewall / security group). True when a segment boundary is enforced around the broker. When false, no segmentation isolates the broker and exposed listeners are reachable from untrusted networks — the exposure fires."
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control-Plane API Not Publicly Exposed",
+        "description": "Shared workspace attestation: the broker's control-plane / admin API surface (RabbitMQ HTTP management API, Kafka admin/inter-node control, ActiveMQ console) is NOT publicly exposed — it is confined to a private/management network. True when the control-plane API is private. When false, the control-plane API is publicly exposed, giving attackers a direct administrative surface and the exposure fires (inter-node 25672 and management API must not be internet-reachable)."
+      },
+      "message_integrity_protected": {
+        "type": "boolean",
+        "title": "Message Integrity Protected",
+        "description": "Interpreted boolean: whether messages carry per-message integrity protection (application-layer digital signature or MAC over the message body). Brokers do not sign message bodies natively (RabbitMQ/Kafka/ActiveMQ), so integrity must be enforced at the application layer — the assessor confirms producers sign and consumers verify a signature/MAC before acting on a payload. False means an attacker who can publish or modify in-flight messages can inject forged content that consumers cannot distinguish from legitimate traffic. Fires (exposure) when integrity is NOT protected.",
+        "default": false
+      },
+      "producer_authentication_required": {
+        "type": "boolean",
+        "title": "Producer Authentication Required",
+        "description": "Interpreted boolean: whether the broker requires authenticated producers before accepting a publish (no anonymous/guest write path). The assessor confirms there is no unauthenticated publish route — e.g. RabbitMQ guest deleted/loopback-only and ANONYMOUS removed from auth_mechanisms; Kafka has no reachable PLAINTEXT listener and an authorizer is configured. False means an attacker can connect with no credentials and inject messages directly into a queue/topic. Fires (exposure) when producers are NOT required to authenticate.",
+        "default": false
+      },
+      "wildcard_publish_authorization": {
+        "type": "boolean",
+        "title": "Wildcard Publish Authorization",
+        "description": "Interpreted boolean: whether application principals hold wildcard/full publish authorization rather than scoped least-privilege write access. The assessor interprets the real authorization config — RabbitMQ per-vhost configure/write/read regexes all set to '.*' (full access), or Kafka allow.everyone.if.no.acl.found = true / no authorizer.class.name (default-allow). Modeled as an interpreted boolean to avoid the substring/has_element polarity trap on the raw regex/ACL values. True means any (or every) authenticated principal can write to any queue/topic, enabling forged-message injection even where authentication exists. Fires (exposure) when publish authorization is wildcard rather than scoped."
+      },
+      "consumer_idempotency_or_dedup_enforced": {
+        "type": "boolean",
+        "title": "Consumer Idempotency or Dedup Enforced",
+        "description": "Attested true when message consumers enforce idempotency or deduplication (e.g. dedup on a unique message/business key, broker-level dedup such as Kafka enable.idempotence/transactional producers, or an application-side processed-id store) so that re-delivering or re-submitting a previously processed message produces no duplicate side-effect. False (the firing state) means a captured legitimate message can be replayed to trigger duplicate side-effects (repeated payments, repeated commands). This is an application-layer property the assessor verifies about the consumer; the broker does not provide it natively.",
+        "default": false
+      },
+      "message_freshness_nonce_bound": {
+        "type": "boolean",
+        "title": "Message Freshness Nonce-Bound",
+        "description": "Attested true when messages carry an anti-replay binding the consumer validates — a per-message nonce, a monotonic sequence number, or a signed timestamp enforced against a freshness/acceptance window — so a stale captured message is rejected on resubmission. False (the firing state) means messages carry no nonce/sequence/freshness binding, so previously captured legitimate messages remain indefinitely re-playable. Verified at the application/protocol layer, not a broker config knob.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted at Rest",
+        "description": "Whether the broker's persisted message store (Kafka log.dirs segments, RabbitMQ mnesia/quorum-queue data) sits on a volume encrypted at rest (LUKS or cloud KMS/EBS, AES-256). Brokers do not encrypt message bodies natively, so cleartext PII/secrets in message bodies persist on disk when this is false. Maps to the dossier config key broker_at_rest_encryption; insecure when the data directory is on an unencrypted disk.",
+        "default": false
+      },
+      "retention_schedule_enforced": {
+        "type": "boolean",
+        "title": "Retention Schedule Enforced",
+        "description": "Whether messages carry a bounded TTL/retention so sensitive payloads are not retained indefinitely (Kafka retention.ms/retention.bytes set to a finite value, not -1; RabbitMQ x-message-ttl / message-ttl policy). False when retention is unbounded, allowing cleartext PII/secrets to accumulate on disk and leak into backups or readable storage. Maps to the dossier config key message_payload_sensitivity_and_ttl.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Logs",
+        "description": "Whether sensitive message payload fields (PII, credentials, tokens) are masked/redacted before message bodies are written to broker logs or persisted diagnostics. False when payloads leak verbatim into local logs, compounding the at-rest exposure on an unencrypted volume."
+      },
+      "queue_length_limit_enforced": {
+        "type": "boolean",
+        "title": "Queue Length Limit Enforced",
+        "description": "Interpreted: a per-queue maximum length / overflow bound is enforced on the broker (RabbitMQ max-length / x-max-length-bytes / overflow policy with a dead-letter exchange, or Kafka retention.bytes per topic) so an unbounded queue cannot grow until memory/disk is exhausted. False (no queue-length cap, default unbounded) lets a producer or attacker flood the queue and deny service. Assessor verifies via 'rabbitmqctl list_policies' (max-length present) or 'kafka-configs --describe' (finite retention.bytes).",
+        "default": false
+      },
+      "memory_disk_watermark_configured": {
+        "type": "boolean",
+        "title": "Memory/Disk Watermark Configured",
+        "description": "Interpreted: broker memory/disk safety watermarks are configured to back-pressure or block publishers before resources are exhausted (RabbitMQ vm_memory_high_watermark and disk_free_limit set in rabbitmq.conf; Kafka log retention/quota equivalents). False (default unbounded memory, no disk_free_limit) means a flood drives the broker to OOM / disk-full and a denial of service. Assessor verifies via 'grep -E vm_memory_high_watermark|disk_free_limit rabbitmq.conf'.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting or Lockout Enabled",
+        "description": "Shared-vocabulary interpreted boolean: per-client connection/publish rate limiting or producer quotas are enforced (RabbitMQ per-connection/channel limits and credit flow, Kafka client producer quotas) so a single principal cannot saturate the broker. False means no producer quota — an abusive or compromised producer can issue unbounded connections/messages and exhaust capacity."
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection in Place",
+        "description": "Shared-vocabulary interpreted boolean: network/connection-level flood protection guards the broker's reachable listeners (connection limits, SYN/connection rate caps, upstream load-balancer or WAF/scrubbing, IP-based throttling) so a volumetric or connection-exhaustion flood is absorbed before it reaches broker queues. False means the broker's listeners are directly exposed to flooding with no protective layer."
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "Interpreted: the broker software is running a release affected by a known, publicly-exploited remote code execution CVE (e.g. ActiveMQ OpenWire deserialization RCE, CVE-2023-46604 — fixed in ActiveMQ Classic >= 5.15.16/5.16.7/5.17.6/5.18.3 or Artemis >= 2.31.2). The assessor compares the deployed broker version (activemq --version / image tag) against the advisory fixed releases and sets this true when the running build is below the patched version. True fires this exposure; a fully patched broker is false.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Broker Patched Within SLA",
+        "description": "Shared workspace attestation: the network-reachable broker software (the edge/appliance surface) is kept current with security patches within the organisation's remediation SLA. Secure value is true (patches applied within SLA); false means the broker is behind on security updates and exposed to known-CVE exploitation — which fires this exposure. Reused across vectors to express the patch-currency posture of internet- or network-facing components.",
+        "default": false
+      },
+      "native_deserialization_of_untrusted_data": {
+        "type": "boolean",
+        "title": "Native Deserialization of Untrusted Data",
+        "description": "Interpreted: the broker transport (e.g. ActiveMQ's OpenWire marshaller) deserializes attacker-influenced serialized class types from untrusted/unauthenticated network clients without a class allow-list, allowing instantiation of arbitrary classpath classes and shell-command execution. True fires this exposure (the deserialization sink is reachable and unrestricted); a broker that restricts deserialization to a safe allow-list or does not expose native deserialization to untrusted peers is false.",
+        "default": false
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Whether the broker records an access/authentication audit trail (connection and auth attempts on AMQP/Kafka listeners). Shared workspace attribute. Insecure (false) when the broker runs default local-only logging with no connection/auth audit — anonymous access and credential abuse are then undetectable. Maps to broker_audit_logging in the component dossier (RabbitMQ auth/connection event logging; Kafka authorizer.logger).",
+        "default": false
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Whether all security-relevant broker events are captured — including publish/consume operations and authorization (ACL) decisions, not just startup/error logs. Shared workspace attribute. Insecure (false) when message tampering and abuse via publish/consume leave no forensic trail. Kafka logs ACL decisions via the authorizer logger; RabbitMQ logs auth/connection events.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "Whether broker logs are shipped off-box to a separate system / SIEM rather than retained only on the broker host. Shared workspace attribute. Insecure (false) when logging is default local-only with no off-box shipping, so an attacker who compromises the broker can erase the trail (T1562.008) and there is no durable forensic record.",
+        "default": false
+      },
+      "broker_admin_events_audited": {
+        "type": "boolean",
+        "title": "Broker Admin Events Audited",
+        "description": "Whether broker administrative changes are audited — RabbitMQ vhost/user/permission (ACL) changes via rabbitmqctl, Kafka ACL/super.users/topic-config changes. Insecure (false) when admin events are not logged, so privilege escalation and silent ACL loosening on the queue go unrecorded. Secondary trigger specific to the admin-event facet of this vector."
+      }
+    },
+    "required": [
+      "default_accounts_removed_or_changed",
+      "default_guest_remotely_reachable",
+      "anonymous_access_allowed",
+      "kafka_authorizer_enabled",
+      "kafka_allow_everyone_if_no_acl_found",
+      "least_privilege_access_enforced",
+      "wildcard_acls_used",
+      "per_topic_acls_enforced",
+      "flow_tls_encrypted",
+      "tls_only_transport",
+      "weak_tls_versions_enabled",
+      "server_certificate_validated",
+      "service_to_service_mtls_enforced",
+      "data_store_publicly_routable",
+      "management_ui_internet_exposed",
+      "segment_boundary_enforced",
+      "control_plane_api_not_publicly_exposed",
+      "message_integrity_protected",
+      "producer_authentication_required",
+      "wildcard_publish_authorization",
+      "consumer_idempotency_or_dedup_enforced",
+      "message_freshness_nonce_bound",
+      "encrypted_at_rest",
+      "retention_schedule_enforced",
+      "secrets_masked_in_logs",
+      "queue_length_limit_enforced",
+      "memory_disk_watermark_configured",
+      "rate_limiting_or_lockout_enabled",
+      "ddos_protection_in_place",
+      "unpatched_known_rce_cve",
+      "edge_appliance_patched_within_sla",
+      "native_deserialization_of_untrusted_data",
+      "access_audit_trail_enabled",
+      "security_events_fully_logged",
+      "logs_stored_on_separate_system",
+      "broker_admin_events_audited"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_access_allowed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_guest_remotely_reachable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/producer_authentication_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_to_service_mtls_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/per_topic_acls_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/wildcard_acls_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kafka_allow_everyone_if_no_acl_found"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kafka_authorizer_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/wildcard_publish_authorization"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_store_publicly_routable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_ui_internet_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/segment_boundary_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/native_deserialization_of_untrusted_data"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/memory_disk_watermark_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/queue_length_limit_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/broker_admin_events_audited"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_schedule_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Message Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/message_integrity_protected"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Replay",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/consumer_idempotency_or_dedup_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/message_freshness_nonce_bound"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

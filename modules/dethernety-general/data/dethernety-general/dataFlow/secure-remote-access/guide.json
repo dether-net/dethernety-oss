@@ -1,0 +1,434 @@
+[
+  {
+    "option_name": "mfa_enforced_at_boundary_crossing",
+    "option_description": "Attestation that every remote-access session crossing this boundary (VPN tunnel, bastion login, ZTNA grant) requires multi-factor authentication before the session is established — no password-only path, no bypass groups, no single-factor fallback.",
+    "security_impact": "References \"Single-factor remote authentication at boundary\" — its sole OR-condition — firing when mfa_enforced_at_boundary_crossing is false (T1078 Valid Accounts, T1133 External Remote Services, T1110 Brute Force). With MFA absent at the trust edge, a credential-stuffed or phished password yields a full tunnel into the trusted zone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the identity-provider / VPN concentrator authentication policy bound to the remote-access app: confirm MFA is required on every path, with no bypass group and no password-only fallback.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Authentication policies -> Application bound to VPN/bastion -> Required factors",
+        "expected_output": "Policy shows MFA required for the remote-access app; no bypass groups, no password-only fallback.",
+        "source": "CISA Enterprise VPN Security (AA20-073A)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt VPN/bastion login with only username and password from an unenrolled client; observe whether the session is refused before tunnel establishment.",
+        "command": "Attempt VPN/bastion login with only username+password from an unenrolled client; expect rejection or MFA challenge before tunnel/session is established.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authentication fails or prompts a second factor; no session is granted on password alone.",
+        "source": "NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM/remote-access team for the documented break-glass procedure and verify break-glass accounts still require a phishing-resistant factor (or are tightly monitored, time-bound, and alarmed) rather than being a hidden password-only path.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Break-glass accounts documented, tied to a strong factor, monitored with alerting on use; no quiet password-only side door.",
+        "source": "NIST SP 800-46r2 Telework / Remote / BYOD"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "option_description": "Attestation that the remote-access boundary (VPN/bastion/ZTNA portal) accepts only phishing-resistant authenticators — FIDO2/WebAuthn security keys or PKI smartcards (PIV/CAC) — for the second factor. SMS, voice, email OTP, and push-only methods are disabled for this app.",
+    "security_impact": "References \"Phishable MFA factor (SMS/TOTP/push) on VPN portal\" — its sole OR-condition — firing when phishing_resistant_authenticator_required is false (T1557 Adversary-in-the-Middle). Non-domain-bound factors can be relayed in real time by an AiTM proxy, yielding a working VPN session token despite MFA.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the IdP authentication-methods policy bound to the VPN/bastion application: confirm only FIDO2/WebAuthn or PIV/CAC are permitted and that SMS, voice, email OTP, and push-only methods are explicitly disabled for this app.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP admin console -> Authentication methods -> Policy attached to VPN/bastion app -> Allowed authenticators",
+        "expected_output": "IdP policy for the VPN/bastion app permits only FIDO2/WebAuthn or PIV/CAC; SMS, voice, email OTP, and push-only methods are disabled for this app.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a controlled test, attempt sign-in to a look-alike phishing origin proxying the real VPN portal and observe whether the FIDO2 authenticator refuses to assert.",
+        "command": "Attempt sign-in to a look-alike phishing origin proxying the real VPN portal; expect the FIDO2 authenticator to refuse to assert because origin does not match.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authenticator returns no assertion / browser surfaces origin mismatch; no credential leaves the device.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Attempt to enrol a phishable factor (SMS, voice OTP, push-only) against the VPN/bastion app and confirm the IdP refuses the enrolment for this boundary.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enrolment refused for this app; user-facing message indicates the factor is not permitted.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "vpn_protocol_modern_strong",
+    "option_description": "Attestation that the remote-access tunnel negotiates only a modern, NIST-recommended VPN protocol — WireGuard, IKEv2/IPsec with strong suites, or TLS-based SSL VPN with current TLS (>=1.2, preferably 1.3). Legacy protocols (PPTP, bare L2TP without IPsec, IKEv1 aggressive-mode PSK, SSLv2/SSLv3) are disabled and not negotiable.",
+    "security_impact": "References \"Weak or legacy VPN protocol and cipher suite\" — one of its two OR-conditions — firing when vpn_protocol_modern_strong is false (T1040 Network Sniffing, T1562.010 Downgrade Attack). Legacy protocols permit offline cracking, downgrade, and MITM of the encrypted crossing.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the VPN concentrator configuration for the list of enabled protocols and tunnel-group / connection-profile definitions.",
+        "command": "Inspect VPN concentrator config: enabled protocols / tunnel-group definitions.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only IKEv2/IPsec (per NIST SP 800-77r1) or modern TLS-based SSL VPN (per NIST SP 800-113) enabled; PPTP/L2TP-bare/SSLv2/SSLv3/TLS<1.2 absent.",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an internet-side host, port-scan the VPN edge for the canonical VPN protocol ports and confirm legacy protocols do not answer.",
+        "command": "nmap -sV -p 500,4500,1701,1723,443 <vpn_edge>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only sanctioned ports/protocols respond; 1723/tcp (PPTP) closed/absent.",
+        "source": "NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate IKE proposals on the IPsec edge to confirm IKEv1 aggressive mode (and PSK paths) are not selectable.",
+        "command": "ike-scan -M -A <vpn_edge>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No IKEv1 aggressive-mode handshake; only IKEv2 proposals returned.",
+        "source": "NIST SP 800-113 Guide to SSL VPNs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "vpn_cipher_suites_strong_only",
+    "option_description": "Attestation that the tunnel's negotiable cryptographic proposals include only NIST-approved suites for key exchange, encryption, and integrity — ECDH P-256+ or X25519 for KEX, AES-GCM-128/256 for confidentiality, SHA-256+ for integrity. Weak/legacy primitives (DES, 3DES, RC4, MD5, SHA-1, anon-DH, export-grade) are absent from IKE/IPsec proposals, OpenVPN cipher/tls-cipher lists, and TLS suite lists.",
+    "security_impact": "References \"Weak or legacy VPN protocol and cipher suite\" — one of its two OR-conditions — firing when vpn_cipher_suites_strong_only is false (T1040 Network Sniffing, T1562.010 Downgrade Attack). Weak suites enable downgrade and offline cryptanalysis of the tunnelled traffic.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the IKE/IPsec proposal configuration (e.g. crypto ikev2 proposal stanzas, wg show, or openvpn server.conf 'cipher' / 'tls-cipher' directives).",
+        "command": "Read IKE/IPsec proposal config (e.g. crypto ikev2 proposal / wg show / openvpn server.conf 'cipher','tls-cipher').",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Proposals list only NIST-approved suites; no DES, 3DES, MD5, SHA-1, RC4, anon-DH, or export-grade.",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the SSL VPN edge with testssl.sh (TLS) and the IPsec edge with ike-scan -M to enumerate every negotiable suite.",
+        "command": "testssl.sh --severity HIGH https://<ssl_vpn_edge> ; ike-scan -M <vpn_edge>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No weak/legacy suite negotiable; handshake fails for deprecated proposals.",
+        "source": "NIST SP 800-113 Guide to SSL VPNs"
+      },
+      {
+        "type": "command",
+        "instruction": "If a bastion is in scope, enumerate the SSH KEX, cipher, and MAC algorithms it offers.",
+        "command": "sshd -T | grep -Ei 'ciphers|macs|kexalgorithms|hostkeyalgorithms'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only modern algorithms (chacha20-poly1305, aes256-gcm, curve25519-sha256, ssh-ed25519); no CBC, hmac-md5, sha1, or deprecated DH groups.",
+        "source": "OpenSSH bastion / jump host hardening practice"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "split_tunnel_disabled",
+    "option_description": "Interpreted attestation that the remote-access channel forces all client traffic — including DNS — through the VPN tunnel (full-tunnel mode, default route 0.0.0.0/0 and ::/0 pushed, corporate DNS pushed, no split-include/exclude routes for internet ranges). True iff there is no parallel cleartext egress path on the VPN-connected device.",
+    "security_impact": "References \"Split-tunnel DNS / traffic leak bridging trust zones\" — its sole OR-condition — firing when split_tunnel_disabled is false (T1572 Protocol Tunneling). A parallel cleartext egress on the VPN-connected host becomes an uncontrolled channel an adversary can pivot through, bridging untrusted-to-trusted.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the VPN client profile / connection profile and inspect the routes and DNS directives pushed to clients.",
+        "command": "Read VPN client profile: routes pushed, dns directives.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default route (0.0.0.0/0 and ::/0) pushed; DNS servers pushed; no split-include/exclude routes for internet ranges.",
+        "source": "NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a connected client, prove every hop traverses the VPN gateway and DNS resolution uses the corporate resolver, not the local ISP.",
+        "command": "traceroute 1.1.1.1 ; dig +short whoami.akamai.net @resolver1.opendns.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All hops traverse VPN gateway; resolver address belongs to the corporate VPN, not the local ISP.",
+        "source": "CISA Telework Reference Materials / Capacity Considerations"
+      },
+      {
+        "type": "command",
+        "instruction": "On a connected client, dump the effective routing table and confirm a single default route via the tunnel interface, with no parallel default through the physical NIC.",
+        "command": "route print  # Windows -- or: ip route show  # Linux",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default route points through the tunnel adapter; no competing 0.0.0.0/0 via the local NIC.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_endpoint_health_attested_at_elevation",
+    "option_description": "Attestation that before the remote-access session is established, the policy enforcement point evaluates endpoint health signals — patch level, EDR/AV running and healthy, disk encryption on, OS within supported baseline — as a hard precondition; non-compliant devices are denied or quarantined.",
+    "security_impact": "References \"No device posture / endpoint health attestation\" — one of its two OR-conditions — firing when admin_endpoint_health_attested_at_elevation is false (T1133 External Remote Services). Without a posture verdict, a malware-infected or unmanaged endpoint terminates the tunnel and pivots into the trusted zone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the ZTNA / VPN conditional-access policy and confirm device-health signals (patch level, EDR healthy, FDE on, supported OS baseline) are evaluated as a hard precondition.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA / Conditional-Access admin console -> Policy for VPN/bastion app -> Device conditions",
+        "expected_output": "Policy references a device-trust signal (managed cert, MDM compliance, EDR health) as a hard precondition; non-compliant devices are denied or quarantined.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt connection from a deliberately non-compliant test device (out-of-date OS, EDR stopped, FDE off) with valid user MFA and observe whether admission is denied or quarantined.",
+        "command": "Connect from an unmanaged / non-compliant device with valid user MFA; expect denial or quarantine VLAN.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session denied or routed to remediation; trusted-zone resources unreachable.",
+        "source": "NIST SP 800-46r2 Telework / Remote / BYOD"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "managed_device_enrollment_enforced",
+    "option_description": "Attestation that the remote-access boundary requires a managed-device claim (MDM/UEM enrollment, corporate device certificate, or equivalent attested device identity) before granting the tunnel/session; unenrolled or BYOD devices without a verified managed identity are refused.",
+    "security_impact": "References \"No device posture / endpoint health attestation\" — one of its two OR-conditions — firing when managed_device_enrollment_enforced is false (T1133 External Remote Services). Without a managed-device claim, any device with valid user credentials is admitted, turning a compromised personal device into a trusted-zone foothold.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the conditional-access / VPN-client policy and confirm a managed-device claim (Intune/Jamf/UEM compliance, or a corporate device certificate) is required and unenrolled devices are refused.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Conditional-access policy bound to VPN/bastion app -> Device claim required",
+        "expected_output": "Policy references a managed-device claim or device certificate as a hard precondition; unenrolled devices denied.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an unmanaged device with valid user credentials and MFA, attempt to establish the tunnel and confirm admission is denied for lack of a managed-device claim.",
+        "command": "Attempt VPN/bastion connection from an unmanaged device with valid user MFA; expect denial at the policy enforcement point.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authentication may succeed but the session is denied due to missing device claim; no trusted-zone reachability.",
+        "source": "NIST SP 800-46r2 Telework / Remote / BYOD"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bastion_mediates_all_admin_access",
+    "option_description": "Attestation that administrative SSH/RDP into the trusted zone is mediated exclusively through the bastion / jump host — production hosts reject management connections from any non-bastion source via host firewall and network ACL, with no direct admin path that bypasses recording / JIT / mediation controls.",
+    "security_impact": "References \"Bastion bypass via direct admin path to backend\" — its sole OR-condition — firing when bastion_mediates_all_admin_access is false (T1133 External Remote Services). Direct admin paths defeat mediation, session recording, and JIT.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a non-bastion source on the user network, attempt ssh and rdp directly to a production host's management interface and observe filtering.",
+        "command": "From a non-bastion source on the user network, attempt ssh/rdp directly to a production host's management interface.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused / filtered by host firewall and network ACL; only the bastion's source IP/identity is permitted.",
+        "source": "OpenSSH bastion / jump host hardening practice"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network ACLs / security groups for management ports (22, 3389, equivalents) on trusted-zone hosts and confirm the inbound allow-list resolves to the bastion identity only.",
+        "command": "Review network ACLs / security groups for management ports on trusted-zone hosts.",
+        "file_path": null,
+        "navigation": "Cloud console -> VPC / Security Groups -> Production tier -> Inbound rules for 22/3389",
+        "expected_output": "Inbound 22/3389 (and equivalent management ports) restricted to the bastion's source identity; no broader allow-list.",
+        "source": "BeyondTrust ZSP Zero Standing Privilege"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect IaC / firewall change history for any temporary or emergency rules that opened management ports beyond the bastion identity and confirm they have been retired.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No standing exceptions remain; any historical break-glass rules are removed or scoped to bastion identity.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "no_standing_admin_privileges_jit_required",
+    "option_description": "Attests that administrative privilege on production is granted just-in-time (time-bound, approval-gated) and that no permanent/standing admin entitlements exist on production hosts or control-plane roles. Secure value is true (JIT-only, no standing admin).",
+    "security_impact": "References \"Standing admin privilege with no JIT and no session recording\" — one of its two OR-conditions — firing when no_standing_admin_privileges_jit_required is false (T1078 Valid Accounts). Standing admin lets an attacker who phishes a user inherit durable admin power without traversing a recorded, gated path.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review PAM/IdP role memberships for production admin: confirm memberships are time-bound (TTL / approval workflow) and that no permanent human accounts hold admin.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM / IdP console -> Role assignments -> Production admin roles -> TTL & approval requirement",
+        "expected_output": "Admin role memberships are time-bound; enumeration of production-host local admin groups returns no permanent user accounts.",
+        "source": "BeyondTrust ZSP Zero Standing Privilege"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate effective admin group members on a sample production host (Linux: wheel/sudo via getent; Windows: privileged AD groups) and confirm only break-glass and JIT-elevated principals appear, each with expiry.",
+        "command": "getent group wheel ; getent group sudo  # Linux  -- or: Get-ADGroupMember -Identity 'Domain Admins'  # Windows",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No permanent human members; only break-glass and JIT-elevated principals present, with expiry.",
+        "source": "BeyondCorp / Google zero-trust access model"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Audit the JIT system's grant log: confirm grants are time-bounded, approval-gated, and revoked on expiry, with no manual extensions accumulating to de facto standing access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grant log shows bounded TTLs and clean expirations; no chronic re-grants approximating standing privilege.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "privileged_access_via_pam_with_session_recording",
+    "option_description": "Attests that all interactive administrative sessions traverse a PAM/bastion that records the session (keystroke, command transcript, or video) to tamper-evident storage. Secure value is true (PAM-mediated and recorded).",
+    "security_impact": "References \"Standing admin privilege with no JIT and no session recording\" — one of its two OR-conditions — firing when privileged_access_via_pam_with_session_recording is false (T1078 Valid Accounts). Without mediation and recording, admin actions are unattributable and forensically opaque, removing the deterrent and detection value of the crossing.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the PAM/bastion is the only ingress for interactive admin sessions and that session recording is enabled (keystroke transcript, command log, or video) to tamper-evident storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM admin console -> Recording policy -> Storage integrity",
+        "expected_output": "PAM/bastion config shows recording enabled for all admin tunnels; storage is write-once or integrity-protected; retention meets policy.",
+        "source": "BeyondTrust ZSP Zero Standing Privilege"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Open a test admin session through the PAM/bastion and verify a recording artefact (command transcript / .cast / video) is produced and cannot be deleted by the session owner.",
+        "command": "Open a test admin session; verify the recording artefact exists (command transcript / .cast / video) and that an unprivileged user cannot delete it.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recording present, attributable to the session, immutable to the session owner.",
+        "source": "OWASP Application Security Verification Standard (ASVS)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Attests the VPN/bastion edge appliance is on a vendor-supported version and current on security patches within the organisation's SLA, with no open KEV-listed CVE applicable to the running version (e.g. CVE-2023-27997 FortiOS, CVE-2024-3400 PAN-OS, CVE-2023-46805 Ivanti Connect Secure).",
+    "security_impact": "References \"Unpatched / management-exposed VPN edge appliance\" — one of its two OR-conditions — firing when edge_appliance_patched_within_sla is false (T1190 Exploit Public-Facing Application). Unpatched edges with KEV-listed CVEs are the canonical target for pre-auth RCE or session-token theft against the boundary itself.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the VPN/bastion edge appliance for its running software version and cross-check the result against vendor advisories and the CISA KEV catalog.",
+        "command": "Query VPN appliance for software version; cross-check against vendor advisories / CISA KEV.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version is supported and not affected by open KEV entries.",
+        "source": "CISA Enterprise VPN Security (AA20-073A)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch-management SLA for edge appliances and the change-record evidence that the running version is within SLA (critical patches inside the documented window).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented SLA exists; change records show critical patches applied within the SLA window; no aged unpatched critical advisories.",
+        "source": "NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Attests the VPN/bastion edge appliance's administrative / management interfaces (web-admin, SSH-admin, API console on ports such as 8443/4443/22) are not reachable from untrusted internet sources — only the VPN service ports answer on the public interface; the management plane is bound to an internal interface or jump-host network.",
+    "security_impact": "References \"Unpatched / management-exposed VPN edge appliance\" — one of its two OR-conditions — firing when edge_management_interfaces_not_internet_reachable is false (T1190 Exploit Public-Facing Application). Internet-exposed management planes magnify the blast radius of any edge CVE.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an internet-side host, port-scan the appliance's public IP for admin/web-admin ports (8443, 4443, 22 admin) and confirm only sanctioned VPN service ports answer.",
+        "command": "nmap -Pn -p 22,443,500,4500,4443,8443,51820 <vpn_edge_public_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only sanctioned VPN service ports respond (e.g. UDP 500/4500 IPsec, UDP 51820 WireGuard, TCP 443 SSL VPN); admin/management interfaces unreachable from untrusted networks.",
+        "source": "NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the appliance interface bindings to confirm the management plane is bound to an internal interface or jump-host network, not the public WAN interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Edge appliance admin console -> System -> Management access -> Interface bindings",
+        "expected_output": "Management/admin services bound to internal/management interface only; public WAN interface exposes only VPN service ports.",
+        "source": "CISA Enterprise VPN Security (AA20-073A)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm there is no permissive cloud security-group rule or NAT mapping that re-exposes the management plane (e.g. a hypervisor-level port-forward that bypasses the appliance interface binding).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No SG rule or NAT mapping exposes admin ports to 0.0.0.0/0; any management access is via VPN/ZTNA or jump network.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

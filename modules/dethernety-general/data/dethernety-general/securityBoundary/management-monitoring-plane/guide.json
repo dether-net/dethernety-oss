@@ -1,0 +1,422 @@
+[
+  {
+    "option_name": "mfa_enforced_at_boundary_crossing",
+    "option_description": "Whether every administrative sign-in that crosses into the management plane is challenged with a phishing-resistant authenticator (FIDO2/WebAuthn or certificate-bound credential), with no SMS/voice/OTP fallback path.",
+    "security_impact": "References \"Admin credential theft and session-token replay\" (MITRE T1078) — one of its OR-conditions — firing when mfa_enforced_at_boundary_crossing is false. Phishing-resistant MFA is the single largest disruptor of admin credential replay; absence of it turns any phished or info-stolen password into a control-plane takeover.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Query the IdP/directory for the membership of admin/Tier-0 groups and inspect the Conditional Access policy applied to those groups. Confirm every member is a named human account (no shared admins) and the policy requires a phishing-resistant authenticator. Confirm 'Require MFA for administrators' is enabled and applies to all admin role assignments. Document break-glass accounts (<=2, vaulted, alerted-on-use).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Protection > Conditional Access > Policies > 'Require MFA for administrators' (and IdP-equivalent); Authentication strengths > Phishing-resistant MFA",
+        "expected_output": "Every admin-group member is a named human; CA policy enforces phishing-resistant authentication strength on all admin role assignments; break-glass accounts documented, vaulted, alerted.",
+        "source": "Microsoft Privileged Access Deployment (Conditional Access: Require MFA for administrators); OWASP Credential Stuffing Prevention Cheat Sheet (MFA blocks ~99.9% of credential-replay attacks)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Pull 30 days of IdP sign-in logs filtered to admin-role principals and inspect MFA strength on every successful sign-in.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Monitoring > Sign-in logs (filter: user-type = Member, authentication requirement = multifactorAuthentication, conditional access status = Success)",
+        "expected_output": "Every successful admin sign-in shows MFA strength = phishing-resistant. Any sign-in where MFA was bypassed, satisfied by SMS/voice, or where the principal is a shared/service account in interactive use is a finding.",
+        "source": "OWASP Authentication Cheat Sheet (MFA is the strongest defense; credentials never logged); Microsoft Privileged Access Deployment"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "session_binding_or_short_session_lifetime",
+    "option_description": "Whether admin sessions are sender-constrained to the admin device (DPoP, mTLS, or token-binding) OR are short-lived (idle <1h with Continuous Access Evaluation) so a stolen session cookie cannot be replayed from an attacker host.",
+    "security_impact": "References \"Admin credential theft and session-token replay\" (MITRE T1078) — one of its OR-conditions — firing when session_binding_or_short_session_lifetime is false. AiTM phishing kits harvest post-MFA session cookies; without device-binding or short lifetimes the cookie remains a portable bearer credential.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the IdP session control policy for admin roles: confirm either sender-constrained tokens (DPoP/mTLS/token-binding) are enforced on admin APIs, OR sign-in frequency is set to <=1h with Continuous Access Evaluation enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Conditional Access > Policies > admin-role policy > Session > Sign-in frequency / Continuous Access Evaluation (or equivalent IdP path)",
+        "expected_output": "Either DPoP/mTLS token-binding is enabled on admin APIs, or admin sign-in frequency <=1h with CAE on. Persistent browser sessions disabled for admin roles.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a host outside the admin device population, attempt to replay a captured admin session cookie against the control-plane API.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Replay fails: the API rejects the token (DPoP proof missing / mTLS client cert absent) or CAE triggers re-authentication.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "no_standing_admin_privileges_jit_required",
+    "option_description": "Whether all privileged control-plane roles are 'eligible' rather than 'active' assignments — activation is just-in-time, time-bounded, justification- and approval-gated, MFA-challenged at elevation, and auto-revoked. Zero Standing Privilege (ZSP) is the operational floor.",
+    "security_impact": "References \"Cloud IAM over-permission abuse\" (MITRE T1078.004) — one of its OR-conditions — firing when no_standing_admin_privileges_jit_required is false. Standing admin assignments magnify the blast radius of any single credential compromise; JIT/PIM shrinks the attack window.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the PIM/PAM configuration for every Tier-0 / control-plane role. Confirm assignments are 'eligible' (not 'active'), and the activation policy requires justification, MFA-at-activation, an approver-other-than-requester for Tier-0, and a maximum duration (typically <=8h). Dump currently-active role holders and verify none are permanent outside documented break-glass.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Privileged Identity Management > Azure AD roles > Settings (per role); or AWS IAM Identity Center > Permission sets / Okta PAM",
+        "expected_output": "All Tier-0 roles are eligible-only; activation requires justification + MFA + approval (Tier-0) + bounded duration; zero permanent active assignments apart from documented break-glass.",
+        "source": "BeyondTrust ZSP / hoop.dev JIT-NIST alignment; NIST SP 800-207 (per-request authorization at the PEP)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Pull the PIM activation log and cross-reference recent admin actions: each should be preceded by an explicit activation event with justification text and (for Tier-0) an approver recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > PIM > Audit history > Role activations (or cloud-equivalent audit log)",
+        "expected_output": "Every admin action traces to a recent, time-bounded activation with justification populated; no long-lived active assignment events outside break-glass.",
+        "source": "NIST SP 800-53 AU family (AU-2 event selection, AU-12 generation); CyberArk JIT Access guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether privileged IAM policies are scoped to specific Actions and Resources (no wildcard Action/Resource pairs) and there are no long-lived admin service-principal access keys.",
+    "security_impact": "References \"Cloud IAM over-permission abuse\" (MITRE T1078.004) — one of its OR-conditions — firing when least_privilege_access_enforced is false. Wildcard '*:*' grants and long-lived service-principal keys are the canonical tenant-wide pivot path documented in T1078.004.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate IAM policies attached to admin/Tier-0 principals and search for wildcard Action or Resource fields; list any long-lived access keys on admin-tier IAM users.",
+        "command": "aws iam list-policies --scope Local --query 'Policies[?contains(PolicyName,`Admin`)==`true`].Arn' | xargs -I {} aws iam get-policy-version --policy-arn {} --version-id v1 ; aws iam list-users --query 'Users[].UserName' | xargs -I {} aws iam list-access-keys --user-name {}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No policy document contains Action: '*' with Resource: '*' on admin principals; no admin-tier IAM users hold long-lived AccessKey ids. Equivalent inspection in Azure (az role definition list) / GCP (gcloud iam roles describe) shows no over-broad custom roles.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review IaC source (Terraform/Bicep/CloudFormation) for admin IAM grants and confirm policies are scoped to named Actions and concrete ARNs, with no wildcards.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC review shows scoped Actions (e.g. s3:GetObject, not s3:*) and concrete Resources (specific ARNs, not arn:aws:*:*:*); admin service principals use OIDC federation rather than static keys.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cicd_pipeline_identity_per_environment_no_long_lived_keys",
+    "option_description": "Whether each CI/CD pipeline authenticates to the control plane via per-environment workload identity (OIDC federation / SPIFFE / per-env service principal) with no shared, long-lived deploy keys across environments.",
+    "security_impact": "References \"CI/CD pipeline compromise (trusted-relationship abuse)\" (MITRE T1199) — one of its OR-conditions — firing when cicd_pipeline_identity_per_environment_no_long_lived_keys is false. A leaked shared deploy key lets the pipeline identity mint deploys into any environment, bypassing change control.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect pipeline configuration (GitHub Actions workflows, GitLab CI, Jenkins job config) and confirm OIDC federation to the cloud is used (e.g. permissions: id-token: write + aws-actions/configure-aws-credentials with role-to-assume). Verify each environment (dev/stage/prod) maps to a distinct cloud role with a distinct OIDC sub claim trust condition.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No AWS_ACCESS_KEY_ID / SECRET_ACCESS_KEY for prod stored in repository or CI secrets; each environment has a distinct cloud role with scoped IAM and a distinct OIDC sub-claim trust condition.",
+        "source": "NIST SP 800-207A (workload identity infrastructure — SPIFFE-style — enforces service-identity authn at boundaries); OWASP Secrets Management Cheat Sheet (no hardcoded long-lived secrets; per-secret least-privilege)"
+      },
+      {
+        "type": "command",
+        "instruction": "List CI org/repo secrets and any IAM access keys belonging to CI users; verify no long-lived prod credentials exist.",
+        "command": "gh secret list --repo <org>/<repo> ; aws iam list-access-keys --user-name <ci-user> 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No long-lived AccessKey ids belonging to CI users with prod IAM grants; CI secrets contain only short-lived configuration (region, role ARN) — never static cloud keys. A static prod cloud key in CI secrets is a finding.",
+        "source": "OWASP IaC Security Cheat Sheet (secret-scanning, least-privilege on who can mutate infrastructure); OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_dedicated_secret_manager",
+    "option_description": "Whether CI/CD secrets live in a dedicated secret manager (Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager), scoped per environment, with bounded TTL, audit logging, and mandatory secret scanning preventing plaintext leakage to repo/IaC/logs.",
+    "security_impact": "References \"CI/CD pipeline compromise (trusted-relationship abuse)\" (MITRE T1199) — one of its OR-conditions — firing when secrets_stored_in_dedicated_secret_manager is false. Plaintext secrets in repository or CI logs become the same trusted-relationship pivot as a leaked deploy key.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run repository secret scanners against source and CI build logs, and confirm pipeline config fetches secrets at runtime from the vault rather than embedding static org/repo secrets.",
+        "command": "trufflehog filesystem --no-update --fail . ; gitleaks detect --no-banner --redact",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero verified findings from both scanners; pipeline config shows runtime fetch via OIDC-assumed role rather than static repository/org secrets.",
+        "source": "OWASP Secrets Management Cheat Sheet; OWASP IaC Security Cheat Sheet (truffleHog/git-secrets/GitGuardian pre-commit + CI)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the vault audit log for production secret reads; verify reads are scoped to the production pipeline identity, with bounded TTLs (ideally dynamic short-lived credentials), and staging/dev pipeline identities cannot read production paths.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vault UI > Audit Devices / Secrets Manager > Secret access logs",
+        "expected_output": "Production secret reads scoped to prod pipeline identity with bounded TTL; staging/dev identities denied on prod paths; rotation policy documented and observable in audit history.",
+        "source": "OWASP Secrets Management Cheat Sheet (centralized vault, per-secret least-privilege, audit-logged, automatic rotation)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_supply_chain_signed_provenance_verified",
+    "option_description": "Whether every artifact deployed into the workload plane carries a signed SLSA build provenance attestation (in-toto) and an SBOM, and the deployment admission controller verifies signature, signer identity, and provenance contents before scheduling.",
+    "security_impact": "References \"Artifact supply-chain compromise\" (MITRE T1195) — its sole OR-condition — firing when artifact_supply_chain_signed_provenance_verified is false. Without admission-time provenance verification, a backdoored substitute artifact ships into the workload plane undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify a representative production image's signature and SLSA provenance attestation using cosign against the expected builder identity and OIDC issuer.",
+        "command": "cosign verify --certificate-identity-regexp='^https://github.com/<org>/<repo>/.+' --certificate-oidc-issuer=https://token.actions.githubusercontent.com <image> ; cosign verify-attestation --type slsaprovenance <image>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both verifications succeed; the signature is valid and signed by the expected builder identity, and the SLSA provenance attestation shows the expected builder, source repo, and source revision. A failure on either is a finding.",
+        "source": "SLSA v1.0 Build Track Levels (L2 signed provenance, L3 hardened build, in-toto attestation format); SLSA build-provenance spec"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the cluster admission policy (Kyverno / Gatekeeper / Sigstore policy-controller) and confirm 'no signature -> deny' and 'untrusted-builder -> deny' rules are enforced; sample the admission audit log for recent denials of unsigned/unattested images.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kubernetes > kyverno / gatekeeper policy CRDs; admission webhook audit log",
+        "expected_output": "Admission policy denies unsigned and untrusted-builder images; admission audit log shows recent denial events during deployment attempts.",
+        "source": "SLSA v1.0 (consumers compare actual provenance to expectations before deployment); NIST SP 800-53 CM-14 (prevent unsigned-component install)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "control_plane_access_mediated_by_pam_with_recording",
+    "option_description": "Whether all interactive administrative sessions to the control plane traverse a PAM/bastion (CyberArk, Teleport, BeyondTrust, AWS SSM Session Manager, Azure Bastion) that brokers the credential, enforces approval/MFA, and records the session — with no direct admin-protocol path from laptops or the data plane.",
+    "security_impact": "References \"Direct admin-protocol exposure\" (MITRE T1190, T1021) — one of its OR-conditions — firing when control_plane_access_mediated_by_pam_with_recording is false. Without the PAM choke point, admins hold long-lived backend credentials and sessions are unrecorded — the canonical T1021 Remote Services exposure.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an admin endpoint, attempt direct connections to representative control-plane targets (Kubernetes API server, database admin endpoint, SSH on a control-plane host) and confirm only the PAM/bastion path succeeds.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Direct connections from admin laptops are dropped at the segmentation firewall; connections via the PAM/bastion endpoint succeed and are mediated.",
+        "source": "CIS Controls v8 Control 12 (route remote admin via VPN+AAA, centralised AAA, secure mgmt protocols); NIST SP 800-41r1 (default-deny, additional internal firewalls between trust segments)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect the PAM session log for keystroke/video recordings in the audit window, and cross-reference target-system audit logs to confirm admin actions arrive from the PAM service identity rather than end-user IPs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM admin console > Session recordings; target system audit log (CloudTrail, Kubernetes audit, syslog)",
+        "expected_output": "Every interactive admin session has a recording; target audit logs show source = PAM service identity. Any control-plane action attributable to a human IP bypassing the PAM is a finding.",
+        "source": "NIST SP 800-53 AU-2/AU-12 (event selection and generation); OWASP Logging Cheat Sheet (log access to sensitive systems)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Whether the cloud/orchestrator control-plane API surface (Kubernetes API server, cloud IAM endpoints, console admin endpoints) is reachable only from the management network or via a ZTNA-restricted path — no 0.0.0.0/0 allow-list, no public IAM endpoint.",
+    "security_impact": "References \"Direct admin-protocol exposure\" (MITRE T1190, T1021) — one of its OR-conditions — firing when control_plane_api_not_publicly_exposed is false. A publicly reachable control-plane API turns any CVE on the admin endpoint into a tenant-wide foothold (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a public/untrusted source, probe the control-plane API endpoint and confirm the connection times out or is filtered. Repeat from the management network to confirm the legitimate path succeeds.",
+        "command": "curl -k --max-time 5 https://<k8s-api-endpoint>/healthz ; nmap -Pn -p 6443,443 <control-plane-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "From the open internet the probe times out, is filtered, or hits a private-endpoint refusal; from the mgmt network the same probe proceeds to authentication. Any test where the API responds with an auth challenge from the open internet is a finding.",
+        "source": "NIST SP 800-207 (PEP enforces per-request authn/authz near the resource); CIS Controls v8 Control 12 (mgmt-plane network separation); NIST SP 800-41r1 (default-deny, perimeter non-bypassable)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect cloud security-group / firewall rules and IaC source for any Allow rule sourced from 0.0.0.0/0 or ::/0 to control-plane ports (Kubernetes API, RDP, SSH on control-plane nodes, cloud IAM management endpoints).",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS VPC > Security Groups (or Azure NSG / GCP firewall rules); IaC source (Terraform/Bicep/CloudFormation)",
+        "expected_output": "No 0.0.0.0/0 or ::/0 Allow rule reaches control-plane ports; where the cloud forces a public endpoint, an 'authorized networks' / private-endpoint restriction is in place.",
+        "source": "MITRE ATT&CK T1190 (exploit public-facing app); MITRE ATT&CK T1078.004 (Cloud Accounts — over-permissive cloud IAM); CIS Controls v8 Control 12"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "telemetry_pipeline_isolated_from_workload",
+    "option_description": "Whether telemetry collectors run in a separate trust scope from the workloads they observe and forward to a tamper-resistant WORM/immutable store in a different account, with the workload identity holding no write/delete permission on the log store.",
+    "security_impact": "References \"Telemetry tampering and log silencing\" (MITRE T1562, T1070) — one of its OR-conditions — firing when telemetry_pipeline_isolated_from_workload is false. A compromised workload that can reach back into its own log store deletes the only forensic record of the compromise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Walk the telemetry architecture and confirm collectors push to a centralized SIEM / log lake in a separate account, with write-only IAM grants on the workload side and object-lock / WORM / immutable mode on the destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Architecture diagrams + IaC source; SIEM tenancy / log-bucket IAM policy",
+        "expected_output": "Collectors push to a destination in a different account/project from the workload; workload identities have write-only (no delete/modify) grants; destination has object-lock / WORM enabled.",
+        "source": "NIST SP 800-53 AU-9 (Protection of Audit Information) and AU-9(2) (store on a physically different system); NIST SP 800-92 (logs in storage/transit susceptible to alteration must be protected for integrity); CIS Controls v8 Control 8 §8.9 (centralize log collection so host compromise can't erase the only copy)"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the log destination bucket's object-lock configuration and versioning state.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-bucket> ; aws s3api get-bucket-versioning --bucket <log-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Object Lock is configured with a Retention period in COMPLIANCE mode (or Governance with restricted bypass); versioning is Enabled. Equivalent for other clouds/SIEMs: write-once retention, restricted-delete, log-integrity hashing.",
+        "source": "NIST SP 800-53 AU-9(1) (write-once media), AU-9(3) (cryptographic integrity protection); PCI DSS v4.0 Req 10.5 (protect audit trails from alteration)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether every control-plane action is logged with who/what/when/from-where into an immutable, file-integrity-validated store, with audit-management privileges restricted (AU-9(4)) to a subset of users disjoint from the actors whose actions they record.",
+    "security_impact": "References \"Telemetry tampering and log silencing\" (MITRE T1562, T1070) — one of its OR-conditions — firing when audit_log_tamper_evident is false. Without AU-9(4) separation and integrity validation, the actor who performs the action can silence its record.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the cloud control-plane audit trail configuration (multi-region, log-file integrity validation, retention) and the Kubernetes API server audit-policy configuration.",
+        "command": "aws cloudtrail describe-trails --query 'trailList[].{Name:Name,Multi:IsMultiRegionTrail,LogValidation:LogFileValidationEnabled,Mgmt:IncludeGlobalServiceEvents}' ; az monitor activity-log list --max-events 1 ; kubectl get --raw /api/v1/namespaces/kube-system/configmaps/audit-policy 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cloud trail is enabled, multi-region, with log-file integrity validation on; logs flow to the immutable destination; K8s API server has --audit-policy-file / --audit-log-path or webhook configured; retention >=12 months with >=3 months immediately available (PCI DSS 10.7) or per policy.",
+        "source": "NIST SP 800-53 AU-2 (event selection), AU-12 (generation), AU-9 (protection), AU-11 (retention); CIS Controls v8 Control 8 (audit-log management, central retention, 90-day floor); PCI DSS v4.0 Req 10"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent control-plane mutations (an IAM policy attach, a secret read, a kubectl apply, a CI deployment) and confirm each appears in the immutable audit destination with full who/what/when/source-IP/source-identity fields. Verify audit-destination access is held by a Tier-0 / dedicated audit role distinct from the operators.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM / log-lake query interface; cloud audit role assignments",
+        "expected_output": "Every sampled mutation is present with full forensic fields; the performing identity is a named human via PIM or a documented workload identity (never shared/anonymous); audit-destination access is disjoint from operator roles.",
+        "source": "NIST SP 800-53 AU-9(4) (restrict audit-management to a subset of privileged users); CIS Controls v8 Control 8 §8.5 (detailed forensic fields); OWASP Logging Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "management_plane_isolated_from_data_plane",
+    "option_description": "Whether the management network (PAW subnet, CI runner subnet, PAM bastion subnet, telemetry collector subnet, secret-manager endpoints) is L3-segmented from data-plane subnets by a default-deny firewall, with no flat VPN or over-broad peering/SGs bridging, and workloads cannot initiate connections into the management plane.",
+    "security_impact": "References \"Management-plane network boundary bridging\" (MITRE T1599) — its sole OR-condition — firing when management_plane_isolated_from_data_plane is false. Flat VPNs, over-broad peering, and misconfigured SGs are the canonical T1599 boundary-bridging paths.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a representative workload pod/VM, attempt to reach (a) the secret-manager admin API, (b) the SIEM ingestion endpoint with write rights, (c) the CI runner network, (d) the PAM bastion management port. All must be dropped at the segmentation boundary. Verify the reverse direction is permitted only via the bastion's service identity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All four workload-initiated probes into the management plane are dropped; admin-direction traffic crosses only via the bastion identity, never directly from admin laptops.",
+        "source": "NIST SP 800-41r1 (additional internal firewalls between segments of differing trust); CIS Controls v8 Control 12 (segmentation, secure architecture); OWASP Network Segmentation Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network diagrams and IaC source for distinct VPCs/VNets or distinct subnets with NSG/SG default-deny between data plane and mgmt plane. Confirm remote admin uses a ZTNA broker (Cloudflare Access / Tailscale / ZPA / equivalent) rather than a single flat site-to-site VPN.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network architecture diagrams + IaC source (Terraform/Bicep/CloudFormation)",
+        "expected_output": "Mgmt and data planes live in distinct VPCs/VNets with default-deny segmentation; remote admin is brokered by ZTNA with per-request authorization, not by a flat shared-trust VPN.",
+        "source": "NIST SP 800-207 (remove implicit trust by network location); CIS Controls v8 Control 12 §6 (route remote devices via VPN+AAA — interpreted as per-request ZTNA in cloud-native deployments)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "paw_required_for_control_plane_access",
+    "option_description": "Whether all admin actions against the control plane are performed from a dedicated Privileged Access Workstation (PAW) — hardened, MDM-managed, no email/general-web, AppLocker/WDAC enforced — with Conditional Access filtering admin portals to compliant PAW devices only.",
+    "security_impact": "References \"Admin endpoint compromise via productivity device\" (MITRE T1078) — one of its OR-conditions — firing when paw_required_for_control_plane_access is false. An admin who reads email on the same device used for the cloud console is one click from a session-cookie lift (T1566 -> T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect MDM inventory for a named PAW fleet (e.g. Intune 'Secure Workstation Devices' dynamic group) and verify Autopilot/MDM enrolment, BYOD blocked, local-admin removed, AppLocker/WDAC enforced. Confirm Conditional Access policy on cloud admin portals filters to compliant PAW devices only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune > Devices > 'Secure Workstation Devices' dynamic group; Conditional Access > admin-portal policy > Conditions > Device platforms / Device filters",
+        "expected_output": "PAW fleet is inventoried and hardened per the Microsoft PAW pattern; CA device filter on cloud admin portals admits only PAW-tagged compliant devices.",
+        "source": "Microsoft Privileged Access Deployment (Secure Workstation Devices group, BYOD blocked, local-admin removed, Conditional Access device filters); CIS Controls v8 Control 12 (dedicated computing resources for administrative work, physically/logically separated, no internet access)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a non-PAW productivity workstation with valid admin credentials and a valid MFA challenge, attempt to reach the cloud control plane (portal.azure.com / console.aws.amazon.com / kubectl API). Repeat from a PAW.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The non-PAW attempt is denied (device not compliant / device-filter mismatch) and appears as a denied sign-in event. The same credential from a PAW succeeds.",
+        "source": "Microsoft Privileged Access Deployment (Conditional Access only allowing secured workstation to access Azure portal)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_endpoint_health_attested_at_elevation",
+    "option_description": "Whether every privileged-role activation is gated on a fresh MDM/EDR device-compliance signal (managed, FDE, EDR healthy, OS patched, risk = low) re-evaluated at elevation — so a compromised or non-compliant device cannot elevate even with valid creds + MFA.",
+    "security_impact": "References \"Admin endpoint compromise via productivity device\" (MITRE T1078) — one of its OR-conditions — firing when admin_endpoint_health_attested_at_elevation is false. Without an EDR/compliance signal at elevation, an implant on the admin device rides the legitimate MFA-passed session into the control plane.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the Conditional Access policy for admin roles and confirm it requires 'device marked as compliant by Intune/MDM' AND 'device risk = low (Defender for Endpoint / EDR signal)'. Review the compliance policy: Secure Boot, BitLocker, firewall on, EDR reporting, OS at supported patch level.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > Conditional Access > admin-role policy > Grant > Require device to be marked as compliant + Require sign-in risk = low; Intune > Devices > Compliance policies",
+        "expected_output": "CA policy requires compliant-device + risk=low for admin elevation; compliance policy enforces Secure Boot / BitLocker / firewall / EDR / patched OS. A test sign-in from a non-compliant device with valid creds + MFA is denied.",
+        "source": "Microsoft Privileged Access Deployment (compliant device required for admin portals; Defender for Endpoint signal); CIS Controls v8 Control 12 (dedicated admin computing resources)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Pull recent PIM activation events and join with the device-compliance signal at activation time; confirm activations from non-compliant devices are absent or denied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID > PIM > Audit history; Intune > Device compliance reports",
+        "expected_output": "Every successful PIM activation has a corresponding compliant-device + low-risk signal at the activation timestamp; non-compliant activations are denied events.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

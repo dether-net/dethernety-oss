@@ -1,0 +1,92 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "ingress_default_deny_enforced": false,
+      "egress_default_deny_enforced": false,
+      "least_privilege_rules_scoped": false,
+      "no_any_any_permit_rules": false,
+      "interface_acls_enforce_segmentation": false,
+      "east_west_microsegmentation_enforced": false,
+      "security_profiles_on_allow_rules": false,
+      "ips_threat_prevention_enabled": false,
+      "denied_traffic_logging_enabled": false,
+      "implicit_deny_logged": false,
+      "firewall_ruleset_documented_and_owned": false,
+      "firewall_rules_recertified_on_cadence": false,
+      "firewall_change_control_enforced": false,
+      "edge_management_interfaces_not_internet_reachable": false,
+      "edge_appliance_patched_within_sla": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "ingress_default_deny_enforced": true,
+      "egress_default_deny_enforced": true,
+      "least_privilege_rules_scoped": true,
+      "no_any_any_permit_rules": true,
+      "interface_acls_enforce_segmentation": true,
+      "east_west_microsegmentation_enforced": true,
+      "security_profiles_on_allow_rules": true,
+      "ips_threat_prevention_enabled": true,
+      "denied_traffic_logging_enabled": true,
+      "implicit_deny_logged": true,
+      "firewall_ruleset_documented_and_owned": true,
+      "firewall_rules_recertified_on_cadence": true,
+      "firewall_change_control_enforced": true,
+      "edge_management_interfaces_not_internet_reachable": true,
+      "edge_appliance_patched_within_sla": true
+    },
+    "expectedCountermeasures": [
+      "Trust-zone segmentation and east-west filtering enforced",
+      "Ruleset governance: documented ownership, recertification and change control",
+      "Ingress default-deny enforced",
+      "Management plane not internet-reachable and patch-current",
+      "Egress default-deny enforced",
+      "Threat-prevention profiles on allow rules",
+      "Least-privilege rules scoped",
+      "Denied and security-relevant traffic logged"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "ingress_default_deny_enforced": true,
+      "egress_default_deny_enforced": true,
+      "least_privilege_rules_scoped": true,
+      "no_any_any_permit_rules": true,
+      "interface_acls_enforce_segmentation": true,
+      "east_west_microsegmentation_enforced": true,
+      "security_profiles_on_allow_rules": true,
+      "ips_threat_prevention_enabled": true,
+      "denied_traffic_logging_enabled": true,
+      "implicit_deny_logged": true,
+      "firewall_ruleset_documented_and_owned": true,
+      "firewall_rules_recertified_on_cadence": true,
+      "firewall_change_control_enforced": true,
+      "edge_management_interfaces_not_internet_reachable": true,
+      "edge_appliance_patched_within_sla": true
+    },
+    "expectedCountermeasures": [
+      "Trust-zone segmentation and east-west filtering enforced",
+      "Ruleset governance: documented ownership, recertification and change control",
+      "Ingress default-deny enforced",
+      "Management plane not internet-reachable and patch-current",
+      "Egress default-deny enforced",
+      "Threat-prevention profiles on allow rules",
+      "Least-privilege rules scoped",
+      "Denied and security-relevant traffic logged"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

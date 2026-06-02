@@ -1,0 +1,306 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport Enforced",
+        "description": "Attestation that the HTTP/S flow refuses plaintext HTTP at the edge — plaintext requests are either refused or 301/308-redirected to HTTPS so credentials, cookies, and bodies are never observable in transit. Secure-firing polarity: condition fires when this is false.",
+        "default": false
+      },
+      "hsts_enforced": {
+        "type": "boolean",
+        "title": "HSTS Header Enforced",
+        "description": "Attestation that the flow's HTTPS responses carry a Strict-Transport-Security header (RFC 6797) instructing browsers to refuse plaintext HTTP for this origin, defeating SSL-strip / downgrade. Secure-firing polarity: condition fires when this is false.",
+        "default": false
+      },
+      "hsts_max_age_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 63072000,
+        "title": "HSTS max-age (seconds)",
+        "description": "The max-age directive (in seconds) on the Strict-Transport-Security header for this flow. The Mozilla / OWASP / hstspreload.org baseline is at least one year (31536000s). Secure-firing polarity: condition fires when this is less than 31536000."
+      },
+      "content_security_policy_enforced": {
+        "type": "boolean",
+        "title": "Content-Security-Policy Enforced",
+        "description": "Attests that the HTTP/S flow returns a Content-Security-Policy response header enforcing a deny-by-default policy (default-src 'none' or equivalent; script-src 'self' or nonce/strict-dynamic; object-src 'none'; base-uri 'self'; frame-ancestors 'none'). Interpreted boolean — the assessor verifies the directive set rather than substring-matching the raw header. True on a hardened flow; false when the header is absent or weakened.",
+        "default": false
+      },
+      "csp_allows_unsafe_inline_or_eval": {
+        "type": "boolean",
+        "title": "CSP Allows unsafe-inline / unsafe-eval / Wildcard",
+        "description": "Attests that the Content-Security-Policy on this flow weakens script-src (or default-src) with 'unsafe-inline', 'unsafe-eval', a wildcard '*' source, or a comparably permissive token that re-enables arbitrary script execution. True when XSS payloads would execute under the policy; false on a locked-down policy. Secure-firing polarity: condition fires when this is true.",
+        "default": false
+      },
+      "x_content_type_options_nosniff_set": {
+        "type": "boolean",
+        "title": "X-Content-Type-Options: nosniff Set",
+        "description": "Attests that the flow returns X-Content-Type-Options: nosniff on responses, forbidding browser MIME-sniffing so a text/* or image/* response cannot be reinterpreted as executable script. True when the header is reliably present with the nosniff token; false when absent or stripped by intermediaries."
+      },
+      "frame_ancestors_or_x_frame_options_restricted": {
+        "type": "boolean",
+        "title": "frame-ancestors or X-Frame-Options Restricted",
+        "description": "Attested true when the HTTP/S response carries either CSP frame-ancestors 'none' (or a tight allow-list) OR X-Frame-Options: DENY/SAMEORIGIN, blocking the origin from being embedded by attacker pages. False when neither header is set — the documented clickjacking exposure.",
+        "default": false
+      },
+      "cors_origin_allowlist_strict": {
+        "type": "boolean",
+        "title": "CORS Origin Allow-list Strict",
+        "description": "Attests that Access-Control-Allow-Origin echoes only origins from a server-side allow-list; never '*', never a reflected Origin without validation, never 'null'. True = strict allow-list enforced on every CORS-bearing response. False = wildcard, reflected Origin, or 'null' accepted.",
+        "default": false
+      },
+      "cors_credentials_with_wildcard_origin": {
+        "type": "boolean",
+        "title": "CORS Credentials Paired with Wildcard / Reflected Origin",
+        "description": "Attests whether the flow ever returns Access-Control-Allow-Credentials: true together with Access-Control-Allow-Origin: '*' (or a fully reflected Origin). True = the dangerous credentialed-wildcard combination is observed on at least one endpoint — any origin can read authenticated JSON. False = credentialed responses are paired only with an explicit, vetted single origin.",
+        "default": false
+      },
+      "csrf_token_or_double_submit_enforced": {
+        "type": "boolean",
+        "title": "CSRF Token / Double-Submit Enforced",
+        "description": "Attested true when the server validates a per-session anti-CSRF token (synchronizer-token, double-submit cookie, or custom-request-header pattern) on every state-changing POST/PUT/PATCH/DELETE; false when state-changing endpoints accept requests with no token or Origin/Referer check.",
+        "default": false
+      },
+      "samesite_attribute_set": {
+        "type": "boolean",
+        "title": "Cookie SameSite Attribute Set (Strict/Lax)",
+        "description": "Attestation: every session/auth cookie issued on this flow carries an effective SameSite attribute (Strict or Lax) so the browser refuses to attach it to cross-site requests. True when SameSite=Strict or =Lax is set on all auth cookies (secure); false when SameSite is absent or set to None without a compensating CSRF token (insecure — primary in-browser CSRF defence missing). Verified per OWASP CSRF Prevention Cheat Sheet via Set-Cookie inspection. Canonical workspace attribute.",
+        "default": false
+      },
+      "content_type_strict_validation": {
+        "type": "boolean",
+        "title": "Content-Type Strictly Validated on State-Changing Requests",
+        "description": "Attested true when the server returns 415 Unsupported Media Type for requests whose Content-Type does not match the endpoint contract (JSON endpoints require application/json, form endpoints require application/x-www-form-urlencoded); false when the endpoint parses bodies regardless of Content-Type, which enables CSRF via simple-request (text/plain) and parser-confusion bypasses of token defences."
+      },
+      "cookie_httponly_flag": {
+        "type": "boolean",
+        "title": "Cookie HttpOnly Flag Set on Auth Cookies",
+        "description": "Attestation: every session/auth cookie issued on this flow carries the HttpOnly attribute, so document.cookie cannot read it from JavaScript. True when HttpOnly is present on all auth cookies (secure); false when any auth cookie is issued without HttpOnly (insecure — XSS-to-session-theft path open). Verified per OWASP Session Management Cheat Sheet via Set-Cookie inspection.",
+        "default": false
+      },
+      "cookie_secure_flag": {
+        "type": "boolean",
+        "title": "Cookie Secure Flag Set on Auth Cookies",
+        "description": "Attestation: every session/auth cookie issued on this flow carries the Secure attribute, so the browser refuses to send it over plaintext HTTP. True when Secure is present on all auth cookies (secure); false when any auth cookie is issued without Secure (insecure — cookie leaks over any cleartext request). Verified per OWASP Secure Cookie Attribute guidance via Set-Cookie inspection.",
+        "default": false
+      },
+      "request_framing_normalized_front_back": {
+        "type": "boolean",
+        "title": "Request Framing Normalized Front-to-Back (Smuggling-Safe)",
+        "description": "Attests that the front-end (CDN/reverse proxy) and back-end origin parse HTTP/1.1 Content-Length and Transfer-Encoding identically, and that any HTTP/2-to-HTTP/1 downgrade at the edge strips/normalises framing headers — so length-ambiguous CL.TE, TE.CL, TE.TE, H2.CL, and H2.TE requests are rejected (400) rather than smuggled. True when the channel has been probed (PortSwigger HTTP Request Smuggler / smuggler.py) and all desync variants are normalised or refused, and front+back are patched past the Kettle-disclosed desync CVE wave (CVE-2019-18277, CVE-2019-20372, CVE-2022-26377). False when any variant smuggles a follow-up request past edge auth/WAF.",
+        "default": false
+      },
+      "http_method_allow_list_enforced": {
+        "type": "boolean",
+        "title": "HTTP Method Allow-list Enforced",
+        "description": "Interpreted boolean attested on the flow: endpoints accept ONLY the HTTP methods they implement (typically GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS as designed) and return 405 Method Not Allowed for any other verb. True when an enforced allow-list is in place at the edge or framework; false when arbitrary/unsupported verbs (or default-accept behavior) slip through and can bypass auth filters scoped only to GET/POST."
+      },
+      "trace_track_methods_blocked": {
+        "type": "boolean",
+        "title": "TRACE / TRACK Methods Blocked",
+        "description": "Interpreted boolean attested on the flow: TRACE and TRACK HTTP methods are explicitly disabled (return 405) at every reachable endpoint, defeating Cross-Site Tracing (XST) and cookie-reflection via the request-echoing TRACE response. True when both verbs are confirmed blocked end-to-end (curl -X TRACE / -X TRACK both return 405); false when either is accepted and the request is echoed.",
+        "default": false
+      },
+      "waf_active_blocking_on_public_web": {
+        "type": "boolean",
+        "title": "WAF Active-Blocking on Public Web Flow",
+        "description": "Attestation: a WAF (cloud or ModSecurity + OWASP CRS) sits in front of the public HTTP/S flow in ACTIVE BLOCKING mode (not monitor/detect-only), with paranoia level and anomaly threshold tuned to actually block injection/XSS/command payloads (CRS paranoia >=1, inbound anomaly score threshold ~5). True when the assessor has verified — via the canonical curl '<script>alert(1)</script>' probe returning 403 and/or SecRuleEngine On with a non-permissive threshold — that hostile payloads are being denied at the edge. False when there is no WAF, the WAF is in DetectionOnly/monitor mode, or the threshold is high enough that nothing blocks in practice.",
+        "default": false
+      },
+      "request_size_and_complexity_limits_enforced": {
+        "type": "boolean",
+        "title": "Request Size and Complexity Limits Enforced",
+        "description": "Attestation that the edge (CDN / reverse proxy / API gateway) enforces a bounded maximum on request-body size and decoded complexity (e.g. nginx client_max_body_size, Apache LimitRequestBody, ASP.NET MaxRequestBodySize, plus JSON depth / decompression-ratio caps) appropriate to each endpoint, so a single client cannot submit unbounded uploads, JSON bombs, or zip/gzip decompression bombs that exhaust memory, disk, or CPU on the back end. True iff a bounded directive is provably present at the edge and oversized payloads receive 413 Payload Too Large; false if the body size is unbounded or limits are only advisory.",
+        "default": false
+      }
+    },
+    "required": [
+      "tls_only_transport",
+      "hsts_enforced",
+      "hsts_max_age_seconds",
+      "content_security_policy_enforced",
+      "csp_allows_unsafe_inline_or_eval",
+      "x_content_type_options_nosniff_set",
+      "frame_ancestors_or_x_frame_options_restricted",
+      "cors_origin_allowlist_strict",
+      "cors_credentials_with_wildcard_origin",
+      "csrf_token_or_double_submit_enforced",
+      "samesite_attribute_set",
+      "content_type_strict_validation",
+      "cookie_httponly_flag",
+      "cookie_secure_flag",
+      "request_framing_normalized_front_back",
+      "http_method_allow_list_enforced",
+      "trace_track_methods_blocked",
+      "waf_active_blocking_on_public_web",
+      "request_size_and_complexity_limits_enforced"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cors_credentials_with_wildcard_origin"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cors_origin_allowlist_strict"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_secure_flag"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_max_age_seconds"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_framing_normalized_front_back"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/content_security_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_httponly_flag"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/csp_allows_unsafe_inline_or_eval"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/csrf_token_or_double_submit_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/frame_ancestors_or_x_frame_options_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/samesite_attribute_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trace_track_methods_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_active_blocking_on_public_web"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/content_type_strict_validation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http_method_allow_list_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/x_content_type_options_nosniff_set"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_size_and_complexity_limits_enforced"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

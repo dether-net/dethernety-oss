@@ -1,0 +1,352 @@
+[
+  {
+    "option_name": "network_access_control_802_1x_enforced",
+    "option_description": "Whether port-based 802.1X device+identity authentication is enforced on access ports so a device must authenticate to RADIUS before the switch port forwards any production traffic (closed/auth-fail = no access).",
+    "security_impact": "Satisfies \"802.1X port/identity admission enforced\" — that rule fires when network_access_control_802_1x_enforced is true, confirming the core admission gate is present. Provides the network-resource-access-mediation protection (D3-NRAM) and mitigates rogue-device introduction (ATT&CK T1200, mitigation M1035).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review switch/wireless-controller config or the NAC console for 802.1X / certificate-based NAC enforcement on every access port and SSID (not just a pilot VLAN).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that 802.1X / port-level certificate-based NAC is enforced on every access port and SSID, not just a pilot VLAN. CIS Control 13 anchor safeguard requires port-level access control using 802.1X or an equivalent certificate-based NAC.",
+        "source": "CIS Controls v8 Control 13 - Network Monitoring and Defense"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive test: connect an unenrolled/unauthenticated device to an access port (or associate to the corporate SSID) and confirm it is denied a production VLAN.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The unenrolled device is placed in a quarantine/auth-fail VLAN or dropped. A device reaching internal resources without authenticating proves the control is not enforced.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "managed_device_enrollment_enforced",
+    "option_description": "Whether admission is tied to a device identity (machine certificate / approved-to-connect inventory record) so only enrolled/managed hardware may join, not merely any device presenting valid user credentials.",
+    "security_impact": "Together with rogue_unmanaged_device_detection_enabled, this is an AND-condition of \"Managed-device enrollment + rogue-device denial enforced\" — the rule fires only when both are true. Mitigates valid-stolen-credentials-from-unmanaged-device (ATT&CK T1078) and rogue-device introduction (T1200).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the NAC admission policy and asset inventory for device-identity gating (machine certificate or inventory match) and per-asset fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that the NAC checks device identity (machine certificate or inventory match) at admission and that the asset inventory carries an approved-to-connect flag, network address, hardware address, owner. CIS Control 1 requires each record to carry these fields.",
+        "source": "CIS Controls v8 Control 1 - Inventory and Control of Enterprise Assets"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For mobile/BYOD, verify EMM/UEM/MDM enrollment-before-access and a maintained device inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of EMM/UEM/MDM enrollment-before-access — NIST SP 800-124r2 requires enrollment before a device touches enterprise resources and a maintained device inventory.",
+        "source": "NIST SP 800-124 Rev. 2 - Guidelines for Managing the Security of Mobile Devices in the Enterprise"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "rogue_unmanaged_device_detection_enabled",
+    "option_description": "Whether the NAC actively detects and denies/quarantines rogue, unmanaged, unknown, or MAC-spoofing devices attempting to join, backing the port-level admission gate.",
+    "security_impact": "AND-paired with managed_device_enrollment_enforced as a condition of \"Managed-device enrollment + rogue-device denial enforced\" — the rule fires only when both are true. Mitigates rogue/unauthorized device introduction (ATT&CK T1200).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review NAC/monitoring config that it profiles unknown devices and denies/alerts on unrecognized hardware, reconciled against the asset inventory's approved-to-connect flag.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that the NAC/monitoring profiles unknown devices and denies/alerts on unrecognized hardware, reconciled against the CIS Control 1 inventory's approved-to-connect flag.",
+        "source": "CIS Controls v8 Control 1 - Inventory and Control of Enterprise Assets"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive test: introduce an unrecognized device (or a known MAC spoofed onto unmanaged hardware) and confirm the NAC detects and denies/quarantines it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The rogue/unmanaged device is alerted on and denied a production VLAN; a device that joins undetected indicates detection is not active.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "client_posture_check_enabled",
+    "option_description": "Whether the NAC verifies a connecting device's security posture (patch level, EDR/AV present and running, disk encryption, host firewall) before granting production access, routing non-compliant devices to remediation.",
+    "security_impact": "AND-paired with third_party_devices_meet_same_posture_bar as a condition of \"Device posture check gates admission\" — the rule fires only when both are true. Mitigates valid-stolen-credentials-from-non-compliant-device (ATT&CK T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review NAC policy for a posture/compliance check at admission whose result gates VLAN placement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that a posture/compliance check runs at admission and gates VLAN placement. NIST SP 800-46r2 mandates NAC solutions verify a client device's security posture BEFORE letting it touch the internal network, with tiered access based on posture confidence.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive test: present a deliberately non-compliant device (EDR stopped / out-of-date) and confirm it is routed to remediation/quarantine, not production.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The non-compliant device is routed to remediation/quarantine rather than a production VLAN.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "third_party_devices_meet_same_posture_bar",
+    "option_description": "Whether contractor / vendor / BYOD devices are held to the same enrollment + posture + segmentation bar as managed corporate devices, with no relaxed bypass that becomes a soft entry point.",
+    "security_impact": "AND-paired with client_posture_check_enabled as a condition of \"Device posture check gates admission\" — the rule fires only when both are true, closing the third-party exemption path. Mitigates valid-stolen-credentials-from-unmanaged-device (ATT&CK T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review NAC policy for any blanket MAC-auth-bypass or relaxed posture exception for third-party/contractor devices, and confirm such devices are confined to scoped segments.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NAC policy review confirming no blanket MAC-auth-bypass or relaxed posture exception for third-party/contractor devices, and that any such devices are confined to scoped segments. NIST SP 800-46r2 ties tiered access to device-posture confidence regardless of ownership.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "dynamic_segment_assignment_by_identity_enabled",
+    "option_description": "Whether RADIUS/NAC dynamically assigns the VLAN/SGT scoped to the authenticated identity+device (least-privilege placement) rather than dropping every admitted device onto one flat VLAN.",
+    "security_impact": "Satisfies \"Identity-based least-privilege segment assignment enforced\" — that rule fires when dynamic_segment_assignment_by_identity_enabled is true, confining hosts to least-privilege segments. Provides network isolation (D3FEND D3-NI) and mitigates lateral movement (ATT&CK T1021, mitigation M1030).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review NAC/RADIUS authorization that returns dynamic VLAN / security-group-tag attributes placing identities on least-privilege segments, and confirm segmentation is enforced between tiers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that authorization (RADIUS attributes / dynamic VLAN / security-group tags) places identities on least-privilege segments and that segmentation is actually enforced between tiers. NIST SP 800-125B prescribes network segmentation as a primary VM/host protection.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Reachability test from an admitted device on segment A toward a production resource on segment B that its role should not reach.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The cross-segment path is denied, confirming dynamic least-privilege placement is enforced rather than a flat VLAN.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "user_segment_isolated_from_production_tiers",
+    "option_description": "Whether guest / BYOD / IoT and general-user segments are isolated from production/server tiers with no east-west path, so a compromised user or IoT device cannot pivot into sensitive systems.",
+    "security_impact": "An OR-trigger of both \"Identity-based least-privilege segment assignment enforced\" and \"Guest/BYOD/IoT isolation from production tiers enforced\" (in the latter it AND-pairs with quarantine_remediation_vlan_configured). Provides network isolation (D3FEND D3-NI) and mitigates lateral movement (T1021) and adversary-in-the-middle on a flat LAN (T1557, mitigation M1030).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Reachability test from a guest/BYOD/IoT segment toward a production server.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The path is denied. NIST SP 800-125B and CIS Control 12 require segmentation between tiers of differing trust.",
+        "source": "NIST SP 800-125B Secure Virtual Network Configuration for VM Protection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the architecture diagram showing guest/BYOD/IoT zones distinct from production and the enforcement point between them.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture-diagram review showing guest/BYOD/IoT zones distinct from production and the enforcement point between them. CIS Control 12 requires a documented secure network architecture addressing segmentation/least-privilege.",
+        "source": "CIS Controls v8 Control 12: Network Infrastructure Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "quarantine_remediation_vlan_configured",
+    "option_description": "Whether a quarantine/remediation VLAN exists and holds non-compliant or unauthenticated devices (isolated from production, given only remediation access) rather than forcing a binary full-admit/hard-block outcome.",
+    "security_impact": "AND-paired with user_segment_isolated_from_production_tiers as a condition of \"Guest/BYOD/IoT isolation from production tiers enforced\" — the rule fires only when both are true. Provides network isolation (D3FEND D3-NI); the remediation tier also keeps operators from disabling NAC for convenience.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review NAC policy for a defined quarantine/remediation VLAN and confirm the remediation segment is isolated from production tiers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that a quarantine/remediation VLAN is defined in NAC policy and that the remediation segment is isolated from production tiers per the segmentation guidance.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "centralized_aaa_enabled",
+    "option_description": "Whether admission decisions are backed by centralized RADIUS/802.1X AAA rather than per-switch local credentials, so authentication, authorization, and accounting are consistent, revocable, and logged in one place.",
+    "security_impact": "AND-paired with nac_admission_events_audit_logged as a condition of \"Centralized AAA backing + admission events audit-logged\" — the rule fires only when both are true. Underpins consistent, revocable network-resource-access-mediation (D3FEND D3-NRAM).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review that network-admission authentication is centralized through RADIUS/802.1X AAA and that accounting records are produced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that authentication for network admission is centralized through RADIUS/802.1X AAA and that accounting records are produced. CIS Control 12 requires centralised AAA; CIS Control 6 requires centralized access control via directory/SSO.",
+        "source": "CIS Controls v8 Control 12: Network Infrastructure Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect RADIUS/NAC accounting logs for admission decisions per identity and device.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RADIUS/NAC accounting logs show admission decisions (accept/reject, identity, device, assigned segment) per CIS Control 6 centralized-access-control expectation.",
+        "source": "CIS Controls v8 Control 6 - Access Control Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "nac_admission_events_audit_logged",
+    "option_description": "Whether NAC admission/denial/quarantine events (who/what was admitted onto which segment) are forwarded to centralized SIEM, time-synced, and retained, so events are reviewable and a host compromise cannot erase the only record.",
+    "security_impact": "AND-paired with centralized_aaa_enabled as a condition of \"Centralized AAA backing + admission events audit-logged\" — the rule fires only when both are true, providing the auditable record behind the admission control.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm NAC/RADIUS admission events are forwarded to centralized log collection (SIEM) and retained, with time sources synced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NAC/RADIUS admission events are forwarded to centralized log collection (SIEM) and retained per CIS Control 8 (centralize collection, retain >=90 days, >=2 NTP sources for time sync).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "non_bypassable_admission_no_alternate_path",
+    "option_description": "Whether admission is non-bypassable — no open jack, fallback-to-open on RADIUS timeout, MAB exception, or unmanaged downstream switch lets a device reach production without passing the NAC.",
+    "security_impact": "First OR-trigger of \"Non-bypassable admission — no alternate path\" (alongside mac_auth_bypass_exceptions_eliminated and radius_unreachable_fails_closed) — the rule fires when this is true, closing the admission-bypass failure mode. Maps to ATT&CK mitigation M1035 (Limit Access to Resource Over Network) and zero-trust enforcement at the PEP.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run a reachability/access-path test proving no alternate route into production bypasses NAC (test RADIUS-unreachable behaviour, downstream unmanaged-switch behaviour, and any standing bypass).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No alternate route into production bypasses NAC. Per zero-trust (NIST SP 800-207) admission must be enforced at the PEP for every request with no implicit network-location trust.",
+        "source": "NIST SP 800-207 Zero Trust Architecture"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the physical/logical access-port topology for daisy-chained unmanaged switches, hubs, or unauthenticated jacks extending an authenticated port.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No unmanaged downstream switch, hub, or alternate physical/logical path extends an authenticated port into production.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "mac_auth_bypass_exceptions_eliminated",
+    "option_description": "Whether standing MAC-auth-bypass (MAB) exceptions have been eliminated, so no blanket MAB fallback weakens the admission gate; any remaining MAB is tightly scoped and audited.",
+    "security_impact": "Second OR-trigger of \"Non-bypassable admission — no alternate path\" — the rule fires when this is true, removing the spoofable MAB fallback as a bypass. Supports ATT&CK mitigation M1035.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit the switch/NAC MAB configuration and exception list for standing blanket MAB fallbacks; confirm any remaining MAB entries are tightly scoped and individually justified.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No standing blanket MAC-auth-bypass fallback exists; any MAB entries are scoped, documented, and audited rather than a catch-all that admits spoofed MACs.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive test: spoof an allow-listed MAC onto an unmanaged device on a port without a current MAB exception and confirm it is denied.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The MAC-spoofing device is denied a production VLAN, confirming no blanket MAB bypass admits it.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "radius_unreachable_fails_closed",
+    "option_description": "Whether port behaviour on RADIUS timeout/unreachability is fail-closed (deny or restricted) rather than fail-open to full production access.",
+    "security_impact": "Third OR-trigger of \"Non-bypassable admission — no alternate path\" — the rule fires when this is true, removing the fail-open-on-AAA-timeout bypass. Supports ATT&CK mitigation M1035 and zero-trust default-deny.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the switch port AAA fail-policy (e.g. critical-VLAN / authentication event server dead action) to confirm RADIUS-unreachable behaviour is deny or restricted, not full production access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "On RADIUS timeout the port denies access or drops the device into a restricted/quarantine VLAN — no fail-open path to full production.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive test: simulate RADIUS unreachability (block the AAA server) and connect a device, confirming it does not gain full production access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The device is denied or restricted while RADIUS is unreachable, demonstrating fail-closed behaviour.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

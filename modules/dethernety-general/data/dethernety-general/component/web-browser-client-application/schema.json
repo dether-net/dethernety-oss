@@ -1,0 +1,454 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "content_security_policy_enforced": {
+        "type": "boolean",
+        "title": "Content-Security-Policy Enforced",
+        "description": "Whether the server delivers a Content-Security-Policy response header that restricts script sources (interpreted from the real content_security_policy config key). Secure=true (a restrictive CSP is present); the exposure fires when false (header absent), leaving reflected/stored/DOM XSS unmitigated at the second layer.",
+        "default": false
+      },
+      "csp_allows_unsafe_inline_or_eval": {
+        "type": "boolean",
+        "title": "CSP Allows unsafe-inline / unsafe-eval",
+        "description": "Interpreted-boolean reading of the composite content_security_policy directive: whether script-src permits 'unsafe-inline' or 'unsafe-eval' (or a wildcard default-src *). Modeled as an interpreted boolean rather than a substring/regex match because the secure CSP string can legitimately mention these tokens while excluding them. Secure=false (CSP forbids unsafe inline/eval, using nonces/hashes); the exposure fires when true, which neutralizes CSP as an XSS control.",
+        "default": false
+      },
+      "trusted_types_enforced": {
+        "type": "boolean",
+        "title": "Trusted Types Enforced",
+        "description": "Whether the CSP enforces Trusted Types via require-trusted-types-for 'script' (interpreted from the csp_trusted_types config key), forcing dangerous DOM sinks (innerHTML, eval) through a sanitizing policy. Secure=true; the exposure fires when false, leaving DOM-based XSS sinks unguarded."
+      },
+      "contextual_output_encoding_applied": {
+        "type": "boolean",
+        "title": "Contextual Output Encoding Applied",
+        "description": "Interpreted-boolean reading of the output_encoding_xss config/review item: whether all untrusted data is rendered via context-aware output encoding / auto-escaping templating (no raw innerHTML/document.write/dangerouslySetInnerHTML/v-html of user data, DOMPurify on any HTML). This is the foundational first-layer XSS defense. Secure=true; the exposure fires when false (user data reaches a sink unsanitized).",
+        "default": false
+      },
+      "x_content_type_options_nosniff_set": {
+        "type": "boolean",
+        "title": "X-Content-Type-Options: nosniff Set",
+        "description": "Whether the server sends X-Content-Type-Options: nosniff (interpreted from the x_content_type_options config key), stopping MIME-sniffing of responses into executable types — a class of XSS where user-controlled content is reinterpreted as script. Secure=true; the exposure fires when false (header absent)."
+      },
+      "stored_in_js_accessible_storage": {
+        "type": "boolean",
+        "title": "Tokens / PII Stored in JS-Accessible Storage",
+        "description": "Interpreted: a session token, JWT, refresh token, or PII is persisted in localStorage/sessionStorage/IndexedDB or any other JavaScript-readable client storage (true = INSECURE). When true, injected script or a hostile extension can read and replay the token or harvest PII, and the data survives the session on a shared/compromised device. Secure value is false (tokens held only in HttpOnly cookies or a BFF pattern; no PII in JS-readable storage). Consolidates the rule-1 token-storage trigger and the rule-6 PII-persistence trigger.",
+        "default": false
+      },
+      "cookie_httponly_flag": {
+        "type": "boolean",
+        "title": "Session Cookie HttpOnly Flag",
+        "description": "Whether the session/auth cookie carries the HttpOnly attribute (true = SECURE; fires on is_false). When false, document.cookie / injected script can exfiltrate the session token.",
+        "default": false
+      },
+      "cookie_secure_flag": {
+        "type": "boolean",
+        "title": "Session Cookie Secure Flag",
+        "description": "Whether the session cookie carries the Secure attribute so it is only transmitted over HTTPS (true = SECURE; fires on is_false). When false, the cookie can leak to a network attacker over cleartext and be replayed, enabling session hijacking. Consolidates the duplicate session_cookie_secure_flag from the token-theft and insecure-transport vectors.",
+        "default": false
+      },
+      "samesite_mode": {
+        "type": "string",
+        "enum": [
+          "Strict",
+          "Lax",
+          "None"
+        ],
+        "title": "Session Cookie SameSite Mode",
+        "description": "The SameSite attribute value on the session cookie. Positive condition on the insecure value: eq 'None' fires (cookie sent on cross-site requests, widening replay/CSRF surface); 'Strict' and 'Lax' are the non-firing secure values."
+      },
+      "access_token_short_lived_rotated": {
+        "type": "boolean",
+        "title": "Access Tokens Short-Lived and Rotated",
+        "description": "Interpreted: access tokens delivered to the client are short-lived (minutes) with refresh-token rotation and server-side revocation (true = SECURE; fires on is_false). When false, a stolen token remains valid long enough to fully hijack the account and cannot be revoked."
+      },
+      "hsts_enabled": {
+        "type": "boolean",
+        "title": "HSTS Enabled",
+        "description": "Whether the application sends a Strict-Transport-Security response header with a long max-age (e.g. >= 63072000) and includeSubDomains, forcing the browser onto HTTPS. Secure value is true; when false the browser can be SSL-stripped/downgraded and session cookies/tokens travel in cleartext to a network adversary (a missing header or max-age=0 is interpreted as false).",
+        "default": false
+      },
+      "upgrade_insecure_requests_enabled": {
+        "type": "boolean",
+        "title": "Upgrade-Insecure-Requests Enabled",
+        "description": "Whether the Content-Security-Policy includes the upgrade-insecure-requests directive, instructing the browser to rewrite http:// subresource requests to https://. Secure value is true; when false the page relies solely on no-mixed-content discipline and is exposed to mixed content that downgrades parts of the page to cleartext."
+      },
+      "mixed_content_present": {
+        "type": "boolean",
+        "title": "Active Mixed Content Present",
+        "description": "Whether the page actually references http:// scripts, iframes, or other active subresources (active mixed content). INSECURE-when-true attestation: secure value is false (no mixed content). When true, an attacker can read/modify the downgraded cleartext portion and ride the session even if HSTS is present."
+      },
+      "subresource_integrity_enforced": {
+        "type": "boolean",
+        "title": "Subresource Integrity Enforced",
+        "description": "Whether every cross-origin/CDN <script> and <link> tag carries a Subresource Integrity (integrity='sha384-...') attribute plus crossorigin, so the browser rejects a tampered/swapped third-party resource. Secure (true) when all external resources are SRI-pinned; the exposure fires (is_false) when a CDN script has no integrity attribute — the Magecart-style supply-chain-exposed state.",
+        "default": false
+      },
+      "dependency_versions_pinned_lockfile": {
+        "type": "boolean",
+        "title": "Dependency Versions Pinned via Lockfile",
+        "description": "Whether the client-side JS dependency tree is pinned via a committed lockfile (package-lock.json / pnpm-lock.yaml / yarn.lock) with exact resolved versions and integrity hashes, so a compromised upstream npm package cannot be silently swapped into the build. Secure (true) when the lockfile is pinned and authoritative; the exposure fires (is_false) when dependencies are unpinned/floating.",
+        "default": false
+      },
+      "dependency_vulnerability_scanning_enabled": {
+        "type": "boolean",
+        "title": "Dependency Vulnerability Scanning Enabled",
+        "description": "Whether automated Software Composition Analysis / dependency scanning (e.g. npm audit, Dependabot, SCA tooling) runs against the client-side dependency tree to surface known-vulnerable or malicious packages before release. Secure (true) when SCA gating is enabled with no unresolved high/critical advisories; the exposure fires (is_false) when the dependency tree is unaudited.",
+        "default": false
+      },
+      "frame_ancestors_restricted": {
+        "type": "boolean",
+        "title": "CSP frame-ancestors Restricted",
+        "description": "Interpreted from the Content-Security-Policy response header: true when frame-ancestors is set to 'none' or 'self' (the modern primary anti-clickjacking control), false when the CSP frame-ancestors directive is absent or permissive — leaving the page embeddable in an attacker-controlled iframe for UI-redress. Secure value is true; fires on false.",
+        "default": false
+      },
+      "x_frame_options_set": {
+        "type": "boolean",
+        "title": "X-Frame-Options Set",
+        "description": "Interpreted from the X-Frame-Options response header: true when set to DENY or SAMEORIGIN (the legacy anti-framing fallback for older clients), false when the header is absent. With frame-ancestors also missing, the page is framable by any origin. Secure value is true; fires on false."
+      },
+      "cors_allow_origin_wildcard": {
+        "type": "boolean",
+        "title": "CORS Allow-Origin Wildcard",
+        "description": "Interpreted from the Access-Control-Allow-Origin response header: true when the header is set to '*' (wildcard) rather than an explicit allow-listed origin. A wildcard ACAO lets any origin issue cross-origin reads; combined with credentials it exposes authenticated responses. Insecure when true; the hardened config echoes a single validated trusted origin (false).",
+        "default": false
+      },
+      "cors_origin_reflected": {
+        "type": "boolean",
+        "title": "CORS Origin Reflected Unvalidated",
+        "description": "Interpreted from CORS behavior: true when the server reflects an arbitrary request Origin back into Access-Control-Allow-Origin without validating it against an allow-list (e.g. a spoofed 'https://evil.example' Origin is echoed). Reflected-origin CORS is functionally equivalent to a credentialed wildcard. Insecure when true; secure servers only emit a validated allow-listed origin (false).",
+        "default": false
+      },
+      "cors_allow_credentials": {
+        "type": "boolean",
+        "title": "CORS Allow-Credentials Enabled",
+        "description": "Interpreted from the Access-Control-Allow-Credentials response header: true when credentialed cross-origin requests are permitted (cookies/Authorization forwarded). Only safe when paired with an explicit, validated origin allow-list; a secondary trigger that, combined with the absence of an allow-list, exposes authenticated responses to a malicious origin."
+      },
+      "cors_origin_allowlist_strict": {
+        "type": "boolean",
+        "title": "CORS Origin Allowlist Strict",
+        "description": "Interpreted from CORS configuration: true when Access-Control-Allow-Origin is emitted only after validating the request Origin against an explicit, finite allow-list (with Vary: Origin). This is the secure state — credentialed CORS without it is the exposure, so the rule fires on its absence (is_false) only when credentials are also allowed."
+      },
+      "postmessage_origin_validated": {
+        "type": "boolean",
+        "title": "postMessage Origin Validated",
+        "description": "Interpreted from client-code review of window.postMessage receivers: true when every addEventListener('message', ...) handler checks event.origin against a trusted allow-list before acting on the message. Secure state is true; a handler with no event.origin check lets a malicious frame/window inject or steal cross-frame data, so the rule fires on its absence (is_false).",
+        "default": false
+      },
+      "postmessage_target_origin_wildcard": {
+        "type": "boolean",
+        "title": "postMessage Target-Origin Wildcard",
+        "description": "Interpreted from client-code review of window.postMessage senders: true when any postMessage call uses a '*' targetOrigin instead of an explicit https origin, broadcasting the message (potentially sensitive data) to whatever origin currently occupies the target frame. Insecure when true; the hardened code pins an explicit targetOrigin (false)."
+      },
+      "cache_control_no_store_on_sensitive": {
+        "type": "boolean",
+        "title": "Cache-Control no-store on Sensitive Responses",
+        "description": "Whether authenticated/sensitive responses (PII or token-bearing) carry Cache-Control: no-store (with max-age=0), preventing the sensitive payload from lingering in the browser disk cache, back-button history, or shared proxies. Secure value is 'no-store, max-age=0' on sensitive responses (true); insecure is a cacheable sensitive response with no/public/long-max-age Cache-Control (false).",
+        "default": false
+      },
+      "sensitive_field_autocomplete_off": {
+        "type": "boolean",
+        "title": "Sensitive Field Autocomplete Disabled",
+        "description": "Whether secret/sensitive input fields (passwords, MFA codes, account/card numbers) disable browser autofill/credential persistence via autocomplete=off (or autocomplete=\"new-password\" where appropriate), preventing the browser from caching the secret on a shared device. Secure value is true (autocomplete disabled on secret fields → non-firing); insecure is false (secrets retained by the browser's autofill store)."
+      },
+      "server_side_input_validation_enforced": {
+        "type": "boolean",
+        "title": "Server-Side Input Validation Enforced",
+        "description": "Whether the server independently re-validates all client-supplied input (types, ranges, business-rule constraints) on every state-changing/sensitive endpoint, rather than relying on client-side/UI validation. Secure value is true (re-validated server-side); the exposure fires when false, because an attacker can modify the client or call the API directly to bypass any client-only validation.",
+        "default": false
+      },
+      "authz_enforced_server_side_centrally": {
+        "type": "boolean",
+        "title": "Authorization Enforced Server-Side Centrally",
+        "description": "Whether the server enforces authentication and authorization for every sensitive action server-side, independent of the untrusted client (no reliance on UI hiding of privileged controls). Secure value is true; the exposure fires when false, because an attacker can drive a non-browser client or replay a privileged call to access functionality the UI merely hid.",
+        "default": false
+      },
+      "client_asserted_state_trusted_serverside": {
+        "type": "boolean",
+        "title": "Client-Asserted State Trusted Server-Side",
+        "description": "Interpreted boolean: whether the server honors roles, privilege flags, or authorization decisions asserted by the client (e.g. an isAdmin field in the request body, a client-supplied role header, or a JWT claim the client can edit) instead of deriving them from a server-side trusted session/store. This is the INSECURE state, so true is the firing condition; the secure posture is false (server derives all authorization from trusted server-side state).",
+        "default": false
+      }
+    },
+    "required": [
+      "content_security_policy_enforced",
+      "csp_allows_unsafe_inline_or_eval",
+      "trusted_types_enforced",
+      "contextual_output_encoding_applied",
+      "x_content_type_options_nosniff_set",
+      "stored_in_js_accessible_storage",
+      "cookie_httponly_flag",
+      "cookie_secure_flag",
+      "samesite_mode",
+      "access_token_short_lived_rotated",
+      "hsts_enabled",
+      "upgrade_insecure_requests_enabled",
+      "mixed_content_present",
+      "subresource_integrity_enforced",
+      "dependency_versions_pinned_lockfile",
+      "dependency_vulnerability_scanning_enabled",
+      "frame_ancestors_restricted",
+      "x_frame_options_set",
+      "cors_allow_origin_wildcard",
+      "cors_origin_reflected",
+      "cors_allow_credentials",
+      "cors_origin_allowlist_strict",
+      "postmessage_origin_validated",
+      "postmessage_target_origin_wildcard",
+      "cache_control_no_store_on_sensitive",
+      "sensitive_field_autocomplete_off",
+      "server_side_input_validation_enforced",
+      "authz_enforced_server_side_centrally",
+      "client_asserted_state_trusted_serverside"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_token_short_lived_rotated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authz_enforced_server_side_centrally"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/client_asserted_state_trusted_serverside"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cors_allow_origin_wildcard"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cors_origin_reflected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/postmessage_origin_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cors_allow_credentials"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cors_origin_allowlist_strict"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/postmessage_target_origin_wildcard"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/samesite_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_secure_flag"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mixed_content_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/upgrade_insecure_requests_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_field_autocomplete_off"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/content_security_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/contextual_output_encoding_applied"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/csp_allows_unsafe_inline_or_eval"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/frame_ancestors_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_input_validation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_types_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/x_content_type_options_nosniff_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/x_frame_options_set"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_versions_pinned_lockfile"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dependency_vulnerability_scanning_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/subresource_integrity_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cache_control_no_store_on_sensitive"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_httponly_flag"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/stored_in_js_accessible_storage"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

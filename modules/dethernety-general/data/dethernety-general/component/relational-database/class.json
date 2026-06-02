@@ -1,0 +1,9 @@
+{
+  "id": "1a92b7a3-eaf7-4f25-8702-77c3044cf735",
+  "name": "Relational Database",
+  "classType": "component",
+  "type": "STORE",
+  "description": "A relational (SQL) database — also called an RDBMS, Postgres/PostgreSQL, MySQL, MariaDB, Oracle, SQL Server, or Aurora — that persists structured business and user records in tables with transactional (ACID) guarantees. Queried by application services over a connection pool and the system's primary system-of-record. The place to look for the SQL/transactional database, structured data store, or where customer, account, and order rows live.",
+  "category": "Data Persistence",
+  "status": "draft"
+}

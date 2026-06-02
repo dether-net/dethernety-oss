@@ -1,0 +1,601 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known Pre-Auth RCE CVE",
+        "description": "Interpreted boolean (assessor-derived): TRUE when the NGFW appliance firmware is at or below a release affected by a publicly-known, CISA-KEV-listed pre-auth RCE/auth-bypass CVE (e.g. PAN-OS GlobalProtect CVE-2024-3400; FortiOS SSL-VPN CVE-2024-21762) and is NOT at/above the vendor's fixed release. Polarity-safe positive-insecure: the patched appliance is FALSE so the all-secure baseline stays silent.",
+        "default": false
+      },
+      "vpn_portal_service_internet_exposed": {
+        "type": "boolean",
+        "title": "VPN/Portal Service Internet-Exposed",
+        "description": "Interpreted boolean: TRUE when the appliance's internet-facing services carrying the pre-auth surface — GlobalProtect gateway/portal (PAN-OS) or SSL-VPN/sslvpnd (FortiOS) — are reachable from untrusted/internet zones. Necessary second AND condition for the pre-auth RCE to be remotely exploitable. Secure posture (not internet-reachable / behind a VPN-broker) is FALSE.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Shared workspace vocabulary: TRUE when the edge appliance firmware (FortiOS/FortiProxy/PAN-OS) is patched to the fixed release within the remediation SLA (e.g. CISA BOD 22-01 KEV deadlines). Read with is_false: the exposure fires when the appliance is NOT patched within SLA. This is the patch-currency expression of the firmware hazard and the management-plane auth-bypass precondition (CVE-2022-40684 present only on unpatched firmware).",
+        "default": false
+      },
+      "admin_interface_internet_reachable": {
+        "type": "boolean",
+        "title": "Admin Interface Internet-Reachable",
+        "description": "TRUE when the firewall's administrative/management interface (FortiGate allowaccess https/ssh on an external interface, or PAN-OS mgmt profile without a restrictive permitted-IP list) is reachable from untrusted/internet source ranges rather than restricted to dedicated management subnets. The precondition that turns a management-plane auth-bypass flaw (e.g. CVE-2022-40684) into a remotely exploitable admin takeover.",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control-Plane API Not Publicly Exposed",
+        "description": "Shared-workspace attestation: TRUE when the device's control-plane/management API (the HTTP/HTTPS admin endpoint a bypass request targets) is NOT exposed to public/untrusted networks. Secure value is TRUE; the exposure fires when FALSE (the API is publicly exposed), making a crafted-request authentication bypass reachable by an unauthenticated remote attacker.",
+        "default": false
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Edge Management Interfaces Not Internet-Reachable",
+        "description": "Shared-workspace attestation: TRUE when edge-appliance management interfaces (HTTPS/SSH/SNMP admin, GUI, CLI) are not reachable from the internet — segmented behind a management network/jump host and source-IP restricted. Secure value is TRUE; the exposure fires when FALSE, indicating the management plane is internet-reachable and exploitable by the auth bypass or default-credential attack.",
+        "default": false
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed or Changed",
+        "description": "Shared-workspace attestation: TRUE when all vendor default admin accounts/passwords (e.g. admin/admin) have been changed, renamed, or disabled so no account uses a publicly-known default credential. FALSE (vendor defaults still in use) fires this exposure via default-credential brute-force/guessing of the management plane.",
+        "default": false
+      },
+      "mfa_available": {
+        "type": "boolean",
+        "title": "MFA Available for Admin Login",
+        "description": "Shared-workspace attestation: TRUE when multi-factor/two-factor authentication (FortiToken / RADIUS+OTP, or PAN-OS MFA-backed authentication profile) is available and enforced for privileged admin logins. FALSE (single-factor password-only) fires this exposure — no second factor to resist credential theft/guessing on the management plane.",
+        "default": false
+      },
+      "admin_trusted_host_restriction_enabled": {
+        "type": "boolean",
+        "title": "Admin Trusted-Host Restriction Enabled",
+        "description": "TRUE when every admin account/management profile restricts access to a small permitted-IP/trusted-host set (FortiGate 'config system admin' trustedhostN to specific mgmt subnets; CIS PAN-OS 1.2.1/1.2.2 Permitted IP Addresses on each SSH/HTTPS/SNMP mgmt profile). FALSE (trustedhost empty/0.0.0.0/0 or no permitted-IP list) fires this exposure — the admin plane accepts logins from any source.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting or Account Lockout Enabled",
+        "description": "Shared-workspace attestation: TRUE when failed-login lockout/rate-limiting throttles brute-force against the management plane (FortiGate admin-lockout-threshold + admin-lockout-duration non-zero; CIS PAN-OS 1.4.2 Failed Attempts & Lockout Time non-zero). FALSE (lockout disabled / unlimited attempts) fires this exposure via unthrottled credential brute force."
+      },
+      "http_or_telnet_admin_enabled": {
+        "type": "boolean",
+        "title": "HTTP or Telnet Admin Access Enabled",
+        "description": "Interpreted from the management interface allowaccess / mgmt-profile (FortiOS 'config system interface set allowaccess', CIS PAN 1.2.3-1.2.4): TRUE when cleartext admin protocols HTTP or Telnet are permitted on any management interface. Secure posture allows only HTTPS + SSH, so the secure value is FALSE. TRUE exposes admin credentials and config to sniffing/MITM on the management path.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled (Management)",
+        "description": "Shared workspace vocabulary. Interpreted boolean over the composite admin-https-ssl-versions directive (FortiOS 'show system global | grep admin-https-ssl-versions'): TRUE when legacy SSL/TLS 1.0/1.1 are enabled for the admin HTTPS plane. Modelled as an interpreted boolean (not a substring match) so the secure value 'tlsv1-2'/'tlsv1-3' does not false-fire. Secure value is FALSE (TLS 1.2 minimum).",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "TLSv1.0",
+          "TLSv1.1",
+          "TLSv1.2",
+          "TLSv1.3"
+        ],
+        "title": "Minimum TLS Version (Management)",
+        "description": "Shared workspace vocabulary — name matched to the gateway/dataFlow min_tls_version, not a local synonym. Lowest TLS protocol version accepted on the management HTTPS plane (admin-https-ssl-versions floor). Fires on the insecure values TLSv1.0/TLSv1.1; the secure floor TLSv1.2 (or TLSv1.3) does not fire."
+      },
+      "self_signed_admin_cert": {
+        "type": "boolean",
+        "title": "Self-Signed Admin Certificate",
+        "description": "Interpreted from admin-server-cert / browser admin certificate (CIS PAN 1.2.5): TRUE when the management GUI presents a default self-signed (or expired) certificate rather than a valid CA-issued cert. Secure value is FALSE (valid certificate from a trusted source). TRUE prevents admins from detecting MITM on the management session.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "Shared workspace vocabulary. Whether the management TLS server certificate is validated against a trusted source (current validity dates, trusted issuer). Secure value is TRUE; the exposure fires when validation is absent (is_false), leaving the management session open to certificate substitution/MITM."
+      },
+      "snmp_v1_v2c_enabled": {
+        "type": "boolean",
+        "title": "SNMP v1/v2c Enabled",
+        "description": "Interpreted from the SNMP polling configuration (CIS PAN 1.5.1): TRUE when community-based SNMP v1/v2c is enabled. Community strings traverse the management/monitoring plane in cleartext, exposing them to sniffing. Secure posture is SNMPv3-only (authenticated + encrypted), so the secure value is FALSE.",
+        "default": false
+      },
+      "ingress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Ingress Default-Deny Enforced",
+        "description": "Shared workspace vocabulary — aligned with the ingress posture attribute used across the gateway/boundary classes. Whether the firewall policy terminates in a default-deny (drop-all) posture so traffic not matched by an explicit allow rule is blocked (NIST SP 800-41 Rev.1). TRUE = default-deny (secure); FALSE = default-permit / no terminating deny (insecure), silently allowing unintended traffic across the segmentation boundary.",
+        "default": false
+      },
+      "implicit_deny_logged": {
+        "type": "boolean",
+        "title": "Implicit Deny Logged",
+        "description": "Whether the implicit/terminating deny rule logs the traffic it drops, producing telemetry for detection and SIEM forwarding (NIST SP 800-41 Rev.1). TRUE = implicit deny logged (secure); FALSE = deny not logged (insecure), yielding no telemetry on blocked attempts and a blind spot in segmentation enforcement.",
+        "default": false
+      },
+      "external_siem_forwarding_enabled": {
+        "type": "boolean",
+        "title": "External SIEM Forwarding Enabled",
+        "description": "Whether the firewall forwards its logs off-box to a remote syslog/SIEM endpoint (CIS PAN 1.1.1.1 syslog profile with All Logs; CIS Controls v8 Control 8). FALSE means logs are retained only on-device, where firewall compromise or policy tampering goes undetected and on-box logs can be wiped. Fires on the insecure (no off-box forwarding) state.",
+        "default": false
+      },
+      "denied_traffic_logging_enabled": {
+        "type": "boolean",
+        "title": "Denied Traffic Logging Enabled",
+        "description": "Whether denied/dropped traffic (including the terminating implicit-deny) is logged and exported. FALSE removes the telemetry on blocked attempts that segmentation enforcement relies on, so reconnaissance and policy-bypass attempts leave no record. Fires on the insecure (denied-traffic logging off) state.",
+        "default": false
+      },
+      "admin_action_logging_enabled": {
+        "type": "boolean",
+        "title": "Admin Action Logging Enabled",
+        "description": "Whether administrative/management-plane actions (logins, privileged operations) are captured and exported to the SIEM. FALSE means admin compromise and unauthorized management-plane activity go unrecorded off-box. Fires on the insecure (admin-action logging off) state.",
+        "default": false
+      },
+      "config_change_logging_enabled": {
+        "type": "boolean",
+        "title": "Config Change Logging Enabled",
+        "description": "Whether firewall configuration-change events (ruleset/policy edits) are logged and exported off-box (CIS PAN System/Configuration logs). FALSE means policy tampering — silently relaxing the ruleset — produces no detectable, retained record. Fires on the insecure (config-change logging off) state.",
+        "default": false
+      },
+      "perimeter_crossings_logged_and_centralized": {
+        "type": "boolean",
+        "title": "Perimeter Crossings Logged and Centralized",
+        "description": "Shared workspace vocabulary: whether traffic crossing the network perimeter the firewall enforces is logged and centralized to a common store/SIEM. FALSE means boundary crossings are not observable centrally, defeating cross-system correlation of an attack against the segmentation device. Fires on the insecure (crossings not centralized) state.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "Shared workspace vocabulary: whether logs are stored on a system separate from the firewall that generates them, so an attacker who compromises the device cannot also delete the evidence. FALSE means on-device-only retention with no off-box copy. Fires on the insecure (logs co-located on the firewall) state.",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper-Evident",
+        "description": "Shared workspace vocabulary: whether retained audit logs are tamper-evident (write-once / integrity-protected) so on-device wiping or alteration is detectable. FALSE means logs can be silently wiped or edited after a firewall compromise. Secondary trigger; fires on the insecure (logs not tamper-evident) state."
+      },
+      "session_table_limits_enforced": {
+        "type": "boolean",
+        "title": "Session Table Limits Enforced",
+        "description": "Interpreted boolean: whether the firewall enforces session/connection-table protection — per-source and global session limits, SYN-flood / new-connection-rate thresholds (DoS-protection/session-rate policies) — so a flood cannot exhaust the global session table or CPU. TRUE = caps/thresholds in place; FALSE (firing/insecure) = no session-table limits, allowing connection-table exhaustion that drops legitimate traffic.",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Shared workspace vocabulary: whether anti-DDoS/flood-protection controls (rate limiting, SYN-cookie / aggregate flood thresholds, or upstream/scrubbing protection) defend the device against volumetric and protocol floods. TRUE = protection present; FALSE (firing/insecure) = the device is unprotected against floods aimed at exhausting its capacity.",
+        "default": false
+      },
+      "fails_open_on_overload": {
+        "type": "boolean",
+        "title": "Fails Open on Overload",
+        "description": "Interpreted boolean: whether the device's behaviour under resource exhaustion/overload is fail-OPEN (passes traffic unfiltered when the session table fills or CPU saturates), silently removing the enforcement boundary. TRUE (firing/insecure) = fails open under overload; FALSE = fails closed / defined fail-safe stance that preserves enforcement.",
+        "default": false
+      },
+      "ha_failover_configured": {
+        "type": "boolean",
+        "title": "HA Failover Configured",
+        "description": "Interpreted boolean grounded in the high-availability/failover posture (CIS PAN-OS 3.1-3.3 / FortiGate HA): whether the firewall runs as an HA pair with session synchronization and link/path monitoring so a single device failure (or a flood that downs one unit) does not collapse the enforcement boundary. TRUE = HA with session sync + monitoring; FALSE (firing/insecure) = single non-HA device / no link monitoring.",
+        "default": false
+      },
+      "ips_threat_prevention_enabled": {
+        "type": "boolean",
+        "title": "IPS/Threat-Prevention Enabled",
+        "description": "Interpreted boolean: TRUE when the NGFW's IPS/threat-prevention engine is active and inspecting traffic (PAN-OS WildFire/Threat-Prevention engine running, FortiGate IPS/AV engine enabled). FALSE means the engine is disabled and the firewall is a blind passthrough. Per CIS Palo Alto 5.3 / FortiGate IPS engine status. Exposure fires when FALSE.",
+        "default": false
+      },
+      "threat_signatures_current": {
+        "type": "boolean",
+        "title": "Threat Signatures Current",
+        "description": "Interpreted boolean: TRUE when IPS/AV/application-and-threat content signatures are current (content auto-update enabled and recently applied per CIS Palo Alto 4.1/4.2; FortiGuard content current). FALSE means signatures are stale/manual, so the engine misses known threats even when running. Exposure fires when FALSE.",
+        "default": false
+      },
+      "security_profiles_on_allow_rules": {
+        "type": "boolean",
+        "title": "Security Profiles on Allow Rules",
+        "description": "Interpreted boolean: TRUE when every security policy with an Allow action has a threat-prevention/security profile (IPS, AV, anti-spyware, WildFire/sandboxing) attached, so permitted traffic is actually inspected. FALSE means Allow rules pass traffic without inspection — the engine may run but is not applied. Per CIS Palo Alto 5.3 / FortiGate UTM profiles on policies. Exposure fires when FALSE.",
+        "default": false
+      },
+      "tls_inspection_enabled": {
+        "type": "boolean",
+        "title": "TLS Inspection Enabled",
+        "description": "Interpreted boolean: TRUE when SSL/TLS decryption-and-inspection is applied to traffic crossing the boundary (where policy and privacy allow), so encrypted threats are not a blind spot. FALSE means encrypted traffic passes uninspected, letting TLS-wrapped malware/C2 and evasion cross the boundary. Secondary trigger; fires when FALSE."
+      },
+      "config_change_detection_enabled": {
+        "type": "boolean",
+        "title": "Config Change Detection Enabled",
+        "description": "Shared workspace vocabulary: whether changes to the firewall configuration are detected and recorded through a change-control workflow (NIST CM-3). TRUE when every config edit is captured against a tracked baseline; FALSE when rule edits are ad-hoc and unattributed, letting unauthorized rule changes silently weaken segmentation undetected.",
+        "default": false
+      },
+      "drift_detection_enabled": {
+        "type": "boolean",
+        "title": "Drift Detection Enabled",
+        "description": "Shared workspace vocabulary: whether the running firewall config is automatically compared against a reviewed, version-controlled baseline to surface drift. TRUE when drift is detected and alerted; FALSE when no drift detection exists, leaving malicious or accidental rule changes undetectable.",
+        "default": false
+      },
+      "running_config_matches_baseline": {
+        "type": "boolean",
+        "title": "Running Config Matches Baseline",
+        "description": "Shared workspace vocabulary: whether the device's currently running configuration matches the approved version-controlled baseline (NIST CM-2). TRUE when running config equals the reviewed baseline; FALSE when uncontrolled drift is present, indicating the live ruleset diverges from the authorized segmentation policy.",
+        "default": false
+      },
+      "config_backed_up_to_known_good": {
+        "type": "boolean",
+        "title": "Config Backed Up to Known-Good Store",
+        "description": "Shared workspace vocabulary: whether the firewall configuration is regularly backed up off-box to a known-good, tamper-evident store. TRUE when off-box backups exist and are verified; FALSE when no off-box backup exists, making a maliciously altered config unrecoverable."
+      },
+      "out_of_band_changes_controlled": {
+        "type": "boolean",
+        "title": "Out-of-Band Changes Controlled",
+        "description": "Shared workspace vocabulary: whether out-of-band (direct CLI/GUI) edits bypassing the change-control workflow are prevented or detected via restricted change access (NIST CM-5). TRUE when OOB changes are blocked or reconciled; FALSE when admins can edit rules ad-hoc with no control, permitting silent unauthorized rule changes."
+      }
+    },
+    "required": [
+      "unpatched_known_rce_cve",
+      "vpn_portal_service_internet_exposed",
+      "edge_appliance_patched_within_sla",
+      "admin_interface_internet_reachable",
+      "control_plane_api_not_publicly_exposed",
+      "edge_management_interfaces_not_internet_reachable",
+      "default_accounts_removed_or_changed",
+      "mfa_available",
+      "admin_trusted_host_restriction_enabled",
+      "rate_limiting_or_lockout_enabled",
+      "http_or_telnet_admin_enabled",
+      "weak_tls_versions_enabled",
+      "min_tls_version",
+      "self_signed_admin_cert",
+      "server_certificate_validated",
+      "snmp_v1_v2c_enabled",
+      "ingress_default_deny_enforced",
+      "implicit_deny_logged",
+      "external_siem_forwarding_enabled",
+      "denied_traffic_logging_enabled",
+      "admin_action_logging_enabled",
+      "config_change_logging_enabled",
+      "perimeter_crossings_logged_and_centralized",
+      "logs_stored_on_separate_system",
+      "audit_log_tamper_evident",
+      "session_table_limits_enforced",
+      "ddos_protection_in_place",
+      "fails_open_on_overload",
+      "ha_failover_configured",
+      "ips_threat_prevention_enabled",
+      "threat_signatures_current",
+      "security_profiles_on_allow_rules",
+      "tls_inspection_enabled",
+      "config_change_detection_enabled",
+      "drift_detection_enabled",
+      "running_config_matches_baseline",
+      "config_backed_up_to_known_good",
+      "out_of_band_changes_controlled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_available"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_trusted_host_restriction_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/http_or_telnet_admin_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/self_signed_admin_cert"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_v1_v2c_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_interface_internet_reachable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ingress_default_deny_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_portal_service_internet_exposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/fails_open_on_overload"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ha_failover_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_table_limits_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_action_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_change_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/denied_traffic_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_siem_forwarding_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/implicit_deny_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/perimeter_crossings_logged_and_centralized"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_change_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/drift_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/running_config_matches_baseline"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_backed_up_to_known_good"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/out_of_band_changes_controlled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Evasion Resistance",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_inspection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Inspection Capability",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ips_threat_prevention_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_profiles_on_allow_rules"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/threat_signatures_current"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

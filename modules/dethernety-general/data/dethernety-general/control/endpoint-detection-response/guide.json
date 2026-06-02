@@ -1,0 +1,258 @@
+[
+  {
+    "option_name": "edr_agent_active_with_tamper_protection",
+    "option_description": "A healthy EDR agent is deployed and reporting on every inventoried endpoint, with self/tamper protection enabled so the agent cannot be stopped, uninstalled, or have its services killed locally.",
+    "security_impact": "Satisfies \"EDR agent present on all endpoints with tamper protection\" — the sole is_true trigger of that rule fires when edr_agent_active_with_tamper_protection is true — providing endpoint malware coverage and defeating Impair Defenses: Disable or Modify Tools (ATT&CK T1562.001, NIST SP 800-83r1 §4.3.2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Cross-reference the EDR console asset list against the authoritative endpoint inventory and confirm every inventoried endpoint shows a healthy, checked-in agent.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EDR console asset list cross-referenced against the authoritative endpoint inventory (CIS Control 1); every inventoried endpoint shows a healthy, checked-in agent. Gaps (hosts in inventory but not in EDR, or vice versa) are tracked and remediated. Antivirus/EDR should be deployed on all hosts for which satisfactory software is available, including workstations, servers, and mobile computing devices.",
+        "source": "CIS Controls v8 Control 10 - Malware Defenses"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the EDR management console, open the agent policy/settings and confirm agent self-protection / tamper protection is enabled for all policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR management console -> policy/settings -> agent self-protection / tamper protection",
+        "expected_output": "Tamper protection is ON for all policies. NIST SP 800-83r1 §4.3.2 warns that malware which compromises the OS may disable security controls such as antivirus software, particularly in unmanaged environments where users have greater control of their hosts; self-protection counters this.",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "behavior_monitoring_enabled",
+    "option_description": "Real-time behavioral/heuristic and machine-learning detection engines are active (not signature-only), so novel and fileless threats are caught by behavior such as process injection, suspicious spawn lineage, and script execution.",
+    "security_impact": "Satisfies \"Real-time behavioral detection enabled\" — one of that rule's OR-triggers (alongside realtime_protection_enabled) — firing when behavior_monitoring_enabled is true — delivering D3FEND Process Analysis (D3-PA, with D3-PSA/D3-PLA/D3-SEA/D3-SCA) to defend against Process Injection (T1055) and Command and Scripting Interpreter abuse (T1059).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console open the detection policy and verify behavioral / next-gen / on-access protection settings are enabled, not signature-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> detection policy -> behavioral / next-gen / on-access protection settings",
+        "expected_output": "Real-time/on-access behavioral protection enabled. NIST SP 800-83r1 frontmatter notes today's malware is more stealthy and designed to quietly spread; §4.3.2 notes many of today's threats are novel and signature-based antivirus often fails to recognize them, so behavioral detection is required. Maps to D3FEND Process Analysis (D3-PA) sub-techniques: Process Spawn Analysis (D3-PSA), Process Lineage Analysis (D3-PLA), Script Execution Analysis (D3-SEA), System Call Analysis (D3-SCA).",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the deployed detection capability maps to recognized defensive techniques by reviewing the EDR product's published technique coverage against the D3FEND Process Analysis and File Analysis families.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Detection capability maps to MITRE D3FEND Process Analysis (D3-PA, https://d3fend.mitre.org/technique/d3f:ProcessAnalysis/) and File Analysis (D3-FA) families, which defend against Process Injection, Defense Evasion, and Credential Access ATT&CK techniques.",
+        "source": "MITRE D3FEND Process Analysis (D3-PA)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "realtime_protection_enabled",
+    "option_description": "Real-time on-execution / on-access protection is active, scanning and blocking malicious code at the moment it runs rather than only in passive/audit-only mode.",
+    "security_impact": "Satisfies \"Real-time behavioral detection enabled\" — one of that rule's OR-triggers (alongside behavior_monitoring_enabled) — firing when realtime_protection_enabled is true — providing on-execution blocking (D3FEND File Analysis D3-FA, ATT&CK M1049 Antivirus/Antimalware) against User Execution of malware (T1204).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console open the detection/protection policy and confirm real-time / on-access protection is turned on and not set to passive or audit-only mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> detection policy -> behavioral / next-gen / on-access protection settings",
+        "expected_output": "Real-time/on-access behavioral protection enabled. NIST SP 800-83r1 frontmatter notes today's malware is more stealthy and designed to quietly spread; §4.3.2 notes many of today's threats are novel and signature-based antivirus often fails to recognize them, so behavioral detection is required. Maps to D3FEND Process Analysis (D3-PA) sub-techniques: Process Spawn Analysis (D3-PSA), Process Lineage Analysis (D3-PLA), Script Execution Analysis (D3-SEA), System Call Analysis (D3-SCA).",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Sample one or more endpoint policies and confirm the protection mode is enforcing (block) rather than detect-only / audit-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint policies report real-time protection in active/blocking (enforce) mode, not passive or audit-only.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "ransomware_mass_change_detection_enabled",
+    "option_description": "A dedicated behavioral anti-ransomware / mass-file-change rule is enabled that halts the offending process and isolates the host on detecting rapid bulk file modification or encryption.",
+    "security_impact": "Satisfies \"Anti-ransomware mass-change detection and rollback enabled\" — one of that rule's OR-triggers (alongside endpoint_remediation_rollback_enabled) — firing when ransomware_mass_change_detection_enabled is true — mitigating Data Encrypted for Impact (ATT&CK T1486 via M1040 Behavior Prevention on Endpoint; real-world DeadBolt CVE-2022-27593, Qlocker CVE-2021-28799).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console open the protection policy and verify the anti-ransomware / file-canary / mass-change behavioral setting is enabled and set to block and isolate.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> protection policy -> anti-ransomware / file canary / mass-change behavior settings",
+        "expected_output": "Anti-ransomware behavioral protection enabled and set to block+isolate. Grounded by real-world ransomware that mass-encrypts hosts/NAS (CVE-2022-27593 DeadBolt, CVE-2021-28799 Qlocker). Maps to ATT&CK T1486 (Data Encrypted for Impact) mitigated by M1040 Behavior Prevention on Endpoint.",
+        "source": "CIS Controls v8 Control 10 - Malware Defenses"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "endpoint_remediation_rollback_enabled",
+    "option_description": "Automated remediation/rollback capability (e.g. shadow-copy or snapshot-based file restoration) restores affected files to a known-good state after a ransomware or malware event.",
+    "security_impact": "Satisfies \"Anti-ransomware mass-change detection and rollback enabled\" — one of that rule's OR-triggers (alongside ransomware_mass_change_detection_enabled) — firing when endpoint_remediation_rollback_enabled is true — providing eradication and recovery to known-good (NIST SP 800-83r1 §4.4 Eradication, §4.5 Recovery) against Data Encrypted for Impact (T1486).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console open the response actions and confirm remediation (kill/quarantine/delete) and rollback/restore actions are present and enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> response -> remediate / rollback / restore actions",
+        "expected_output": "Remediation (kill/quarantine/delete) and rollback capabilities present. NIST SP 800-83r1 §4.4 (Eradication): eradication removes malware AND the underlying weakness; automated eradication (e.g., triggering scans remotely) is more efficient than manual; §4.5 covers Recovery to a known-good state.",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "automated_host_isolation_enabled",
+    "option_description": "The agent can automatically (or via one-click SOC action) isolate/quarantine a host from the network on detection while keeping the EDR management channel open, stopping lateral spread and C2.",
+    "security_impact": "Satisfies \"Automated containment and host isolation enabled\" — one of that rule's OR-triggers (alongside endpoint_containment_response_enabled) — firing when automated_host_isolation_enabled is true — providing D3FEND Network Isolation (D3-NI) / Execution Isolation (D3-EI) containment (NIST SP 800-83r1 §4.3.2, §4.3.4).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console open response actions and verify a network isolation / contain-host action exists and is wired to an automated detection playbook.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> response actions -> network isolation / contain host (verify the action exists and an automated playbook is configured)",
+        "expected_output": "Host-isolation/contain action available and wired to detection playbooks. NIST SP 800-83r1 §4.3.2 (Containment Through Automated Detection) and §4.3.4 (Disabling Network Connectivity) endorse blocking/disconnecting infected hosts to contain spread while preserving an admin path. Maps to D3FEND Isolate tactic: Network Isolation (D3-NI), Execution Isolation (D3-EI).",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "endpoint_containment_response_enabled",
+    "option_description": "Containment response actions (kill process, quarantine file, terminate session, remote shell) are available and usable from the EDR console on detection.",
+    "security_impact": "Satisfies \"Automated containment and host isolation enabled\" — one of that rule's OR-triggers (alongside automated_host_isolation_enabled) — firing when endpoint_containment_response_enabled is true — enabling the responder containment workflow NIST SP 800-83r1 §4.3 endorses for stopping an active compromise.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "From the EDR console, verify response actions such as process termination, file quarantine, and remote shell are enabled and usable on a detection.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> response actions -> network isolation / contain host (verify the action exists and an automated playbook is configured)",
+        "expected_output": "Host-isolation/contain action available and wired to detection playbooks. NIST SP 800-83r1 §4.3.2 (Containment Through Automated Detection) and §4.3.4 (Disabling Network Connectivity) endorse blocking/disconnecting infected hosts to contain spread while preserving an admin path. Maps to D3FEND Isolate tactic: Network Isolation (D3-NI), Execution Isolation (D3-EI).",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with responders that process-kill, file-quarantine, and session-terminate actions are enabled (not greyed out) and have been exercised in a tabletop or live response.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Responders confirm containment response actions are enabled and have been successfully used on at least one detection or exercise.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "application_allowlisting_enforced",
+    "option_description": "Application allowlisting / execution control is in enforce (not audit) mode so only approved executables, scripts, and libraries can run, blocking unauthorized or unknown code.",
+    "security_impact": "Satisfies \"Application allowlisting / execution control enforced\" — the sole is_true trigger of that rule fires when application_allowlisting_enforced is true — providing execution prevention (ATT&CK M1038, D3FEND Executable Allowlisting D3-EAL / Denylisting D3-EDL) against untrusted-binary execution.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the application control / allowlist policy in the EDR or OS execution-control console and confirm it is in enforce mode, not audit.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR / OS execution-control console -> application control / allowlist policy",
+        "expected_output": "Allowlist (or at minimum denylist) execution policy enforced. NIST SP 800-83r1 §3.4.5 (Application Whitelisting) and §4.3.2 (Executable Blacklisting): host-based IPS/OS technologies can restrict which executables run; blacklisting can block a new threat's files before AV signatures exist. Maps to D3FEND Executable Allowlisting (D3-EAL) and Executable Denylisting (D3-EDL).",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "threat_signatures_current",
+    "option_description": "Signature, engine, and threat-intel updates are pulled automatically from the vendor on a frequent cadence so detection content stays current and newly-discovered threats are recognized.",
+    "security_impact": "Satisfies \"Detection content and engine kept current\" — the sole is_true trigger of that rule fires when threat_signatures_current is true — keeping malware-defense and supply-chain detection content fresh (CIS Control 10 automatic updates, NIST SP 800-83r1 §3.4).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the EDR console open update settings / agent health and review the last definition and engine version timestamps across agents; confirm auto-update is enabled and content is within the vendor cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR console -> update settings / agent health -> last definition + engine version timestamps",
+        "expected_output": "All agents report recent (within vendor cadence) signature/engine/threat-intel versions; auto-update enabled. CIS Control 10 requires central management and automatic vendor updates of anti-malware content; NIST SP 800-83r1 §3.4 stresses keeping threat-mitigation tooling current.",
+        "source": "CIS Controls v8 Control 10 - Malware Defenses"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "endpoint_audit_logs_centralised",
+    "option_description": "EDR alerts and endpoint telemetry are centrally collected and forwarded to a SIEM for correlation, cross-host detection, and retention rather than retained only in the local console.",
+    "security_impact": "Satisfies \"Centralized telemetry forwarded to monitored SIEM/SOC\" — one of that rule's OR-triggers (alongside monitored_response_function_present) — firing when endpoint_audit_logs_centralised is true — providing the centralized security-event correlation CIS Control 13 (Network Monitoring and Defense) calls for.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, confirm an EDR alert/telemetry feed is being received and that recent EDR detections appear with adequate retention.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM receives EDR alert/telemetry feed; recent EDR detections appear in the SIEM with retention >= 90 days. CIS Control 13 (Network Monitoring and Defense) calls for centralizing security-event alerting / SIEM correlation across host-based intrusion-prevention and network sources.",
+        "source": "CIS Controls v8 Control 13 - Network Monitoring and Defense"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  },
+  {
+    "option_name": "monitored_response_function_present",
+    "option_description": "A monitored response function (in-house SOC or MDR) actively triages forwarded telemetry and acts on detections under documented incident-response SLAs.",
+    "security_impact": "Satisfies \"Centralized telemetry forwarded to monitored SIEM/SOC\" — one of that rule's OR-triggers (alongside endpoint_audit_logs_centralised) — firing when monitored_response_function_present is true — ensuring detections are triaged and handled per NIST SP 800-83r1 §4.1 Preparation and §4.2.3 Prioritizing Incident Response.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the malware incident-response process and confirm a SOC or MDR service monitors the alert queues with assigned roles and documented SLAs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented malware incident-response process exists with assigned roles, monitored alert queues, and SLAs. NIST SP 800-83r1 §4.1 (Preparation) and §4.2.3 (Prioritizing Incident Response) require a robust incident-response capability and pre-assigned identification/response roles; alerts must be triaged and prioritized, not ignored.",
+        "source": "NIST SP 800-83 Rev. 1 Guide to Malware Incident Prevention and Handling"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true
+    ]
+  }
+]

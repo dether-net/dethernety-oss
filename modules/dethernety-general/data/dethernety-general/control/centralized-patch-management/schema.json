@@ -1,0 +1,284 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "automated_os_patch_management_enabled": {
+        "type": "boolean",
+        "title": "Automated OS Patch Management Enabled",
+        "description": "Whether operating-system updates are deployed across enterprise assets through an automated patch-management capability on a configured schedule (CIS 7.3). Secure/present value is true.",
+        "default": false
+      },
+      "automated_application_patch_management_enabled": {
+        "type": "boolean",
+        "title": "Automated Application Patch Management Enabled",
+        "description": "Whether third-party/application software updates are deployed via automated patch management, not only the OS (CIS 7.4). Secure/present value is true.",
+        "default": false
+      },
+      "os_patch_deployment_cadence_days": {
+        "type": "integer",
+        "title": "OS Patch Deployment Cadence (Days)",
+        "description": "Interval in days at which the automated patch job runs. CIS 7 requires <=30; secure value is <=30."
+      },
+      "emergency_out_of_band_patch_path": {
+        "type": "boolean",
+        "title": "Emergency Out-of-Band Patch Path",
+        "description": "Whether a defined emergency/out-of-band maintenance plan fast-tracks patches outside the routine cycle for actively-exploited vulnerabilities (M1051, ~24h). True when present.",
+        "default": false
+      },
+      "critical_patch_window_days": {
+        "type": "integer",
+        "title": "Critical Patch SLA Window (Days)",
+        "description": "Maximum days the risk-based SLA allows between a critical/actively-exploited patch becoming available and being deployed. Lower is more secure; secure value <=7."
+      },
+      "documented_vulnerability_and_remediation_process": {
+        "type": "boolean",
+        "title": "Documented Vulnerability & Remediation Process",
+        "description": "Whether a documented risk-based vulnerability-management and remediation process exists and is reviewed on cadence (CIS 7.1/7.2). It governs the SLA and emergency path and is a required input to compliance reporting."
+      },
+      "patch_coverage_of_inventory_complete": {
+        "type": "boolean",
+        "title": "Patch Coverage Reconciled to Inventory",
+        "description": "Patch coverage is reconciled against the authoritative asset (CIS 1) and software (CIS 2) inventory so every in-scope asset is enrolled. True when coverage gaps are near zero.",
+        "default": false
+      },
+      "firmware_and_network_device_patch_coverage": {
+        "type": "boolean",
+        "title": "Firmware & Network Device Patch Coverage",
+        "description": "Firmware and network/edge appliances (NGFW, VPN gateways, switches, NAS) are tracked and patched, not only servers/endpoints. True when in scope and current.",
+        "default": false
+      },
+      "third_party_and_agent_patch_coverage": {
+        "type": "boolean",
+        "title": "Third-Party & Agent Patch Coverage",
+        "description": "Third-party/dependency software and management/security agents (including the patch agent itself) are enrolled and current. True when tracked and updated."
+      },
+      "vulnerability_scanning_feeds_prioritization": {
+        "type": "boolean",
+        "title": "Vulnerability Scanning Feeds Prioritization",
+        "description": "Automated vulnerability scanning is in place AND findings are connected to risk-based remediation/patch prioritization (CIS 7.5/7.6/7.7). Fires when true.",
+        "default": false
+      },
+      "internal_scan_interval_days": {
+        "type": "integer",
+        "title": "Internal Vulnerability Scan Interval (Days)",
+        "description": "Maximum interval in days between authenticated internal vulnerability scans. CIS 7.5 requires <=90; lower is more secure."
+      },
+      "external_scan_interval_days": {
+        "type": "integer",
+        "title": "External Vulnerability Scan Interval (Days)",
+        "description": "Maximum interval in days between external-facing-asset vulnerability scans. CIS 7.6 requires <=30; lower is more secure."
+      },
+      "remediation_rate_measured_between_scans": {
+        "type": "boolean",
+        "title": "Remediation Rate Measured Between Scans",
+        "description": "Supporting evidence (CIS 7.7) that remediation rate is measured between consecutive scans. Context only."
+      },
+      "patch_tested_in_staging_before_production": {
+        "type": "boolean",
+        "title": "Patch Tested in Staging Before Production",
+        "description": "Patches pass a documented test/staging ring before broad production rollout (NIST SP 800-40r4). True when present.",
+        "default": false
+      },
+      "patch_rollback_path_exists": {
+        "type": "boolean",
+        "title": "Patch Rollback Path Exists",
+        "description": "A documented rollback/recovery to a known-good configuration lets a bad patch be reverted (NIST SP 800-128). True when present.",
+        "default": false
+      },
+      "patch_change_control_enforced": {
+        "type": "boolean",
+        "title": "Patch Change Control Enforced",
+        "description": "Patch deployments flow through documented change control with security-impact analysis and authorization (NIST CM-3). True when a managed, auditable change process governs every push.",
+        "default": false
+      },
+      "update_source_integrity_verified": {
+        "type": "boolean",
+        "title": "Update Source Integrity Verified",
+        "description": "Patches are delivered only from an integrity-verified, signed update source (NIST CM-14). True when packages are signed and signature-verified before install.",
+        "default": false
+      },
+      "patch_compliance_reporting_and_metrics": {
+        "type": "boolean",
+        "title": "Patch Compliance Reporting & Metrics",
+        "description": "The program produces regular patch-compliance metrics — percent patched, MTTR, remediation rate between scans (CIS 7.7; M1051). True when produced and reviewed.",
+        "default": false
+      }
+    },
+    "required": [
+      "automated_os_patch_management_enabled",
+      "automated_application_patch_management_enabled",
+      "os_patch_deployment_cadence_days",
+      "emergency_out_of_band_patch_path",
+      "critical_patch_window_days",
+      "documented_vulnerability_and_remediation_process",
+      "patch_coverage_of_inventory_complete",
+      "firmware_and_network_device_patch_coverage",
+      "third_party_and_agent_patch_coverage",
+      "vulnerability_scanning_feeds_prioritization",
+      "internal_scan_interval_days",
+      "external_scan_interval_days",
+      "patch_tested_in_staging_before_production",
+      "patch_rollback_path_exists",
+      "patch_change_control_enforced",
+      "update_source_integrity_verified",
+      "patch_compliance_reporting_and_metrics"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/update_source_integrity_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_and_agent_patch_coverage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_rollback_path_exists"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_tested_in_staging_before_production"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_compliance_reporting_and_metrics"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_change_control_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Vulnerability Management",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_application_patch_management_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_os_patch_management_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/critical_patch_window_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/emergency_out_of_band_patch_path"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/firmware_and_network_device_patch_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/os_patch_deployment_cadence_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_coverage_of_inventory_complete"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vulnerability_scanning_feeds_prioritization"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/documented_vulnerability_and_remediation_process"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_scan_interval_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_scan_interval_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/remediation_rate_measured_between_scans"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

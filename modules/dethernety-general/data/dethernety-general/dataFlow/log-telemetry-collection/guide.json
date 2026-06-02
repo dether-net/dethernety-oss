@@ -1,0 +1,401 @@
+[
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Attestation that the log/telemetry channel from source to collector/SIEM is wrapped in TLS end-to-end (e.g. syslog-over-TLS on 6514 per RFC 5425, or OTLP with a configured tls block).",
+    "security_impact": "Sole OR-trigger of \"Cleartext log transport (sniffing and disclosure)\" — fires when flow_tls_encrypted is false, mapping to ATT&CK T1040. Also supporting context for \"MITM modification of events in transit\" (RFC 5425 §5 disclosure/modification threats; NIST SP 800-92 §4.5 mandates protection of audit information in transit; PCI DSS Req 10 / Req 4 require encryption of audit transport).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the collector's syslog/OTLP ingest port with openssl s_client to confirm a TLS handshake completes and that cleartext on the same port is refused.",
+        "command": "openssl s_client -connect <collector_host>:6514 -showcerts </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful TLS handshake on the syslog/OTLP ingest port; cleartext connect to the same host:port should fail or be refused.",
+        "source": "RFC 5425 (Syslog over TLS, default port 6514)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Sweep the canonical syslog/OTLP ports to confirm plaintext variants are closed and only TLS-wrapped ingress answers.",
+        "command": "nmap -p 514,601,6514,4317,4318 --script ssl-enum-ciphers <collector_host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plaintext syslog ports (514 UDP/TCP, 601) closed; only TLS-wrapped ingress (6514 syslog-TLS, 4317/4318 OTLP w/ TLS) is open and answers a TLS handshake.",
+        "source": "RFC 5425 + OpenTelemetry Collector security config best practices"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep the OpenTelemetry Collector config for tls blocks on every receiver and exporter that crosses a trust boundary.",
+        "command": "yq '.receivers.*.protocols.*.tls' otelcol-config.yaml; yq '.exporters.*.tls' otelcol-config.yaml",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "Every receiver and exporter that crosses a trust boundary has a tls: block with cert_file/key_file/ca_file set; no exporter sets insecure: true in production.",
+        "source": "OpenTelemetry Collector — Security Configuration Best Practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "TLS floor on the log flow — the lowest protocol version the forwarder/collector/SIEM endpoints will negotiate.",
+    "security_impact": "Contextual evidence for \"MITM modification of events in transit\" — not its load-bearing OR-trigger, but a weak floor (TLS 1.0/1.1/SSLv3 accepted) widens the cert/integrity gap and enables downgrade-then-rewrite. RFC 5425 mandates TLS 1.2 support; NIST SP 800-52r2 bars TLS <1.2 for federal use.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols offered by the collector's TLS ingest with testssl.sh.",
+        "command": "testssl.sh --protocols <collector_host>:6514",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLSv1.2 and/or TLSv1.3 offered; TLSv1.0, TLSv1.1, SSLv3 are 'not offered' (good).",
+        "source": "RFC 5425 + NIST SP 800-52r2"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the min_version field on every Collector receiver/exporter tls block.",
+        "command": "yq '.receivers.*.protocols.*.tls.min_version, .exporters.*.tls.min_version' otelcol-config.yaml",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "min_version: \"1.2\" or \"1.3\" set explicitly on every receiver/exporter tls block (per configtls README).",
+        "source": "OpenTelemetry Collector configtls README"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Attestation that forwarders validate the collector's certificate chain AND hostname end-to-end — no insecure_skip_verify, no insecure: true, no pinning to a self-signed cert without verification.",
+    "security_impact": "One OR-trigger of \"MITM modification of events in transit\" — fires when server_certificate_validated is false, mapping to ATT&CK T1565.002 (Transmitted Data Manipulation) and T1557 (AiTM). RFC 5425 §5 names modification as a primary syslog-transport threat; OWASP ASVS V7 requires authenticated transport for audit data.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the OpenTelemetry exporter tls blocks for the verification-disabling fields and confirm a real CA bundle is pinned.",
+        "command": "yq '.exporters.*.tls.insecure, .exporters.*.tls.insecure_skip_verify, .exporters.*.tls.ca_file, .exporters.*.tls.server_name_override' otelcol-config.yaml",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "insecure: false (or absent), insecure_skip_verify: false (or absent), ca_file points to a real trust bundle.",
+        "source": "OpenTelemetry Collector — Security Configuration Best Practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Interpose a MITM proxy with an untrusted cert between forwarder and collector and observe the forwarder's behaviour.",
+        "command": "Stand up a MITM proxy with an untrusted cert between forwarder and collector and observe the forwarder's behavior.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Forwarder refuses to send (cert validation failure logged); does NOT silently deliver to the proxy.",
+        "source": "RFC 5425 §5 (modification threat) + OpenTelemetry guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_pipeline_integrity_protected",
+    "option_description": "Attestation that events crossing this flow carry per-event or per-batch integrity protection (HMAC, signed envelope, hash-chained batch, or equivalent) and the SIEM verifies it.",
+    "security_impact": "One OR-trigger of \"MITM modification of events in transit\" — fires when log_pipeline_integrity_protected is false, mapping to ATT&CK T1565.002. NIST AU-9 explicitly requires audit information be protected from unauthorized modification (defence-in-depth beyond TLS, so a stripped/terminated session cannot silently rewrite events).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the pipeline design: is each event (or batch) signed/HMAC'd at the source, and is the chain verified at the SIEM?",
+        "command": "Review the pipeline design: is each event (or batch) signed/HMAC'd at the source, and is the chain verified at the SIEM?",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented integrity mechanism (e.g. signed envelopes, hash-chained batches, blockchain notarisation) with a periodic verification job.",
+        "source": "NIST SP 800-92 + NIST AU-9 (Protection of Audit Information)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inject a synthetic event into the queue/wire and confirm the SIEM rejects or flags it on the integrity check.",
+        "command": "Inject a synthetic event into the queue/wire and confirm the SIEM rejects or flags it on integrity check.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Injected event flagged as unsigned/unauthenticated; alert raised.",
+        "source": "NIST AU-9"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "service_to_service_mtls_enforced",
+    "option_description": "Attestation that the log-forwarder-to-collector channel enforces mutual TLS — both peers present and validate X.509 certificates per RFC 5425 §4.2.",
+    "security_impact": "One OR-trigger of \"Forwarder masquerade / spoofed log source\" — fires when service_to_service_mtls_enforced is false, mapping to ATT&CK T1565.001 (Stored Data Manipulation via spoofed events). RFC 5425 §4.2 makes certificate-based authentication of both peers a MUST; OWASP ASVS V7 names non-repudiation of log sources as a core requirement.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TLS handshake to the collector without presenting a client cert and confirm it is rejected.",
+        "command": "openssl s_client -connect <collector_host>:6514 -showcerts </dev/null  # without a client cert",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake fails / certificate_required alert when no client cert is presented (collector requires mTLS).",
+        "source": "RFC 5425 §4.2 + OpenTelemetry mTLS guidance"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm every external-facing Collector receiver has client_ca_file set and require_client_certificate: true.",
+        "command": "yq '.receivers.*.protocols.*.tls.client_ca_file, .receivers.*.protocols.*.tls.require_client_certificate' otelcol-config.yaml",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "client_ca_file is set AND require_client_certificate: true on every external-facing receiver.",
+        "source": "OpenTelemetry Collector configtls README"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "identity_propagated_cryptographically",
+    "option_description": "Attestation that each emitting workload presents its own cryptographic identity (SPIFFE SVID, per-pod client cert, or unique API key) — not a shared cluster-wide secret.",
+    "security_impact": "One OR-trigger of \"Forwarder masquerade / spoofed log source\" — fires when identity_propagated_cryptographically is false, mapping to ATT&CK T1565.001. A shared/static credential destroys non-repudiation (OWASP ASVS V7) — a compromised pod can impersonate any other workload's logs at the SIEM.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review forwarder bootstrap and inventory the distinct identities seen at the collector over a 24h window, mapping each back to one workload.",
+        "command": "Review forwarder bootstrap: list distinct client certs / SPIFFE SVIDs / API keys seen at the collector over a 24h window and map each back to one workload.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct identity per workload (1:1 mapping); no single credential observed from more than one source workload/host.",
+        "source": "OWASP ASVS V7 (logging non-repudiation) + OpenTelemetry security best practices"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the collector access log for client_cert_subject or auth_principal and group by source IP/pod.",
+        "command": "Query collector access log for client_cert_subject or auth_principal; group by source IP/pod.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One auth_principal per source; no broadcast principal like 'logger' or 'fluentd-shared'.",
+        "source": "OWASP ASVS V7"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Attestation that the forwarder/source masks or redacts secrets (API tokens, passwords, JWTs, session identifiers, private-key material) BEFORE events enter the pipeline — not at the central SIEM after exposure.",
+    "security_impact": "One OR-trigger of \"Secrets and PII leakage into log bodies (CWE-532)\" — fires when secrets_masked_in_logs is false, mapping to ATT&CK T1552.001 (Credentials In Files). CWE-532 (Insertion of Sensitive Information into Log File), OWASP ASVS V7, and OWASP Logging Cheat Sheet all forbid credentials in logs; PCI DSS Req 10 forbids storing authentication data in audit logs.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a redaction processor is wired into the Collector pipeline with explicit blocked_values regex covering token/secret patterns.",
+        "command": "yq '.processors.redaction' otelcol-config.yaml   # or fluentd/vector equivalent",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "redaction processor wired with allow_all_keys: false, blocked_values covering card/token/secret patterns (e.g. '4[0-9]{12}', 'Bearer [A-Za-z0-9_-]+').",
+        "source": "OpenTelemetry redaction processor + CWE-532 + OWASP Logging Cheat Sheet"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent events in the SIEM and grep for known credential patterns; any hit is a P0 incident.",
+        "command": "Sample 10k recent events in the SIEM and grep for regex patterns: PAN, JWT, 'password=', private-key headers.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero hits; any hit is a P0 incident and triggers the redaction-failure runbook.",
+        "source": "CWE-532 + PCI DSS Req 10"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pii_excluded_from_logs",
+    "option_description": "Attestation that personally identifiable information and regulated data (PAN/card numbers, government IDs, full email/phone where not required, health identifiers) are excluded or tokenized at the source before they enter the log pipeline.",
+    "security_impact": "One OR-trigger of \"Secrets and PII leakage into log bodies (CWE-532)\" — fires when pii_excluded_from_logs is false, mapping to ATT&CK T1552.001. CWE-532 explicitly forbids sensitive data in logs; OWASP ASVS V7 requires no PAN/payment data in logs; PCI DSS Req 10 forbids storing cardholder data in audit trails.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "SIEM-grep recent events for PAN and national-ID regex patterns to confirm zero hits.",
+        "command": "Sample 10k recent events in the SIEM and grep for regex patterns: PAN, JWT, 'password=', private-key headers.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero hits; any hit is a P0 incident and triggers the redaction-failure runbook.",
+        "source": "CWE-532 + PCI DSS Req 10"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the redaction processor's blocked_values include the PII patterns specific to the data domain (PAN, national ID, etc.).",
+        "command": "yq '.processors.redaction' otelcol-config.yaml",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "blocked_values regex covers PAN (e.g. '4[0-9]{12}'), national-ID patterns, and any domain-specific PII; allow_all_keys: false.",
+        "source": "OpenTelemetry redaction processor + CWE-532 + OWASP Logging Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Attestation that the log archive / SIEM destination is tamper-evident — WORM, S3 Object Lock (Compliance/Governance), Azure Immutable Blob, GCS Bucket Lock, or append-only indices.",
+    "security_impact": "Sole OR-trigger of \"Indicator removal at destination — mutable log archive\" — fires when audit_log_tamper_evident is false, mapping to ATT&CK T1070 (Indicator Removal). NIST AU-9 requires audit information be protected from unauthorized modification/deletion; PCI DSS Req 10.5 requires audit-trail integrity at rest.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the archive bucket's Object Lock configuration to confirm immutability is enabled with a retention period.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-archive-bucket>   # or equivalent in Azure Immutable Blob / GCS Bucket Lock",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockEnabled: Enabled with Compliance or Governance mode and a retention period set.",
+        "source": "NIST AU-9 + MITRE ATT&CK T1070 (Indicator Removal on Host)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "As a privileged operator, attempt to delete a recent archived log object and confirm the deletion is denied and itself logged.",
+        "command": "Attempt to delete a recent archived log object as a privileged operator.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Delete is denied by Object Lock / immutability policy; attempt is itself logged.",
+        "source": "NIST AU-9"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logging_failure_alerting_enabled",
+    "option_description": "Attestation that a dead-man-switch fires when a source falls silent or the ingest pipeline drops — heartbeat-missing / source-silent-> N min / ingest-rate-collapse rules per critical source class with a documented SLO.",
+    "security_impact": "Sole OR-trigger of \"Silent collection failure — no dead-man-switch alarm\" — fires when logging_failure_alerting_enabled is false, mapping to ATT&CK T1562.006 (Indicator Blocking). NIST AU-5 explicitly requires response to audit-processing failures; OWASP ASVS V7 requires alerting when logging stops.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect SIEM detection rules for heartbeat-missing / source-silent / ingest-rate-collapse alerts per critical source class.",
+        "command": "Inspect SIEM detection rules for 'heartbeat missing' / 'source silent > N minutes' / 'ingest rate dropped > X%'.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dead-man-switch rules exist per critical source class with a defined SLO (e.g. silence > 15 min => page).",
+        "source": "NIST AU-5 + MITRE T1562.006 (Indicator Blocking)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Drill: stop a non-prod log forwarder and measure time-to-page against the documented SLO.",
+        "command": "Stop a non-prod log forwarder and time how long until the on-call is paged.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Page within the documented SLO (e.g. <= 15 min); not 'we noticed the next day'.",
+        "source": "NIST AU-5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Attestation that every log source keeps its clock synchronized to a trusted time source (NTP/Chrony, stratum <=4) within bounded skew (e.g. < 1s RMS offset).",
+    "security_impact": "One OR-trigger of \"Backdated / clock-skewed events break correlation\" — fires when clocks_synced_to_trusted_time_source is false, mapping to ATT&CK T1070.006 (Timestomp-adjacent). NIST SP 800-92 §4.4 mandates time synchronization across log sources so cross-source correlation holds.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On every log source, query chrony/ntp for synchronization status, stratum, and offset.",
+        "command": "chronyc tracking   # or: timedatectl status; ntpq -p",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "System clock synchronized: yes; Last offset / RMS offset < 1 second; Stratum <=4.",
+        "source": "NIST SP 800-92 §4.4 (Time Synchronization)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Plot the distribution of (event_received_at - event_timestamp) per source in the SIEM and alert on outliers.",
+        "command": "In the SIEM, plot the distribution of (event_received_at - event_timestamp) per source; alert on outliers.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Skew per source within +/- 1s; no source emitting non-UTC timestamps.",
+        "source": "NIST SP 800-92"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "timestamps_in_utc",
+    "option_description": "Attestation that all sources emit event timestamps in UTC with sub-second resolution (not local timezone, not a zone-naive wall clock).",
+    "security_impact": "One OR-trigger of \"Backdated / clock-skewed events break correlation\" — fires when timestamps_in_utc is false, mapping to ATT&CK T1070.006. NIST SP 800-92 and OWASP ASVS V7 require unambiguous timestamps so cross-source correlation works and no timezone-shift evasion window exists.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample raw events at the collector and confirm they carry RFC 3339 / ISO 8601 UTC timestamps with sub-second precision.",
+        "command": "In the SIEM, plot the distribution of (event_received_at - event_timestamp) per source; alert on outliers.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Skew per source within +/- 1s; no source emitting non-UTC timestamps.",
+        "source": "NIST SP 800-92"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the logging schema/contract (JSON schema, OTel semantic conventions) for an explicit UTC timestamp field.",
+        "command": "Inspect logging schema/contract (JSON schema, OTel semantic conventions) covering these required fields.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented schema enforcing required-field set including timestamp_utc with sub-second precision; CI gate rejects schema-violating events.",
+        "source": "OWASP ASVS V7 + NIST SP 800-92"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_flood_overflow_protection",
+    "option_description": "Attestation that the log/telemetry pipeline enforces per-source rate limits AND bounded queues / backpressure (OpenTelemetry memory_limiter, sending_queue, max_recv_msg_size_mib) so a noisy or compromised source cannot exhaust the SIEM.",
+    "security_impact": "Sole OR-trigger of \"Telemetry flood — DoS of SIEM ingest\" — fires when log_flood_overflow_protection is false, mapping to ATT&CK T1499.003 (Application Exhaustion Flood). Doubles as evasion cover: a flood from one source can drown another's signal. NIST SP 800-92 calls out volume management as a logging-infrastructure design concern.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the Collector config for memory_limiter, sending_queue size, and per-receiver max message size caps.",
+        "command": "yq '.processors.memory_limiter, .exporters.*.sending_queue, .receivers.*.protocols.*.max_recv_msg_size_mib' otelcol-config.yaml",
+        "file_path": "otelcol-config.yaml",
+        "navigation": null,
+        "expected_output": "memory_limiter configured (check_interval, limit_mib); sending_queue.queue_size bounded; max recv message size capped.",
+        "source": "OpenTelemetry Collector — Security Configuration Best Practices"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Plot per-source EPS in the SIEM over 30 days and confirm an alert fires on >3x baseline without dropping other sources' data.",
+        "command": "Plot per-source EPS in the SIEM over 30 days; alert on >3x baseline.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-source rate cap exists; spikes trigger alert without dropping other sources' data.",
+        "source": "OpenTelemetry exporterhelper + NIST SP 800-92"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

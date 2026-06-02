@@ -1,0 +1,9 @@
+{
+  "id": "ba0c18f7-b8d4-41ab-87c3-ab2098d45609",
+  "name": "Role-Based Access Control",
+  "classType": "control",
+  "type": "Role-Based Access Control",
+  "description": "Role-based access control (RBAC) — also called role/permission assignment, least-privilege authorization, ABAC, or access policy — grants permissions by role under least privilege to limit what any compromised principal can reach. The place to look for RBAC, role/permission models, least-privilege authorization, access scoping, or how entitlements are granted by role.",
+  "category": "Access Management",
+  "status": "draft"
+}

@@ -1,0 +1,316 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "pkce_required": {
+        "type": "boolean",
+        "title": "PKCE Required",
+        "description": "Attests that the IdP MANDATES PKCE (S256, with code_challenge bound to code_verifier) on the authorization-code flow for ALL clients (public and confidential), and rejects /authorize requests that omit code_challenge. Required by RFC 9700 / OAuth 2.1. When false, an intercepted authorization code can be exchanged at /token by any party that captured it.",
+        "default": false
+      },
+      "code_single_use_enforced": {
+        "type": "boolean",
+        "title": "Authorization Code Single-Use Enforced",
+        "description": "Attests that the IdP's /token endpoint accepts each authorization_code AT MOST ONCE — a second exchange returns invalid_grant and (per RFC 9700 §2.1.1) any access/refresh tokens already issued from the first exchange are invalidated. When false, an attacker who captures the code can replay it for additional token issuance after the legitimate RP has redeemed it.",
+        "default": false
+      },
+      "authorization_code_ttl_seconds": {
+        "type": "integer",
+        "title": "Authorization Code TTL (seconds)",
+        "description": "Lifetime in seconds for which the IdP will accept an authorization_code at /token after issuance. RFC 6749 §4.1.2 and RFC 9700 recommend codes be short-lived (≤60s; up to 120s tolerated). Codes lingering past ~2 minutes give an interception-and-replay adversary a wide window to race the legitimate RP to the token endpoint."
+      },
+      "pkce_method_s256_required": {
+        "type": "boolean",
+        "title": "PKCE S256 Method Required",
+        "description": "Attestation that the IdP enforces code_challenge_method=S256 on every /authorize request and rejects requests that omit code_challenge or present a non-S256 method. When false, an active MITM can coerce the client into omitting PKCE or falling back to plain — turning an eavesdropped code_challenge into a usable code_verifier (PKCE downgrade, RFC 7636 §7.2, RFC 9700 §2.1.1).",
+        "default": false
+      },
+      "code_challenge_method_plain_accepted": {
+        "type": "boolean",
+        "title": "PKCE Plain Method Accepted",
+        "description": "Attestation that the IdP accepts code_challenge_method=plain (or silently falls back to plain when S256 verification fails) on the authorization endpoint. When true, an eavesdropper on the front channel can reuse the challenge as the verifier at /token, defeating the PKCE binding between the client instance and the authorization code.",
+        "default": false
+      },
+      "oidc_nonce_validated": {
+        "type": "boolean",
+        "title": "OIDC Nonce Validated",
+        "description": "Attestation: the RP generates a per-session nonce, includes it in the /authorize request, AND verifies on callback that the same value is echoed in the id_token's nonce claim. True only when both generation AND comparison are performed (per OpenID Connect Core 1.0 §3.1.2.1 and §3.1.3.7). False permits ID-Token replay across user-agent sessions (GHSA-3gx8-q682-38mx).",
+        "default": false
+      },
+      "oauth_state_bound_and_verified": {
+        "type": "boolean",
+        "title": "OAuth State Bound and Verified",
+        "description": "Attests that the RP generates a high-entropy per-request `state` value on /authorize, binds it to the user-agent session (cookie or server-side store), and verifies it byte-for-byte on /callback before accepting the authorization response. When false, the authentication-response leg is unbound from the initiating session, enabling login-CSRF and session-fixation.",
+        "default": false
+      },
+      "redirect_uri_exact_match_enforced": {
+        "type": "boolean",
+        "title": "redirect_uri Exact-Match Enforced",
+        "description": "Attests that the IdP matches the inbound redirect_uri against the registered allowlist using exact byte-for-byte string comparison — no wildcards, no regex, no path-prefix, no scheme/host normalisation (localhost ports for native apps excepted). When false, fires the open-redirect / authorization-response steering exposure on this dataFlow.",
+        "default": false
+      },
+      "post_login_returnto_allowlisted": {
+        "type": "boolean",
+        "title": "Post-Login returnTo Allowlisted",
+        "description": "Attests that the RP validates post-login returnTo / RelayState / continue parameters against a server-side allowlist of internal paths, refusing to redirect off-origin. When false, fires the open-redirect-on-RP exposure that weaponises the authentication response leg to phish users or leak codes via Referer.",
+        "default": false
+      },
+      "saml_assertion_signature_verified": {
+        "type": "boolean",
+        "title": "SAML Assertion Signature Verified",
+        "description": "Attestation: the SP verifies the IdP's XML-DSig signature on the SAML Assertion (and ideally the Response) using a pinned IdP certificate, with signature-wrapping defences (canonicalisation + reference validation rejecting wrapped/duplicate Assertions). False triggers SAML signature-wrapping exposure (CVE-2022-23607, CVE-2024-45409).",
+        "default": false
+      },
+      "saml_audience_restriction_strict": {
+        "type": "boolean",
+        "title": "SAML Audience Restriction Strict",
+        "description": "Attestation: the SP enforces Conditions/AudienceRestriction by exact match against its own EntityID (no wildcards, no prefix match) and rejects assertions issued for a different audience. False permits cross-SP assertion confusion.",
+        "default": false
+      },
+      "saml_recipient_inresponseto_matched": {
+        "type": "boolean",
+        "title": "SAML Recipient and InResponseTo Matched",
+        "description": "Attestation: the SP validates SubjectConfirmationData.Recipient against its own ACS URL and SubjectConfirmationData.InResponseTo against an AuthnRequest ID the SP actually issued. False permits unsolicited or cross-endpoint assertion injection.",
+        "default": false
+      },
+      "saml_assertion_replay_cache_active": {
+        "type": "boolean",
+        "title": "SAML Assertion Replay Cache Active",
+        "description": "Attestation: the SP maintains a seen-AssertionID cache for the validity window (NotBefore..NotOnOrAfter) and rejects any AssertionID it has already consumed. False permits replay of a still-valid Assertion within its lifetime.",
+        "default": false
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "boolean",
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "Attestation: the IdP enforces a phishing-resistant authenticator (WebAuthn/FIDO2, smartcard) on the authentication handshake — origin-bound credentials that an Evilginx-class reverse-proxy phishing kit cannot relay, because the assertion is cryptographically bound to the legitimate RP origin. False means the handshake accepts password + OTP/push, which an AiTM proxy can pass through in real time.",
+        "default": false
+      },
+      "sender_constrained": {
+        "type": "boolean",
+        "title": "Tokens Sender-Constrained",
+        "description": "Attestation: access tokens (and where supported, session cookies) issued on the handshake are sender-constrained — mTLS-bound (RFC 8705, cnf.x5t#S256) or DPoP-bound (RFC 9449, cnf.jkt) — so a token harvested by an AiTM proxy, XSS, log leak, or malicious browser extension cannot be replayed from a different sender. False means plain bearer tokens usable from any sender once stolen.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting or Lockout Enabled",
+        "description": "Attestation that the authentication endpoint enforces per-account AND per-IP throttling with progressive delay, CAPTCHA escalation, or temporary lockout on repeated failures (per-IP alone is defeated by botnets). When false (no throttling, or throttle keyed solely on source IP), mass credential-stuffing and online brute-force replay against the authentication flow becomes feasible.",
+        "default": false
+      },
+      "breached_password_screening_enabled": {
+        "type": "boolean",
+        "title": "Breached Password Screening Enabled",
+        "description": "Attestation that the authentication flow screens submitted (and newly chosen) passwords against a known-breached-credentials corpus (e.g. HaveIBeenPwned k-anonymity API, NIST SP 800-63B §5.1.1.2 compromised-credentials check) and rejects or steps-up on a hit. When false, previously-leaked credential pairs remain usable.",
+        "default": false
+      },
+      "transmitted_in_url_or_query": {
+        "type": "boolean",
+        "title": "Secrets Transmitted in URL or Query",
+        "description": "Attestation: secrets (passwords, authorization codes, ID/access tokens, SAMLResponse) are carried in URL path or query string on this flow. Secure value is false — secrets MUST be transmitted in request bodies or headers, never in URLs which are captured by access logs, Referer headers to third-party origins, and browser history.",
+        "default": false
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Logs",
+        "description": "Attestation: any secret material that traverses this flow is masked/redacted in proxy, gateway, and application access logs (and excluded from Referer propagation). Without masking, even header/body-borne secrets leak via log retention and downstream analytics.",
+        "default": false
+      },
+      "access_token_ttl_minutes": {
+        "type": "integer",
+        "title": "Access Token TTL (minutes)",
+        "description": "Time-to-live of access tokens issued on this authentication flow, in minutes. Long-lived unbound bearer tokens dramatically widen the replay window after theft. RFC 9700 §4.x recommends short-lived access tokens (commonly ≤60 minutes) paired with refresh-token rotation; this rule fires when the TTL exceeds 60 minutes."
+      }
+    },
+    "required": [
+      "pkce_required",
+      "code_single_use_enforced",
+      "authorization_code_ttl_seconds",
+      "pkce_method_s256_required",
+      "code_challenge_method_plain_accepted",
+      "oidc_nonce_validated",
+      "oauth_state_bound_and_verified",
+      "redirect_uri_exact_match_enforced",
+      "post_login_returnto_allowlisted",
+      "saml_assertion_signature_verified",
+      "saml_audience_restriction_strict",
+      "saml_recipient_inresponseto_matched",
+      "saml_assertion_replay_cache_active",
+      "phishing_resistant_authenticator_required",
+      "sender_constrained",
+      "rate_limiting_or_lockout_enabled",
+      "breached_password_screening_enabled",
+      "transmitted_in_url_or_query",
+      "secrets_masked_in_logs",
+      "access_token_ttl_minutes"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_token_ttl_minutes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authorization_code_ttl_seconds"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/breached_password_screening_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/code_challenge_method_plain_accepted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/code_single_use_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oauth_state_bound_and_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oidc_nonce_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pkce_method_s256_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pkce_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/post_login_returnto_allowlisted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/redirect_uri_exact_match_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_assertion_replay_cache_active"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_assertion_signature_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_audience_restriction_strict"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_recipient_inresponseto_matched"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sender_constrained"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transmitted_in_url_or_query"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

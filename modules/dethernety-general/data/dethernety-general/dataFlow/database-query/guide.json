@@ -1,0 +1,461 @@
+[
+  {
+    "option_name": "parameterized_queries_used",
+    "option_description": "Attests that every SQL statement issued on this application-to-database flow is constructed via a parameterised/prepared API (PreparedStatement, $1/$2 placeholders, named-binding ORM) so the SQL text and user-supplied values travel as separate fields and untrusted input can never alter query structure.",
+    "security_impact": "One of the OR-triggers for the exposure \"SQL injection enabling bulk exfiltration\" — fires when parameterized_queries_used is false. Canonical OWASP A03 (Injection) failure mode: without parameterisation the SQL parser cannot distinguish data from structure and the flow's own legitimate result-set channel becomes a bulk-exfiltration path (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Static-analysis / code review of every code path that builds SQL: confirm a parameterised API (PreparedStatement, $1/$2 placeholders, named-binding ORM) is used and NO string concatenation of user input into SQL text.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All query construction goes through parameterised APIs; SAST (Semgrep / CodeQL sql-injection rules) reports zero string-concatenated SQL paths (secure). Any code path that interpolates user input into a SQL string (insecure).",
+        "source": "OWASP Top 10 2021 — A03 Injection / SQL Injection Prevention Cheat Sheet"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "With pgaudit enabled, sample LOG entries for the app role and inspect whether statements arrive as parameterised PREPARE/EXECUTE pairs or as fully-substituted ad-hoc SQL.",
+        "command": "tail -n 500 /var/log/postgresql/postgresql.log | grep -E 'AUDIT: (SESSION|OBJECT)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "pgaudit STATEMENT lines show parameter placeholders bound at execute time (secure). Statements appear with user input already substituted into the SQL text (insecure indicator — likely concatenation).",
+        "source": "pgAudit documentation — statement / object audit logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dynamic_query_string_concatenation",
+    "option_description": "Attests whether at least one code path on this flow builds SQL by concatenating or interpolating untrusted input directly into the query string (string-format, plus-concatenation, template substitution). Independent of parameterized_queries_used because a flow may use prepared statements on most paths while still concatenating on one outlier helper.",
+    "security_impact": "One of the OR-triggers for the exposure \"SQL injection enabling bulk exfiltration\" — fires when dynamic_query_string_concatenation is true. When true, the SQL parser cannot distinguish data from structure on that one path and the flow is exploitable for injection regardless of any sibling validation (OWASP A03 / MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a SAST sql-injection pack across the data-access layer to flag any concatenation/interpolation that mixes untrusted input with SQL text.",
+        "command": "semgrep --config p/sql-injection <app_src_dir>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero findings (secure). Any finding pointing at string-format / + concatenation / f-string templating into a SQL string (insecure — that single path triggers this exposure).",
+        "source": "OWASP Top 10 2021 — A03 Injection"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Manual review of every method in the data-access layer that returns or executes a SQL string; flag any concatenation/interpolation that mixes untrusted input with SQL text.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All query construction uses parameterised APIs; no helper builds SQL by string concatenation of caller-supplied values (secure). Any concatenation/interpolation outlier (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Attests the application-to-database flow is TLS-encrypted end to end (PostgreSQL hostssl + sslmode>=require on the client; MySQL REQUIRE SSL; managed equivalents enforce in-transit encryption). When false, every query and every result-set row traverses the wire in plaintext.",
+    "security_impact": "One of the OR-triggers for the exposure \"Cleartext DB transport sniffing\" — fires when flow_tls_encrypted is false. A plaintext app-to-DB channel (sslmode=disable, 'host' rather than 'hostssl' in pg_hba.conf) lets any on-path attacker read every query and result row off the wire (MITRE T1040 / T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the DB endpoint with openssl's PostgreSQL STARTTLS mode and check that a TLS handshake completes with a server certificate.",
+        "command": "openssl s_client -starttls postgres -connect <db_host>:5432 -showcerts </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS handshake completes and a certificate chain is returned (secure). A bare 'no peer certificate available' or connection refused on TLS, with the app still able to query the DB on the same port, indicates the flow is plaintext (insecure).",
+        "source": "PostgreSQL 18 docs — 18.9 Secure TCP/IP Connections with SSL"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect pg_hba.conf for any 'host' (cleartext-allowed) lines on the application's source range — only 'hostssl' rules require TLS.",
+        "command": "grep -E '^(hostssl|host)\\s' pg_hba.conf",
+        "file_path": "pg_hba.conf",
+        "navigation": null,
+        "expected_output": "Only 'hostssl ...' rows for the application's source range (secure). Any 'host ...' rows for non-loopback sources permit cleartext (insecure).",
+        "source": "PostgreSQL 18 docs — 18.9 Secure TCP/IP Connections with SSL (hostssl vs host)"
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt a deliberately-cleartext connection as the app user and confirm the server refuses it.",
+        "command": "psql 'host=<db_host> sslmode=disable user=<app_user>' -c 'select 1'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection REFUSED or 'no pg_hba.conf entry ... no encryption' (secure — cleartext is rejected at the wire). A successful 'select 1' over sslmode=disable means the flow accepts plaintext (insecure).",
+        "source": "Percona — Enabling and Enforcing SSL/TLS for PostgreSQL Connections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_tier_transit_encrypted",
+    "option_description": "Canonical workspace attestation that the data-tier transport (this DB flow's underlying channel) is encrypted in transit — the cross-class twin of flow_tls_encrypted shared with sibling API Call / gateway flows so a single workspace baseline drives both.",
+    "security_impact": "One of the OR-triggers for the exposure \"Cleartext DB transport sniffing\" — fires when data_tier_transit_encrypted is false. Held distinct from flow_tls_encrypted so that a workspace-level assertion of plaintext data-tier transport fires the exposure even if the flow-local attestation was set true by mistake (MITRE T1040 / T1048.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the workspace-level data-tier transport baseline against the sibling-class assertion of the same fact and confirm both agree the underlying channel is encrypted end to end.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Workspace baseline and sibling flow both attest the data-tier transport is TLS-encrypted with the same minimum version (secure). Mismatch, or either set to false (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Independently confirm with a TLS probe that the data-tier endpoint negotiates encrypted transport.",
+        "command": "openssl s_client -starttls postgres -connect <db_host>:5432 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake succeeds and a certificate is returned (secure). Plaintext accepted or TLS refused with the same port serving queries (insecure).",
+        "source": "PostgreSQL 18 docs — 18.9 Secure TCP/IP Connections with SSL"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Attests the application validates the database server's TLS certificate (full chain-of-trust AND hostname/identity, e.g. PostgreSQL sslmode=verify-full with sslrootcert pinned, JDBC sslVerifyServerCertificate=true / VERIFY_IDENTITY) before sending credentials or queries.",
+    "security_impact": "One of the OR-triggers for the exposure \"TLS without server certificate validation (AiTM)\" — fires when server_certificate_validated is false. sslmode=require/prefer/allow or verify-ca without hostname check lets an on-path attacker terminate TLS with a self-signed cert and harvest credentials and result rows (MITRE T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the application's connection-string configuration for the sslmode / sslrootcert / sslverify keys.",
+        "command": "grep -rE 'sslmode|sslrootcert|sslverify' <app_config_dir>",
+        "file_path": "application connection-string config (env, JDBC url, libpq DSN)",
+        "navigation": null,
+        "expected_output": "sslmode=verify-full WITH sslrootcert set to the CA that signed the DB (secure). sslmode=require / prefer / allow / disable, or verify-ca without hostname check (insecure — accepts any valid cert from any CN).",
+        "source": "PostgreSQL 18 docs — 34.19 SSL Support / sslmode reference"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the application's DB driver configuration (JDBC url, libpq DSN, ORM connection options) for the certificate-validation flag, including any custom TrustManager / SSLContext that may override it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Driver is pinned to verify-full / VERIFY_IDENTITY / sslVerifyServerCertificate=true (secure). Any 'trust all certs', custom TrustManager that returns true, or sslmode<verify-full (insecure).",
+        "source": "PostgreSQL 18 docs — 34.19 SSL Support"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_root_trust_managed",
+    "option_description": "Attests the TLS trust anchor used by the client for this flow is a pinned, narrowly-scoped CA bundle (e.g. sslrootcert pointing at the specific CA that signed the DB, or an internal PKI root) rather than the OS-wide public trust store or no trust anchor at all.",
+    "security_impact": "One of the OR-triggers for the exposure \"TLS without server certificate validation (AiTM)\" — fires when tls_root_trust_managed is false. Trusting any cert chained to any public CA, an empty/unmanaged trust store, or a 'trust all certs' TrustManager collapses certificate validation even if sslmode is nominally set to verify-full (MITRE T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the client points sslrootcert (or driver-equivalent) at a pinned, narrowly-scoped CA bundle — not the OS-wide trust store.",
+        "command": "grep -rE 'sslrootcert|trustStore|cacert' <app_config_dir>",
+        "file_path": "application connection-string config (env, JDBC url, libpq DSN)",
+        "navigation": null,
+        "expected_output": "sslrootcert pinned to the specific CA that signed the DB, or an internal PKI root bundle (secure). No trust anchor set, or anchor pointed at the OS-wide public bundle, or a 'trust all' TrustManager in code (insecure).",
+        "source": "PostgreSQL 18 docs — 34.19 SSL Support / sslmode reference"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect any custom TrustManager / SSLContext / X509TrustManager implementation for trust-all overrides; reject reliance on OS-wide public trust.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No custom trust-all override; default trust manager is a pinned bundle (secure). Any X509TrustManager#checkServerTrusted that returns without throwing, or an empty trust store (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "per_workload_db_identity_used",
+    "option_description": "Attests the application authenticates to the database as its OWN distinct DB principal (per-workload login role) rather than via a shared service account or root/superuser. Per-workload identity is the precondition for credible audit attribution and least-privilege scoping on this flow.",
+    "security_impact": "One of the OR-triggers for the exposure \"Long-lived shared DB credentials reused indefinitely\" — fires when per_workload_db_identity_used is false. A shared account collapses blast-radius and accountability and makes a leaked credential indistinguishable from any sibling workload (MITRE T1078 / T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List login-capable DB roles and confirm one distinct principal per workload (e.g. svc_orders, svc_billing) rather than a single shared 'app' role or superuser.",
+        "command": "psql -c \"SELECT rolname FROM pg_roles WHERE rolcanlogin AND rolname NOT LIKE 'pg_%' ORDER BY rolname\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One distinct login role per application workload (secure). A single 'app' role used by every workload, or applications connecting as 'postgres'/superuser (insecure).",
+        "source": "CIS PostgreSQL Benchmark — Authentication and Authorization (per-app login roles)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review each app's deployment manifest / secret reference and confirm it pulls a DIFFERENT DB user than its sibling services.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each workload's DB username is unique and traceable to its service identity (secure). Multiple services share one DB user (insecure).",
+        "source": "OWASP ASVS V1 / V14 — Identity and credential isolation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_tier_credentials_short_lived",
+    "option_description": "Attests the DB credentials used on this flow are short-lived and broker-issued (Vault dynamic database secrets, RDS/Cloud SQL IAM auth tokens, X.509 short-life certs) with a bounded TTL (<= 24h) and revoke-on-shutdown, rather than a static long-lived password persisted in .env, a k8s Secret, or git history.",
+    "security_impact": "One of the OR-triggers for the exposure \"Long-lived shared DB credentials reused indefinitely\" — fires when data_tier_credentials_short_lived is false. Static long-lived DB passwords are the dominant root cause of post-breach lateral movement to the data tier: one .env exfiltration grants indefinite, fully-impersonating access on this flow (MITRE T1552.001 / T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Trace the app's DB-credential source: is it a static secret (file/env/k8s Secret) or a broker (Vault database engine, RDS IAM auth, Cloud SQL IAM)?",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Credential is broker-issued with a lease/TTL <= 24h and revoked on app shutdown (secure). Credential is a static password persisted in env/.env/k8s Secret with no rotation date (insecure).",
+        "source": "HashiCorp Vault docs — Database secrets engine / dynamic database credentials"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate active broker-issued leases for this workload's role (Vault) or confirm IAM database authentication is enabled (RDS/Cloud SQL).",
+        "command": "vault list sys/leases/lookup/database/creds/<role>   # or: aws rds describe-db-instances --query '...IAMDatabaseAuthenticationEnabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active short-lived leases bound to the workload (secure). No broker integration, or IAMDatabaseAuthenticationEnabled=false (insecure).",
+        "source": "HashiCorp Vault docs — Database secrets engine"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_db_account",
+    "option_description": "Attests the DB principal used on this application-to-database flow holds ONLY the rights its workload requires — per-object grants scoped to the specific tables and verbs the workload actually issues, with rolsuper=f / rolcreatedb=f / rolcreaterole=f / rolbypassrls=f and no membership in catch-all roles.",
+    "security_impact": "The sole OR-trigger for the exposure \"Over-privileged DB account turns small bug into database-wide breach\" — fires when least_privilege_db_account is false. When the app principal holds SUPERUSER / GRANT ALL / db_owner, any application-side bug that lets an attacker run one DB call lets them run any DB call — including dumping every table or creating a backdoor role (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the role-attribute flags for the app principal and confirm none of the privileged attributes are set.",
+        "command": "psql -c \"SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls FROM pg_roles WHERE rolname = '<app_user>'\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rolsuper=f, rolcreatedb=f, rolcreaterole=f, rolbypassrls=f (secure). Any 't' on these for an app role (insecure).",
+        "source": "CIS PostgreSQL Benchmark — least-privilege role attributes"
+      },
+      {
+        "type": "command",
+        "instruction": "Review the explicit per-object grants the app principal holds on each schema/table it touches.",
+        "command": "psql -c \"\\dp <schema>.*\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-table grants scoped to the verbs the workload actually issues (e.g. SELECT, INSERT on order tables only) (secure). GRANT ALL ON ALL TABLES, or membership in a broad role like 'readall' (insecure).",
+        "source": "PostgreSQL 18 docs — GRANT reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bulk_read_volume_anomaly_alerted",
+    "option_description": "Attests out-of-band anomaly detection (DAM, RDS/Cloud SQL Performance Insights, or SIEM rule) watches this database-query flow for per-principal volume spikes (rows returned / bytes shipped) and routes alerts to an on-call owner.",
+    "security_impact": "One of the OR-triggers for the exposure \"Mass-data egress through legitimate flow (no LIMIT / no quota)\" — fires when bulk_read_volume_anomaly_alerted is false. Without per-principal volume alerting, a single SELECT * over a large table — accidental or weaponised via SQLi / stolen credential / insider — leaves through this legitimate flow as one 'normal' query response with no one watching (MITRE T1030 / T1213 / T1567).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a database activity monitoring (DAM) tool, cloud-native query insights (RDS Performance Insights, Cloud SQL Insights), or SIEM rule is alerting on per-principal volume anomalies on this flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alert rule exists with a defined threshold and on-call routing for this principal (secure). No DAM / no anomaly rule on this flow's volume (insecure — bulk egress goes unnoticed).",
+        "source": "OWASP API Security — anomaly detection on query volume / per-account quotas"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query pgaudit / slow-query / row-count metrics for the app role to spot anomalously large fetches and confirm the alert rule fires on them.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "P99 rows-returned per query stays within a documented bound for this workload; outliers trigger the alert (secure). Outlier queries returning >10x normal row counts with no alert (insecure).",
+        "source": "pgAudit documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bulk_export_monitored_and_alerted",
+    "option_description": "Attests bulk-export operations on this flow (large result sets, multi-table breadth, or sustained high-row-count fetches per principal) are continuously monitored with a defined threshold and alert routing — the OWASP API Security 'per-account quota / volume anomaly' compensating control for cases where in-app LIMIT caps are bypassed.",
+    "security_impact": "One of the OR-triggers for the exposure \"Mass-data egress through legitimate flow (no LIMIT / no quota)\" — fires when bulk_export_monitored_and_alerted is false. Without per-account quota monitoring, exfiltration via the legitimate query channel is indistinguishable from normal traffic (MITRE T1030 / T1213 / T1567).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm bulk-export thresholds (large result set / multi-table breadth / sustained fetches) are defined per principal with alert routing wired to an owner; verify against OWASP API Security per-account quota guidance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented per-principal thresholds with alert routing wired to an on-call owner (secure). No threshold defined or no alert routing (insecure).",
+        "source": "OWASP API Security Top 10 — Excessive Data Exposure / mass-data egress"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inject a synthetic bulk-fetch as the app principal and confirm the configured alert path fires end-to-end.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alert fires within the defined window and reaches the on-call owner (secure). No alert fires or it fires only after manual review (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pii_excluded_from_logs",
+    "option_description": "Attests raw PII (card numbers, emails, SSNs, names) bound into query parameters is NOT written to the database/driver log store. Secure when pgaudit.log_parameter is OFF in production AND the application's driver/ORM SQL-logging layer is set to log statement text only (no bind values).",
+    "security_impact": "One of the OR-triggers for the exposure \"PII leakage via pgaudit / driver query logs\" — fires when pii_excluded_from_logs is false. When raw bind values are mirrored into logs, a breach of the log store becomes a parallel breach of the PII table — without the DB's access controls (MITRE T1552.001 / T1530).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review pgaudit.log_parameter setting and the application's own SQL-logging layer (ORM / driver debug logging) for parameter redaction.",
+        "command": "psql -c \"SHOW pgaudit.log_parameter\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "pgaudit.log_parameter=off in prod (or masking proxy in front of logs), and the app driver's SQL-log is set to 'statement only, no values' (secure). pgaudit.log_parameter=on in prod and the app driver logs full bind values (insecure).",
+        "source": "pgAudit documentation — pgaudit.log_parameter"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Spot-check the DB log file for raw PII patterns (card numbers, emails, SSNs).",
+        "command": "grep -E '[0-9]{16}|[A-Z0-9._%+-]+@[A-Z0-9.-]+|[0-9]{3}-[0-9]{2}-[0-9]{4}' <db_log_file> | head",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches, or matches are masked/redacted (secure). Raw card numbers, emails, SSNs visible in the log (insecure).",
+        "source": "OWASP Logging Cheat Sheet — exclude sensitive data from logs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Attests secret material that may appear in queries on this flow (auth tokens, API keys, password-reset tokens passed as bind values, encryption keys) is masked or excluded in any captured query/error log. Secure when the log pipeline scrubs/masks known secret fields before persistence.",
+    "security_impact": "One of the OR-triggers for the exposure \"PII leakage via pgaudit / driver query logs\" — fires when secrets_masked_in_logs is false. When secrets traverse this flow as raw bind values and reach the log store unredacted, the log store becomes a credential file readable without DB access controls (MITRE T1552.001 / T1530).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the log pipeline for secret-field scrubbing/masking rules covering auth tokens, API keys, password-reset tokens, and encryption keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log pipeline has documented scrub/mask rules for the named secret classes and the rules are active in production (secure). No scrub rule, or rule disabled in production (insecure).",
+        "source": "pgAudit documentation — pgaudit.log_parameter"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Spot-check the log store for secret patterns reaching it unredacted (bearer tokens, JWTs, API key prefixes).",
+        "command": "grep -E '(Bearer\\s+[A-Za-z0-9\\-_\\.]+|eyJ[A-Za-z0-9\\-_]+\\.|sk_(live|test)_[A-Za-z0-9]+)' <db_log_file> | head",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches or matches are masked (secure). Raw bearer tokens / JWTs / API keys visible (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_store_publicly_routable",
+    "option_description": "Interpreted attestation that the database endpoint serving this flow is reachable from the public internet — its security group / firewall allows 0.0.0.0/0 (or ::/0) on the DB port, OR listen_addresses is bound to all interfaces on a publicly-routable NIC. Secure value is false.",
+    "security_impact": "One of the OR-triggers for the exposure \"Publicly reachable DB listener scanned and brute-forced\" — fires when data_store_publicly_routable is true. Mass internet scanners discover the listener within hours and credential-stuff against any known/leaked role — the precondition for the public-listener brute-force vector (MITRE T1190 / T1133).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From outside the VPC, probe the DB ports on the endpoint's public address and confirm they are filtered or closed.",
+        "command": "nmap -Pn -p 5432,3306,1433 <public_ip_of_db_or_lb>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports filtered/closed from outside (secure — data_store_publicly_routable=false). Port open from the public internet (insecure — data_store_publicly_routable=true).",
+        "source": "CIS PostgreSQL Benchmark — network exposure / listen_addresses"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the DB endpoint's security group / firewall for any 0.0.0.0/0 or ::/0 source on the DB port.",
+        "command": "aws ec2 describe-security-groups --group-ids <db_sg> --query 'SecurityGroups[].IpPermissions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source is the app-tier SG only, never 0.0.0.0/0 (secure). 0.0.0.0/0 on 5432/3306/1433 (insecure).",
+        "source": "CIS PostgreSQL Benchmark — network exposure / listen_addresses"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "data_tier_ingress_scoped_per_workload_identity",
+    "option_description": "Interpreted attestation that ingress to the data tier on this flow is constrained to the specific application workload's identity — security-group source is the app-tier SG (not 0.0.0.0/0, not a shared bastion SG, not a broad VPC CIDR), and pg_hba.conf / equivalent restricts the source range to that workload.",
+    "security_impact": "One of the OR-triggers for the exposure \"Publicly reachable DB listener scanned and brute-forced\" — fires when data_tier_ingress_scoped_per_workload_identity is false. When ingress isn't scoped to the workload, any host that can reach the VPC (or the internet) can attempt the DB port — the network half of the brute-force precondition that pairs with data_store_publicly_routable (MITRE T1190 / T1133).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the DB security group's IpPermissions and confirm the source is the app-tier SG (not 0.0.0.0/0, not a shared bastion SG, not a broad VPC CIDR).",
+        "command": "aws ec2 describe-security-groups --group-ids <db_sg> --query 'SecurityGroups[].IpPermissions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source is the app-tier SG only (secure). Source is 0.0.0.0/0, a shared bastion SG, or a broad VPC CIDR (insecure).",
+        "source": "CIS PostgreSQL Benchmark — network exposure / listen_addresses"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm pg_hba.conf restricts the application's source range to the specific workload's identity (no broad CIDRs, no 0.0.0.0/0).",
+        "command": "grep -E '^hostssl' pg_hba.conf",
+        "file_path": "pg_hba.conf",
+        "navigation": null,
+        "expected_output": "hostssl rules name a narrow CIDR or specific app-tier subnet for the workload's DB user (secure). hostssl rules allow 0.0.0.0/0 or a broad VPC CIDR (insecure).",
+        "source": "PostgreSQL 18 docs — 18.9 Secure TCP/IP Connections with SSL"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

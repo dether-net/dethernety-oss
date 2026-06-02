@@ -1,0 +1,1152 @@
+[
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the running NGFW firmware is at or below a release affected by a publicly-known, CISA-KEV-listed pre-auth RCE/auth-bypass CVE (e.g. PAN-OS GlobalProtect CVE-2024-3400, FortiOS SSL-VPN CVE-2024-21762) and not yet at the vendor fixed release.",
+    "security_impact": "References the exposure \"Unpatched firmware pre-auth RCE on exposed VPN/portal service\" — it is the is_true OR-trigger of that exposure's first AND-group (paired with vpn_portal_service_internet_exposed), firing T1190 / T1542.002 when the appliance runs vulnerable firmware reachable on an internet-facing service.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the running firmware version and compare it against the vendor fixed-release advisories for every KEV-listed edge CVE (PAN-OS/FortiOS), within CISA BOD 22-01 remediation deadlines.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Firmware version is at/above the fixed release for any KEV-listed edge CVE (PAN-OS/FortiOS) within CISA BOD 22-01 remediation deadlines. TRUE (insecure) when at/below a vulnerable build.",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, read the running firmware build; on PAN-OS read the running software version, then map to the fixed-release advisories.",
+        "command": "get system status   # FortiOS; PAN-OS: show system info | match sw-version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version string (e.g. FortiOS v7.x build, or PAN-OS 11.1.2-h3) that an assessor checks against CVE-2024-3400 / CVE-2024-21762 fixed releases.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "vpn_portal_service_internet_exposed",
+    "option_description": "Whether the appliance's internet-facing pre-auth services — GlobalProtect gateway/portal (PAN-OS) or SSL-VPN/sslvpnd (FortiOS) — accept connections from untrusted/internet zones.",
+    "security_impact": "Necessary second AND-condition of the exposure \"Unpatched firmware pre-auth RCE on exposed VPN/portal service\" — appears (is_true) in BOTH of that exposure's AND-groups; without internet reachability the firmware flaw is not remotely exploitable (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted/internet source range, probe the GlobalProtect portal/gateway (TCP 443) or FortiOS SSL-VPN listener and confirm whether it answers.",
+        "command": "nmap -Pn -p 443,10443 <appliance-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the VPN/portal port is filtered/closed from untrusted ranges (behind a VPN-broker). TRUE (insecure) when the portal/SSL-VPN responds to internet sources.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect which interface/zone the SSL-VPN / GlobalProtect listener is bound to and whether that interface faces untrusted zones.",
+        "command": "show system interface <external-interface>   # FortiOS; PAN-OS: review GlobalProtect gateway interface/zone binding",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSL-VPN/GlobalProtect bound only to interfaces not reachable from internet/untrusted source ranges.",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the edge appliance firmware (FortiOS/FortiProxy/PAN-OS) is patched to the vendor fixed release within the remediation SLA (e.g. CISA BOD 22-01 KEV deadlines). Read with is_false.",
+    "security_impact": "Read is_false in TWO exposures: it is the second AND-group's patch-currency trigger of \"Unpatched firmware pre-auth RCE on exposed VPN/portal service\" (paired with vpn_portal_service_internet_exposed), and an OR-trigger of \"Management-plane authentication bypass\" (CVE-2022-40684 exists only on unpatched firmware). Fires when the appliance is NOT patched within SLA.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the firmware is at/above the vendor fixed release for all applicable KEV CVEs and that the patch was applied within the organisation's remediation SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Firmware version is at/above the fixed release for any KEV-listed edge CVE (PAN-OS/FortiOS) within CISA BOD 22-01 remediation deadlines. is_false (insecure) when not patched within SLA.",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm the update path is healthy so patches can be applied promptly: verify update-server identity and that content auto-install is scheduled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Dynamic Updates / Device > Setup > Services (Verify Update Server Identity)",
+        "expected_output": "CIS 1.6.1 'Verify Update Server Identity' checked; CIS 4.1/4.2 AV and Applications-and-Threats set to Download and Install on a frequent schedule (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_interface_internet_reachable",
+    "option_description": "Whether the firewall's administrative/management interface (FortiGate allowaccess https/ssh on an external interface, or a PAN-OS mgmt profile without a restrictive permitted-IP list) is reachable from untrusted/internet source ranges.",
+    "security_impact": "An is_true OR-trigger of the exposure \"Management-plane authentication bypass\" — it is the precondition that turns a management-plane auth-bypass flaw (CVE-2022-40684) into a remotely exploitable admin takeover (T1190 / T1562.013).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the allowaccess list on the internet-facing FortiGate interface and confirm admin protocols are not exposed there.",
+        "command": "show system interface <external-interface>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "allowaccess on internet-facing interface does NOT include https/ssh/http/telnet; admin access only on mgmt interface (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm admin accounts restrict source IPs so even a reachable interface only accepts mgmt subnets.",
+        "command": "show system admin",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each admin has trustedhost1..N set to specific mgmt subnets (e.g. 172.25.176.0/24); empty/0.0.0.0/0 trustedhost is insecure (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm Permitted IP Addresses are set on every interface-mgmt profile that enables SSH/HTTPS/SNMP.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network > Network Profiles > Interface Mgmt (Permitted IP Addresses per profile)",
+        "expected_output": "CIS 1.2.1/1.2.2: 'Permitted IP Addresses' set on every interface-mgmt profile where SSH/HTTPS/SNMP is enabled, restricted to mgmt addresses only (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Whether the device's control-plane/management API (the HTTP/HTTPS admin endpoint a bypass request targets) is NOT exposed to public/untrusted networks. Secure value is TRUE.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Management-plane authentication bypass\" — when the API is publicly exposed (FALSE), a crafted-request authentication bypass becomes reachable by an unauthenticated remote attacker (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted source range, probe the management/control-plane HTTPS API port and confirm it does not answer.",
+        "command": "nmap -Pn -p 443,4443 <appliance-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the control-plane API port is filtered/closed from untrusted ranges. is_false (insecure) when the admin API responds to public sources.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the allowaccess/mgmt-profile binding so the admin HTTPS endpoint listens only on management interfaces.",
+        "command": "show system interface <external-interface>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "allowaccess on internet-facing interface does NOT include https/ssh/http/telnet; admin access only on mgmt interface (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Whether edge-appliance management interfaces (HTTPS/SSH/SNMP admin, GUI, CLI) are not reachable from the internet — segmented behind a management network/jump host and source-IP restricted. Secure value is TRUE.",
+    "security_impact": "Read is_false as an OR-trigger of TWO exposures: \"Management-plane authentication bypass\" and \"Internet-exposed management plane with default or weak admin credentials\". When FALSE the management plane is internet-reachable and exploitable by the auth bypass or default-credential attack (T1190 / T1133).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify admin access is bound to a dedicated management interface and that the internet-facing interface's allowaccess excludes admin protocols.",
+        "command": "show system interface <external-interface>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "allowaccess on internet-facing interface does NOT include https/ssh/http/telnet; admin access only on mgmt interface (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm Permitted IP Addresses on each mgmt profile restrict admin access to management subnets only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network > Network Profiles > Interface Mgmt (Permitted IP Addresses per profile)",
+        "expected_output": "CIS 1.2.1/1.2.2: 'Permitted IP Addresses' set on every interface-mgmt profile where SSH/HTTPS/SNMP is enabled, restricted to mgmt addresses only (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether all vendor default admin accounts/passwords (e.g. admin/admin) have been changed, renamed, or disabled so no account uses a publicly-known default credential.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Internet-exposed management plane with default or weak admin credentials\" — when vendor defaults remain in use (FALSE), default-credential brute-force/guessing of the management plane succeeds (T1110 / T1133).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate admin accounts and confirm none retain a vendor default credential and default accounts are renamed/disabled; attempt the vendor default login and confirm it fails.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No account uses a vendor default password; default 'admin' login fails. Vendor defaults favor ease-of-use over security and must be removed.",
+        "source": "CIS Controls v8 Control 4 — Secure Configuration of Enterprise Assets and Software"
+      },
+      {
+        "type": "command",
+        "instruction": "List configured admin accounts on FortiGate to check for the default 'admin' account.",
+        "command": "show system admin",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin account list shows the default 'admin' renamed/disabled and no account with a default password (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mfa_available",
+    "option_description": "Whether multi-factor/two-factor authentication (FortiToken / RADIUS+OTP, or a PAN-OS MFA-backed authentication profile) is available and enforced for privileged admin logins.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Internet-exposed management plane with default or weak admin credentials\" — single-factor password-only login (FALSE) leaves no second factor to resist credential theft/guessing on the management plane (T1110 / T1133).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read admin account config and confirm two-factor is enabled on privileged admins.",
+        "command": "show system admin",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "two-factor enabled on admin accounts (FortiGate supports FortiToken / FortiToken Mobile two-factor).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an MFA-backed authentication profile is enforced for all privileged admin logins (FortiToken, or RADIUS/TACACS+ with OTP on PAN-OS).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every privileged admin login requires a second factor; password-only admin login is not permitted.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_trusted_host_restriction_enabled",
+    "option_description": "Whether every admin account/management profile restricts access to a small permitted-IP/trusted-host set (FortiGate 'config system admin' trustedhostN; CIS PAN-OS 1.2.1/1.2.2 Permitted IP Addresses on each SSH/HTTPS/SNMP mgmt profile).",
+    "security_impact": "An is_false OR-trigger of the exposure \"Internet-exposed management plane with default or weak admin credentials\" — when trustedhost is empty/0.0.0.0/0 or no permitted-IP list exists (FALSE), the admin plane accepts logins from any source (T1133 / T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read each FortiGate admin account's trustedhost entries.",
+        "command": "show system admin",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each admin has trustedhost1..N set to specific mgmt subnets (e.g. 172.25.176.0/24); empty/0.0.0.0/0 trustedhost is insecure (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm Permitted IP Addresses are set on every mgmt profile that enables SSH/HTTPS/SNMP.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network > Network Profiles > Interface Mgmt (Permitted IP Addresses per profile)",
+        "expected_output": "CIS 1.2.1/1.2.2: 'Permitted IP Addresses' set on every interface-mgmt profile where SSH/HTTPS/SNMP is enabled, restricted to mgmt addresses only (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether failed-login lockout/rate-limiting throttles brute-force against the management plane (FortiGate admin-lockout-threshold + admin-lockout-duration non-zero; CIS PAN-OS 1.4.2 Failed Attempts & Lockout Time non-zero).",
+    "security_impact": "An is_false OR-trigger of the exposure \"Internet-exposed management plane with default or weak admin credentials\" — when lockout is disabled / attempts are unlimited (FALSE), unthrottled credential brute force succeeds (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the FortiGate global admin-lockout settings.",
+        "command": "show system global | grep admin-lockout",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admin-lockout-threshold and admin-lockout-duration set to non-default hardened values (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm Failed Attempts and Lockout Time are configured non-zero in the Authentication Profile.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Authentication Profile > (profile) > Advanced (Failed Attempts / Lockout Time)",
+        "expected_output": "CIS 1.4.2: Failed Attempts & Lockout Time configured non-zero in the Authentication Profile (e.g. 3 attempts / 15 min) (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "http_or_telnet_admin_enabled",
+    "option_description": "Whether cleartext admin protocols HTTP or Telnet are permitted on any management interface (FortiOS allowaccess, CIS PAN 1.2.3-1.2.4). Secure posture allows only HTTPS + SSH.",
+    "security_impact": "An is_true OR-trigger of the exposure \"Cleartext / weak-TLS management transport\" — when HTTP/Telnet admin is enabled (TRUE), admin credentials and config are exposed to sniffing/MITM on the management path (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the FortiGate interface allowaccess and confirm only https and ssh are listed.",
+        "command": "config system interface / set allowaccess https ssh",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "allowaccess lists only https ssh (no http, no telnet) — verify via 'show system interface' (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm HTTP and Telnet are unchecked on management interfaces/profiles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Setup > Management > Management Interface Settings (and Interface Mgmt profiles)",
+        "expected_output": "CIS 1.2.3/1.2.4: HTTP and Telnet checkboxes UNCHECKED on management interfaces/profiles (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Interpreted over the FortiOS admin-https-ssl-versions directive: TRUE when legacy SSL/TLS 1.0/1.1 are enabled for the admin HTTPS plane. Secure value is FALSE (TLS 1.2 minimum).",
+    "security_impact": "An is_true OR-trigger of the exposure \"Cleartext / weak-TLS management transport\" — when legacy TLS 1.0/1.1 remain enabled (TRUE), the admin HTTPS plane is downgradeable to weak ciphers vulnerable to sniffing/MITM (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the FortiGate admin HTTPS TLS floor.",
+        "command": "show system global | grep admin-https-ssl-versions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admin-https-ssl-versions tlsv1-2 (or tlsv1-3) — not tlsv1-1/tlsv1-0 (FortiGate).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Handshake against the admin HTTPS port to confirm TLS 1.0/1.1 are refused.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <appliance-mgmt-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2 (and/or TLSv1.3) negotiated; TLSv1.0/TLSv1.1 absent. TRUE (insecure) when TLS 1.0/1.1 negotiate.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Lowest TLS protocol version accepted on the management HTTPS plane (admin-https-ssl-versions floor). One of TLSv1.0/TLSv1.1/TLSv1.2/TLSv1.3.",
+    "security_impact": "An OR-trigger of the exposure \"Cleartext / weak-TLS management transport\" via the operator `in [TLSv1.0, TLSv1.1]` — the management transport is weak when the negotiated floor is TLSv1.0 or TLSv1.1; the secure floor TLSv1.2/TLSv1.3 does not fire (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the FortiGate admin-https-ssl-versions value, which expresses the negotiated floor.",
+        "command": "show system global | grep admin-https-ssl-versions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admin-https-ssl-versions tlsv1-2 (or tlsv1-3) — not tlsv1-1/tlsv1-0 (FortiGate). The floor maps to TLSv1.2/TLSv1.3 (secure) vs TLSv1.0/TLSv1.1 (fires).",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Determine the lowest version the admin HTTPS plane will negotiate on the wire.",
+        "command": "openssl s_client -connect <appliance-mgmt-ip>:443 -tls1_1   # confirm it is refused",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.1 handshake refused; lowest negotiable version is TLSv1.2 or TLSv1.3.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2",
+      "TLSv1.3",
+      "TLSv1.1"
+    ]
+  },
+  {
+    "option_name": "self_signed_admin_cert",
+    "option_description": "Interpreted from admin-server-cert / the browser admin certificate (CIS PAN 1.2.5): TRUE when the management GUI presents a default self-signed (or expired) certificate rather than a valid CA-issued cert. Secure value is FALSE.",
+    "security_impact": "An is_true OR-trigger of the exposure \"Cleartext / weak-TLS management transport\" — a default self-signed/expired cert (TRUE) prevents admins from detecting MITM on the management session (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm the browser-based administrator certificate is from a trusted source and not self-signed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Certificate Management > Certificates / Device > Setup > Management (SSL/TLS Service Profile for admin)",
+        "expected_output": "CIS 1.2.5: browser-based administrator certificate is from a trusted source, not self-signed, valid dates (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Read the management GUI certificate off the wire and check issuer/validity.",
+        "command": "openssl s_client -connect <appliance-mgmt-ip>:443 -showcerts </dev/null | openssl x509 -noout -issuer -subject -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuer is a trusted CA (not self-signed/issuer==subject) with current validity dates. TRUE (insecure) when self-signed or expired.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the management TLS server certificate is validated against a trusted source (current validity dates, trusted issuer chain). Secure value is TRUE.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Cleartext / weak-TLS management transport\" — when validation is absent (FALSE), the management session is open to certificate substitution/MITM (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the management server certificate chain validity dates and trusted issuer.",
+        "command": "openssl s_client -connect <appliance-mgmt-ip>:443 </dev/null | openssl x509 -noout -issuer -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificate has current validity dates and a trusted issuer chain. FALSE (insecure) when validation cannot be established.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm the admin certificate is from a trusted source with valid dates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Certificate Management > Certificates",
+        "expected_output": "CIS 1.2.5: browser-based administrator certificate is from a trusted source, not self-signed, valid dates (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmp_v1_v2c_enabled",
+    "option_description": "Interpreted from the SNMP polling configuration (CIS PAN 1.5.1): TRUE when community-based SNMP v1/v2c is enabled. Secure posture is SNMPv3-only.",
+    "security_impact": "An is_true OR-trigger of the exposure \"Cleartext / weak-TLS management transport\" — community-based SNMP (TRUE) sends community strings across the management/monitoring plane in cleartext, exposing them to sniffing (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm the SNMP polling version is V3 and community-based versions are not used.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Setup > Operations > SNMP Setup (Version V3)",
+        "expected_output": "CIS 1.5.1: SNMP polling version V3 selected; community-based versions not used (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, inspect the SNMP configuration for any v1/v2c community entries.",
+        "command": "show system snmp community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No v1/v2c community entries present; only SNMPv3 users configured. TRUE (insecure) when community entries exist.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "ingress_default_deny_enforced",
+    "option_description": "Whether the firewall policy terminates in a default-deny (drop-all) posture so traffic not matched by an explicit allow rule is blocked (NIST SP 800-41 Rev.1). TRUE = default-deny (secure).",
+    "security_impact": "An is_false OR-trigger of the exposure \"Default-permit posture / no implicit-deny logging\" — a default-permit/no-terminating-deny posture (FALSE) silently allows unintended traffic across the segmentation boundary (T1599).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the policy ordering and confirm the final/cleanup rule is a deny-all and no rule above it permits any/any.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Final/cleanup rule in the policy is a deny-all with logging; no rule above it permits 'any/any'. Posture defined from a risk analysis enumerating permitted protocols/ports.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate the policy ruleset and inspect the terminating rule's action.",
+        "command": "show firewall policy   # FortiOS; PAN-OS: show running security-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terminating/cleanup rule action is deny/drop; no broad any/any permit precedes it. FALSE (insecure) when no terminating deny exists.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "implicit_deny_logged",
+    "option_description": "Whether the implicit/terminating deny rule logs the traffic it drops, producing telemetry for detection and SIEM forwarding (NIST SP 800-41 Rev.1). TRUE = implicit deny logged (secure).",
+    "security_impact": "An is_false OR-trigger of the exposure \"Default-permit posture / no implicit-deny logging\" — when the deny is not logged (FALSE), there is no telemetry on blocked attempts, a blind spot in segmentation enforcement (T1599).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logging is enabled on the cleanup deny-all rule so dropped traffic is recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Final/cleanup rule in the policy is a deny-all with logging; no rule above it permits 'any/any'. Posture defined from a risk analysis enumerating permitted protocols/ports.",
+        "source": "NIST SP 800-41 Rev.1 Guidelines on Firewalls and Firewall Policy"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the terminating deny rule's logging setting.",
+        "command": "show firewall policy   # confirm 'set logtraffic all' on the deny rule (FortiOS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The terminating deny rule has logging enabled (logtraffic all / Log at Session End). FALSE (insecure) when deny logging is off.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "external_siem_forwarding_enabled",
+    "option_description": "Whether the firewall forwards its logs off-box to a remote syslog/SIEM endpoint (CIS PAN 1.1.1.1 syslog profile with All Logs; CIS Controls v8 Control 8). FALSE means logs stay only on-device.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — without off-box forwarding (FALSE), firewall compromise/policy tampering goes undetected and on-box logs can be wiped (T1562.008 / T1562).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm a syslog profile points to a remote host with All Logs enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Server Profiles > Syslog / Device > Log Settings (System, Configuration)",
+        "expected_output": "CIS 1.1.1.1: Syslog profile points to a remote host with 'All Logs' enabled for System, Configuration, User-ID, HIP Match, IP-Tag (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm logs are centralised off-device and present in the SIEM.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs centralised off-device; denied-traffic and admin-action events present in the SIEM (audit-log management process per CIS Control 8).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "denied_traffic_logging_enabled",
+    "option_description": "Whether denied/dropped traffic (including the terminating implicit-deny) is logged and exported. FALSE removes telemetry on blocked attempts.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — when denied-traffic logging is off (FALSE), reconnaissance and policy-bypass attempts leave no record (T1562).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect deny/drop rules and confirm logtraffic is enabled, then confirm denied events reach the off-box collector.",
+        "command": "show firewall policy   # confirm 'set logtraffic all' on deny rules (FortiOS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deny/drop rules log and denied traffic is exported off-box. FALSE (insecure) when deny logging is off.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the SIEM, confirm denied/dropped traffic events from this firewall are present.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Denied-traffic events from the firewall appear in the SIEM (audit-log management process per CIS Control 8).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_action_logging_enabled",
+    "option_description": "Whether administrative/management-plane actions (logins, privileged operations) are captured and exported to the SIEM. FALSE means admin compromise goes unrecorded off-box.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — when admin-action logging is off (FALSE), unauthorized management-plane activity goes unrecorded off-box (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm System logs (admin login/operations) are forwarded to the syslog/SIEM profile.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Log Settings > System (Syslog forwarding)",
+        "expected_output": "CIS 1.1.1.1: Syslog profile points to a remote host with 'All Logs' enabled for System, Configuration, User-ID, HIP Match, IP-Tag (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the SIEM, confirm admin login and privileged-operation events from the firewall are present.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin logins and privileged operations are logged and forwarded off-box (audit-log management per CIS Control 8).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_change_logging_enabled",
+    "option_description": "Whether firewall configuration-change events (ruleset/policy edits) are logged and exported off-box (CIS PAN System/Configuration logs). FALSE means policy tampering produces no retained record.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — when config-change logging is off (FALSE), silently relaxing the ruleset produces no detectable, retained record (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm Configuration logs are forwarded to the syslog/SIEM profile.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Log Settings > Configuration (Syslog forwarding)",
+        "expected_output": "CIS 1.1.1.1: Syslog profile points to a remote host with 'All Logs' enabled for System, Configuration, User-ID, HIP Match, IP-Tag (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the SIEM, confirm configuration/system change events from the firewall are present.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration/system change events are logged and exported to the SIEM (audit-log management per CIS Control 8).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "perimeter_crossings_logged_and_centralized",
+    "option_description": "Whether traffic crossing the network perimeter the firewall enforces is logged and centralized to a common store/SIEM. FALSE means boundary crossings are not observable centrally.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — when crossings are not centralized (FALSE), cross-system correlation of an attack against the segmentation device is defeated (T1562).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm perimeter-crossing traffic logs are centralized to a common SIEM/log store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs centralised off-device; denied-traffic and admin-action events present in the SIEM (audit-log management process per CIS Control 8).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the SIEM, confirm traffic logs for boundary crossings from this firewall are indexed centrally.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Perimeter-crossing traffic events from the firewall are present and queryable in the central SIEM. FALSE (insecure) when not centralized.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether logs are stored on a system separate from the firewall that generates them, so a device compromise cannot also delete the evidence. FALSE means on-device-only retention.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — on-device-only retention (FALSE) lets an attacker who compromises the device also wipe the evidence (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a copy of logs is retained on a system independent of the firewall.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs centralised off-device; denied-traffic and admin-action events present in the SIEM (audit-log management process per CIS Control 8).",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      },
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm a remote syslog destination exists so logs are not retained only locally.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Server Profiles > Syslog",
+        "expected_output": "CIS 1.1.1.1: Syslog profile points to a remote host with 'All Logs' enabled (Palo Alto) — off-box copy exists.",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_log_tamper_evident",
+    "option_description": "Whether retained audit logs are tamper-evident (write-once / integrity-protected) so on-device wiping or alteration is detectable. FALSE means logs can be silently wiped/edited.",
+    "security_impact": "A secondary is_false OR-trigger of the exposure \"Insufficient traffic & admin logging to external SIEM\" — when logs are not tamper-evident (FALSE), they can be silently wiped or edited after a firewall compromise (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm retained logs are write-once or integrity-protected so tampering is detectable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Off-box log store is write-once / integrity-protected (e.g. WORM/immutable retention); tampering is detectable. FALSE (insecure) when logs are freely editable.",
+        "source": "CIS Controls v8 — Control 8 Audit Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the SIEM/log-store retention configuration for immutability/integrity controls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention policy enforces immutability or cryptographic integrity on stored firewall logs.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "session_table_limits_enforced",
+    "option_description": "Whether the firewall enforces session/connection-table protection — per-source and global session limits, SYN-flood / new-connection-rate thresholds — so a flood cannot exhaust the global session table or CPU. TRUE = caps/thresholds in place.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Firewall self-DoS / connection-table exhaustion with fail-open\" — without session-table limits (FALSE), a flood can exhaust the connection table and drop legitimate traffic (T1499.002 / T1499.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify DoS-protection or session-limit policies (per-source/global caps, SYN-flood thresholds) are applied on the appliance/zones.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DoS-protection / session-limit policies (per-source/global caps, SYN-flood thresholds) applied. FALSE (insecure) when no session-table limits exist.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect DoS-protection policy on the appliance.",
+        "command": "show firewall DoS-policy   # FortiOS; PAN-OS: review Policies > DoS Protection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DoS-protection policy present with session/connection thresholds bound to ingress zones.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Whether anti-DDoS/flood-protection controls (rate limiting, SYN-cookie / aggregate flood thresholds, or upstream/scrubbing protection) defend the device against volumetric and protocol floods. TRUE = protection present.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Firewall self-DoS / connection-table exhaustion with fail-open\" — without anti-flood protection (FALSE), the device is unprotected against floods aimed at exhausting its capacity (T1498.001 / T1499).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm anti-flood/DDoS controls (rate limits, SYN-cookies, scrubbing) protect the device.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Anti-flood/DDoS controls (rate limits, SYN-cookies, or upstream scrubbing) present. FALSE (insecure) when the device is unprotected against floods.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect SYN-flood / flood-protection thresholds on the appliance.",
+        "command": "show firewall DoS-policy   # FortiOS anomaly/flood thresholds; PAN-OS: Zone Protection profile flood settings",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flood-protection (SYN-cookie / aggregate thresholds) configured on ingress zones, or an upstream scrubbing service documented.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "fails_open_on_overload",
+    "option_description": "Whether the device's behaviour under resource exhaustion/overload is fail-OPEN (passes traffic unfiltered when the session table fills or CPU saturates). TRUE (insecure) = fails open; FALSE = fails closed.",
+    "security_impact": "An is_true OR-trigger of the exposure \"Firewall self-DoS / connection-table exhaustion with fail-open\" — fail-open under overload (TRUE) silently removes the enforcement boundary when resources are exhausted (T1499.001 / T1498.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine the device's documented overload behaviour and confirm the configured fail-safe stance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Device fails closed / has a defined fail-safe stance that preserves enforcement under overload. TRUE (insecure) when traffic passes unfiltered when resources are exhausted.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the fail-to-wire / bypass setting on inline/transparent interfaces.",
+        "command": "show system global   # check fail-open/bypass behaviour; review HW bypass on inline pairs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inline/transparent interfaces configured fail-closed (no hardware bypass passing traffic) under overload.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "ha_failover_configured",
+    "option_description": "Whether the firewall runs as an HA pair with session synchronization and link/path monitoring so a single device failure (or a flood that downs one unit) does not collapse the enforcement boundary. TRUE = HA with session sync + monitoring.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Firewall self-DoS / connection-table exhaustion with fail-open\" — a single non-HA device / no link monitoring (FALSE) amplifies availability impact under a flood (T1498.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm HA session sync, link/path monitoring and preemption settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > High Availability (HA2 Session Synchronization; Link and Path Monitoring; Election Settings)",
+        "expected_output": "CIS 3.1: Session Synchronization on HA2 enabled; CIS 3.2: Link/Path Monitoring enabled with Failure Condition 'Any'; CIS 3.3: Preemptive disabled (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, confirm the HA cluster status, session sync and monitored interfaces.",
+        "command": "get system ha status   # FortiOS",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HA cluster present (a-p/a-a) with session-pickup enabled and monitored interfaces. FALSE (insecure) when a single standalone device with no monitoring.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ips_threat_prevention_enabled",
+    "option_description": "Whether the NGFW's IPS/threat-prevention engine is active and inspecting traffic (PAN-OS WildFire/Threat-Prevention engine running, FortiGate IPS/AV engine enabled). FALSE means the firewall is a blind passthrough.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Inspection disabled / stale signatures enabling evasion\" — when the engine is disabled (FALSE), the firewall is a blind passthrough that bridges the trusted/untrusted boundary uninspected (T1599 / T1562).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm a WildFire/threat-prevention profile is active and inspection is running.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Objects > Security Profiles > Vulnerability Protection / Anti-Spyware (engine status via Dashboard)",
+        "expected_output": "CIS 5.3: WildFire/threat-prevention profile enabled on all security policies with an Allow action (Palo Alto). Engine actively inspecting.",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, confirm the IPS/AV engine is enabled and inspecting.",
+        "command": "diagnose test application ipsmonitor 1   # IPS engine status (FortiOS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IPS/AV engine running and processing traffic. FALSE (insecure) when the engine is disabled.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "threat_signatures_current",
+    "option_description": "Whether IPS/AV/application-and-threat content signatures are current (content auto-update enabled and recently applied per CIS Palo Alto 4.1/4.2; FortiGuard content current). FALSE means signatures are stale/manual.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Inspection disabled / stale signatures enabling evasion\" — stale signatures (FALSE) let the engine miss known threats even while running (T1562).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm AV and Applications-and-Threats content are set to Download and Install on a frequent schedule and recently applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Device > Dynamic Updates (Antivirus, Applications and Threats schedules / last-installed)",
+        "expected_output": "CIS 1.6.1: 'Verify Update Server Identity' checked; CIS 4.1/4.2: AV and Applications-and-Threats set to Download and Install on a frequent schedule (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, confirm FortiGuard IPS/AV content versions are current.",
+        "command": "diagnose autoupdate versions   # FortiOS",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IPS/AV signature packages at the latest FortiGuard version with recent contract update timestamps. FALSE (insecure) when stale.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "security_profiles_on_allow_rules",
+    "option_description": "Whether every security policy with an Allow action has a threat-prevention/security profile (IPS, AV, anti-spyware, WildFire/sandboxing) attached so permitted traffic is actually inspected. FALSE means Allow rules pass traffic uninspected.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Inspection disabled / stale signatures enabling evasion\" — Allow rules without profiles (FALSE) pass traffic without inspection even when the engine runs (T1599 / T1562).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm every Allow security policy has a threat-prevention/WildFire profile attached.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policies > Security (Profile column on each Allow rule)",
+        "expected_output": "CIS 5.3: WildFire/threat-prevention profile enabled on all security policies with an Allow action (Palo Alto).",
+        "source": "CIS Palo Alto Firewall Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, inspect allow policies for attached UTM/security profiles.",
+        "command": "show firewall policy   # confirm ips-sensor / av-profile set on action accept rules (FortiOS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every accept policy references an IPS sensor / AV / application-control profile. FALSE (insecure) when allow rules have no profile.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_inspection_enabled",
+    "option_description": "Whether SSL/TLS decryption-and-inspection is applied to traffic crossing the boundary (where policy and privacy allow) so encrypted threats are not a blind spot. FALSE means encrypted traffic passes uninspected.",
+    "security_impact": "A secondary is_false OR-trigger of the exposure \"Inspection disabled / stale signatures enabling evasion\" — without TLS inspection (FALSE), TLS-wrapped malware/C2 and evasion cross the boundary uninspected (T1599).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On PAN-OS, confirm an SSL forward-proxy / decryption policy decrypts and inspects traffic where policy permits.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policies > Decryption (SSL Forward Proxy rules)",
+        "expected_output": "An SSL forward-proxy / TLS inspection policy decrypts and inspects traffic where policy permits. FALSE (insecure) when encrypted traffic passes uninspected.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiGate, inspect policies for a deep-inspection SSL profile.",
+        "command": "show firewall policy   # confirm ssl-ssh-profile set to a deep-inspection profile (FortiOS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Relevant policies reference a deep-inspection (not certificate-inspection-only) SSL profile where policy/privacy allow.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_change_detection_enabled",
+    "option_description": "Whether changes to the firewall configuration are detected and recorded through a change-control workflow (NIST CM-3). TRUE when every config edit is captured against a tracked baseline.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Unauthorized config drift without change control\" — ad-hoc unattributed rule edits (FALSE) let unauthorized rule changes silently weaken segmentation undetected (T1562.004 / T1562.013).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm config edits flow through a change-control workflow and are captured against a tracked baseline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented, version-controlled, reviewed baseline (CM-2) with a change-control workflow (CM-3) and restricted change access (CM-5) for the firewall config.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the SIEM, confirm config-change events are recorded and attributable to a change ticket.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration-change events present and tied to a change-control record. FALSE (insecure) when edits are ad-hoc and unattributed.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "drift_detection_enabled",
+    "option_description": "Whether the running firewall config is automatically compared against a reviewed, version-controlled baseline to surface drift. TRUE when drift is detected and alerted.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Unauthorized config drift without change control\" — with no drift detection (FALSE), malicious or accidental rule changes are undetectable (T1562.004).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm automated comparison of the running config against a version-controlled baseline with drift alerting.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented, version-controlled, reviewed baseline (CM-2) with a change-control workflow (CM-3) and restricted change access (CM-5) for the firewall config.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the config-management tooling (e.g. Panorama/FortiManager diff, or a NCCM tool) for scheduled drift comparison and alerting.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Tooling periodically diffs running config vs baseline and alerts on drift. FALSE (insecure) when no drift detection exists.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "running_config_matches_baseline",
+    "option_description": "Whether the device's currently running configuration matches the approved version-controlled baseline (NIST CM-2). TRUE when running config equals the reviewed baseline.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Unauthorized config drift without change control\" — when uncontrolled drift is present (FALSE), the live ruleset diverges from the authorized segmentation policy (T1562.013).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Compare the running configuration against the approved version-controlled baseline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented, version-controlled, reviewed baseline (CM-2) with a change-control workflow (CM-3) and restricted change access (CM-5) for the firewall config.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "command",
+        "instruction": "Export the running config and diff it against the stored baseline.",
+        "command": "show full-configuration   # FortiOS export; PAN-OS: 'show config running' / Panorama config diff",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running config equals the reviewed baseline (empty diff). FALSE (insecure) when uncontrolled drift is present.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_backed_up_to_known_good",
+    "option_description": "Whether the firewall configuration is regularly backed up off-box to a known-good, tamper-evident store. TRUE when off-box backups exist and are verified.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Unauthorized config drift without change control\" — with no off-box backup (FALSE), a maliciously altered config is unrecoverable (T1562.004).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm regular, verified off-box backups of the configuration to a known-good store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented, version-controlled, reviewed baseline (CM-2) with a change-control workflow (CM-3) and restricted change access (CM-5) for the firewall config.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup schedule and a recent restore-test record for the firewall config store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Off-box config backups taken on a schedule and verified by restore test. FALSE (insecure) when no off-box backup exists.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "out_of_band_changes_controlled",
+    "option_description": "Whether out-of-band (direct CLI/GUI) edits bypassing the change-control workflow are prevented or detected via restricted change access (NIST CM-5). TRUE when OOB changes are blocked or reconciled.",
+    "security_impact": "An is_false OR-trigger of the exposure \"Unauthorized config drift without change control\" — when admins can edit rules ad-hoc with no control (FALSE), silent unauthorized rule changes are permitted (T1562.013).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm direct CLI/GUI edits are blocked or reconciled against the change-control workflow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented, version-controlled, reviewed baseline (CM-2) with a change-control workflow (CM-3) and restricted change access (CM-5) for the firewall config.",
+        "source": "NIST SP 800-53 Rev 5 Configuration Management (CM) family"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review whether direct device access is restricted (e.g. config pushed only from Panorama/FortiManager) and OOB edits are reconciled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Direct device edits are blocked or automatically reconciled to the management plane of record. FALSE (insecure) when ad-hoc edits go uncontrolled.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

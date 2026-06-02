@@ -1,0 +1,624 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "keys_managed_in_hsm_or_kms": {
+        "type": "boolean",
+        "title": "Signing Keys Managed in HSM or KMS",
+        "description": "Whether the IdP's token/assertion signing private keys are protected by an HSM or KMS (non-exportable) rather than stored as plaintext key material on disk. A disk-resident static signing key that an attacker can steal lets them forge tokens/SAML assertions for any user with any privilege across every federated RP (golden token / golden SAML). Secure value is true; fires when false (keys on disk).",
+        "default": false
+      },
+      "key_rotation_enabled": {
+        "type": "boolean",
+        "title": "Signing Key Rotation Enabled",
+        "description": "Whether the realm signing keys (JWKS) are rotated on a schedule with superseded keys retired to passive, so a leaked signing key has a bounded forgery window. Maps to the Keycloak Realm Settings > Keys provider rotation. A single static key never rotated gives a stolen key indefinite golden-token capability. Secure value is true; fires when false (no rotation).",
+        "default": false
+      },
+      "signing_key_high_entropy": {
+        "type": "boolean",
+        "title": "Signing Key High Entropy",
+        "description": "Whether the token/assertion signing key is generated with sufficient cryptographic strength and entropy (adequate asymmetric key size from a strong RNG, FIPS 140 backed at AAL3/AAL2 per NIST SP 800-63C). A weak or low-entropy signing key can be recovered or brute-forced, enabling token/assertion forgery. Secure value is true; fires when false (weak key)."
+      },
+      "signature_algorithm_pinned_server_side": {
+        "type": "boolean",
+        "title": "Signature Algorithm Pinned Server-Side",
+        "description": "Whether the IdP/verifier pins an expected asymmetric signing algorithm (RS256/ES256) server-side per RFC 8725 instead of trusting the token's own 'alg' header to choose the verification key/routine, and never advertises or accepts 'alg:none' or symmetric HS256 — preventing RS256->HS256 key-confusion and alg:none forgery. Maps to access_token_signature_algorithm in the config surface. Secure value is true; fires when false (alg not pinned / header-driven selection)."
+      },
+      "federation_trust_validated": {
+        "type": "boolean",
+        "title": "Inbound Federation Trust Validated",
+        "description": "Whether inbound federation trusts (identity-provider/SAML SP relationships and their signing certificates) are explicitly validated and pinned, so an attacker cannot stand up a rogue federation trust and have the IdP accept attacker-controlled signing material to forge assertions for any user (the rogue-trust path of golden SAML, e.g. SolarWinds/UNC2452). Secure value is true; fires when false (federation trust unvalidated).",
+        "default": false
+      },
+      "redirect_uri_exact_match_enforced": {
+        "type": "boolean",
+        "title": "Redirect URI Exact-Match Enforced",
+        "description": "Whether the IdP enforces exact-string matching of each client's Valid Redirect URIs (no wildcard '*', no overly-broad host/path, no http://localhost or 127.0.0.1 entries in production), as mandated by RFC 9700. Interpreted from the per-client redirectUris allow-list: true only when every entry is a single exact absolute https URI. False when any entry contains a wildcard, a path-traversable segment, or a localhost/loopback host that an attacker can leverage to exfiltrate the authorization code or token (open-redirect account-takeover class; Keycloak CVE-2024-8883 / CVE-2024-1132 / CVE-2023-6927). Polarity-safe interpreted boolean.",
+        "default": false
+      },
+      "accepts_alg_none": {
+        "type": "boolean",
+        "title": "Accepts alg:none Tokens",
+        "description": "Interpreted assessment: the IdP issues or accepts JWTs whose JOSE 'alg' header is 'none' (unsigned tokens). RFC 8725 requires rejecting 'none'; accepting it lets an attacker strip the signature and forge arbitrary tokens. True is the insecure/firing state.",
+        "default": false
+      },
+      "rs256_to_hs256_confusion_possible": {
+        "type": "boolean",
+        "title": "RS256-to-HS256 Confusion Possible",
+        "description": "Interpreted assessment: the verifier selects the HMAC/RSA verification routine from the token's own 'alg' header rather than from a pinned expected algorithm, so an attacker can switch an RS256 token to HS256 and sign it with the IdP's public key (the known HMAC secret) to forge tokens. True is the insecure/firing state.",
+        "default": false
+      },
+      "access_token_signature_algorithm": {
+        "type": "string",
+        "enum": [
+          "RS256",
+          "RS384",
+          "RS512",
+          "ES256",
+          "ES384",
+          "ES512",
+          "PS256",
+          "PS384",
+          "PS512",
+          "HS256",
+          "HS384",
+          "HS512",
+          "none"
+        ],
+        "title": "Access/ID Token Signature Algorithm",
+        "description": "Per-client access/ID token signature algorithm (Keycloak: Fine Grain OpenID Connect Configuration > Access/ID Token Signature Algorithm; OIDC discovery id_token_signing_alg_values_supported). Asymmetric RS*/ES*/PS* are secure (RPs verify via public JWKS); symmetric HS* (shared secret) enables RS256->HS256 key-confusion forgery and 'none' is never acceptable. The insecure enum values (HS*/none) appear only on the insecure side, so an 'in' match is polarity-safe."
+      },
+      "pkce_required": {
+        "type": "boolean",
+        "title": "PKCE Required",
+        "description": "Whether Proof Key for Code Exchange (PKCE) is enforced for the OAuth/OIDC authorization-code flow on this client. RFC 9700 mandates PKCE for ALL client types; when false, an intercepted authorization code can be redeemed by an attacker because the code is not bound to a client-held code_verifier. Maps to the Keycloak per-client 'Proof Key for Code Exchange Code Challenge Method' being set (vs. blank). Fires on the insecure (PKCE-not-required) state.",
+        "default": false
+      },
+      "pkce_method_s256_required": {
+        "type": "boolean",
+        "title": "PKCE S256 Method Required",
+        "description": "Whether PKCE is enforced specifically with the S256 (SHA-256) code-challenge method rather than the weak 'plain' method. S256 is the secure binding; 'plain' transmits the verifier-equivalent in the clear. Derived from the Keycloak per-client 'Code Challenge Method' = S256. Fires on the insecure (S256-not-required) state.",
+        "default": false
+      },
+      "code_challenge_method_plain_accepted": {
+        "type": "boolean",
+        "title": "PKCE 'plain' Method Accepted",
+        "description": "Interpreted boolean: whether the IdP accepts the deprecated 'plain' PKCE code-challenge method (alongside or instead of S256). Modeled as a positive-insecure boolean rather than matching a raw method list, so it is polarity-safe; fires (is_true) when 'plain' is accepted. The 'plain' method offers no protection against a passive attacker who observes the challenge."
+      },
+      "implicit_or_ropc_grant_enabled": {
+        "type": "boolean",
+        "title": "Implicit or ROPC Grant Enabled",
+        "description": "Interpreted boolean: whether either the deprecated Implicit grant (token in URL fragment, no PKCE) or the Resource Owner Password Credentials (ROPC / Direct Access Grants) grant is enabled on this client. RFC 9700 deprecates both. Implicit exposes tokens in the URL with no code-exchange protection; ROPC makes the client handle the raw password and bypasses MFA/consent/federation. Derived from Keycloak 'Implicit flow' and 'Direct access grants' capability toggles. Fires (is_true) when either deprecated grant is permitted.",
+        "default": false
+      },
+      "oauth_state_bound_and_verified": {
+        "type": "boolean",
+        "title": "OAuth State Bound and Verified",
+        "description": "Whether the OAuth 'state' parameter is generated, bound to the user's session, and verified on the authorization-response callback. RFC 6749 requires state to defend against CSRF/login-CSRF on the redirect endpoint. Fires on the insecure (state-not-bound-or-verified) state."
+      },
+      "oidc_nonce_validated": {
+        "type": "boolean",
+        "title": "OIDC Nonce Validated",
+        "description": "Whether the OIDC 'nonce' claim is sent on the authentication request and validated against the returned ID token, defeating ID-token replay. OIDC Core requires nonce validation. Fires on the insecure (nonce-not-validated) state."
+      },
+      "saml_assertion_signature_verified": {
+        "type": "boolean",
+        "title": "SAML Assertion Signature Verified",
+        "description": "Whether the IdP signs SAML assertions AND the relying party cryptographically verifies that signature over the full assertion (with XML signature-wrapping defences — canonical reference resolution, single-assertion enforcement). True only when signing is enforced (Keycloak SAML client: Sign Assertions On + Client signature required On) and verification is mandatory. When false, unsigned or unverified assertions can be forged or signature-wrapped to impersonate any user (golden SAML). NIST SP 800-63C: assertions SHALL be signed by the issuer.",
+        "default": false
+      },
+      "saml_audience_restriction_strict": {
+        "type": "boolean",
+        "title": "SAML Audience Restriction Strict",
+        "description": "Whether every issued assertion carries an AudienceRestriction naming the specific intended SP EntityID and the SP rejects assertions whose audience does not exactly match itself. True when per-RP audience binding is enforced (no missing/empty or shared/wildcard audience). When false, an assertion minted for one SP can be replayed at another to impersonate the user. NIST SP 800-63C: all RPs SHALL check the audience.",
+        "default": false
+      },
+      "saml_recipient_inresponseto_matched": {
+        "type": "boolean",
+        "title": "SAML Recipient/InResponseTo Matched",
+        "description": "Whether the SP binds each assertion to its originating request by validating SubjectConfirmationData Recipient == the SP's ACS URL and InResponseTo == the in-flight AuthnRequest ID (rejecting unsolicited/mismatched responses). True when request-response binding is enforced. When false, an attacker can inject an unsolicited or stolen assertion at the SP, enabling forced-login / assertion-injection impersonation.",
+        "default": false
+      },
+      "saml_assertion_replay_cache_active": {
+        "type": "boolean",
+        "title": "SAML Assertion Replay Cache Active",
+        "description": "Whether the SP maintains a replay cache keyed on assertion ID (and enforces NotBefore/NotOnOrAfter Conditions) so a previously-consumed, still-valid assertion cannot be presented a second time within its validity window. True when one-time-use is enforced. When false, a captured valid assertion can be replayed to re-authenticate as the victim. NIST SP 800-63C: assertions SHALL be time-limited and replay-resistant.",
+        "default": false
+      },
+      "audience_claim_validated": {
+        "type": "boolean",
+        "title": "Audience (aud) Claim Validated",
+        "description": "Attested true when every assertion/token the IdP mints carries a per-RP audience (aud) bound to the specific requesting client/RP, and that audience is the binding all RPs check. False when aud is missing, empty, or a shared/wildcard value accepted across relying parties — letting a token minted for one RP be replayed at another (cross-RP token replay). NIST SP 800-63C: all RPs SHALL check the audience. Fires (exposure) on the insecure false state.",
+        "default": false
+      },
+      "issuer_claim_validated": {
+        "type": "boolean",
+        "title": "Issuer (iss) Claim Validated",
+        "description": "Attested true when issued assertions/tokens carry the IdP issuer (iss) claim and the signature covers iss so a token cannot be passed off as originating from a different trusted issuer. False when iss is absent or unsigned, weakening the iss/aud/sub/exp binding NIST SP 800-63C requires the issuer to sign over. Fires (exposure) on the insecure false state."
+      },
+      "expiry_claim_validated": {
+        "type": "boolean",
+        "title": "Expiry (exp) Claim Validated",
+        "description": "Attested true when issued assertions/tokens carry an expiration (exp) claim covered by the issuer signature, so a captured token cannot be replayed indefinitely. False when exp is missing or unsigned, removing the time bound on a replayable token and completing the iss/aud/sub/exp signed-binding gap. Fires (exposure) on the insecure false state."
+      },
+      "mfa_available": {
+        "type": "boolean",
+        "title": "MFA Available",
+        "description": "Whether multi-factor authentication is configured/available for principals authenticating to the IdP login flow. Password-only authentication (false) leaves the login front door open to credential stuffing and brute force. Secure: true (an MFA execution is required in the browser flow). Maps to Keycloak Authentication > Flows (OTP/WebAuthn required) per NIST SP 800-63B AAL2.",
+        "default": false
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "boolean",
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "Whether the IdP requires a phishing-resistant authenticator (FIDO2/WebAuthn or PKI) rather than accepting phishable factors (SMS OTP / push). Only phishing-resistant MFA defeats AiTM proxy phishing (NIST SP 800-63B AAL2/AAL3; CISA). Secure: true. False (phishable-only) means an AiTM proxy can harvest password + OTP/push and mint an IdP session. Kept as a boolean (not the workspace enum form) because the load-bearing condition uses an is_false boolean operator.",
+        "default": false
+      },
+      "admin_mfa_enforced": {
+        "type": "boolean",
+        "title": "Admin MFA Enforced",
+        "description": "Whether MFA is REQUIRED (not Alternative/Disabled) in the authentication flow used by realm/admin accounts. IdP admin compromise yields golden-token control of the whole federation, so admin MFA is the highest-value facet. Secure: true (an MFA execution is Required in the admin browser flow per Keycloak Authentication > Flows). False (password-only/optional MFA on admin accounts) directly fires this exposure.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting or Lockout Enabled",
+        "description": "Whether brute-force detection (temporary lockout / increasing backoff) or upstream rate limiting is enabled on the IdP login/token endpoints. Maps to Keycloak Realm Settings > Security Defenses > Brute Force Detection (disabled by default) plus any gateway/WAF rate limiting. Secure: true. False means unlimited login attempts (credential stuffing) and unbounded request volume on the public auth endpoints (application-layer DoS). Shared across the credential-brute-force and availability exposures.",
+        "default": false
+      },
+      "breached_password_screening_enabled": {
+        "type": "boolean",
+        "title": "Breached-Password Screening Enabled",
+        "description": "Whether the IdP password policy screens proposed/credential passwords against known-breached corpora so credential-stuffing reuse is blocked at the source. Secure: true (breached-password / compromised-credential check enabled per NIST SP 800-63B blocklist guidance). False permits known-breached passwords, raising credential-stuffing success against the IdP."
+      },
+      "refresh_token_rotation_enabled": {
+        "type": "boolean",
+        "title": "Refresh Token Rotation Enabled",
+        "description": "Whether the IdP rotates the refresh token on each use with reuse-detection (Keycloak Realm Settings > Tokens > 'Revoke Refresh Token' On, with a small Refresh Token Reuse Count). When false, a refresh token is reusable indefinitely and a replayed stolen token is never flagged as compromise — RFC 9700 prescribes refresh-token rotation with reuse detection. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "server_side_revocation_supported": {
+        "type": "boolean",
+        "title": "Server-Side Token Revocation Supported",
+        "description": "Whether the IdP can revoke an issued refresh token server-side (token revocation / session-bound invalidation) so a detected-compromised or reused token is actively killed rather than relied upon to expire. When false, even a flagged refresh token remains valid until natural expiry, sustaining indefinite stolen-token access. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "sender_constrained": {
+        "type": "boolean",
+        "title": "Tokens Sender-Constrained (DPoP/mTLS)",
+        "description": "Whether issued tokens are sender-constrained (DPoP per RFC 9449 or mTLS per RFC 8705) so a bearer token exfiltrated from a legitimate client cannot be presented from an attacker's machine. When false, a stolen refresh token is a pure bearer credential usable anywhere. Combined with absent rotation (no reuse detection) this directly enables indefinite undetected access. Insecure (false), in conjunction with rotation absent, fires this exposure."
+      },
+      "full_scope_allowed_clients": {
+        "type": "boolean",
+        "title": "Full Scope Allowed on a Client",
+        "description": "Interpreted boolean: at least one OAuth/OIDC client has 'Full Scope Allowed' enabled, so its tokens carry every realm role regardless of need. Maps to the Keycloak per-client 'Full Scope Allowed' toggle (secure value Off). True is the insecure/firing state — a single such client's compromise yields broad federated access, violating least privilege.",
+        "default": false
+      },
+      "scopes_least_privilege": {
+        "type": "boolean",
+        "title": "Client Scopes Least-Privilege",
+        "description": "Per-client scopes/roles are explicitly mapped to only what each client needs (least privilege), rather than every client receiving the full set of realm roles. False fires the exposure — clients are over-privileged. Secure value is true (each client restricted to explicitly mapped scopes).",
+        "default": false
+      },
+      "ssl_required": {
+        "type": "string",
+        "enum": [
+          "none",
+          "external",
+          "all"
+        ],
+        "title": "Require SSL (sslRequired)",
+        "description": "Keycloak per-realm 'Require SSL' (sslRequired) setting controlling whether the IdP refuses non-TLS requests to its login, token, and admin endpoints. 'none' (the Keycloak default) accepts plaintext, exposing credentials, authorization codes, and tokens to network sniffing/MITM on an adjacent network path. 'all' is secure; 'external' is acceptable (only private/loopback may skip TLS). Verified via GET /admin/realms/{realm} -> sslRequired."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "Interpreted boolean: true when the IdP serves its login/token/admin endpoints exclusively over TLS and refuses any plaintext HTTP connection. false means cleartext requests are accepted somewhere on the transport path, exposing credentials/codes/tokens to sniffing and adversary-in-the-middle. Fires on the insecure (plaintext-permitting) state.",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted boolean: true when the IdP's TLS listener still negotiates deprecated protocol versions (TLS 1.0 / TLS 1.1 / SSLv3) that are vulnerable to downgrade and known cipher attacks, weakening the transport even when TLS is nominally enabled. The assessor interprets the negotiated/configured protocol set against the secure floor (TLS 1.2+). Fires on the insecure state (a weak version is enabled)."
+      },
+      "hsts_enforced": {
+        "type": "boolean",
+        "title": "HSTS Enforced",
+        "description": "Interpreted boolean: true when the IdP emits an HTTP Strict-Transport-Security response header so browsers are pinned to HTTPS and an SSL-strip / first-request-downgrade MITM on the login flow is prevented. false leaves the initial navigation downgradeable to cleartext. Fires on the insecure state (HSTS not enforced)."
+      },
+      "software_version_patched": {
+        "type": "boolean",
+        "title": "IdP Software Version Patched",
+        "description": "Interpreted boolean: true when the IdP software is running at or above the fixed release for all applicable published advisories (e.g. Keycloak >= 25.0.6 / 24.0.8 / 22.0.13 for CVE-2024-8883). False when the deployed release is below a known-fixed version. The assessor reads systemInfo.version via GET {admin}/admin/serverinfo and compares against the vendor advisory fixed-version list. Polarity-safe interpreted boolean (no raw version-string substring match).",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Patched Within SLA",
+        "description": "True when this internet-facing appliance/service has had vendor security patches applied within the organization's defined patch SLA (e.g. critical CVEs within the committed remediation window). False when known security patches are overdue past SLA. For an internet-facing IdP this governs how promptly published advisories (CVE-2024-8883 and companions) are remediated. Fires the exposure when patching is not kept within SLA.",
+        "default": false
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known Exploitable CVE",
+        "description": "Interpreted boolean: true when the deployed IdP release is subject to at least one published, exploitable CVE (redirect-validation bypass, auth bypass, info disclosure, or RCE) for which no patch has been applied — i.e. a known advisory matches the running version. The assessor cross-references the running version against the vendor's security-advisory list. Fires the exposure when an unremediated known-exploitable advisory applies to the running IdP.",
+        "default": false
+      },
+      "clustered_ha_deployed": {
+        "type": "boolean",
+        "title": "Clustered HA Deployment",
+        "description": "Whether the IdP runs as a multi-instance HA cluster behind a load balancer with health probes (>=2 replicas), rather than a single instance. The IdP gates all federated authentication, so a single node is a single point of failure — loss of that node denies authentication to every relying party. Interpreted boolean attested from deployment topology (Keycloak clustering); true on a hardened HA deployment, so the is_false trigger fires only on a non-redundant single-instance deployment.",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection in Place",
+        "description": "Whether volumetric/network DoS protection (upstream WAF/CDN/scrubbing or provider DDoS mitigation) fronts the public auth/token endpoints. Without it a network DoS against the internet-facing IdP denies authentication federation-wide. Positive-secure boolean; is_false fires when no DoS protection is present.",
+        "default": false
+      }
+    },
+    "required": [
+      "keys_managed_in_hsm_or_kms",
+      "key_rotation_enabled",
+      "signing_key_high_entropy",
+      "signature_algorithm_pinned_server_side",
+      "federation_trust_validated",
+      "redirect_uri_exact_match_enforced",
+      "accepts_alg_none",
+      "rs256_to_hs256_confusion_possible",
+      "access_token_signature_algorithm",
+      "pkce_required",
+      "pkce_method_s256_required",
+      "code_challenge_method_plain_accepted",
+      "implicit_or_ropc_grant_enabled",
+      "oauth_state_bound_and_verified",
+      "oidc_nonce_validated",
+      "saml_assertion_signature_verified",
+      "saml_audience_restriction_strict",
+      "saml_recipient_inresponseto_matched",
+      "saml_assertion_replay_cache_active",
+      "audience_claim_validated",
+      "issuer_claim_validated",
+      "expiry_claim_validated",
+      "mfa_available",
+      "phishing_resistant_authenticator_required",
+      "admin_mfa_enforced",
+      "rate_limiting_or_lockout_enabled",
+      "breached_password_screening_enabled",
+      "refresh_token_rotation_enabled",
+      "server_side_revocation_supported",
+      "sender_constrained",
+      "full_scope_allowed_clients",
+      "scopes_least_privilege",
+      "ssl_required",
+      "tls_only_transport",
+      "weak_tls_versions_enabled",
+      "hsts_enforced",
+      "software_version_patched",
+      "edge_appliance_patched_within_sla",
+      "unpatched_known_rce_cve",
+      "clustered_ha_deployed",
+      "ddos_protection_in_place"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepts_alg_none"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_mfa_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/federation_trust_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/implicit_or_ropc_grant_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pkce_method_s256_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pkce_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rs256_to_hs256_confusion_possible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_assertion_replay_cache_active"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_assertion_signature_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_recipient_inresponseto_matched"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/breached_password_screening_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/code_challenge_method_plain_accepted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/expiry_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oauth_state_bound_and_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oidc_nonce_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sender_constrained"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/full_scope_allowed_clients"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/redirect_uri_exact_match_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/saml_audience_restriction_strict"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scopes_least_privilege"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/issuer_claim_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_token_signature_algorithm"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ssl_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_algorithm_pinned_server_side"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_managed_in_hsm_or_kms"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signing_key_high_entropy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/software_version_patched"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/clustered_ha_deployed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Session",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/refresh_token_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_revocation_supported"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

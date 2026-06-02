@@ -1,0 +1,863 @@
+[
+  {
+    "option_name": "wildcard_iam_policy_used",
+    "option_description": "Attestation that at least one consuming identity/role holds a wildcard or full-admin IAM policy (Action:'*' on Resource:'*', or an admin-equivalent managed policy) granting broad access to the cloud service rather than per-action/per-resource scoping.",
+    "security_impact": "Direct OR-trigger of the exposure \"Over-privileged / wildcard IAM to the service\" — fires when wildcard_iam_policy_used is true. A single leaked or assumed credential then confers broad valid-account access (T1078.004 / T1098.003).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Run IAM Access Analyzer and review attached policies for Action:'*' / Resource:'*' on consuming roles.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn <arn>  # plus review attached policies for Action:'*' / Resource:'*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No policy grants Action='*' on Resource='*'; external-access findings empty (CIS IAM.1 / IAM.28 'IAM Access Analyzer external access analyzer should be enabled')",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — IAM.1 / IAM.28"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm each consuming role's policy enumerates specific actions and specific resource ARNs, never wildcard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reviewer confirms each consuming role's policy enumerates specific actions (e.g. s3:GetObject) and specific resource ARNs, never '*:*'. Per AWS shared-responsibility, applying appropriate IAM permissions is the customer's responsibility.",
+        "source": "AWS Well-Architected Security Pillar — Shared Responsibility"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Attestation that consuming identities/roles are scoped to the minimum actions and resources required — each policy enumerates specific actions and specific resource ARNs with no wildcard/admin-equivalent grant.",
+    "security_impact": "OR-trigger of the exposure \"Over-privileged / wildcard IAM to the service\" — fires when least_privilege_access_enforced is false (the complementary insecure state to wildcard_iam_policy_used), exposing the service to broad valid-account abuse (T1078.004).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Run IAM Access Analyzer and review attached policies for over-broad grants.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn <arn>  # plus review attached policies for Action:'*' / Resource:'*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No policy grants Action='*' on Resource='*'; external-access findings empty (CIS IAM.1 / IAM.28 'IAM Access Analyzer external access analyzer should be enabled')",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — IAM.1 / IAM.28"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm each consuming role enumerates specific actions and resource ARNs as a positive least-privilege check.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reviewer confirms each consuming role's policy enumerates specific actions (e.g. s3:GetObject) and specific resource ARNs, never '*:*'. Per AWS shared-responsibility, applying appropriate IAM permissions is the customer's responsibility.",
+        "source": "AWS Well-Architected Security Pillar — Shared Responsibility"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "federated_short_lived_credentials_used",
+    "option_description": "Attestation that access to the managed service is obtained via federation / short-lived workload-identity credentials (OIDC workload-identity federation, IAM role assumption, IRSA) with no long-lived keys stored.",
+    "security_impact": "OR-trigger of the exposure \"Long-lived static credentials instead of federation\" — fires when federated_short_lived_credentials_used is false, widening the credential-theft window (T1078 / T1078.004).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check the account for root and IAM-user static access keys.",
+        "command": "aws iam get-account-summary  # check AccountAccessKeysPresent==0 for root; aws iam list-access-keys --user-name <u>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Root user has no access key (CIS IAM.4 'IAM root user access key should not exist'); any IAM-user keys rotated <=90 days (CIS IAM.3). Prefer no static keys at all — federate.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — IAM.3 / IAM.4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify CI/CD and workloads authenticate via OIDC workload-identity federation with no stored long-lived keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CI/CD and workloads authenticate via OIDC workload-identity federation exchanging an external token for short-lived cloud credentials with no long-lived keys stored; trust policy pins repo/ref/environment claims.",
+        "source": "GCP — Workload Identity Federation with deployment pipelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "long_lived_static_keys_used",
+    "option_description": "Attestation that long-lived static access keys — IAM-user keys not on short rotation, or a root-user access key — are in use to reach the managed service instead of short-lived federated credentials.",
+    "security_impact": "OR-trigger of the exposure \"Long-lived static credentials instead of federation\" — fires when long_lived_static_keys_used is true; a leaked static key enables persistent valid-account abuse with no built-in expiry (T1078.004).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Enumerate root and IAM-user access keys and their age.",
+        "command": "aws iam get-account-summary  # check AccountAccessKeysPresent==0 for root; aws iam list-access-keys --user-name <u>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Root user has no access key (CIS IAM.4 'IAM root user access key should not exist'); any IAM-user keys rotated <=90 days (CIS IAM.3). Prefer no static keys at all — federate.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — IAM.3 / IAM.4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm whether workloads rely on stored long-lived keys versus federation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CI/CD and workloads authenticate via OIDC workload-identity federation exchanging an external token for short-lived cloud credentials with no long-lived keys stored; presence of any stored static key sets this attestation true.",
+        "source": "GCP — Workload Identity Federation with deployment pipelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "config_object_storage_not_publicly_accessible",
+    "option_description": "Attestation that object storage consumed from the managed service has block-public-access fully enforced (e.g. S3 BlockPublicAcls/IgnorePublicAcls/BlockPublicPolicy/RestrictPublicBuckets all true).",
+    "security_impact": "OR-trigger of the exposure \"Public exposure / insecure-default config of the consumed resource\" — fires when config_object_storage_not_publicly_accessible is false, letting attackers read or exfiltrate stored data directly (T1530 / T1619 / T1190).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the bucket's public-access-block settings.",
+        "command": "aws s3api get-public-access-block --bucket <b>  # all four flags true",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BlockPublicAcls/IgnorePublicAcls/BlockPublicPolicy/RestrictPublicBuckets all true (CIS S3.1 / S3.8). Public buckets are a top critical misconfiguration.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — S3.1 / S3.8 / RDS.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cloud_objects_not_anonymously_public",
+    "option_description": "Attestation that stored cloud objects are not exposed to anonymous/AllUsers principals via object ACLs or resource policies.",
+    "security_impact": "OR-trigger of the exposure \"Public exposure / insecure-default config of the consumed resource\" — fires when cloud_objects_not_anonymously_public is false, enabling direct unauthenticated data read (T1530 / T1619).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect object ACLs and the bucket/resource policy for AllUsers/anonymous grants, alongside the public-access-block state.",
+        "command": "aws s3api get-public-access-block --bucket <b>  # all four flags true",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BlockPublicAcls/IgnorePublicAcls/BlockPublicPolicy/RestrictPublicBuckets all true (CIS S3.1 / S3.8); no object ACL or policy grants AllUsers/anonymous read.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — S3.1 / S3.8 / RDS.2"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated fetch of a known object URL to confirm it is not anonymously readable.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' https://<bucket>.s3.amazonaws.com/<key>  # expect 403, not 200",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Anonymous request returns 403 AccessDenied (not 200); a 200 means the object is world-readable and the attestation is false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_store_publicly_routable",
+    "option_description": "Attestation that the consumed managed data store (e.g. RDS/managed DB) is reachable from the public internet — PubliclyAccessible=true or otherwise assigned a routable public endpoint.",
+    "security_impact": "OR-trigger of the exposure \"Public exposure / insecure-default config of the consumed resource\" — fires when data_store_publicly_routable is true; the data store is directly reachable by attackers off the provider backbone (T1530 / T1190).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the managed DB PubliclyAccessible flag and inspect security groups for wide-open ingress.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].PubliclyAccessible'; aws ec2 describe-security-groups",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PubliclyAccessible=false (CIS RDS.2); no security group allows 0.0.0.0/0 or ::/0 to admin ports (CIS EC2.53/EC2.54). PubliclyAccessible=true sets this attestation true.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.2 / EC2.53 / EC2.54"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "ingress_default_deny_enforced",
+    "option_description": "Attestation that network ingress to the service's admin/data ports follows default-deny: no security group or firewall rule allows 0.0.0.0/0 or ::/0 to sensitive ports.",
+    "security_impact": "OR-trigger of the exposure \"Public exposure / insecure-default config of the consumed resource\" — fires when ingress_default_deny_enforced is false; a wide-open ingress rule exposes the resource to the entire internet (T1190 / T1530).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Enumerate security groups / firewall rules for 0.0.0.0/0 or ::/0 grants to admin/data ports.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].PubliclyAccessible'; aws ec2 describe-security-groups",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PubliclyAccessible=false (CIS RDS.2); no security group allows 0.0.0.0/0 or ::/0 to admin ports (CIS EC2.53/EC2.54). Any wide-open rule sets this attestation false.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.2 / EC2.53 / EC2.54"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "private_link_for_managed_services",
+    "option_description": "Attestation that traffic to the consumed managed service traverses private connectivity (PrivateLink / Private Service Connect / a service-specific private endpoint) and stays on the provider backbone rather than the public internet.",
+    "security_impact": "OR-trigger of the exposure \"Connectivity over the public internet instead of private link\" — fires when private_link_for_managed_services is false; the consumer-to-service channel crosses the public internet, enlarging the interception/AiTM surface (T1557 / T1040).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm an Interface/Gateway VPC endpoint exists for the consumed service.",
+        "command": "aws ec2 describe-vpc-endpoints --filters Name=service-name,Values=<service>  # confirm an Interface/Gateway endpoint exists for the consumed service",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A VPC endpoint for the service exists; traffic between the VPC endpoint and the service stays within the AWS network without traversing the public internet.",
+        "source": "AWS PrivateLink — What is AWS PrivateLink?"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From inside the VPC, resolve the service DNS name and confirm it points to a private endpoint address.",
+        "command": "dig +short <service-endpoint>  # from inside the VPC, resolves to the private endpoint ENI address, not a public IP",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service DNS resolves to a private (RFC1918) endpoint address inside the VPC, not a routable public address.",
+        "source": "AWS PrivateLink — What is AWS PrivateLink?"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Attestation that all connections to the managed service enforce TLS (TLS 1.2+) so the channel carrying data and credentials is encrypted in transit; object stores deny non-TLS requests.",
+    "security_impact": "OR-trigger of the exposure \"Connectivity over the public internet instead of private link\" — fires when flow_tls_encrypted is false; data and credentials on the consumer-to-service channel are exposed to interception (T1040 / T1557).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the bucket policy to confirm it denies non-TLS requests.",
+        "command": "aws s3api get-bucket-policy --bucket <b>  # deny when aws:SecureTransport=false",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bucket policy denies requests where aws:SecureTransport is false (CIS S3.5 'buckets should require requests to use SSL').",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — S3.5"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the service endpoint's negotiated TLS versions and ciphers.",
+        "command": "testssl.sh <service-endpoint>:443  # or nmap --script ssl-enum-ciphers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint negotiates TLS 1.2/1.3 only, AEAD/ECDHE ciphers; SSL/early-TLS disabled; certificate chain and hostname validate.",
+        "source": "OWASP ASVS V9 — Communications"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Attestation that the consumer validates the managed service's TLS server certificate (chain and hostname) on every connection rather than disabling verification.",
+    "security_impact": "OR-trigger of the exposure \"Connectivity over the public internet instead of private link\" — fires when server_certificate_validated is false; an adversary-in-the-middle can present a substituted certificate and decrypt/relay traffic, defeating TLS (T1557 / T1040).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the endpoint presents a valid chain and hostname, then audit the client for any disabled/skip-verify setting.",
+        "command": "testssl.sh <service-endpoint>:443  # or nmap --script ssl-enum-ciphers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Endpoint negotiates TLS 1.2/1.3 only, AEAD/ECDHE ciphers; SSL/early-TLS disabled; certificate chain and hostname validate.",
+        "source": "OWASP ASVS V9 — Communications"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review client/SDK configuration for any TLS verification bypass (insecureSkipVerify, --no-verify-ssl, disabled cert checks).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No client code or SDK config disables certificate chain/hostname verification; verification is on for every connection to the service.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Attestation that data stored in the consumed managed service is encrypted at rest (e.g. StorageEncrypted=true on managed DBs, KMS/EBS/EFS at-rest encryption).",
+    "security_impact": "OR-trigger of the exposure \"Missing encryption at rest / no customer-managed key\" — fires when encrypted_at_rest is false; data sits unencrypted at rest, exposed to anyone reading the underlying storage.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read StorageEncrypted on managed DBs and confirm EBS/EFS at-rest encryption.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].StorageEncrypted'; aws kms get-key-rotation-status --key-id <id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "StorageEncrypted=true (CIS RDS.3); EBS/EFS encrypted with KMS (CIS EC2.7 / EFS.1); KMS key rotation enabled (CIS KMS.4).",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.3 / EC2.7 / EFS.1 / KMS.4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "keys_managed_in_hsm_or_kms",
+    "option_description": "Attestation that at-rest encryption uses a customer-managed key held in an HSM-backed KMS (CMEK/BYOK) so key custody stays with the org.",
+    "security_impact": "OR-trigger of the exposure \"Missing encryption at rest / no customer-managed key\" — fires when keys_managed_in_hsm_or_kms is false; reliance on a provider-default key leaves the org unable to control rotation, revocation, or cryptographic deletion (AWS WA SEC08-BP01).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm consumed stores are bound to a customer-managed KMS key rather than a provider-default key.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].StorageEncrypted'; aws kms get-key-rotation-status --key-id <id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "StorageEncrypted=true (CIS RDS.3); EBS/EFS encrypted with KMS (CIS EC2.7 / EFS.1); KMS key rotation enabled (CIS KMS.4).",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.3 / EC2.7 / EFS.1 / KMS.4"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify a customer-managed key (CMEK/BYOK) is used for sensitive data with custody held by the org.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For sensitive data, a customer-managed KMS key (CMEK/BYOK) is used so key custody/rotation/revocation stay with the org, with keys managed separately from data (SEC08-BP01).",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "key_rotation_enabled",
+    "option_description": "Attestation that automatic rotation is enabled on the customer-managed key protecting the data (CIS KMS.4) and any residual IAM-user access keys are rotated within the CIS IAM.3 window.",
+    "security_impact": "OR-trigger of two exposures: \"Missing encryption at rest / no customer-managed key\" and \"Long-lived static credentials instead of federation\" — fires when key_rotation_enabled is false; a static, never-rotated key has an unbounded compromise window.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read KMS key rotation status; also confirm any residual IAM-user keys rotate within 90 days.",
+        "command": "aws kms get-key-rotation-status --key-id <id>; aws iam list-access-keys --user-name <u>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KMS key rotation enabled (CIS KMS.4); any residual IAM-user access keys rotated <=90 days (CIS IAM.3).",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.3 / EC2.7 / EFS.1 / KMS.4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "envelope_encryption_kek_dek_split",
+    "option_description": "Attestation that the service uses envelope encryption with a key-encryption-key / data-encryption-key split (the KEK in KMS/HSM wraps per-object DEKs), enabling KEK revocation/rotation to invalidate data access and support cryptographic deletion.",
+    "security_impact": "OR-trigger of the exposure \"Missing encryption at rest / no customer-managed key\" — fires when envelope_encryption_kek_dek_split is false; data keys are not separated from the master key, weakening revocation and crypto-shredding guarantees.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a KEK in KMS/HSM wraps per-object DEKs so KEK rotation/revocation invalidates data access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For sensitive data, a customer-managed KMS key (CMEK/BYOK) is used so key custody/rotation/revocation stay with the org, with keys managed separately from data (SEC08-BP01) — i.e. a KEK wraps per-object DEKs.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      },
+      {
+        "type": "api",
+        "instruction": "Confirm the at-rest encryption is bound to a KMS key (the KEK) rather than inline unmanaged keys.",
+        "command": "aws kms get-key-rotation-status --key-id <id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A KMS-held key (KEK) protects the store; provider envelope encryption wraps per-object DEKs under it.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_hardcoded_in_config_or_iac",
+    "option_description": "Attestation that credentials/keys for the managed service are embedded directly in source, container images, application config, or IaC rather than resolved at runtime from a secret manager.",
+    "security_impact": "OR-trigger of the exposure \"Service credentials harvested from files or cloud metadata\" — fires when secrets_hardcoded_in_config_or_iac is true; hardcoded secrets are discoverable by anyone with repo/image/state access (T1552 / T1555.006).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Run secret scanning across source, images, app config, and IaC/state for embedded service credentials.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret scanning (CI + pre-commit) finds no embedded service credentials; secrets resolved from a centralized secret manager with per-workload least-privilege access.",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "cloud_metadata_endpoint_blocked",
+    "option_description": "Attestation that the cloud instance-metadata service endpoint (169.254.169.254 / link-local IMDS) is blocked or unreachable from application workload contexts (IMDSv2 session-token required, hop limit set, or link-local egress firewalled).",
+    "security_impact": "OR-trigger of the exposure \"Service credentials harvested from files or cloud metadata\" — fires when cloud_metadata_endpoint_blocked is false; a reachable metadata endpoint lets an SSRF request retrieve the workload's role credentials and pivot to the service (T1552.005).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify IMDSv2 session-token requirement, hop-limit, or firewalled link-local egress so the metadata endpoint is unreachable from workloads.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret scanning finds no embedded credentials and the IMDS link-local address is unreachable from workload contexts (IMDSv2 enforced / hop-limit / egress firewall).",
+        "source": "OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workload context, attempt to reach the instance-metadata endpoint.",
+        "command": "curl -s -m 2 -o /dev/null -w '%{http_code}' http://169.254.169.254/latest/meta-data/  # expect timeout/blocked, IMDSv1 token-less should 401",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Request times out or is refused (blocked egress), or returns 401 without an IMDSv2 token; a 200 token-less response means the endpoint is reachable and the attestation is false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Attestation that an access audit trail is enabled for the managed service so access to and data flow through the service is recorded and reviewable.",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when access_audit_trail_enabled is false; access and exfiltration over the trusted service go unrecorded (T1562.008 / T1567.002 / T1537).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm a multi-region trail with management+data events and log-file validation exists.",
+        "command": "aws cloudtrail describe-trails; aws cloudtrail get-trail-status --name <t>  # multi-region trail, log-file validation on",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A multi-region CloudTrail with read+write management events and log-file validation exists (CIS CloudTrail.1/.4); object-level read/write events logged (CIS S3.22/S3.23).",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — CloudTrail.1 / CloudTrail.4 / S3.22 / S3.23"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "control_plane_api_logging_enabled",
+    "option_description": "Attestation that control-plane (management-event) API logging is enabled — a multi-region trail capturing read+write management events with log-file validation.",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when control_plane_api_logging_enabled is false; administrative actions (policy changes, key access, credential use) are uncaptured, so anomalous control-plane activity is undetectable (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Verify a multi-region management-event CloudTrail with log-file validation exists.",
+        "command": "aws cloudtrail describe-trails; aws cloudtrail get-trail-status --name <t>  # multi-region trail, log-file validation on",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A multi-region CloudTrail with read+write management events and log-file validation exists (CIS CloudTrail.1/.4); object-level read/write events logged (CIS S3.22/S3.23).",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — CloudTrail.1 / CloudTrail.4 / S3.22 / S3.23"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "object_level_data_event_logging_enabled",
+    "option_description": "Attestation that object-level / data-event logging is enabled so individual read/write data operations against stored data are recorded.",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when object_level_data_event_logging_enabled is false; bulk object reads and exfiltration leave no data-plane trace, defeating volume-based anomaly detection (T1567.002 / T1537).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm object-level read/write data-event logging is configured on the consumed store.",
+        "command": "aws cloudtrail describe-trails; aws cloudtrail get-trail-status --name <t>  # multi-region trail, log-file validation on",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A multi-region CloudTrail with read+write management events and log-file validation exists (CIS CloudTrail.1/.4); object-level read/write events logged (CIS S3.22/S3.23).",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — CloudTrail.1 / CloudTrail.4 / S3.22 / S3.23"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "network_flow_logging_enabled",
+    "option_description": "Attestation that network flow logging covers the VPCs/subnets that reach the service endpoint (non-empty VPC Flow Logs, TrafficType ALL).",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when network_flow_logging_enabled is false; data routed out through the legitimate service under cover of existing firewall rules and TLS produces no network-flow record (T1567.002).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "List VPC flow logs covering the subnets that reach the service endpoint.",
+        "command": "aws ec2 describe-flow-logs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty FlowLogs (TrafficType ALL) covering the VPCs/subnets that reach the service endpoint; empty array means flow logging not enabled (CIS EC2.6).",
+        "source": "AWS VPC Flow Logs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "perimeter_crossings_logged_and_centralized",
+    "option_description": "Attestation that traffic crossing the trust perimeter to/from the external cloud service is logged and the records are forwarded to a central collection point.",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when perimeter_crossings_logged_and_centralized is false; egress over the trusted service is invisible to centralized correlation, so cross-boundary exfiltration goes unnoticed (T1567.002).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm flow/trail records for the service crossing exist and are shipped to central collection.",
+        "command": "aws ec2 describe-flow-logs",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty FlowLogs (TrafficType ALL) covering the subnets reaching the service endpoint; empty array means flow logging not enabled (CIS EC2.6).",
+        "source": "AWS VPC Flow Logs"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify the perimeter logs are forwarded to and queryable from the central SIEM/log account.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Records of crossings to/from the service appear in the central collection point (SIEM/log archive), confirming both capture and centralization; absence of either sets this attestation false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bulk_export_monitored_and_alerted",
+    "option_description": "Attestation that bulk or anomalous data export over the service is monitored and raises alerts.",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when bulk_export_monitored_and_alerted is false; large-volume or abnormal access used to exfiltrate data triggers no detection even where raw logs exist (T1567.002 / T1537).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm a detection/alert rule fires on bulk or anomalous export volume over the service.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A monitoring rule (e.g. GuardDuty exfiltration finding, SIEM volume-threshold alert) raises an alert on large-volume/anomalous access; no such rule sets this attestation false.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the detection runbook to confirm bulk-export alerts are routed and triaged.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reviewer confirms an owned alert path exists for bulk/anomalous export with defined triage, not merely raw logs.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Attestation that access/audit logs are stored on a separate system from the monitored service so an adversary with service access cannot disable, tamper with, or delete the evidence.",
+    "security_impact": "OR-trigger of the exposure \"Unmonitored access / exfiltration over the trusted service\" — fires when logs_stored_on_separate_system is false; co-located logs can be cleared along with the intrusion (T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit logs are written to a separate system/account the service identity cannot tamper with or delete.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logs land in a separate log-archive account/system (e.g. dedicated CloudTrail log bucket in a logging account with object-lock); the service's own identity has no delete/modify rights. Co-location sets this attestation false.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "api",
+        "instruction": "Inspect the log destination's resource policy / object-lock to confirm immutability from the service identity.",
+        "command": "aws s3api get-bucket-policy --bucket <log-bucket>; aws s3api get-object-lock-configuration --bucket <log-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log bucket lives in a separate account with a policy denying the service identity delete/put-policy, and object-lock/retention is configured.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "residency_confined_to_approved_regions",
+    "option_description": "Attestation that the managed service is configured to store and process data only in approved provider region(s), with no silent cross-region replication or movement to unapproved regions.",
+    "security_impact": "OR-trigger of the exposure \"Data-residency / cross-border processing violation, no DPA\" — fires when residency_confined_to_approved_regions is false; data is, or may be, stored/replicated outside approved regions.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify region restrictions / governance guardrails confine storage and processing to approved regions with no silent cross-region replication.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Provider does not move data between regions unless configured to; service/replication settings pin data to approved regions (e.g. EU regions), enforced via region restrictions / Control Tower guardrails.",
+        "source": "AWS GDPR / Data Residency & Data Processing Addendum (DPA)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "governed_transfer_safeguards",
+    "option_description": "Attestation that a lawful cross-border transfer mechanism (EU SCCs / Data Privacy Framework adherence, or equivalent) is in place wherever data crosses jurisdictional boundaries.",
+    "security_impact": "OR-trigger of the exposure \"Data-residency / cross-border processing violation, no DPA\" — fires when governed_transfer_safeguards is false; cross-border processing occurs without a governing transfer safeguard.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SCCs / DPF adherence or equivalent govern any cross-border transfer.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DPA (with SCCs / DPF adherence) is in force; the provider sub-processor list has been reviewed for the regions and services consumed.",
+        "source": "AWS GDPR / Data Residency & Data Processing Addendum (DPA)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "storage_destinations_documented",
+    "option_description": "Attestation that every region and storage/processing destination the service actually uses for the org's data is enumerated and documented, so silent replication or backup to undocumented locations is detectable.",
+    "security_impact": "OR-trigger of the exposure \"Data-residency / cross-border processing violation, no DPA\" — fires when storage_destinations_documented is false; unknown destinations let data land in unapproved regions unnoticed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify all regions and storage/processing destinations used for the org's data are enumerated and documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented inventory of every region/destination the service uses for the org's data exists; provider does not move data between regions unless configured to, and replication/backup destinations are recorded.",
+        "source": "AWS GDPR / Data Residency & Data Processing Addendum (DPA)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dpa_and_subprocessors_reviewed",
+    "option_description": "Attestation that an executed DPA/addendum (with SCCs / DPF adherence) governs the provider's processing AND the provider's published sub-processor list has been reviewed for the regions and services consumed.",
+    "security_impact": "OR-trigger of the exposure \"Data-residency / cross-border processing violation, no DPA\" — fires when dpa_and_subprocessors_reviewed is false; no DPA in force or sub-processors unreviewed means unaccountable third-party processing.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an executed DPA governs provider processing and the published sub-processor list has been reviewed for consumed regions/services.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DPA (with SCCs / DPF adherence) is in force; the provider sub-processor list has been reviewed for the regions and services consumed.",
+        "source": "AWS GDPR / Data Residency & Data Processing Addendum (DPA)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "multi_region_or_az_deployed",
+    "option_description": "Attestation that the consumer's use of the managed dependency is deployed across multiple availability zones and/or regions so a single-AZ/region failure or provider maintenance does not take the consumer down.",
+    "security_impact": "OR-trigger of the exposure \"Availability dependency without SLA-aware failover\" — fires when multi_region_or_az_deployed is false; single-AZ/region exposes the consumer to inherited outages.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read MultiAZ on managed DBs and confirm multi-AZ/region topology for the dependency.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].MultiAZ'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MultiAZ=true for managed DBs (CIS RDS.5 / RDS.15); SLA documented and graceful-degradation/failover path tested.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.5 / RDS.15"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "failover_plan_tested",
+    "option_description": "Attestation that a documented failover / graceful-degradation plan exists for the managed dependency AND has been tested (not just written).",
+    "security_impact": "OR-trigger of the exposure \"Availability dependency without SLA-aware failover\" — fires when failover_plan_tested is false; no plan or an untested one means the consumer inherits the outage when the dependency fails.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented failover/degradation plan exists and has been exercised (tested, not just written), reviewing the multi-AZ topology as supporting evidence.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].MultiAZ'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MultiAZ=true for managed DBs (CIS RDS.5 / RDS.15); SLA documented and graceful-degradation/failover path tested with a dated exercise record.",
+        "source": "CIS AWS Foundations Benchmark (Security Hub control mapping) — RDS.5 / RDS.15"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dependency_sla_defined",
+    "option_description": "Attestation that the dependency's availability SLA (and its provider maintenance-window behaviour) is understood and documented, so resilience targets are derived from it rather than assumed.",
+    "security_impact": "OR-trigger of the exposure \"Availability dependency without SLA-aware failover\" — fires when dependency_sla_defined is false; an unknown SLA means resilience targets are guessed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the provider's availability SLA and maintenance-window behaviour are understood and documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The dependency's published availability SLA and maintenance-window behaviour are recorded, and resilience targets are derived from them; SLA unknown sets this attestation false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "retry_with_backoff_configured",
+    "option_description": "Attestation that client calls to the managed dependency use retries with backoff (and ideally circuit-breaking) so transient degradation or throttling is absorbed rather than cascading into a consumer outage.",
+    "security_impact": "OR-trigger of the exposure \"Availability dependency without SLA-aware failover\" — fires when retry_with_backoff_configured is false; naive single-shot calls turn transient degradation into a consumer outage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm client calls implement retries with backoff (and ideally circuit-breaking) for transient degradation/throttling.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client/SDK configuration shows retries with exponential backoff and jitter (and ideally circuit-breaking) on calls to the dependency; naive single-shot calls set this attestation false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "vendor_security_attestations_reviewed",
+    "option_description": "Attestation that the provider's independent security/compliance attestations (SOC 2, ISO 27001/27017, CSA STAR) have been obtained, reviewed, and kept current, with gaps tracked.",
+    "security_impact": "OR-trigger of the exposure \"Unreviewed vendor posture / shared-responsibility gap\" — fires when vendor_security_attestations_reviewed is false (AND-grouped in policy with the two other supply-chain attestations); an assumed-adequate provider posture leaves gaps unverified.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SOC 2 / ISO 27001/27017 / CSA STAR attestations were obtained, reviewed, kept current, with gaps tracked.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Provider attestation (SOC 2 / ISO 27001 / CSA STAR — STAR builds on ISO 27001 & SOC 2 with the CCM's 197 cloud-specific control objectives across 17 domains) is current and reviewed; gaps tracked.",
+        "source": "CSA Cloud Controls Matrix (CCM) / STAR"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "shared_responsibility_boundary_documented",
+    "option_description": "Attestation that the split of who secures/patches what is documented for this specific service tier (IaaS vs managed/abstracted) as an explicit responsibility matrix.",
+    "security_impact": "OR-trigger of the exposure \"Unreviewed vendor posture / shared-responsibility gap\" — fires when shared_responsibility_boundary_documented is false (AND-grouped with the other supply-chain attestations); an undocumented boundary leaves the provider-vs-customer security split ambiguous.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify an explicit responsibility matrix documents the provider-vs-customer security split for this service tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Responsibility matrix exists: for single-tenant managed services (e.g. RDS/ElastiCache/OpenSearch) the customer reviews and applies updates within provider SLA windows; for abstracted services the customer owns data, classification, IAM, and config; auto minor-version upgrades enabled where offered (CIS RDS.13).",
+        "source": "AWS Well-Architected Security Pillar — Shared Responsibility"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "customer_side_duties_owned",
+    "option_description": "Attestation that the customer-side duties implied by the shared-responsibility boundary are actually assigned and exercised: IAM permission assignment, data encryption choices, security-group/firewall configuration, and applying provider updates within SLA maintenance windows for single-tenant managed services.",
+    "security_impact": "OR-trigger of the exposure \"Unreviewed vendor posture / shared-responsibility gap\" — fires when customer_side_duties_owned is false (AND-grouped with the other supply-chain attestations); unowned duties because the provider is assumed to secure everything produce exploitable gaps.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm IAM, encryption, firewall, and patch/maintenance duties on the customer side are assigned and exercised.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Responsibility matrix exists: for single-tenant managed services (e.g. RDS/ElastiCache/OpenSearch) the customer reviews and applies updates within provider SLA windows; for abstracted services the customer owns data, classification, IAM, and config; auto minor-version upgrades enabled where offered (CIS RDS.13).",
+        "source": "AWS Well-Architected Security Pillar — Shared Responsibility"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

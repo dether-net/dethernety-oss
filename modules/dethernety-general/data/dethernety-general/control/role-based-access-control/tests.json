@@ -1,0 +1,101 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "permissions_granted_via_roles_only": false,
+      "deny_by_default_authorization": false,
+      "rbac_enforced_at_resource_pep": false,
+      "role_grants_least_privilege": false,
+      "privileged_roles_minimized": false,
+      "admins_use_separate_nonprivileged_accounts": false,
+      "segregation_of_duties_enforced": false,
+      "role_definitions_documented_and_governed": false,
+      "role_change_control_enforced": false,
+      "role_model_rationalized_no_explosion": false,
+      "periodic_privilege_recertification": false,
+      "recertification_max_interval_days": 0,
+      "centralized_authorization_directory": false,
+      "joiner_mover_leaver_lifecycle_enforced": false,
+      "offboarding_credential_revocation_enforced": false,
+      "identity_access_audit_logging_enabled": false,
+      "role_assignment_changes_logged": false,
+      "audit_log_tamper_evident": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "permissions_granted_via_roles_only": true,
+      "deny_by_default_authorization": true,
+      "rbac_enforced_at_resource_pep": true,
+      "role_grants_least_privilege": true,
+      "privileged_roles_minimized": true,
+      "admins_use_separate_nonprivileged_accounts": true,
+      "segregation_of_duties_enforced": true,
+      "role_definitions_documented_and_governed": true,
+      "role_change_control_enforced": true,
+      "role_model_rationalized_no_explosion": true,
+      "periodic_privilege_recertification": true,
+      "recertification_max_interval_days": 0,
+      "centralized_authorization_directory": true,
+      "joiner_mover_leaver_lifecycle_enforced": true,
+      "offboarding_credential_revocation_enforced": true,
+      "identity_access_audit_logging_enabled": true,
+      "role_assignment_changes_logged": true,
+      "audit_log_tamper_evident": true
+    },
+    "expectedCountermeasures": [
+      "Role-only permission grants with deny-by-default enforcement",
+      "Separation of duties enforced over toxic role combinations",
+      "Least-privilege role scoping with privileged-role minimization",
+      "Joiner-mover-leaver lifecycle deprovisioning enforced",
+      "RBAC enforced at every resource path without bypass",
+      "Role definitions governed with role-explosion hygiene",
+      "Role assignment and change audit logging integrity",
+      "Periodic access recertification with centralized authority"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "permissions_granted_via_roles_only": true,
+      "deny_by_default_authorization": true,
+      "rbac_enforced_at_resource_pep": true,
+      "role_grants_least_privilege": true,
+      "privileged_roles_minimized": true,
+      "admins_use_separate_nonprivileged_accounts": true,
+      "segregation_of_duties_enforced": true,
+      "role_definitions_documented_and_governed": true,
+      "role_change_control_enforced": true,
+      "role_model_rationalized_no_explosion": true,
+      "periodic_privilege_recertification": true,
+      "recertification_max_interval_days": 0,
+      "centralized_authorization_directory": true,
+      "joiner_mover_leaver_lifecycle_enforced": true,
+      "offboarding_credential_revocation_enforced": true,
+      "identity_access_audit_logging_enabled": true,
+      "role_assignment_changes_logged": true,
+      "audit_log_tamper_evident": true
+    },
+    "expectedCountermeasures": [
+      "Joiner-mover-leaver lifecycle deprovisioning enforced",
+      "Least-privilege role scoping with privileged-role minimization",
+      "RBAC enforced at every resource path without bypass",
+      "Role-only permission grants with deny-by-default enforcement",
+      "Separation of duties enforced over toxic role combinations",
+      "Periodic access recertification with centralized authority",
+      "Role assignment and change audit logging integrity",
+      "Role definitions governed with role-explosion hygiene"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

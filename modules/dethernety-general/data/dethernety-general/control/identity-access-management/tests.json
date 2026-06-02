@@ -1,0 +1,96 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "centralized_aaa_enabled": false,
+      "provisioning_requires_approval": false,
+      "offboarding_credential_revocation_enforced": false,
+      "dormant_admin_accounts_disabled": false,
+      "dormant_account_disable_window_days": 0,
+      "least_privilege_access_enforced": false,
+      "periodic_privilege_recertification": false,
+      "segregation_of_duties_enforced": false,
+      "no_shared_privileged_credentials": false,
+      "mfa_enforced_for_admin": false,
+      "breached_password_screening_enabled": false,
+      "rate_limiting_or_lockout_enabled": false,
+      "federation_trust_validated": false,
+      "saml_assertion_signature_verified": false,
+      "audience_claim_validated": false,
+      "identity_access_audit_logging_enabled": false,
+      "service_account_inventory_governed": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "centralized_aaa_enabled": true,
+      "provisioning_requires_approval": true,
+      "offboarding_credential_revocation_enforced": true,
+      "dormant_admin_accounts_disabled": true,
+      "dormant_account_disable_window_days": 0,
+      "least_privilege_access_enforced": true,
+      "periodic_privilege_recertification": true,
+      "segregation_of_duties_enforced": true,
+      "no_shared_privileged_credentials": true,
+      "mfa_enforced_for_admin": true,
+      "breached_password_screening_enabled": true,
+      "rate_limiting_or_lockout_enabled": true,
+      "federation_trust_validated": true,
+      "saml_assertion_signature_verified": true,
+      "audience_claim_validated": true,
+      "identity_access_audit_logging_enabled": true,
+      "service_account_inventory_governed": true
+    },
+    "expectedCountermeasures": [
+      "Federation assertion security validated",
+      "Joiner-mover-leaver lifecycle enforcement",
+      "Centralized identity governance",
+      "Least-privilege entitlement with periodic recertification",
+      "Strong central authentication policy",
+      "Identity and access audit logging",
+      "Segregation of duties enforced"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "centralized_aaa_enabled": true,
+      "provisioning_requires_approval": true,
+      "offboarding_credential_revocation_enforced": true,
+      "dormant_admin_accounts_disabled": true,
+      "dormant_account_disable_window_days": 0,
+      "least_privilege_access_enforced": true,
+      "periodic_privilege_recertification": true,
+      "segregation_of_duties_enforced": true,
+      "no_shared_privileged_credentials": true,
+      "mfa_enforced_for_admin": true,
+      "breached_password_screening_enabled": true,
+      "rate_limiting_or_lockout_enabled": true,
+      "federation_trust_validated": true,
+      "saml_assertion_signature_verified": true,
+      "audience_claim_validated": true,
+      "identity_access_audit_logging_enabled": true,
+      "service_account_inventory_governed": true
+    },
+    "expectedCountermeasures": [
+      "Federation assertion security validated",
+      "Joiner-mover-leaver lifecycle enforcement",
+      "Centralized identity governance",
+      "Least-privilege entitlement with periodic recertification",
+      "Strong central authentication policy",
+      "Identity and access audit logging",
+      "Segregation of duties enforced"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

@@ -1,0 +1,870 @@
+[
+  {
+    "option_name": "pull_request_target_with_untrusted_checkout",
+    "option_description": "Whether a workflow uses the on: pull_request_target trigger AND checks out the untrusted PR head (github.event.pull_request.head.ref/.sha) while base-repo secrets and a writable GITHUB_TOKEN are in scope for the job.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Poisoned pipeline execution / script injection\" — fires when pull_request_target_with_untrusted_checkout is true: fork-contributor code runs on the runner with the base repo's privileges (canonical PPE path, OWASP CICD-SEC-4, T1677).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep all workflow files for the pull_request_target trigger, then inspect each matching job for a checkout of the PR head ref/sha together with secrets in scope.",
+        "command": "grep -rln 'pull_request_target' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "No matches, or matches whose jobs grant no secrets and do not check out the PR head ref (secure); a pull_request_target workflow that checks out head.ref/head.sha and accesses secrets (insecure)",
+        "source": "GitHub Actions — Secure use reference; OWASP CICD-SEC-4 Poisoned Pipeline Execution"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For any pull_request_target match, confirm whether the job checks out the untrusted head by grepping for a ref bound to github.event.pull_request.head.",
+        "command": "grep -rnE 'ref:\\s*\\$\\{\\{\\s*github\\.event\\.pull_request\\.head' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "No matches when pull_request_target jobs never check out the PR head (secure); a ref bound to github.event.pull_request.head.ref/.sha inside a pull_request_target job (insecure — untrusted checkout)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "untrusted_input_in_run_step",
+    "option_description": "Whether attacker-controllable context (github.event.* — PR title, branch/head ref name, issue/comment body) is interpolated directly into a run: shell step, allowing shell command injection on the runner.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Poisoned pipeline execution / script injection\" — fires when untrusted_input_in_run_step is true: untrusted github.event.* inlined into a run: block executes attacker commands on the runner (T1059 Command and Scripting Interpreter).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep run: blocks for direct ${{ github.event.* }} interpolation into shell commands. The secure form binds the value to an env: variable and references it as \"$VAR\".",
+        "command": "grep -rnE 'run:.*\\$\\{\\{\\s*github\\.event' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "No matches (untrusted context never inlined into run: = secure); any run: line interpolating github.event.* directly = injectable",
+        "source": "GitHub Actions — Secure use reference (script injection / env-var mitigation)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Where github.event.* is used, confirm it is bound under an env: key and dereferenced as \"$VAR\" inside the script rather than inlined.",
+        "command": "grep -rnB2 'env:' .github/workflows/ | grep -E 'github\\.event'",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "Untrusted context assigned to an env: var (secure binding); absence of env: binding while github.event.* appears in run: (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_actions_pinned_to_commit_sha",
+    "option_description": "Whether every third-party GitHub Action referenced via uses: is pinned to a full-length 40-char commit SHA rather than a mutable tag/branch (@v4, @main, @latest).",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Mutable third-party action / dependency substitution\" — fires when third_party_actions_pinned_to_commit_sha is false: a hijacked upstream maintainer can repoint a mutable tag to malicious code (tj-actions/changed-files, CVE-2025-30066; T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep every uses: directive and filter out those pinned to a 40-hex-char SHA; any remaining line is a mutable reference.",
+        "command": "grep -rnE 'uses:\\s+[^@]+@' .github/workflows/ | grep -vE '@[0-9a-f]{40}'",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "No matches (every uses: pinned to a 40-hex-char SHA = secure); any line with @v4/@main/@latest = insecure mutable reference",
+        "source": "GitHub Actions — Secure use reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_references_immutable_digest_pinned",
+    "option_description": "Whether artifacts and external references the pipeline consumes/deploys (container base images, deploy manifests, dependencies) are referenced by an immutable content digest (image@sha256:...) rather than a mutable tag.",
+    "security_impact": "One of the OR-triggers for both \"Mutable third-party action / dependency substitution\" and \"Missing artifact integrity / no signed provenance\" — fires when artifact_references_immutable_digest_pinned is false: a tampered/substituted artifact transparently reaches production under the same mutable reference (OWASP CICD-SEC-9 / T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect deploy manifests and image/dependency references for @sha256: digest pinning versus mutable tags.",
+        "command": "grep -rnE 'image:\\s*\\S+:(latest|v?[0-9])' . --include=*.yml --include=*.yaml --include=Dockerfile",
+        "file_path": "deploy manifests / Dockerfile / k8s manifests",
+        "expected_output": "All image/artifact references carry @sha256:<digest> (secure); any reference resolving via a movable tag like :latest or :v1 (insecure — mutable-artifact substitution)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm container base images in Dockerfiles are digest-pinned (FROM image@sha256:...).",
+        "command": "grep -rnE '^FROM\\s+\\S+' . --include=Dockerfile | grep -vE '@sha256:'",
+        "file_path": "Dockerfile",
+        "expected_output": "No matches (every FROM digest-pinned = secure); any FROM on a mutable tag (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_action_policy",
+    "option_description": "The org/repo Actions permissions policy governing which external actions may execute (allow_all, verified_only, selected_allowlist, or verified_and_sha_pinned).",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Mutable third-party action / dependency substitution\" — fires when third_party_action_policy == \"allow_all\": any marketplace, typosquatted, or repointed action may run in the pipeline with no SHA-pin requirement (OWASP CICD-SEC-3).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the repo's selected-actions policy via the GitHub API and report the effective allowed-actions setting.",
+        "command": "gh api repos/{owner}/{repo}/actions/permissions/selected-actions",
+        "file_path": null,
+        "expected_output": "github_owned_allowed and verified_allowed flags + patterns_allowed list (secure: restricted); endpoint returning that all actions are allowed (insecure)",
+        "source": "GitHub Actions — Secure use reference (actions allowlist policy)"
+      },
+      {
+        "type": "api",
+        "instruction": "Check the top-level Actions permissions object to confirm the allowed_actions mode (all vs selected) and whether full-SHA pinning is required.",
+        "command": "gh api repos/{owner}/{repo}/actions/permissions",
+        "file_path": null,
+        "expected_output": "allowed_actions: selected with SHA-pin requirement (maps to verified_and_sha_pinned / selected_allowlist); allowed_actions: all (maps to allow_all — fires)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "allow_all",
+      "verified_and_sha_pinned",
+      "selected_allowlist"
+    ]
+  },
+  {
+    "option_name": "frozen_lockfile_with_integrity_hashes",
+    "option_description": "Whether build-time dependencies resolve from a committed lockfile carrying per-package integrity= digests AND CI installs with --frozen-lockfile / npm ci (no unpinned semver ranges resolved at build time).",
+    "security_impact": "One of the OR-triggers for both \"Mutable third-party action / dependency substitution\" and \"Dependency confusion / unpinned dependencies\" — fires when frozen_lockfile_with_integrity_hashes is false: a higher-version public typosquat or substituted mutable dependency is silently pulled into the build (OWASP CICD-SEC-3).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List committed lockfiles and confirm they carry integrity hashes.",
+        "command": "ls pnpm-lock.yaml package-lock.json yarn.lock 2>/dev/null && grep -n 'integrity' package-lock.json | head",
+        "file_path": null,
+        "expected_output": "A committed lockfile present with integrity= hashes, and CI installs with --frozen-lockfile/ci (secure); no lockfile or unpinned semver ranges (insecure — dependency confusion exposure)",
+        "source": "OWASP CICD-SEC-3 Dependency Chain Abuse; OWASP Infrastructure as Code Security Cheat Sheet; OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the CI install step uses a frozen/locked install (--frozen-lockfile or npm ci) rather than a mutating install.",
+        "command": "grep -rnE 'pnpm install --frozen-lockfile|npm ci|yarn install --frozen-lockfile|--immutable' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "A frozen/locked install command in CI (secure); plain 'npm install' / 'pnpm install' that can mutate the lockfile (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "internal_scope_registry_namespace_claimed",
+    "option_description": "Whether internal package names/scopes resolve from the private registry only (scoped .npmrc pinning the internal @scope to the private host, and the namespace reserved on the public registry) so a build never falls back to public-registry resolution for an internal name.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Dependency confusion / unpinned dependencies\" — fires when internal_scope_registry_namespace_claimed is false: an attacker publishes a higher-version package under the same internal name publicly and the resolver prefers it (T1195.001 / T1204.005).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect .npmrc/registry config for the internal @scope pinned to the private host.",
+        "command": "grep -rnE '@[a-z0-9-]+:registry=' .npmrc 2>/dev/null",
+        "file_path": ".npmrc",
+        "expected_output": "Each internal @scope mapped to the private registry host (secure pinning); no scoped registry mapping, so internal names can resolve from the public registry (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the internal package namespace/scope is reserved (claimed) on the public registry so an attacker cannot publish under it.",
+        "command": null,
+        "file_path": null,
+        "expected_output": "The internal @scope exists as a reserved/claimed org on the public registry (secure); the scope is unclaimed publicly (insecure — dependency-confusion exposure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dependency_vulnerability_scanning_enabled",
+    "option_description": "Whether CI runs software-composition-analysis / SBOM + dependency-vulnerability scanning on resolved dependencies, with a gate that fails the build on known-malicious or vulnerable packages.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Dependency confusion / unpinned dependencies\" — fires when dependency_vulnerability_scanning_enabled is false: absent pinning/namespace controls, this removes the last detection layer for dependency-chain abuse (OWASP CICD-SEC-3).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a committed lockfile and SCA tooling exist; the dossier's dependency-pinning inspect also surfaces the SCA/SBOM scan expectation in CI.",
+        "command": "ls pnpm-lock.yaml package-lock.json yarn.lock 2>/dev/null && grep -n 'integrity' package-lock.json | head",
+        "file_path": null,
+        "expected_output": "A committed lockfile present with integrity= hashes, and CI installs with --frozen-lockfile/ci (secure); no lockfile or unpinned semver ranges (insecure — dependency confusion exposure)",
+        "source": "OWASP CICD-SEC-3 Dependency Chain Abuse; OWASP Infrastructure as Code Security Cheat Sheet; OWASP Secrets Management Cheat Sheet"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep workflows for an SCA / dependency-vulnerability scan step that gates on findings (e.g. dependency-review, snyk, trivy fs, grype, osv-scanner).",
+        "command": "grep -rniE 'dependency-review|snyk|trivy|grype|osv-scanner|npm audit' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "An SCA/dependency-scan job present that fails the build on vulnerable/malicious packages (secure); no enforcing scan gate (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "github_token_write_scope_granted",
+    "option_description": "Whether the workflow GITHUB_TOKEN is granted broad write scope — permissions omitted (broad default), 'contents: write', or 'write-all' — rather than least-privilege 'contents: read' at the top level with per-job elevation.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Over-privileged pipeline identity / long-lived cloud keys\" — fires when github_token_write_scope_granted is true: a standing write token lets a compromised step push code, mint releases, or move tags (OWASP CICD-SEC-2; T1098.003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the 'permissions:' blocks across all workflows; the secure baseline is a top-level contents: read with per-job elevation only where needed.",
+        "command": "grep -rn 'permissions:' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "A top-level 'permissions: { contents: read }' block (secure); absence of any permissions block or 'contents: write' / 'write-all' (insecure — token gets broad default scope)",
+        "source": "GitHub Actions — Secure use reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cicd_pipeline_identity_per_environment_no_long_lived_keys",
+    "option_description": "Whether the pipeline authenticates to cloud providers via short-lived per-environment OIDC-federated identity (id-token: write + role-to-assume, trust policy pinning repository/ref/environment claims) and stores NO long-lived cloud access keys as CI secrets.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Over-privileged pipeline identity / long-lived cloud keys\" — fires when cicd_pipeline_identity_per_environment_no_long_lived_keys is false: standing cloud keys stored in secrets persist and leak (Codecov-style exfiltration; OWASP CICD-SEC-6; T1078.004).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep workflows for OIDC federation (id-token: write) versus long-lived cloud key fields passed from secrets.",
+        "command": "grep -rnE 'id-token:\\s*write|aws-access-key-id|aws-secret-access-key' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "'id-token: write' present and no long-lived key fields (secure OIDC federation); presence of aws-access-key-id/secret-access-key from secrets (insecure long-lived credential)",
+        "source": "GitHub Actions — Secure use reference; GCP Workload Identity Federation with deployment pipelines"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the cloud trust policy pins the repository/ref/environment claims so the federated role can only be assumed by the intended workflow.",
+        "command": null,
+        "file_path": null,
+        "expected_output": "Cloud IAM trust policy conditions on the OIDC subject (repo:owner/repo:ref/environment) (secure); a broad audience-only trust or no OIDC role at all (insecure)",
+        "source": "GitHub Actions — Secure use reference; GCP Workload Identity Federation with deployment pipelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether the pipeline identity and its cloud role are scoped to the minimum privileges required for the deploy, with no over-broad role bindings or wildcard cloud permissions attached to the federated/CI identity.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Over-privileged pipeline identity / long-lived cloud keys\" — fires when least_privilege_access_enforced is false: standing privilege beyond deploy needs enables additional-role abuse from a compromised step (OWASP CICD-SEC-2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the cloud role/policies bound to the pipeline identity for wildcard or over-broad permissions beyond deploy needs.",
+        "command": null,
+        "file_path": null,
+        "expected_output": "Role scoped to specific actions/resources required for the deploy (secure); wildcard (Action: \"*\" / Resource: \"*\") or admin-equivalent bindings on the CI identity (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "If on AWS, dump the policies attached to the pipeline role and inspect them for wildcards.",
+        "command": "aws iam list-attached-role-policies --role-name <pipeline-role> && aws iam get-role-policy --role-name <pipeline-role> --policy-name <inline-policy>",
+        "file_path": null,
+        "expected_output": "Tightly scoped action/resource statements (secure); Action: \"*\" or Resource: \"*\" in the role policies (insecure — over-broad)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Whether all sensitive values that are not auto-registered GitHub secrets (decoded tokens, JWTs, derived credentials) are registered with ::add-mask:: and never echoed to build logs/artifacts.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Credential hygiene — secrets leaked in logs / artifacts\" — fires when secrets_masked_in_logs is false: derived/decoded secret values are harvested from build logs/artifacts (OWASP CICD-SEC-6, Codecov breach class; T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep run: steps for echoing of secret values to STDOUT; confirm derived secrets are registered with ::add-mask::.",
+        "command": "grep -rnE 'run:.*echo.*secrets\\.' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "No matches (secrets never echoed = secure); any echo of a secret to STDOUT, or derived secrets lacking '::add-mask::' (insecure — log/artifact leak)",
+        "source": "GitHub Actions — Secure use reference (secret masking / log protection)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm any derived/decoded sensitive value is masked via the ::add-mask:: workflow command before use.",
+        "command": "grep -rn 'add-mask' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "::add-mask:: registered for each derived secret value (secure); derived secrets used without masking (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_dedicated_secret_manager",
+    "option_description": "Whether pipeline credentials are sourced from a dedicated secret manager / short-lived OIDC federation rather than persisted as long-lived CI variables.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Credential hygiene — secrets leaked in logs / artifacts\" — fires when secrets_stored_in_dedicated_secret_manager is false: long-lived keys stored as CI secrets are the standing credentials a poisoned step exfiltrates and reuses (Codecov class; OWASP CICD-SEC-6).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep workflows for long-lived cloud key fields passed from secrets versus short-lived OIDC federation, indicating whether credentials are persisted as CI variables.",
+        "command": "grep -rnE 'id-token:\\s*write|aws-access-key-id|aws-secret-access-key' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "'id-token: write' present and no long-lived key fields (secure OIDC federation); presence of aws-access-key-id/secret-access-key from secrets (insecure long-lived credential)",
+        "source": "GitHub Actions — Secure use reference; GCP Workload Identity Federation with deployment pipelines"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm credentials are retrieved at run time from a dedicated secret manager (e.g. a vault/secret-fetch action) rather than stored as static CI variables.",
+        "command": "grep -rniE 'hashicorp/vault-action|aws-secretsmanager|google-github-actions/get-secretmanager-secrets|azure/key-vault' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "A secret-manager fetch step present and no standing long-lived credentials stored as CI secrets (secure); long-lived keys persisted as repo/org secrets (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secret_scanning_enabled",
+    "option_description": "Whether committed source/IaC/workflow files are scanned for embedded secrets (truffleHog/gitleaks/GitGuardian) in CI and pre-commit, gating on findings.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Credential hygiene — secrets leaked in logs / artifacts\" — fires when secret_scanning_enabled is false: hardcoded credentials persist in the repo and are consumed by the pipeline as standing access (Insufficient Credential Hygiene, OWASP CICD-SEC-6).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep CI workflows and the pre-commit config for an enforced secret scanner.",
+        "command": "grep -rniE 'gitleaks|trufflehog|gitguardian|secret-scan' .github/workflows/ .pre-commit-config.yaml 2>/dev/null",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "A secret-scanning job/hook present (secure); none, and grep of repo finds inline tokens (insecure)",
+        "source": "OWASP Secrets Management Cheat Sheet; OWASP CICD-SEC-6 Insufficient Credential Hygiene; OWASP Infrastructure as Code Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "per_secret_access_scoping",
+    "option_description": "Whether secrets are scoped per environment/job (production secrets gated behind environment protection rules and unavailable to arbitrary branches/workflows) rather than broadly exposed to every workflow.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Credential hygiene — secrets leaked in logs / artifacts\" — fires when per_secret_access_scoping is false: prod secrets available to any branch/workflow widen the set a poisoned step can exfiltrate in one compromise.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the production environment to confirm secrets are bound to a protected environment with a deployment_branch_policy, not exposed to arbitrary branches/workflows.",
+        "command": "gh api repos/{owner}/{repo}/environments/production",
+        "file_path": null,
+        "expected_output": "protection_rules including 'required_reviewers' and deployment_branch_policy.protected_branches true (secure); empty protection_rules (insecure)",
+        "source": "GitHub Actions — Deployments and environments"
+      },
+      {
+        "type": "api",
+        "instruction": "List environment-scoped secrets versus repo-level secrets to confirm production credentials live on the protected environment.",
+        "command": "gh api repos/{owner}/{repo}/environments/production/secrets",
+        "file_path": null,
+        "expected_output": "Production secrets present on the protected environment, not as repo-wide secrets reachable by any workflow (secure); prod secrets at repo scope (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_supply_chain_signed_provenance_verified",
+    "option_description": "Whether the pipeline generates signed SLSA in-toto build provenance for every artifact AND deploy admission verifies that provenance + signature against a pinned identity/issuer before promotion (e.g. actions/attest-build-provenance + cosign verify / Sigstore policy-controller).",
+    "security_impact": "Part of the AND-group with required_signatures_enforced_on_deploy_ref that OR-triggers the policy exposure \"Missing artifact integrity / no signed provenance\" — fires when artifact_supply_chain_signed_provenance_verified is false (and signatures are not enforced on the deploy ref): artifacts are unsigned blobs or admission accepts them unverified — the SolarWinds build-tampering class (OWASP CICD-SEC-9; T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep workflows for a provenance/attestation generation step at build time.",
+        "command": "grep -rnE 'attest|slsa|provenance|generate_attestation' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "A provenance/attestation step present (e.g. actions/attest-build-provenance or slsa-github-generator) = secure; none = no provenance (insecure)",
+        "source": "SLSA v1.0 Build Track Levels; in-toto attestation framework"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm a cosign verify / policy-controller admission gate verifies the signature+attestation at the deploy step before promotion.",
+        "command": "grep -rnE 'cosign (sign|verify)|attest-' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "cosign sign at publish and a cosign verify / policy-controller gate at deploy (secure); absence (insecure)",
+        "source": "SLSA v1.0 Verifying artifacts; Sigstore policy-controller; Kubernetes — Verify signed artifacts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "required_signatures_enforced_on_deploy_ref",
+    "option_description": "Whether only cryptographically signed commits/artifacts may reach the protected deploy ref — branch-protection required_signatures.enabled AND/OR a deploy-admission signature gate (cosign verify) blocking unsigned artifacts.",
+    "security_impact": "OR-trigger for the policy exposure \"Insufficient flow control / weak change control\" (fires when false), and part of the AND-group with artifact_supply_chain_signed_provenance_verified that triggers \"Missing artifact integrity / no signed provenance\" — fires when required_signatures_enforced_on_deploy_ref is false: unsigned/forged commits or artifacts are accepted (Invalid Code Signature, T1036.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query branch protection for the required_signatures flag on the protected deploy branch.",
+        "command": "gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '.required_signatures.enabled'",
+        "file_path": null,
+        "expected_output": "true (secure); false or field absent (insecure)",
+        "source": "GitHub — Commit signature verification; GitHub REST API — Branch protection"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm any deploy-admission signature verification (cosign verify) backs the signing requirement at deploy.",
+        "command": "grep -rnE 'cosign (sign|verify)|attest-' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "cosign sign at publish and a cosign verify / policy-controller gate at deploy (secure); absence (insecure)",
+        "source": "SLSA v1.0 Verifying artifacts; Sigstore policy-controller; Kubernetes — Verify signed artifacts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deploy_ref_protected_branch_only",
+    "option_description": "Whether the deploy branch is reachable only via the protected-branch flow (PR + protection), so unreviewed code cannot land directly via push or another branch.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when deploy_ref_protected_branch_only is false: direct pushes to the deploy ref (or an unrestricted deployment_branch_policy) let unreviewed code reach the build (OWASP CICD-SEC-1).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm the deploy branch is protected and that the environment deployment_branch_policy restricts deploys to it.",
+        "command": "gh api repos/{owner}/{repo}/branches/{branch}/protection",
+        "file_path": null,
+        "expected_output": "A protection object present with restrictions limiting who/what can push (secure); HTTP 404 'Branch not protected' (insecure)",
+        "source": "GitHub REST API — Branch protection (GET /repos/{owner}/{repo}/branches/{branch}/protection)"
+      },
+      {
+        "type": "api",
+        "instruction": "Inspect the production environment's deployment_branch_policy to confirm it restricts to the protected branch.",
+        "command": "gh api repos/{owner}/{repo}/environments/production",
+        "file_path": null,
+        "expected_output": "deployment_branch_policy.protected_branches true (secure — only the protected branch deploys); no/custom policy permitting any branch (insecure)",
+        "source": "GitHub Actions — Deployments and environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deploy_required_reviewers_configured",
+    "option_description": "Whether the production deployment environment has required_reviewers (environment-scoped approval) configured so privileged deploys are gated.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when deploy_required_reviewers_configured is false: the environment has empty protection_rules and prod secrets/deploys are ungated (OWASP CICD-SEC-1).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the production environment's protection_rules for a required_reviewers rule.",
+        "command": "gh api repos/{owner}/{repo}/environments/production",
+        "file_path": null,
+        "expected_output": "protection_rules including 'required_reviewers' and deployment_branch_policy.protected_branches true (secure); empty protection_rules (insecure)",
+        "source": "GitHub Actions — Deployments and environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "required_approving_review_count",
+    "option_description": "The branch-protection required_pull_request_reviews.required_approving_review_count on the protected deploy branch.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when required_approving_review_count < 1: a single compromised identity can land unreviewed code the pipeline builds and ships (OWASP CICD-SEC-1). Secure baseline >= 1, ideally 2 with code-owner reviews.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the branch-protection PR-review settings and report the required approving review count.",
+        "command": "gh api repos/{owner}/{repo}/branches/{branch}/protection",
+        "file_path": null,
+        "expected_output": "required_pull_request_reviews.required_approving_review_count >= 1 with require_code_owner_reviews true (secure); HTTP 404 'Branch not protected' or count 0 (insecure)",
+        "source": "GitHub REST API — Branch protection (GET /repos/{owner}/{repo}/branches/{branch}/protection)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      0,
+      1,
+      2
+    ]
+  },
+  {
+    "option_name": "required_status_checks_strict",
+    "option_description": "Branch-protection required_status_checks.strict on the deploy branch — whether merges require passing, up-to-date CI gates.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when required_status_checks_strict is false: status checks are absent/advisory, so untested or failing code can bypass the pipeline into the deploy branch (OWASP CICD-SEC-1).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query branch protection for the required_status_checks object on the deploy branch.",
+        "command": "gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '.required_status_checks'",
+        "file_path": null,
+        "expected_output": "{ strict: true, checks: [...] } (secure); null / absent (insecure — failing builds can be merged)",
+        "source": "GitHub REST API — Branch protection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "force_pushes_allowed_on_deploy_ref",
+    "option_description": "Branch-protection allow_force_pushes.enabled on the deploy branch — whether history can be rewritten on the protected ref.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when force_pushes_allowed_on_deploy_ref is true: history rewrite on the protected ref defeats change control and lets unreviewed history reach the build (OWASP CICD-SEC-1). Secure baseline false.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the allow_force_pushes and enforce_admins flags on the deploy branch protection.",
+        "command": "gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '{force:.allow_force_pushes.enabled, admins:.enforce_admins.enabled}'",
+        "file_path": null,
+        "expected_output": "{ force: false, admins: true } (secure); force true or admins false (insecure)",
+        "source": "GitHub REST API — Branch protection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "branch_protection_enforced_for_admins",
+    "option_description": "Branch-protection enforce_admins.enabled on the deploy branch — whether protection rules apply to admins too.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when branch_protection_enforced_for_admins is false: admins bypass review/checks and push directly to the deploy ref (OWASP CICD-SEC-1). Modelled positive-secure (true = protection applies).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read the enforce_admins flag (alongside allow_force_pushes) on the deploy branch protection.",
+        "command": "gh api repos/{owner}/{repo}/branches/{branch}/protection --jq '{force:.allow_force_pushes.enabled, admins:.enforce_admins.enabled}'",
+        "file_path": null,
+        "expected_output": "{ force: false, admins: true } (secure); force true or admins false (insecure)",
+        "source": "GitHub REST API — Branch protection"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "deployment_environment_protection_configured",
+    "option_description": "Whether the production deployment environment has protection rules (deployment_branch_policy restricting to the protected branch, with environment-scoped secrets).",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient flow control / weak change control\" — fires when deployment_environment_protection_configured is false: prod can be deployed from any branch/workflow with no environment gate (OWASP CICD-SEC-1).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the production environment for protection rules and a deployment_branch_policy restricting to the protected branch.",
+        "command": "gh api repos/{owner}/{repo}/environments/production",
+        "file_path": null,
+        "expected_output": "protection_rules including 'required_reviewers' and deployment_branch_policy.protected_branches true (secure); empty protection_rules (insecure)",
+        "source": "GitHub Actions — Deployments and environments"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "self_hosted_runner_used",
+    "option_description": "Whether any workflow targets a self-hosted runner (runs-on: self-hosted) rather than GitHub-hosted runners.",
+    "security_impact": "The gating AND-condition (is_true) in every OR-group of the policy exposure \"Self-hosted runner compromise / open egress\" — when self_hosted_runner_used is true it enables the runner-compromise vector's other conditions (non-ephemeral, public repo, open egress); on GitHub-hosted runners the host is disposable and the exposure does not apply (OWASP CICD-SEC-4).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep all workflows for a self-hosted runs-on target; any match means self-hosted runners are in use.",
+        "command": "grep -rn 'runs-on:.*self-hosted' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "No self-hosted use on public repos; where present, runner is ephemeral/JIT and in a scoped runner group (verify in org Settings -> Actions -> Runner groups)",
+        "source": "GitHub Actions — Secure use reference (self-hosted runner hardening)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "runner_ephemeral_jit",
+    "option_description": "Whether the self-hosted runner is ephemeral / just-in-time (registered per-job via run.sh --jitconfig and torn down after one job) rather than a persistent, reused host.",
+    "security_impact": "Paired with self_hosted_runner_used (is_true) in an AND-group that OR-triggers the policy exposure \"Self-hosted runner compromise / open egress\" — fires when runner_ephemeral_jit is false: a persistent runner lets untrusted PR code that compromises one job persist as a privileged foothold for subsequent builds (OWASP CICD-SEC-4; T1584).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the self-hosted runner registration mode — ephemeral/JIT runners register per-job (--ephemeral / --jitconfig) and tear down after one job. The dossier directs verifying scoped runner groups in org settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "org Settings -> Actions -> Runner groups",
+        "expected_output": "No self-hosted use on public repos; where present, runner is ephemeral/JIT and in a scoped runner group (verify in org Settings -> Actions -> Runner groups)",
+        "source": "GitHub Actions — Secure use reference (self-hosted runner hardening)"
+      },
+      {
+        "type": "command",
+        "instruction": "On the runner host, check the runner service config for the --ephemeral flag / JIT registration.",
+        "command": "grep -rn 'ephemeral' /home/*/actions-runner/.runner 2>/dev/null; ps aux | grep -- '--ephemeral'",
+        "file_path": null,
+        "expected_output": "Runner registered with --ephemeral / --jitconfig (secure); a long-lived persistent runner service with no ephemeral flag (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "repository_visibility",
+    "option_description": "Visibility of the repository whose workflows the self-hosted runner serves (public, internal, or private).",
+    "security_impact": "Paired with self_hosted_runner_used (is_true) in an AND-group that OR-triggers the policy exposure \"Self-hosted runner compromise / open egress\" — fires when repository_visibility == \"public\": a public repo accepts PRs from arbitrary external contributors, so attacker-authored PR code can compromise the self-hosted runner (highest blast radius; OWASP CICD-SEC-4).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the repository's visibility via the GitHub API.",
+        "command": "gh api repos/{owner}/{repo} --jq '.visibility'",
+        "file_path": null,
+        "expected_output": "private or internal (lower exposure); public (fires when combined with a self-hosted runner)",
+        "source": "GitHub Actions — Secure use reference (self-hosted runner hardening)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "public",
+      "internal",
+      "private"
+    ]
+  },
+  {
+    "option_name": "egress_default_deny_enforced",
+    "option_description": "Whether the runner's outbound network is default-deny (e.g. step-security/harden-runner with egress-policy: block, or a host/network policy on the self-hosted runner) so only explicitly allowed destinations are reachable.",
+    "security_impact": "Paired with self_hosted_runner_used (is_true) in an AND-group that OR-triggers the policy exposure \"Self-hosted runner compromise / open egress\" — fires when egress_default_deny_enforced is false: a poisoned build step has an open path to exfiltrate secrets or reach attacker C2 (OWASP CICD-SEC-4; T1567).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep workflows for an egress-control step (harden-runner with egress-policy: block) or confirm a host/network policy on the self-hosted runner.",
+        "command": "grep -rniE 'harden-runner|egress-policy|egress' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "An egress-control step (e.g. step-security/harden-runner with egress-policy: block) or runner network policy present (secure); none (insecure — open exfiltration path)",
+        "source": "OWASP CICD-SEC-4 Poisoned Pipeline Execution; MITRE ATT&CK T1567 Exfiltration Over Web Service"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "app_tier_egress_destination_allowlisted",
+    "option_description": "Whether the runner's permitted outbound destinations are constrained to a known FQDN/registry allowlist (package mirrors, container registries, the GitHub API) rather than arbitrary internet hosts.",
+    "security_impact": "Paired with self_hosted_runner_used (is_true) in an AND-group that OR-triggers the policy exposure \"Self-hosted runner compromise / open egress\" — fires when app_tier_egress_destination_allowlisted is false: even with deny-by-default, an over-broad allowlist re-opens the exfiltration path (OWASP CICD-SEC-4; T1567).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the egress-control step's allowed-endpoints/allowlist to confirm permitted egress is constrained to known FQDNs/registries rather than arbitrary hosts.",
+        "command": "grep -rniE 'harden-runner|egress-policy|allowed-endpoints|egress' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "An egress-control step (e.g. step-security/harden-runner with egress-policy: block) or runner network policy present (secure); none (insecure — open exfiltration path)",
+        "source": "OWASP CICD-SEC-4 Poisoned Pipeline Execution; MITRE ATT&CK T1567 Exfiltration Over Web Service"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the allowlist enumerates only required destinations (package mirrors, registries, GitHub API) and is not a permissive wildcard.",
+        "command": null,
+        "file_path": null,
+        "expected_output": "A bounded FQDN/registry allowlist (secure); a wildcard or arbitrary-host allowance (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pipeline_run_audit_logging_enabled",
+    "option_description": "Whether workflow runs, deployment approvals, secret access, and runner-registration events are captured in the pipeline/org audit log.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient pipeline logging and visibility\" — fires when pipeline_run_audit_logging_enabled is false: a build-system compromise goes unlogged, undetectable and unreconstructable (OWASP CICD-SEC-10; NIST SP 800-92; T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the org audit-log API and confirm recent workflow/deploy/secret events are captured.",
+        "command": "gh api /orgs/{org}/audit-log --jq '.[0:3]'",
+        "file_path": null,
+        "expected_output": "Recent workflow/deploy/secret events returned and (in org settings) audit-log streaming to SIEM configured (secure); empty or no streaming endpoint (insecure)",
+        "source": "OWASP CICD-SEC-10 Insufficient Logging and Visibility; NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether the pipeline audit log is streamed off-box to an external system (SIEM / log-archive) the build infrastructure cannot tamper with.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient pipeline logging and visibility\" — fires when logs_stored_on_separate_system is false: on-box-only logs are wiped or altered by the same compromise that produced them, defeating post-incident reconstruction (OWASP CICD-SEC-10).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm audit-log streaming off-box: the org audit-log API surfaces events, and org settings should show a configured streaming endpoint to an external SIEM/archive.",
+        "command": "gh api /orgs/{org}/audit-log --jq '.[0:3]'",
+        "file_path": null,
+        "expected_output": "Recent workflow/deploy/secret events returned and (in org settings) audit-log streaming to SIEM configured (secure); empty or no streaming endpoint (insecure)",
+        "source": "OWASP CICD-SEC-10 Insufficient Logging and Visibility; NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the platform team that audit-log streaming targets a SIEM/archive the build infrastructure cannot alter (org Settings -> Audit log -> Log streaming).",
+        "command": null,
+        "file_path": null,
+        "navigation": "org Settings -> Audit log -> Log streaming",
+        "expected_output": "A configured off-box streaming target (Splunk/Datadog/S3/etc.) the build infra cannot write-back (secure); no streaming, logs only on-box (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "centralized_log_aggregation",
+    "option_description": "Whether pipeline logs are streamed into a centralized SIEM/aggregation platform for correlation and alerting rather than living only in per-repo run logs.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient pipeline logging and visibility\" — fires when centralized_log_aggregation is false: scattered, uncorrelated logs mean a cross-repo build-system compromise is not surfaced (OWASP CICD-SEC-10).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm org audit events are available and being forwarded into a central aggregation platform via the audit-log streaming configuration.",
+        "command": "gh api /orgs/{org}/audit-log --jq '.[0:3]'",
+        "file_path": null,
+        "expected_output": "Recent workflow/deploy/secret events returned and (in org settings) audit-log streaming to SIEM configured (secure); empty or no streaming endpoint (insecure)",
+        "source": "OWASP CICD-SEC-10 Insufficient Logging and Visibility; NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm pipeline logs from all repos land in a single SIEM/aggregation platform enabling cross-repo correlation and alerting.",
+        "command": null,
+        "file_path": null,
+        "expected_output": "Logs centralized into one SIEM/aggregation platform with correlation rules (secure); logs only in per-repo run views (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "security_events_fully_logged",
+    "option_description": "Whether security-relevant pipeline events — deployment approvals, secret access, runner registration/de-registration, permission changes — are fully captured, not just job pass/fail.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient pipeline logging and visibility\" — fires when security_events_fully_logged is false: the high-value events an attacker abuses are invisible (OWASP CICD-SEC-10).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the org audit log for security-relevant event types (deployment approvals, secret access, runner registration, permission changes) — not just workflow outcomes.",
+        "command": "gh api /orgs/{org}/audit-log --jq '[.[].action] | unique'",
+        "file_path": null,
+        "expected_output": "Event actions covering deploy approvals / secret access / runner registration / permission changes (secure); only job-outcome events (insecure)",
+        "source": "OWASP CICD-SEC-10 Insufficient Logging and Visibility; NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_audit_trail_enabled",
+    "option_description": "Whether who triggered, approved, or accessed each workflow run / secret is recorded with actor identity in a retained audit trail.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient pipeline logging and visibility\" — fires when access_audit_trail_enabled is false: there is no record of who drove a deploy, so a compromised identity cannot be traced (OWASP CICD-SEC-10).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Confirm audit-log entries attribute each run/approval/secret access to an actor identity.",
+        "command": "gh api /orgs/{org}/audit-log --jq '.[0:3] | map({action, actor})'",
+        "file_path": null,
+        "expected_output": "Each event carries an actor identity (secure — actor-attributed trail); events lacking actor attribution or no retained trail (insecure)",
+        "source": "OWASP CICD-SEC-10 Insufficient Logging and Visibility; NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Number of days the pipeline audit log is retained off-box.",
+    "security_impact": "One of the OR-triggers for the policy exposure \"Insufficient pipeline logging and visibility\" — fires when log_retention_days < 90: a build-system compromise that dwells (SolarWinds-style) is unreconstructable because the relevant events have aged out (OWASP CICD-SEC-10; NIST SP 800-92).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the off-box audit-log retention period from the SIEM/archive configuration and report it in days against the 90-day floor.",
+        "command": null,
+        "file_path": null,
+        "expected_output": ">= 90 days retention on the off-box audit store (secure); < 90 days (fires — dwell-time compromises age out)",
+        "source": "OWASP CICD-SEC-10 Insufficient Logging and Visibility; NIST SP 800-92 Guide to Computer Security Log Management"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the GitHub org audit-log retention plan (GitHub retains org audit data ~180 days; the off-box SIEM retention is the authoritative figure for reconstruction).",
+        "command": null,
+        "file_path": null,
+        "navigation": "org Settings -> Audit log",
+        "expected_output": "Documented retention period (e.g. 180/365 days) meeting or exceeding the 90-day floor (secure); shorter than 90 days (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      30,
+      90,
+      180,
+      365
+    ]
+  }
+]

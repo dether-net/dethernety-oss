@@ -1,0 +1,939 @@
+[
+  {
+    "option_name": "parameterized_queries_used",
+    "option_description": "Whether all data-access queries use bound parameters / prepared statements ($1, ?, named params) rather than string-concatenated SQL built from untrusted request input.",
+    "security_impact": "One of the OR-triggers for the \"SQL injection\" exposure — fires when parameterized_queries_used is false, where string concatenation of user input into SQL is the primary SQL-injection enabler (OWASP A03, MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Code review / SAST: confirm the data-access layer binds parameters (e.g. $1, ?, named params) and never concatenates request input into SQL; stored procedures avoid EXECUTE on dynamic strings.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code review / SAST confirms all queries use bound parameters; no string concatenation of request input into SQL. Evidence absent = insecure.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dynamic_sql_avoided",
+    "option_description": "Whether the application and stored procedures avoid dynamic SQL execution on untrusted strings (no EXECUTE / EXECUTE IMMEDIATE on request-derived text) — the residual SQLi surface that survives even where most queries are parameterized.",
+    "security_impact": "One of the OR-triggers for the \"SQL injection\" exposure — fires when dynamic_sql_avoided is false, i.e. dynamic string-built SQL on untrusted input is present (OWASP A03, MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review stored procedures and application code for EXECUTE / EXECUTE IMMEDIATE on request-derived strings; confirm none execute untrusted dynamic SQL.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No EXECUTE/EXECUTE IMMEDIATE on request-derived strings (secure); dynamic SQL built from untrusted input is insecure.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "app_role_not_superuser_or_ddl",
+    "option_description": "Whether the application's DB login holds only table-scoped DML (SELECT/INSERT/UPDATE/DELETE) on its own schema and is NOT a superuser/SUPER and holds no DDL/DROP/GRANT/ALL.",
+    "security_impact": "One of the OR-triggers for the \"SQL injection\" exposure — fires when app_role_not_superuser_or_ddl is false; an over-privileged app role lets a successful injection escalate to schema tampering, COPY-to/from-program RCE (cf. CVE-2025-1094), and full takeover.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect PostgreSQL role flags for the app login.",
+        "command": "psql -c \"SELECT rolname, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = '<app_user>';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rolsuper=f, rolcreatedb=f, rolcreaterole=f for the app role (secure); rolsuper=t means the app runs as superuser (insecure).",
+        "source": "PostgreSQL REVOKE / role documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "List effective object grants for the app role on its schema.",
+        "command": "psql -c \"\\dp <schema>.*\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "App role shows only arwd (DML) grants, no D (DROP)/X/full ALL (secure).",
+        "source": "PostgreSQL REVOKE / role documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, list the grants held by the app login.",
+        "command": "mysql -e \"SHOW GRANTS FOR '<app_user>'@'<host>';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists SELECT,INSERT,UPDATE,DELETE ON `app_db`.* (secure); 'GRANT ALL PRIVILEGES ON *.* ... WITH GRANT OPTION' or SUPER is insecure.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "strong_db_auth_method_enforced",
+    "option_description": "Whether client authentication uses a strong challenge-response method everywhere — PostgreSQL pg_hba.conf rows use scram-sha-256 (never trust/md5/password for remote hosts) with password_encryption=scram-sha-256, and MySQL/MariaDB accounts use caching_sha2_password (not the deprecated mysql_native_password).",
+    "security_impact": "One of the OR-triggers for the \"Weak or trust authentication\" exposure — fires when trust/md5/password or mysql_native_password authentication is in use, enabling credential bypass or offline cracking of weak verifiers (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the active (uncommented) pg_hba.conf rows and check the METHOD column.",
+        "command": "grep -vE '^\\s*#|^\\s*$' $PGDATA/pg_hba.conf",
+        "file_path": "pg_hba.conf",
+        "navigation": null,
+        "expected_output": "host/hostssl rows use METHOD scram-sha-256 (secure); any 'trust' for non-local, or 'md5'/'password', is insecure.",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL (pg_hba)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the stored-verifier scheme on PostgreSQL.",
+        "command": "psql -c \"SHOW password_encryption;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "scram-sha-256 (secure); md5 means stored verifiers use the weak legacy scheme.",
+        "source": "CIS PostgreSQL Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, list each account's auth plugin.",
+        "command": "mysql -e \"SELECT user, host, plugin, IF(authentication_string='','BLANK','set') AS pw FROM mysql.user;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "plugin=caching_sha2_password and pw='set' for real accounts (secure); plugin=mysql_native_password is insecure.",
+        "source": "MySQL 8.0 Reference Manual — Caching SHA-2 Pluggable Authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "no_blank_or_default_db_passwords",
+    "option_description": "Whether no account holds a blank/empty verifier or a default/well-known password — PostgreSQL superuser (postgres) and MySQL root set to strong non-default secrets, and no MySQL account with empty authentication_string.",
+    "security_impact": "One of the OR-triggers for the \"Weak or trust authentication\" exposure — fires when any account has a blank or default/well-known password enabling default-credential login (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, find accounts with empty verifiers or anonymous user.",
+        "command": "mysql -e \"SELECT user,host FROM mysql.user WHERE authentication_string='' OR user='';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result is secure; any returned row is a blank/anonymous account (insecure).",
+        "source": "MySQL 8.0 Reference Manual — Caching SHA-2 Pluggable Authentication"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the PostgreSQL superuser (postgres) and MySQL root accounts have been set to strong non-default secrets (default/well-known passwords removed).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "postgres/root authenticate only with strong non-default credentials; no default or empty password accepted.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "anonymous_db_accounts_removed",
+    "option_description": "Whether no anonymous account exists — MySQL/MariaDB has no '' (empty user) account and PostgreSQL has no equivalently unauthenticated catch-all login.",
+    "security_impact": "One of the OR-triggers for the \"Weak or trust authentication\" exposure — fires when an anonymous '' user is present, allowing unauthenticated connection to the database (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query mysql.user for anonymous accounts.",
+        "command": "mysql -e \"SELECT user,host FROM mysql.user WHERE user='';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result is secure; any returned row is an anonymous account (insecure).",
+        "source": "MySQL 8.0 Reference Manual — Caching SHA-2 Pluggable Authentication"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On PostgreSQL, confirm no pg_hba.conf row provides an unauthenticated catch-all login (e.g. 'trust' for a broad host range).",
+        "command": "grep -vE '^\\s*#|^\\s*$' $PGDATA/pg_hba.conf",
+        "file_path": "pg_hba.conf",
+        "navigation": null,
+        "expected_output": "No broad 'trust' rows; remote rows require scram-sha-256 (secure).",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL (pg_hba)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether shipped/default administrative accounts have been removed or had their credentials changed from vendor defaults, with remote login to default admin roles (postgres, root) restricted.",
+    "security_impact": "One of the OR-triggers for the \"Weak or trust authentication\" exposure — fires when a default account retains its shipped credential or is reachable for default-credential login (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, list default admin accounts and confirm non-default verifiers.",
+        "command": "mysql -e \"SELECT user,host,plugin FROM mysql.user WHERE user IN ('root','mysql.sys','mysql.session');\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default admin accounts use strong non-default credentials and are not reachable for remote default-credential login (secure).",
+        "source": "MySQL 8.0 Reference Manual — Caching SHA-2 Pluggable Authentication"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm shipped/default admin accounts (postgres, root) are removed or have non-default credentials and that remote login to them is restricted via pg_hba.conf / host rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No default admin account retains its shipped credential; remote login to postgres/root is restricted.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether the application's database principal operates under least privilege — it is NOT a superuser/owner (PostgreSQL rolsuper/rolcreatedb/rolcreaterole all false; MySQL no SUPER/ALL/WITH GRANT OPTION) and holds only the minimum privileges needed.",
+    "security_impact": "One of the OR-triggers for the \"Over-privileged application role / no least-privilege\" exposure — fires when false; a compromised app session or SQL injection then escalates to schema tampering, COPY-to/from-program RCE, and full exfiltration (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect PostgreSQL role flags for the app principal.",
+        "command": "psql -c \"SELECT rolname, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = '<app_user>';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rolsuper=f, rolcreatedb=f, rolcreaterole=f for the app role (secure); rolsuper=t is insecure.",
+        "source": "PostgreSQL REVOKE / role documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, confirm the app principal holds no SUPER/ALL/WITH GRANT OPTION.",
+        "command": "mysql -e \"SHOW GRANTS FOR '<app_user>'@'<host>';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No SUPER, no ALL PRIVILEGES ON *.*, no WITH GRANT OPTION (secure).",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "role_grants_least_privilege",
+    "option_description": "Whether the application DB role holds only table-scoped DML grants (SELECT/INSERT/UPDATE/DELETE) on its own schema and NOT DDL/DROP/GRANT/ALL or broad cross-database privileges — per-role GRANT least-privilege rather than connecting as superuser/owner.",
+    "security_impact": "One of the OR-triggers for the \"Over-privileged application role / no least-privilege\" exposure — fires when false (MITRE T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List PostgreSQL object grants for the app role on its schema.",
+        "command": "psql -c \"\\dp <schema>.*\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "App role shows only arwd (DML) grants, no D (DROP)/X/full ALL (secure).",
+        "source": "PostgreSQL REVOKE / role documentation"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, confirm grants are table-scoped DML only.",
+        "command": "mysql -e \"SHOW GRANTS FOR '<app_user>'@'<host>';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists SELECT,INSERT,UPDATE,DELETE ON `app_db`.* only (secure); DDL/ALL/cross-database grants are insecure.",
+        "source": "OWASP SQL Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "public_schema_create_revoked",
+    "option_description": "Whether the implicit PUBLIC role no longer holds CREATE on the public schema (REVOKE CREATE ON SCHEMA public FROM PUBLIC), so untrusted/low-privilege accounts cannot plant objects in the shared schema. PG15+ revokes by default but must be verified; pre-15 requires explicit REVOKE.",
+    "security_impact": "One of the OR-triggers for the \"Over-privileged application role / no least-privilege\" exposure — fires when false (PUBLIC retains CREATE on public schema).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether PUBLIC retains CREATE on the public schema.",
+        "command": "psql -c \"SELECT has_schema_privilege('public','public','CREATE');\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "f (CREATE for PUBLIC revoked, secure); t is insecure — run REVOKE CREATE ON SCHEMA public FROM PUBLIC;.",
+        "source": "PostgreSQL REVOKE / role documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "row_level_security_enforced_where_multitenant",
+    "option_description": "Whether, where the store holds multi-tenant or per-record-sensitive data, Row-Level Security is enabled (and FORCEd to bind table owners) with policies constraining which rows a role can see/modify. Vacuously true when the store is not multi-tenant.",
+    "security_impact": "One of the OR-triggers for the \"Over-privileged application role / no least-privilege\" exposure — fires when false (no RLS where tenancy/record-scoping is required), letting a compromised app session read other tenants' data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect RLS state on sensitive multi-tenant tables.",
+        "command": "psql -c \"SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN (<sensitive_tables>);\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "relrowsecurity=t (and relforcerowsecurity=t to bind table owners) where tenancy applies (secure); f is a gap for multi-tenant data. Treat as satisfied when the store is not multi-tenant.",
+        "source": "PostgreSQL REVOKE / role documentation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "db_not_publicly_accessible",
+    "option_description": "Whether the database instance has NO public endpoint — RDS/Aurora/Cloud SQL/Azure SQL PubliclyAccessible=false and the instance sits in a private subnet with no internet-resolvable IP.",
+    "security_impact": "One of the OR-triggers for the \"Public network exposure of the DB port\" exposure — fires when the managed instance is publicly accessible from the internet, enabling brute force, direct exploitation, and bulk exfiltration (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the RDS instance public-accessibility flag.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].PubliclyAccessible'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "false (secure); true means the endpoint resolves to a public IP — one SG misconfig from internet exposure.",
+        "source": "AWS RDS — describe-db-instances CLI reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "listen_addresses_restricted",
+    "option_description": "Whether the engine binds only to loopback or a specific private/VPC interface — PostgreSQL listen_addresses is localhost/a private IP (not '*') and MySQL/MariaDB bind_address is 127.0.0.1/a private IP (not 0.0.0.0 or ::).",
+    "security_impact": "One of the OR-triggers for the \"Public network exposure of the DB port\" exposure — fires when the DB listens on all interfaces on an internet-reachable host (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the PostgreSQL listen interface.",
+        "command": "psql -c \"SHOW listen_addresses;\"",
+        "file_path": "postgresql.conf",
+        "navigation": null,
+        "expected_output": "localhost or specific private IP (secure); '*' on an internet-exposed host is insecure.",
+        "source": "CIS PostgreSQL Benchmark"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the MySQL/MariaDB bind interface.",
+        "command": "mysql -e \"SHOW VARIABLES LIKE 'bind_address';\"",
+        "file_path": "my.cnf",
+        "navigation": null,
+        "expected_output": "127.0.0.1 or a private IP (secure); 0.0.0.0 with public exposure is insecure.",
+        "source": "MySQL 8.0 Reference Manual — Encrypted Connections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "host_access_rules_scoped",
+    "option_description": "Whether client host-based access rules are scoped to known private CIDRs and never permit the world — PostgreSQL pg_hba.conf host/hostssl rows do NOT use 0.0.0.0/0 or ::/0, and MySQL account host specifiers are not '%' for remote logins.",
+    "security_impact": "One of the OR-triggers for the \"Public network exposure of the DB port\" exposure — fires when host rules allow 0.0.0.0/0 (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect pg_hba.conf source ranges on host/hostssl rows.",
+        "command": "grep -vE '^\\s*#|^\\s*$' $PGDATA/pg_hba.conf",
+        "file_path": "pg_hba.conf",
+        "navigation": null,
+        "expected_output": "Source CIDRs are known private ranges (secure); any 0.0.0.0/0 or ::/0 is insecure.",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL (pg_hba)"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL/MariaDB, check account host specifiers for remote logins.",
+        "command": "mysql -e \"SELECT user, host FROM mysql.user;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Host specifiers scoped to private addresses (secure); '%' for remote logins is insecure.",
+        "source": "MySQL 8.0 Reference Manual — Caching SHA-2 Pluggable Authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "network_firewall_restricts_db_port",
+    "option_description": "Whether a network firewall / security group / NACL restricts ingress to the DB port (5432/3306) to the application tier or known private ranges only, with no 0.0.0.0/0 allow on the DB port.",
+    "security_impact": "One of the OR-triggers for the \"Public network exposure of the DB port\" exposure — fires when the DB sits on a public subnet with no firewall scoping the port (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review security groups / NACLs / host firewall rules on the DB port (5432/3306); confirm ingress limited to the app tier or known private ranges, no 0.0.0.0/0 allow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingress to 5432/3306 limited to app tier / known private ranges; no 0.0.0.0/0 allow (secure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From outside the trusted network, probe the DB port to confirm it is not reachable.",
+        "command": "nmap -Pn -p 5432,3306 <db_host_or_endpoint>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port filtered/closed from untrusted networks (secure); open from the public internet is insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether the server enforces TLS for all client connections so plaintext is rejected — PostgreSQL ssl=on (with pg_hba hostssl) or MySQL require_secure_transport=ON.",
+    "security_impact": "One of the OR-triggers for the \"Missing encryption in transit / MITM\" exposure — fires when false, where the database accepts unencrypted connections and credentials/PII are sniffable and MITM-able on the wire (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check PostgreSQL TLS enforcement.",
+        "command": "psql -c \"SHOW ssl;\"",
+        "file_path": "postgresql.conf",
+        "navigation": null,
+        "expected_output": "on (secure); off/absent accepts plaintext (insecure).",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL"
+      },
+      {
+        "type": "command",
+        "instruction": "Check MySQL TLS enforcement.",
+        "command": "mysql -e \"SHOW GLOBAL VARIABLES LIKE 'require_secure_transport';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ON (secure — server rejects unencrypted connections); OFF allows plaintext (insecure).",
+        "source": "MySQL 8.0 Reference Manual — Encrypted Connections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether clients validate the server certificate AND hostname before sending credentials — PostgreSQL sslmode=verify-full, MySQL VERIFY_IDENTITY / REQUIRE X509.",
+    "security_impact": "One of the OR-triggers for the \"Missing encryption in transit / MITM\" exposure — fires when false (sslmode=require/prefer/allow/disable or no CA pinning), where the connection may be encrypted but the server is unauthenticated, leaving an active MITM able to intercept the session (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Prove the client connects only under full certificate + hostname validation.",
+        "command": "PGSSLMODE=verify-full psql 'host=<db> sslrootcert=ca.crt' -c 'SELECT 1;'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connects only when the server cert chains to ca.crt and hostname matches (secure config proven); a connection succeeding with sslmode=disable/allow indicates plaintext/unverified fallback is permitted.",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "weak_tls_versions_enabled",
+    "option_description": "Interpreted boolean: whether the server negotiates a deprecated/weak TLS protocol version (TLS 1.0/1.1, SSLv3) or weak cipher suites for database connections.",
+    "security_impact": "One of the OR-triggers for the \"Missing encryption in transit / MITM\" exposure — fires when true, where a downgrade-capable MITM or passive attacker can break the transport encryption (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the PostgreSQL minimum protocol policy.",
+        "command": "psql -c \"SHOW ssl_min_protocol_version;\"",
+        "file_path": "postgresql.conf",
+        "navigation": null,
+        "expected_output": "TLSv1.2 or TLSv1.3 (secure — weak versions not negotiable); TLSv1 / TLSv1.1 floor means weak versions are enabled (insecure).",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL, read the negotiated TLS version policy.",
+        "command": "mysql -e \"SHOW GLOBAL VARIABLES LIKE 'tls_version';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLSv1.2,TLSv1.3 only (secure); inclusion of TLSv1/TLSv1.1 means a weak version is negotiable (insecure).",
+        "source": "MySQL 8.0 Reference Manual — Encrypted Connections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Lowest TLS protocol version the database server will accept for client connections (PG ssl_min_protocol_version, MySQL tls_version). The secure floor is TLSv1.2 or TLSv1.3.",
+    "security_impact": "Contextual evidence for the \"Missing encryption in transit / MITM\" exposure — a value of TLSv1.0/TLSv1.1/SSLv3 indicates a legacy floor exploitable by downgrade/known-cipher attacks (MITRE T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the PostgreSQL minimum accepted TLS version.",
+        "command": "psql -c \"SHOW ssl_min_protocol_version;\"",
+        "file_path": "postgresql.conf",
+        "navigation": null,
+        "expected_output": "TLSv1.2 or TLSv1.3 (secure floor); TLSv1 / TLSv1.1 is a legacy floor (insecure).",
+        "source": "PostgreSQL 18 — Secure TCP/IP Connections with SSL"
+      },
+      {
+        "type": "command",
+        "instruction": "On MySQL, read the lowest accepted TLS version from the negotiated policy.",
+        "command": "mysql -e \"SHOW GLOBAL VARIABLES LIKE 'tls_version';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lowest entry is TLSv1.2 (secure floor); TLSv1/TLSv1.1 present is a legacy floor.",
+        "source": "MySQL 8.0 Reference Manual — Encrypted Connections"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2",
+      "TLSv1.3"
+    ]
+  },
+  {
+    "option_name": "storage_encryption_enabled",
+    "option_description": "Whether at-rest storage encryption is active for the data files, WAL/binlogs, automated backups and snapshots — RDS StorageEncrypted=true (AES-256 via KMS), TDE for Oracle/SQL Server, or an encrypted volume (LUKS) for self-managed engines.",
+    "security_impact": "One of the OR-triggers for the \"Missing encryption at rest\" exposure — fires when false, where at-rest data is readable from disk/volume/snapshot theft (MITRE T1213). Note RDS encryption is creation-time-only and is retrofitted only by encrypting a snapshot copy.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read RDS at-rest encryption state and KMS key.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].[StorageEncrypted,KmsKeyId]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "[true, <kms-key-arn>] (secure); [false, null] means at-rest data is unencrypted (insecure).",
+        "source": "AWS RDS — Encrypting Amazon RDS resources"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Canonical workspace flag asserting the store's data at rest is encrypted by some mechanism (TDE / RDS StorageEncrypted / encrypted volume). Used as the AND-context for the customer-managed-key gap.",
+    "security_impact": "Contextual evidence (AND-context) for the \"Missing encryption at rest\" exposure — when at-rest encryption is on but not backed by a customer-managed key, the second condition group fires together with customer_managed_key_used=false (MITRE T1213).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm some at-rest encryption mechanism is active on RDS.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].StorageEncrypted'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "true means at-rest encryption is active (TDE / RDS StorageEncrypted / encrypted volume on self-managed).",
+        "source": "AWS RDS — Encrypting Amazon RDS resources"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "customer_managed_key_used",
+    "option_description": "Whether the at-rest encryption is backed by a customer-managed KMS key (CMK) rather than the AWS-managed default key, giving independent key policy, scoped principal access, and revocation/rotation control.",
+    "security_impact": "One of the OR-triggers for the \"Missing encryption at rest\" exposure — fires (in AND-context with encrypted_at_rest=true) when false, leaving key custody and access policy outside the data owner's control (MITRE T1213).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the RDS KMS key resolves to a customer-managed CMK.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].KmsKeyId'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KmsKeyId resolves to a customer-managed CMK ARN (secure); the AWS-managed default key (alias/aws/rds) or null is insecure.",
+        "source": "AWS RDS — Encrypting Amazon RDS resources"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the CMK has automatic rotation enabled.",
+        "command": "aws kms get-key-rotation-status --key-id <kms-key-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyRotationEnabled=true (secure); false is a gap.",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "db_credentials_in_secret_manager",
+    "option_description": "Whether the database connection credentials are sourced at runtime from a secret manager / Vault rather than embedded in app config, environment files, or source.",
+    "security_impact": "One of the OR-triggers for the \"Exposed / static database credentials\" exposure — fires when false, where the DB password lives in plaintext config/env and can be harvested from images, repos, or process memory and replayed for direct DB access (MITRE T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the app resolves DB credentials from a managed secret backend at runtime (no plaintext password in config/source).",
+        "command": "git grep -nEi 'password|pwd|pgpassword|mysql_pwd' -- ':!*.md'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No DB credentials in repo/config (secure); the app fetches creds from a secret manager / Vault at runtime. Plaintext creds in source/config are insecure.",
+        "source": "HashiCorp Vault — Database secrets engine"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dynamic_short_lived_db_credentials_used",
+    "option_description": "Whether the application uses short-lived, automatically-issued dynamic DB credentials (e.g. HashiCorp Vault's database secrets engine issuing TTL'd creds) rather than a single long-lived shared static password.",
+    "security_impact": "One of the OR-triggers for the \"Exposed / static database credentials\" exposure — fires when false, where a single long-lived credential leak grants persistent direct DB access until manually rotated (MITRE T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify a Vault DB role / dynamic-secret backend issues per-session TTL credentials.",
+        "command": "vault read database/creds/<role>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a freshly-issued username/password with a lease TTL (secure — dynamic short-lived creds); absence means a static long-lived password is in use (insecure).",
+        "source": "HashiCorp Vault — Database secrets engine"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "db_credentials_not_in_code_or_repo",
+    "option_description": "Whether no database connection string or password is hard-coded in application source code, committed config files, container images, or version-control history.",
+    "security_impact": "One of the OR-triggers for the \"Exposed / static database credentials\" exposure — fires when false, where connection strings or DB passwords are committed to the repo or baked into images and harvested directly (MITRE T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Run repo/image secret scanning across source, committed config and history.",
+        "command": "git grep -nEi 'password|pwd|pgpassword|mysql_pwd' -- ':!*.md'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No live DB credentials returned (secure); any committed connection string or password is insecure.",
+        "source": "HashiCorp Vault — Database secrets engine"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "db_credentials_rotated_regularly",
+    "option_description": "Whether, where static credentials cannot be fully eliminated, the DB password is rotated on a regular, enforced schedule (automated rotation policy) rather than left long-lived/unchanged.",
+    "security_impact": "One of the OR-triggers for the \"Exposed / static database credentials\" exposure — fires when false, where a never-rotated static password remains valid indefinitely, maximizing the reuse window for a leaked credential (MITRE T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify a secret-manager rotation policy or documented rotation cadence is configured and exercised for the DB credential.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An enforced automated rotation policy (e.g. Secrets Manager rotation lambda / Vault rotation) with evidence of recent rotation (secure); never-rotated static password is insecure.",
+        "source": "HashiCorp Vault — Database secrets engine"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "backups_encrypted",
+    "option_description": "Whether database backups/snapshots and dumps are encrypted at rest (RDS automated backups inherit StorageEncrypted=true with a KMS key; self-managed pg_dump/mysqldump output is encrypted).",
+    "security_impact": "One of the OR-triggers for the \"Backup tampering / recovery destruction\" exposure — fires when false (e.g. plaintext dumps in an open bucket), exposing the full dataset to theft of snapshots and enabling exfiltration from recovery copies (MITRE T1485).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm RDS automated backups inherit at-rest encryption.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].[BackupRetentionPeriod,StorageEncrypted]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "StorageEncrypted=true (automated backups inherit KMS encryption) — secure; false means backups are unencrypted.",
+        "source": "AWS RDS — Encrypting Amazon RDS resources"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For self-managed engines, confirm off-box dumps (pg_dump/mysqldump) are encrypted at rest before storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dumps encrypted (e.g. via GPG / SSE on the bucket) before storage (secure); plaintext dumps are insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "point_in_time_recovery_enabled",
+    "option_description": "Whether point-in-time recovery / automated backups are enabled so the store can be restored after destruction or ransomware — RDS BackupRetentionPeriod > 0, or equivalent WAL/binlog archiving with retention for self-managed engines.",
+    "security_impact": "One of the OR-triggers for the \"Backup tampering / recovery destruction\" exposure — fires when false (BackupRetentionPeriod=0 or no PITR/retention), so a compromised credential can destroy data with no recovery path (MITRE T1485).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the RDS automated-backup retention period.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].BackupRetentionPeriod'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BackupRetentionPeriod > 0 (PITR/automated backups on) — secure; 0 disables automated backups (insecure).",
+        "source": "AWS RDS — Encrypting Amazon RDS resources"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For self-managed engines, confirm WAL/binlog archiving with retention provides equivalent point-in-time recovery.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WAL archiving (PostgreSQL) / binlog archiving (MySQL) with retention enabling PITR (secure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "backup_access_restricted",
+    "option_description": "Whether access to the backup store (snapshot share permissions, backup bucket IAM/ACLs, snapshot copy/delete rights) is least-privilege and not world-readable/writable.",
+    "security_impact": "One of the OR-triggers for the \"Backup tampering / recovery destruction\" exposure — fires when false (world-readable bucket, or runtime credential holds delete/share rights over snapshots), so a compromised credential can read, copy, or delete recovery data (MITRE T1485).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review snapshot share permissions and backup bucket IAM/ACLs; confirm least-privilege, not world-readable/writable, and that the runtime credential lacks delete/share rights.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup store access scoped to dedicated backup principals only; runtime DB credential cannot read/copy/delete snapshots (secure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "backup_immutability_enabled",
+    "option_description": "Whether backups are immutable / integrity-protected (object-lock / WORM / append-only store, or vaulted snapshots that cannot be altered or deleted within retention).",
+    "security_impact": "One of the OR-triggers for the \"Backup tampering / recovery destruction\" exposure — fires when false (backups are mutable and deletable by the operating credential), so an attacker who reaches the backup store can tamper with or delete recovery data (anti-forensics, ransomware; MITRE T1485).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify object-lock / WORM / append-only or vaulted snapshots that cannot be altered or deleted within the retention window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backups under object-lock/WORM/vault with a retention window that blocks alteration and deletion (secure); freely deletable backups are insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "database_audit_logging_enabled",
+    "option_description": "Whether database access/DML/DDL auditing is active (pgAudit loaded with object/role logging, MySQL audit log plugin, or RDS audit-log export).",
+    "security_impact": "One of the OR-triggers for the \"Audit-logging gaps, unpatched engine & residency drift\" exposure — fires when false, where privileged and bulk-read activity goes unrecorded (defeats PCI DSS Req 10 / NIST AU family; MITRE T1070).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check pgAudit and connection-logging state on PostgreSQL.",
+        "command": "psql -c \"SHOW shared_preload_libraries;\" -c \"SHOW pgaudit.log;\" -c \"SHOW log_connections;\"",
+        "file_path": "postgresql.conf",
+        "navigation": null,
+        "expected_output": "shared_preload_libraries includes pgaudit, pgaudit.log set (e.g. 'ddl, role, write'), log_connections=on (secure); pgaudit absent is insecure.",
+        "source": "pgAudit — Open Source PostgreSQL Audit Logging"
+      },
+      {
+        "type": "command",
+        "instruction": "On RDS, confirm the audit log type is exported.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].EnabledCloudwatchLogsExports'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Includes 'audit' (and engine log) types (secure); empty/null means audit logging is not exported.",
+        "source": "AWS RDS — describe-db-instances CLI reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_connections_enabled",
+    "option_description": "Whether connection logging is on (PostgreSQL log_connections=on / log_disconnections=on, or the MySQL equivalent) so login and session events are captured.",
+    "security_impact": "One of the OR-triggers for the \"Audit-logging gaps, unpatched engine & residency drift\" exposure — fires when false, leaving authentication events unlogged and masking unauthorized access (MITRE T1070).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check PostgreSQL connection logging.",
+        "command": "psql -c \"SHOW log_connections;\" -c \"SHOW log_disconnections;\"",
+        "file_path": "postgresql.conf",
+        "navigation": null,
+        "expected_output": "log_connections=on (and log_disconnections=on) is secure; off leaves authentication events unlogged.",
+        "source": "pgAudit — Open Source PostgreSQL Audit Logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether audit/database logs are shipped off-host to a centralized, append-only/immutable store with restricted access (CloudWatch export, SIEM forwarding) so a DB-account compromise cannot erase the local trail.",
+    "security_impact": "One of the OR-triggers for the \"Audit-logging gaps, unpatched engine & residency drift\" exposure — fires when false, where logs live only on the DB host and are deletable by the DB account (PCI DSS Req 10, NIST AU-9; MITRE T1070).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm off-host log export is configured on RDS.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].EnabledCloudwatchLogsExports'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists exported log types (e.g. postgresql, audit) shipped to CloudWatch (secure off-host trail); empty/null means logs stay only on-host.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For self-managed engines, confirm a log shipper forwards logs to a central append-only/immutable store with restricted access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A log forwarder ships DB/audit logs off-host to an append-only/immutable store with restricted access (secure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Number of days audit/access logs are retained in the off-host store. The required window is 365 days per PCI DSS Req 10.",
+    "security_impact": "One of the OR-triggers for the \"Audit-logging gaps, unpatched engine & residency drift\" exposure — fires when retention is shorter than the required window (≈1 year per PCI DSS Req 10), leaving insufficient forensic history to reconstruct a breach.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the off-host log store retention setting (e.g. CloudWatch Logs retentionInDays / SIEM retention policy); confirm >= 365 days.",
+        "command": "aws logs describe-log-groups --log-group-name-prefix /aws/rds --query 'logGroups[].retentionInDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention >= 365 days (secure per PCI DSS Req 10); a smaller value (or null = never expire is acceptable) below the window is insecure.",
+        "source": "PCI DSS v4.0 Requirement 10 — Log and Monitor All Access"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      365,
+      730,
+      90
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Interpreted boolean: whether the database engine runs an EoL major version or a minor behind a known-exploited CVE/CISA-KEV entry (e.g. CVE-2025-1094, the PostgreSQL libpq/psql invalid-UTF-8 SQLi chaining to shell command execution; fixed in PG 17.3/16.7/15.11/14.16/13.19).",
+    "security_impact": "One of the OR-triggers for the \"Audit-logging gaps, unpatched engine & residency drift\" exposure — fires when true (EoL or behind a known-exploited CVE), leaving a documented, weaponized exploitation path open with mandated KEV remediation timelines (CISA BOD 22-01; MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running engine version and compare against the fixed minor for all applicable advisories.",
+        "command": "psql -c \"SHOW server_version;\"   # or: mysql -e \"SELECT VERSION();\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version at or above the fixed minor for all applicable advisories — e.g. PG >= 17.3/16.7/15.11/14.16/13.19 (secure); a version below CVE-2025-1094 fixes or an EoL major is insecure.",
+        "source": "CVE-2025-1094 — PostgreSQL libpq/psql SQL injection (CISA KEV)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "data_residency_region_pinned",
+    "option_description": "Whether the instance plus its read replicas, automated backups, and snapshot copies are confined to the approved residency region(s) and cannot drift cross-region.",
+    "security_impact": "One of the OR-triggers for the \"Audit-logging gaps, unpatched engine & residency drift\" exposure — fires when false, where regulated PII may be stored or replicated outside the required jurisdiction (residency violation; NIST SP 800-122).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the RDS instance AZ/region is within the approved residency boundary, with no cross-region replicas/snapshot copies for regulated data.",
+        "command": "aws rds describe-db-instances --db-instance-identifier <id> --query 'DBInstances[0].AvailabilityZone'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AZ/region within the approved residency boundary, and no cross-region read replicas/snapshot copies for regulated data (secure); out-of-region placement is a residency gap.",
+        "source": "NIST SP 800-122 Guide to Protecting the Confidentiality of PII"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

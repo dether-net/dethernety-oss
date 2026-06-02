@@ -1,0 +1,210 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "edr_agent_active_with_tamper_protection": {
+        "type": "boolean",
+        "title": "EDR Agent Active With Tamper Protection",
+        "description": "Healthy EDR agent deployed on all inventoried endpoints with self/tamper protection that prevents disabling or uninstalling the agent (mitigates T1562.001 impair-defenses). Secure when true.",
+        "default": false
+      },
+      "behavior_monitoring_enabled": {
+        "type": "boolean",
+        "title": "Behavioral Monitoring Enabled",
+        "description": "Real-time behavioral/heuristic detection is enabled (not signature-only) so novel and fileless threats are caught by behavior. Secure when true.",
+        "default": false
+      },
+      "realtime_protection_enabled": {
+        "type": "boolean",
+        "title": "Real-Time Protection Enabled",
+        "description": "Real-time on-execution protection is active, scanning and blocking malicious code at the moment it runs. Secure when true.",
+        "default": false
+      },
+      "ransomware_mass_change_detection_enabled": {
+        "type": "boolean",
+        "title": "Ransomware Mass-Change Detection Enabled",
+        "description": "Behavioral anti-ransomware mass-change detection halts and isolates a host on detecting rapid bulk file modification/encryption (mitigates T1486). Secure when true.",
+        "default": false
+      },
+      "endpoint_remediation_rollback_enabled": {
+        "type": "boolean",
+        "title": "Endpoint Remediation / Rollback Enabled",
+        "description": "Remediation/rollback capability restores affected files to a known-good state after a ransomware or malware event. Secure when true."
+      },
+      "automated_host_isolation_enabled": {
+        "type": "boolean",
+        "title": "Automated Host Isolation Enabled",
+        "description": "Agent can automatically or via one-click isolate a host from the network on detection while preserving the management channel. Secure when true.",
+        "default": false
+      },
+      "endpoint_containment_response_enabled": {
+        "type": "boolean",
+        "title": "Endpoint Containment Response Enabled",
+        "description": "Containment response workflow (kill process, quarantine file, terminate session) is available and enabled on detection. Secure when true.",
+        "default": false
+      },
+      "application_allowlisting_enforced": {
+        "type": "boolean",
+        "title": "Application Allowlisting Enforced",
+        "description": "Application allowlisting / execution control restricts which code is permitted to run (M1038 execution prevention). Secure when true.",
+        "default": false
+      },
+      "threat_signatures_current": {
+        "type": "boolean",
+        "title": "Threat Detection Content Current",
+        "description": "Signature, engine, and threat-intel updates are pulled automatically on cadence so detection content stays current. Secure when true.",
+        "default": false
+      },
+      "endpoint_audit_logs_centralised": {
+        "type": "boolean",
+        "title": "Endpoint Telemetry Centralised",
+        "description": "EDR telemetry is centrally collected and forwarded to a SIEM for correlation and retention. Secure when true.",
+        "default": false
+      },
+      "monitored_response_function_present": {
+        "type": "boolean",
+        "title": "Monitored Response Function Present",
+        "description": "A monitored response function (in-house SOC or MDR) triages and acts on detections under defined SLAs. Secure when true.",
+        "default": false
+      }
+    },
+    "required": [
+      "edr_agent_active_with_tamper_protection",
+      "behavior_monitoring_enabled",
+      "realtime_protection_enabled",
+      "ransomware_mass_change_detection_enabled",
+      "endpoint_remediation_rollback_enabled",
+      "automated_host_isolation_enabled",
+      "endpoint_containment_response_enabled",
+      "application_allowlisting_enforced",
+      "threat_signatures_current",
+      "endpoint_audit_logs_centralised",
+      "monitored_response_function_present"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/application_allowlisting_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/threat_signatures_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_audit_logs_centralised"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Endpoint Coverage",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edr_agent_active_with_tamper_protection"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Incident Response",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_host_isolation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_containment_response_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/monitored_response_function_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_remediation_rollback_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Malware Defense",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/behavior_monitoring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ransomware_mass_change_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/realtime_protection_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

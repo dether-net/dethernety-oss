@@ -1,0 +1,9 @@
+{
+  "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+  "name": "Log & Telemetry Collection",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Log and telemetry collection — also called log shipping, metrics/trace ingestion, the telemetry pipeline, or agent-to-SIEM flow — the flow of events and metrics from components into the monitoring and SIEM tier. The feed that detection depends on. The place to look for log shipping, telemetry/metrics ingestion, the observability pipeline, or how events reach the monitoring stack.",
+  "category": "Operational Traffic",
+  "status": "draft"
+}

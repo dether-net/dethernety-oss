@@ -1,0 +1,9 @@
+{
+  "id": "36a75bf8-d1d5-463e-b725-b435b8201ec2",
+  "name": "Network Perimeter",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "The network perimeter — the network edge or internet-facing trust boundary, the north-south divide between the public Internet and organization-controlled infrastructure. The outermost zone every inbound connection crosses and where untrusted traffic is first screened. The place to look for the perimeter, network edge, internet boundary, public/private trust line, or the outer boundary separating external networks from internal systems.",
+  "category": "Network Architecture",
+  "status": "draft"
+}

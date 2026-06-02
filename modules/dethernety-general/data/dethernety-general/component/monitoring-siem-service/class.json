@@ -1,0 +1,9 @@
+{
+  "id": "05b05c81-6d47-4366-be17-3d3ceabc460a",
+  "name": "Monitoring & SIEM Service",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "Aggregates telemetry and security events, correlates them, and raises alerts. The backbone of detection and a target adversaries seek to blind.",
+  "category": "Operational Monitoring",
+  "status": "draft"
+}

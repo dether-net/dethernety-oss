@@ -1,0 +1,9 @@
+{
+  "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+  "name": "API Call",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "An API call — also called a service-to-service request, REST/gRPC/GraphQL call, API request/response, or backend integration traffic — programmatic request/response traffic between services or to external APIs. Carries authorization context and payloads between processes. The place to look for API traffic, REST/gRPC/GraphQL calls, service-to-service requests, or programmatic request/response between components.",
+  "category": "Application Traffic",
+  "status": "draft"
+}

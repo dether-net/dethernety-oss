@@ -1,0 +1,265 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Data Encrypted At Rest",
+        "description": "Data at rest is encrypted on the primary store. Secure true.",
+        "default": false
+      },
+      "storage_encryption_enabled": {
+        "type": "boolean",
+        "title": "Storage-Layer Encryption Enabled",
+        "description": "Block/disk/object storage encryption enabled. Secure true.",
+        "default": false
+      },
+      "tde_enabled": {
+        "type": "boolean",
+        "title": "Transparent Data Encryption Enabled",
+        "description": "Database transparent data encryption enabled. Secure true."
+      },
+      "backups_encrypted": {
+        "type": "boolean",
+        "title": "Backups And Snapshots Encrypted",
+        "description": "Snapshots and backups encrypted at rest. Secure true."
+      },
+      "at_rest_encryption_strength": {
+        "type": "string",
+        "enum": [
+          "none",
+          "weak",
+          "strong"
+        ],
+        "title": "At-Rest Encryption Strength",
+        "description": "At-rest crypto strength. Secure value strong (AES-256/FIPS-approved)."
+      },
+      "fips_validated_module": {
+        "type": "boolean",
+        "title": "FIPS-Validated Crypto Module",
+        "description": "Crypto via a FIPS 140-3 CMVP-validated module. Secure true."
+      },
+      "keys_managed_in_hsm_or_kms": {
+        "type": "boolean",
+        "title": "Keys Held In Dedicated KMS/HSM",
+        "description": "Master keys in a dedicated KMS/HSM separate from the data. Secure true.",
+        "default": false
+      },
+      "envelope_encryption_kek_dek_split": {
+        "type": "boolean",
+        "title": "Envelope Encryption (KEK/DEK Split)",
+        "description": "KEK/DEK envelope hierarchy wraps data keys. Secure true.",
+        "default": false
+      },
+      "key_rotation_enabled": {
+        "type": "boolean",
+        "title": "Automatic Key Rotation Enabled",
+        "description": "Automatic key rotation enabled. Secure true.",
+        "default": false
+      },
+      "key_rotation_period_days": {
+        "type": "integer",
+        "title": "Key Rotation Period (Days)",
+        "description": "Key cryptoperiod in days; <=365 secure (NIST SP 800-57)."
+      },
+      "kms_key_protection_policy_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Key Policy Enforced",
+        "description": "Key policy scoped (no kms:* wildcard), least-privilege. Secure true.",
+        "default": false
+      },
+      "kms_admin_separated_from_db_admin": {
+        "type": "boolean",
+        "title": "Key Admin Separated From Data Admin",
+        "description": "Key administration split from key usage / data admin (SoD). Secure true.",
+        "default": false
+      },
+      "customer_managed_key_used": {
+        "type": "boolean",
+        "title": "Customer-Managed Keys Used",
+        "description": "Org-controlled customer-managed/BYOK keys, not provider-default only. Secure true.",
+        "default": false
+      },
+      "secure_deletion_or_crypto_shred": {
+        "type": "boolean",
+        "title": "Secure Deletion / Crypto-Shred",
+        "description": "Data renderable irrecoverable by scheduled key destruction (crypto-shred). Secure true.",
+        "default": false
+      },
+      "key_management_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Key-Management Audit Logging Enabled",
+        "description": "KMS API calls + key-admin events logged to a tamper-evident trail. Secure true.",
+        "default": false
+      },
+      "secret_access_audited": {
+        "type": "boolean",
+        "title": "Key/Secret Access Audited",
+        "description": "Key/secret access audited with principal + source IP. Secure true.",
+        "default": false
+      }
+    },
+    "required": [
+      "encrypted_at_rest",
+      "storage_encryption_enabled",
+      "tde_enabled",
+      "backups_encrypted",
+      "at_rest_encryption_strength",
+      "fips_validated_module",
+      "keys_managed_in_hsm_or_kms",
+      "envelope_encryption_kek_dek_split",
+      "key_rotation_enabled",
+      "key_rotation_period_days",
+      "kms_key_protection_policy_enforced",
+      "kms_admin_separated_from_db_admin",
+      "customer_managed_key_used",
+      "secure_deletion_or_crypto_shred",
+      "key_management_audit_logging_enabled",
+      "secret_access_audited"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kms_admin_separated_from_db_admin"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kms_key_protection_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/at_rest_encryption_strength"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backups_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/fips_validated_module"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tde_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_deletion_or_crypto_shred"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/customer_managed_key_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/envelope_encryption_kek_dek_split"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_managed_in_hsm_or_kms"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_period_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_management_audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_access_audited"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

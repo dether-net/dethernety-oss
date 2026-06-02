@@ -1,0 +1,510 @@
+[
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Attests that the HTTP/S flow refuses plaintext HTTP at the edge — plaintext requests are either refused outright or 301/308-redirected to HTTPS, so credentials, cookies, and request bodies are never observable in transit.",
+    "security_impact": "References \"Cleartext HTTP downgrade / missing HSTS\" — one of its OR-conditions — firing when tls_only_transport is false, leaving the flow exposed to SSL-strip / active-MITM downgrade (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the plaintext HTTP scheme on the public hostname and observe whether the edge serves the application or redirects to HTTPS.",
+        "command": "curl -sSI http://EDGE_HOST/ -o /dev/null -w '%{http_code} %{redirect_url}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status 301/308 to https://EDGE_HOST/... (secure) or 200 with response body served over HTTP (insecure).",
+        "source": "OWASP HTTP Strict Transport Security Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Scan ports 80 and 443 on the edge host to confirm that port 80 is either closed or only used to redirect, not to serve the live application.",
+        "command": "nmap -p 80,443 EDGE_HOST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "80/tcp closed/redirect-only, 443/tcp open (secure) vs 80/tcp open serving live application (insecure).",
+        "source": "OWASP HTTP Strict Transport Security Cheat Sheet"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the edge (CDN or reverse-proxy) configuration for the forced-HTTPS rule that performs the redirect or refusal.",
+        "command": null,
+        "file_path": "/etc/nginx/nginx.conf or CDN edge ruleset (e.g. Cloudflare Always Use HTTPS, AWS CloudFront ViewerProtocolPolicy=redirect-to-https)",
+        "navigation": null,
+        "expected_output": "A return 301 https://$host$request_uri; (nginx) or equivalent CDN setting that mandates HTTPS for every request.",
+        "source": "Mozilla Web Security Guidelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "hsts_enforced",
+    "option_description": "Attests that the flow's HTTPS responses carry a Strict-Transport-Security header (RFC 6797) instructing browsers to refuse plaintext HTTP for this origin, defeating SSL-strip and downgrade attempts on subsequent visits.",
+    "security_impact": "References \"Cleartext HTTP downgrade / missing HSTS\" — one of its OR-conditions — firing when hsts_enforced is false, leaving browsers willing to follow a downgrade onto HTTP (ATT&CK T1557).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch HEAD on the apex over HTTPS and confirm a Strict-Transport-Security response header is present.",
+        "command": "curl -sSI https://EDGE_HOST/ | grep -i '^strict-transport-security'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "strict-transport-security: max-age=31536000; includeSubDomains; preload (secure) vs header absent or short max-age (insecure).",
+        "source": "RFC 6797 (HSTS) / OWASP HTTP Strict Transport Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Check the Chromium HSTS preload submission list for the apex domain to confirm preload enrolment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "https://hstspreload.org/?domain=EDGE_HOST",
+        "expected_output": "Apex domain present on the hstspreload.org submission list, with includeSubDomains + preload (secure).",
+        "source": "OWASP HTTP Strict Transport Security Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "hsts_max_age_seconds",
+    "option_description": "The max-age directive (in seconds) on the Strict-Transport-Security response header. The Mozilla / OWASP / hstspreload.org baseline is at least one year (31536000s); shorter values weaken the protection because the browser forgets to enforce HTTPS-only sooner.",
+    "security_impact": "References \"Cleartext HTTP downgrade / missing HSTS\" — one of its OR-conditions — firing when hsts_max_age_seconds is less than 31536000, the documented one-year minimum below which HSTS does not survive long enough between visits to be effective (RFC 6797).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Parse the max-age token from the Strict-Transport-Security response header on the HTTPS endpoint.",
+        "command": "curl -sSI https://EDGE_HOST/ | grep -i '^strict-transport-security'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "max-age=31536000 or higher (secure baseline) vs max-age under 31536000 / missing (insecure).",
+        "source": "RFC 6797 (HSTS) / OWASP HTTP Strict Transport Security Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the value against the hstspreload.org minimum: max-age must be at least 31536000 and the header must include includeSubDomains and preload for preload-list eligibility.",
+        "command": null,
+        "file_path": null,
+        "navigation": "https://hstspreload.org/",
+        "expected_output": "Submission accepted (max-age>=31536000; includeSubDomains; preload) — confirms the integer meets the preload threshold.",
+        "source": "OWASP HTTP Strict Transport Security Cheat Sheet"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      31536000,
+      63072000,
+      0
+    ]
+  },
+  {
+    "option_name": "content_security_policy_enforced",
+    "option_description": "Attests that the HTTP/S flow returns a Content-Security-Policy response header enforcing a deny-by-default policy (default-src 'none' or equivalent; script-src 'self' or nonce/strict-dynamic; object-src 'none'; base-uri 'self'; frame-ancestors 'none'). Interpreted boolean — the assessor verifies the directive set rather than substring-matching the raw header. Report-only deployments do not count.",
+    "security_impact": "References \"Missing/weak Content-Security-Policy enabling XSS\" — one of its OR-conditions — firing when content_security_policy_enforced is false, leaving reflected/stored/DOM XSS payloads free to execute with full session authority (ATT&CK T1059.007 / T1185).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch HEAD on a representative HTML endpoint and confirm a Content-Security-Policy response header is present (not Content-Security-Policy-Report-Only).",
+        "command": "curl -sSI https://EDGE_HOST/ | grep -i '^content-security-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Locked-down policy with no 'unsafe-inline' in script-src (secure) vs absent header or policy containing 'unsafe-inline'/'unsafe-eval'/wildcard (insecure).",
+        "source": "Mozilla Web Security Guidelines"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run the CSP through Google's CSP Evaluator to surface HIGH-severity findings such as 'unsafe-inline allows execution of arbitrary scripts'.",
+        "command": "curl -sS 'https://csp-evaluator.withgoogle.com/getCSP?url=https://EDGE_HOST/'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No HIGH-severity findings (secure) vs flagged 'unsafe-inline allows execution of arbitrary scripts' (insecure).",
+        "source": "Mozilla Web Security Guidelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "csp_allows_unsafe_inline_or_eval",
+    "option_description": "Attests that the Content-Security-Policy on this flow weakens script-src (or default-src) with 'unsafe-inline', 'unsafe-eval', a wildcard '*' source, or a comparably permissive token that re-enables arbitrary script execution. True when XSS payloads would execute under the policy; false on a locked-down policy.",
+    "security_impact": "References \"Missing/weak Content-Security-Policy enabling XSS\" — one of its OR-conditions — firing when csp_allows_unsafe_inline_or_eval is true, because each of these tokens individually re-enables the very class of script execution CSP was deployed to block (ATT&CK T1059.007).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch the CSP header and parse the effective script-src / default-src token list, flagging 'unsafe-inline', 'unsafe-eval', '*', or data: as XSS-permissive.",
+        "command": "curl -sSI https://EDGE_HOST/ | grep -i '^content-security-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "script-src 'self' (or nonce/strict-dynamic) only (secure) vs script-src containing 'unsafe-inline', 'unsafe-eval', '*', or data: (insecure).",
+        "source": "Mozilla Web Security Guidelines"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm with Google CSP Evaluator that no HIGH-severity 'unsafe-*' findings are reported.",
+        "command": "curl -sS 'https://csp-evaluator.withgoogle.com/getCSP?url=https://EDGE_HOST/'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No HIGH-severity 'unsafe-inline' / 'unsafe-eval' / wildcard findings (secure).",
+        "source": "Mozilla Web Security Guidelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "x_content_type_options_nosniff_set",
+    "option_description": "Attests that the flow returns X-Content-Type-Options: nosniff on responses, forbidding browser MIME-sniffing so a text/* or image/* response cannot be reinterpreted as executable script. True when the header is reliably present with the nosniff token; false when absent or stripped by intermediaries.",
+    "security_impact": "References \"Missing/weak Content-Security-Policy enabling XSS\" — one of its OR-conditions — firing when x_content_type_options_nosniff_set is false, since without nosniff a browser may execute a sniffed-as-script response, restoring an XSS path the CSP was designed to close (ATT&CK T1059.007).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch HEAD against representative endpoints and confirm X-Content-Type-Options: nosniff is present on every response.",
+        "command": "curl -sSI https://EDGE_HOST/ | grep -i '^x-content-type-options'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "x-content-type-options: nosniff (secure) vs header missing (insecure).",
+        "source": "OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "frame_ancestors_or_x_frame_options_restricted",
+    "option_description": "Attested true when the HTTP/S response carries either CSP frame-ancestors 'none' (or a tight allow-list) OR X-Frame-Options: DENY/SAMEORIGIN, blocking the origin from being embedded by attacker pages. False when neither header is set — the documented clickjacking exposure.",
+    "security_impact": "References \"Clickjacking via missing frame-ancestors / X-Frame-Options\" — its sole condition — firing when frame_ancestors_or_x_frame_options_restricted is false, permitting an attacker page to frame the authenticated UI and hijack click events (ATT&CK T1185).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect response headers on authenticated/state-changing pages and confirm either CSP frame-ancestors 'none'/tight allow-list OR X-Frame-Options: DENY|SAMEORIGIN is present.",
+        "command": "curl -sSI https://EDGE_HOST/ | grep -iE '^(x-frame-options|content-security-policy)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "X-Frame-Options: DENY OR CSP contains frame-ancestors 'none' (secure) vs neither present (insecure).",
+        "source": "OWASP Secure Headers Project"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cors_origin_allowlist_strict",
+    "option_description": "Attests that Access-Control-Allow-Origin echoes only origins from a server-side allow-list; never '*', never a reflected Origin without validation, never 'null'. True = strict allow-list enforced on every CORS-bearing response. False = wildcard, reflected Origin, or 'null' accepted.",
+    "security_impact": "References \"Permissive CORS allowing cross-origin data theft\" — one of its OR-conditions — firing when cors_origin_allowlist_strict is false, letting an attacker-origin page read authenticated JSON cross-site (ATT&CK T1539 — Steal Web Session Cookie).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Replay an authenticated endpoint with a crafted attacker Origin and confirm Access-Control-Allow-Origin does not echo it back.",
+        "command": "curl -sSI https://EDGE_HOST/api/me -H 'Origin: https://evil.example' | grep -i '^access-control-allow-'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No Access-Control-Allow-Origin header OR origin not echoed (secure) vs Access-Control-Allow-Origin: https://evil.example with Allow-Credentials: true (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for CORS"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Replay with the literal 'null' Origin (sandboxed iframe / data: URL trick) and confirm the server refuses to echo it.",
+        "command": "curl -sSI https://EDGE_HOST/api/me -H 'Origin: null' | grep -i '^access-control-allow-origin'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Origin 'null' is NOT echoed (secure) vs Access-Control-Allow-Origin: null (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for CORS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cors_credentials_with_wildcard_origin",
+    "option_description": "Attests whether the flow ever returns Access-Control-Allow-Credentials: true together with Access-Control-Allow-Origin: '*' (or a fully reflected Origin). True = the dangerous credentialed-wildcard combination is observed on at least one endpoint — any origin can read authenticated JSON. False = credentialed responses are paired only with an explicit, vetted single origin.",
+    "security_impact": "References \"Permissive CORS allowing cross-origin data theft\" — one of its OR-conditions — firing when cors_credentials_with_wildcard_origin is true, the textbook credentialed-CORS misconfiguration that defeats same-origin protection (ATT&CK T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Replay an authenticated cross-origin request with a crafted Origin and verify the response never combines ACA-Credentials: true with ACA-Origin: '*' or a reflected value.",
+        "command": "curl -sSI https://EDGE_HOST/api/me -H 'Origin: https://evil.example' | grep -iE '^access-control-allow-(origin|credentials)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Either no ACA-Credentials header, or ACA-Credentials: true paired only with a single explicit origin (secure) vs ACA-Credentials: true with ACA-Origin: '*' or a reflected Origin (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for CORS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "csrf_token_or_double_submit_enforced",
+    "option_description": "Attested true when the server validates a per-session anti-CSRF token (synchronizer-token, double-submit cookie, or custom-request-header pattern) on every state-changing POST/PUT/PATCH/DELETE; false when state-changing endpoints accept requests with no token or Origin/Referer check.",
+    "security_impact": "References \"Missing CSRF protection on state-changing requests\" — one of its OR-conditions — firing when csrf_token_or_double_submit_enforced is false, letting an attacker page issue state-changing requests with the victim's ambient session cookies (ATT&CK T1185 — Browser Session Hijacking).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send a state-changing request bearing the victim's session cookie but no anti-CSRF token and confirm it is rejected.",
+        "command": "curl -sSk -b cookies.txt -X POST https://EDGE_HOST/api/transfer -d 'amount=1' -w '%{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/422 returned because anti-CSRF token absent (secure) vs 200 OK accepted without a token (insecure).",
+        "source": "OWASP Cross-Site Request Forgery Prevention Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review framework-level CSRF middleware configuration and any per-route exemptions list to confirm protection is enabled by default.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Framework-level CSRF middleware enabled (e.g. Django CsrfViewMiddleware, Rails protect_from_forgery, Spring CsrfFilter) and exemptions reviewed (secure).",
+        "source": "OWASP Cross-Site Request Forgery Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "samesite_attribute_set",
+    "option_description": "Attests that every session/auth cookie issued on this flow carries an effective SameSite attribute (Strict or Lax) so the browser refuses to attach it to cross-site requests. True when SameSite=Strict or =Lax is set on all auth cookies; false when SameSite is absent or set to None without a compensating CSRF token.",
+    "security_impact": "OR-trigger for two exposures: \"Missing CSRF protection on state-changing requests\" (firing when samesite_attribute_set is false, removing the primary in-browser CSRF defence) AND \"Session cookies missing HttpOnly / Secure / SameSite\" (same condition — auth cookies ride cross-site requests, ATT&CK T1539 / T1185).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect Set-Cookie headers issued at login for every auth/session cookie and confirm SameSite=Strict or =Lax is present.",
+        "command": "curl -sSI https://EDGE_HOST/login -X POST | grep -i '^set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie includes 'SameSite=Strict' or 'SameSite=Lax' (secure) vs SameSite=None or missing without CSRF-token fallback (insecure).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "content_type_strict_validation",
+    "option_description": "Attested true when the server returns 415 Unsupported Media Type for requests whose Content-Type does not match the endpoint contract (JSON endpoints require application/json, form endpoints require application/x-www-form-urlencoded); false when the endpoint parses bodies regardless of Content-Type, which enables CSRF via simple-request (text/plain) and parser-confusion bypasses.",
+    "security_impact": "References \"Missing CSRF protection on state-changing requests\" — one of its OR-conditions — firing when content_type_strict_validation is false, since lax Content-Type acceptance lets attacker pages use text/plain simple-requests that bypass preflight and token defences (ATT&CK T1185; OWASP ASVS V13).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "POST a JSON payload to a JSON endpoint with Content-Type: text/plain and confirm 415 is returned rather than the body being parsed.",
+        "command": "curl -sS -X POST https://EDGE_HOST/api/json-endpoint -H 'Content-Type: text/plain' --data '{\"a\":1}' -w '%{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "415 Unsupported Media Type (secure) vs 200 OK accepting the payload (insecure).",
+        "source": "OWASP ASVS V13 (API & Web Service)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cookie_httponly_flag",
+    "option_description": "Attests that every session/auth cookie issued on this flow carries the HttpOnly attribute so document.cookie cannot read it from JavaScript. True when HttpOnly is present on all auth cookies; false when any auth cookie is issued without it — the XSS-to-session-theft path.",
+    "security_impact": "References \"Session cookies missing HttpOnly / Secure / SameSite\" — one of its OR-conditions — firing when cookie_httponly_flag is false, the documented prerequisite for stealing the session via any XSS foothold (ATT&CK T1539).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect Set-Cookie headers issued at login for every auth/session cookie and confirm the HttpOnly attribute is present.",
+        "command": "curl -sSI https://EDGE_HOST/login -X POST | grep -i '^set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie includes the literal 'HttpOnly' attribute on every session/auth cookie (secure) vs HttpOnly missing (insecure).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cookie_secure_flag",
+    "option_description": "Attests that every session/auth cookie issued on this flow carries the Secure attribute so the browser refuses to send it over plaintext HTTP. True when Secure is present on all auth cookies; false when any auth cookie is issued without Secure — the cookie leaks over any cleartext request.",
+    "security_impact": "References \"Session cookies missing HttpOnly / Secure / SameSite\" — one of its OR-conditions — firing when cookie_secure_flag is false, allowing the session cookie to ride any incidental cleartext request to leak in transit (ATT&CK T1539 / T1550.004).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect Set-Cookie headers issued at login for every auth/session cookie and confirm the Secure attribute is present.",
+        "command": "curl -sSI https://EDGE_HOST/login -X POST | grep -i '^set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-Cookie includes the literal 'Secure' attribute on every session/auth cookie (secure) vs Secure missing (insecure).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_framing_normalized_front_back",
+    "option_description": "Attests that the front-end (CDN/reverse proxy) and back-end origin parse HTTP/1.1 Content-Length and Transfer-Encoding identically, and that any HTTP/2-to-HTTP/1 downgrade at the edge strips/normalises framing headers — so length-ambiguous CL.TE, TE.CL, TE.TE, H2.CL, and H2.TE requests are rejected (400) rather than smuggled. Validated against the PortSwigger / Kettle desync CVE wave (CVE-2019-18277, CVE-2019-20372, CVE-2022-26377).",
+    "security_impact": "References \"HTTP request smuggling (CL.TE / TE.CL / H2 desync)\" — its sole condition — firing when request_framing_normalized_front_back is false, letting an attacker smuggle a follow-up request past edge auth/WAF, poison the cache, and hijack other users' sessions (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run an HTTP request-smuggling probe (PortSwigger HTTP Request Smuggler Burp extension or smuggler.py) against the public edge and confirm every CL.TE / TE.CL / TE.TE / H2.CL / H2.TE variant is rejected.",
+        "command": "python3 smuggler.py -u https://EDGE_HOST/ -t all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All variants return 400 Bad Request or are normalised (secure) vs at least one variant returns 200 / smuggles a follow-up request (insecure).",
+        "source": "PortSwigger Research — HTTP Desync Attacks (Kettle, 2019)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the edge (CDN/reverse proxy) and origin are both patched past the Kettle-disclosed desync CVE wave, and that HTTP/2 is used end-to-end (or HTTP/1.1 to origin is hardened) per RFC 9113 §10 framing determinism.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Edge and origin both updated past CVE-2019-18277 / CVE-2019-20372 / CVE-2022-26377; HTTP/2 end-to-end where feasible (secure).",
+        "source": "PortSwigger Research — HTTP/2: The Sequel is Always Worse (Kettle, 2021)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "http_method_allow_list_enforced",
+    "option_description": "Interpreted boolean attested on the flow: endpoints accept only the HTTP methods they implement (typically GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS as designed) and return 405 Method Not Allowed for any other verb. True when an enforced allow-list is in place at the edge or framework; false when arbitrary/unsupported verbs slip through and can bypass auth filters scoped only to GET/POST.",
+    "security_impact": "References \"Permissive HTTP methods / verb tampering (TRACE/TRACK)\" — one of its OR-conditions — firing when http_method_allow_list_enforced is false, letting unexpected verbs (PROPFIND, CONNECT, etc.) bypass auth filters scoped only to GET/POST (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe representative endpoints with unusual verbs and confirm 405 Method Not Allowed is returned.",
+        "command": "curl -sSI -X PROPFIND https://EDGE_HOST/ -w '%{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "405 Method Not Allowed (secure) vs 200 / 207 indicating the unexpected verb was accepted (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for HTTP Methods"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "trace_track_methods_blocked",
+    "option_description": "Interpreted boolean attested on the flow: TRACE and TRACK HTTP methods are explicitly disabled (return 405) at every reachable endpoint, defeating Cross-Site Tracing (XST) and cookie reflection via the request-echoing TRACE response. True when both verbs are confirmed blocked end-to-end; false when either is accepted and the request is echoed.",
+    "security_impact": "References \"Permissive HTTP methods / verb tampering (TRACE/TRACK)\" — one of its OR-conditions — firing when trace_track_methods_blocked is false, enabling Cross-Site Tracing and cookie reflection through the echoing TRACE response (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe TRACE against the public hostname and confirm 405 (not 200 with the request echoed).",
+        "command": "curl -sSI -X TRACE https://EDGE_HOST/ -w '%{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "405 Method Not Allowed (secure) vs 200 with echoed request (insecure XST).",
+        "source": "OWASP Web Security Testing Guide — Testing for HTTP Methods"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Repeat the probe with TRACK (Microsoft IIS alias) to confirm the same 405 response.",
+        "command": "curl -sSI -X TRACK https://EDGE_HOST/ -w '%{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "405 Method Not Allowed on TRACK (secure) vs 200 with echoed request (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for HTTP Methods"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "waf_active_blocking_on_public_web",
+    "option_description": "Attests that a WAF (cloud or ModSecurity + OWASP CRS) sits in front of the public HTTP/S flow in ACTIVE BLOCKING mode (not monitor/detect-only), with paranoia level and anomaly threshold tuned to actually block injection/XSS/command payloads (CRS paranoia >=1, inbound anomaly score threshold ~5). True when hostile payloads are denied at the edge; false when there is no WAF, the WAF is in DetectionOnly/monitor mode, or the threshold is high enough that nothing blocks in practice.",
+    "security_impact": "References \"WAF in detect-only / absent on public web flow\" — its sole condition — firing when waf_active_blocking_on_public_web is false, letting injection, XSS, and command payloads in client requests reach the back-end interpreter (ATT&CK T1190 — Exploit Public-Facing Application).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send the canonical XSS probe (and an OR 1=1 SQLi probe) to a public endpoint and confirm the WAF returns 403/406.",
+        "command": "curl -sS 'https://EDGE_HOST/?q=<script>alert(1)</script>' -w '%{http_code}\\n' -o /dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403 Forbidden returned by WAF (secure) vs 200 OK reflected back from app (insecure).",
+        "source": "OWASP ModSecurity Core Rule Set — Working with Paranoia Levels"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect ModSecurity / CRS configuration for SecRuleEngine On, paranoia level, and inbound anomaly threshold.",
+        "command": "grep -E 'SecRuleEngine|tx.blocking_paranoia_level|tx.inbound_anomaly_score_threshold' /etc/modsecurity/*.conf /etc/nginx/modsec/*.conf 2>/dev/null",
+        "file_path": "/etc/modsecurity/*.conf, /etc/nginx/modsec/*.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On; blocking_paranoia_level >= 1; inbound_anomaly_score_threshold <= 5 (secure) vs SecRuleEngine DetectionOnly (insecure).",
+        "source": "OWASP ModSecurity Core Rule Set — Working with Paranoia Levels"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "request_size_and_complexity_limits_enforced",
+    "option_description": "Attests that the edge (CDN / reverse proxy / API gateway) enforces a bounded maximum on request-body size and decoded complexity (e.g. nginx client_max_body_size, Apache LimitRequestBody, ASP.NET MaxRequestBodySize, plus JSON depth / decompression-ratio caps) appropriate to each endpoint, so a single client cannot submit unbounded uploads, JSON bombs, or zip/gzip decompression bombs. True iff a bounded directive is provably present and oversized payloads receive 413; false if the body size is unbounded or limits are only advisory.",
+    "security_impact": "References \"Oversized request bodies enabling resource exhaustion\" — its sole condition — firing when request_size_and_complexity_limits_enforced is false, letting a single client exhaust memory/disk/CPU at the edge or origin (ATT&CK T1499.003 — Application Exhaustion Flood).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "POST a body exceeding the documented edge limit (e.g. 500MB) and confirm a 413 Payload Too Large response.",
+        "command": "head -c 524288000 /dev/zero | curl -sS -X POST --data-binary @- https://EDGE_HOST/api/echo -w '%{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "413 Payload Too Large (secure) vs 200/500 after server consumes 500MB (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for Oversized Request"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep edge config for the bounded directive (client_max_body_size on nginx, LimitRequestBody on Apache, MaxRequestBodySize on ASP.NET).",
+        "command": "grep -E 'client_max_body_size|LimitRequestBody|MaxRequestBodySize' /etc/nginx/nginx.conf /etc/apache2/apache2.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/apache2.conf",
+        "navigation": null,
+        "expected_output": "A bounded directive present (secure) vs no limit configured (insecure).",
+        "source": "OWASP Web Security Testing Guide — Testing for Oversized Request"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

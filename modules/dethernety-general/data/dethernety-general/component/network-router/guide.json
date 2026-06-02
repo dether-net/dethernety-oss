@@ -1,0 +1,893 @@
+[
+  {
+    "option_name": "http_admin_ui_disabled",
+    "option_description": "Whether the cleartext HTTP management web UI is disabled ('no ip http server'); if web management is required, only 'ip http secure-server' bound by an 'ip http access-class' ACL.",
+    "security_impact": "One of the OR-triggers of \"Exposed / unauthenticated management plane\" — fires when the cleartext HTTP admin UI is left enabled. This is the entry point of the CVE-2023-20198 -> CVE-2023-20273 IOS-XE Web UI implant chain (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the HTTP/HTTPS server configuration on the running config.",
+        "command": "show running-config | include ip http",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'no ip http server' present (and at most 'ip http secure-server' with 'ip http access-class'). Insecure: 'ip http server' present.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted vantage point probe the device's public addresses for a listening HTTP(S) management port to confirm the web UI is not reachable.",
+        "command": "nmap -Pn -p 80,443 <router_public_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: ports 80/443 closed/filtered (no admin web UI). Insecure: an HTTP/HTTPS service answers.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "telnet_disabled_ssh_only",
+    "option_description": "Whether vty lines accept only SSH for remote management with Telnet disabled ('transport input ssh').",
+    "security_impact": "One of the OR-triggers of \"Exposed / unauthenticated management plane\" — fires when Telnet is permitted ('transport input telnet/all' or a permissive default), exposing admin credentials to on-path/internet cleartext capture (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the transport-input setting on every vty line section.",
+        "command": "show running-config | section line vty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'transport input ssh'. Insecure: 'transport input telnet', 'transport input all', or no transport-input restriction.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the Telnet port is not accepting connections on the management address.",
+        "command": "nmap -Pn -p 23 <router_mgmt_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: TCP/23 closed/filtered. Insecure: Telnet (TCP/23) open and accepting credentials.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ssh_v2_only_enforced",
+    "option_description": "Whether only SSH protocol version 2 is permitted ('ip ssh version 2'), preventing SSHv1 fallback.",
+    "security_impact": "One of the OR-triggers of \"Exposed / unauthenticated management plane\" — fires when SSHv1 is allowed or the version is unpinned, exposing known cryptographic weaknesses enabling downgrade/credential interception.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the pinned SSH version in the running config.",
+        "command": "show running-config | include ip ssh",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'ip ssh version 2' present. Insecure: 'ip ssh version 1' or version not pinned.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the operational SSH version reported by the device.",
+        "command": "show ip ssh",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'SSH Enabled - version 2.0'. Insecure: version 1.99/1.5 reported (SSHv1 fallback permitted).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vty_access_class_restricted",
+    "option_description": "Whether vty lines bind an 'access-class <acl> in' (or Management Plane Protection) scoping remote admin (SSH/HTTPS/SNMP/NETCONF) to authorized management subnets.",
+    "security_impact": "One of the OR-triggers of \"Exposed / unauthenticated management plane\" — fires when vty lines have no access-class so the control surface is reachable from any source (the dominant router initial-access vector, T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check each vty line for an access-class binding and inspect the referenced ACL.",
+        "command": "show running-config | section line vty ; show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: vty has 'access-class' referencing an ACL scoped to mgmt nets. Insecure: no access-class on vty / permit any.",
+        "source": "Cisco IOS XE Software Hardening Guide / NSA Network Infrastructure Security Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Whether the device's management/control interfaces (SSH, HTTPS web UI, SNMP, NETCONF) are out-of-band or ACL/segmentation isolated and not reachable from the public internet.",
+    "security_impact": "One of the OR-triggers of \"Exposed / unauthenticated management plane\" — fires when an admin interface is internet-exposed, the precondition that turned CVE-2023-20198 into mass exploitation (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an external/untrusted network scan the device's public addresses for listening management services.",
+        "command": "nmap -Pn -p 22,80,443,161,830 <router_public_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: no SSH/HTTPS/SNMP/NETCONF service answers from untrusted networks. Insecure: a management service is reachable.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with network architecture/ops that management interfaces are out-of-band or behind segmentation/ACLs rather than on the transit/internet-facing path.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented out-of-band management network or infrastructure ACL isolating the management plane.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmpv3_auth_priv_required",
+    "option_description": "Whether SNMP management is restricted to SNMPv3 with auth+priv (USM) and no SNMP v1/v2c community strings remain in use.",
+    "security_impact": "One of the OR-triggers of \"Weak SNMP community-string abuse\" — fires when cleartext v1/v2c communities are still in service, enabling config recon/exfiltration (T1602).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect SNMP groups/users for the v3 security model with privacy.",
+        "command": "show snmp group ; show snmp user",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: groups/users show 'v3' security model with 'priv'. Insecure: v1/v2c security model in use.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm no plain community lines remain and SNMPv3 groups/users exist.",
+        "command": "show running-config | include snmp-server",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'snmp-server group ... v3 priv' and 'snmp-server user ... v3 auth ... priv ...'; no plain community lines. Insecure: 'snmp-server community ...' present.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_default_communities_removed",
+    "option_description": "Whether well-known default community strings (RO 'public', RW 'private', and other shipped defaults) have been removed.",
+    "security_impact": "One of the OR-triggers of \"Weak SNMP community-string abuse\" — fires when defaults like 'snmp-server community public/private' remain, permitting trivial recon/modification (T1602).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the SNMP community lines for default community names.",
+        "command": "show running-config | include snmp-server community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: no 'public'/'private' or other default community names. Insecure: 'snmp-server community public' / 'snmp-server community private' present.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_write_community_disabled_or_acl_bound",
+    "option_description": "Whether SNMP read-write access is eliminated (no RW community) or, where retained, strictly ACL-bound to authorized management hosts.",
+    "security_impact": "One of the OR-triggers of \"Weak SNMP community-string abuse\" — fires when an unrestricted 'snmp-server community <x> RW' exists, permitting remote configuration modification (T1602).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect SNMP community lines for 'RW' clauses and their bound access-list.",
+        "command": "show running-config | include snmp-server community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: no RW community, or RW only with an ACL token. Insecure: 'snmp-server community <x> RW' with no access-list.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_access_acl_restricted",
+    "option_description": "Whether SNMP access (any retained community or SNMPv3 access) is restricted by an access-list scoped to authorized management subnets.",
+    "security_impact": "One of the OR-triggers (secondary) of \"Weak SNMP community-string abuse\" — fires when SNMP is reachable from any/untrusted source (T1602).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Find the ACL token on the snmp-server community/group lines, then inspect that ACL's scope.",
+        "command": "show running-config | include snmp-server ; show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: community/group lines carry an access-list scoped to management subnets. Insecure: no ACL on SNMP access lines.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "centralized_aaa_enabled",
+    "option_description": "Whether centralized AAA governs admin authentication, authorization, and accounting ('aaa new-model' bound to TACACS+/RADIUS with local fallback only).",
+    "security_impact": "One of the OR-triggers of \"Weak / cleartext management credentials and missing AAA\" — fires when access falls back to shared local/line passwords with no per-admin accountability or command accounting (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the AAA configuration for new-model and backend bindings.",
+        "command": "show running-config | include aaa ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'aaa new-model', 'aaa authentication login default group tacacs+ local', 'aaa accounting commands 15 ...'. Insecure: no 'aaa new-model'.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "strong_password_hashing_enabled",
+    "option_description": "Whether privileged and local credentials use strong, non-reversible hashing ('enable secret' and 'username x secret' Type 8/9) rather than reversible Type 7/0.",
+    "security_impact": "One of the OR-triggers of \"Weak / cleartext management credentials and missing AAA\" — fires when secrets sit in the running-config in recoverable form (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the enable and local-user credential lines for hash types.",
+        "command": "show running-config | include service password-encryption|enable secret|enable password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'enable secret' used (Type 8/9), 'username x secret'. Insecure: 'enable password' (Type 0/7) present.",
+        "source": "CIS Cisco IOS Benchmark v2.2 / Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "service_password_encryption_enabled",
+    "option_description": "Whether 'service password-encryption' obfuscates otherwise-plaintext passwords in the running-config (Type-7, reversible — defense-in-depth behind strong hashing).",
+    "security_impact": "One of the OR-triggers (secondary) of \"Weak / cleartext management credentials and missing AAA\" — fires when passwords sit fully cleartext in the config (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether service password-encryption is enabled.",
+        "command": "show running-config | include service password-encryption|enable secret|enable password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'service password-encryption' present and 'enable secret' used. Insecure: no password-encryption / 'enable password' present.",
+        "source": "CIS Cisco IOS Benchmark v2.2 / Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether default/factory and reused administrative accounts and passwords have been removed or changed to strong unique credentials.",
+    "security_impact": "One of the OR-triggers of \"Weak / cleartext management credentials and missing AAA\" — fires when default/reused passwords permit trivial credential-based initial access (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate local accounts and confirm none are factory-default or reused; cross-check against the device's shipped default credential list.",
+        "command": "show running-config | include username|enable",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only individually-provisioned accounts with strong unique secrets. Insecure: factory-default/reused usernames or passwords remain.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with admins that no factory-default or reused local/enable credentials remain on the device.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Attestation plus credential-rotation evidence that defaults were changed at provisioning.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "shared_admin_accounts",
+    "option_description": "Whether administrators share common (line/enable/local) accounts rather than per-admin identities. Secure state is false; this fires on the insecure (shared) state.",
+    "security_impact": "One of the OR-triggers of \"Weak / cleartext management credentials and missing AAA\" — fires (is_true) when admins share credentials, destroying accountability and amplifying credential reuse (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether admins authenticate with individual identities (via AAA) or share line/enable/local credentials.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure (false): each admin has a per-user AAA identity. Insecure (true): a shared line/enable/local password is used by multiple operators.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-check the device for per-user accounts vs reliance on a single line/enable password.",
+        "command": "show running-config | include username|line vty|enable",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: multiple distinct 'username' identities bound to AAA. Insecure: only a shared line/enable password configured.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "bgp_session_authentication_enabled",
+    "option_description": "Whether every eBGP/iBGP neighbor session is cryptographically authenticated via TCP-MD5 ('neighbor <ip> password <key>') or, preferably, TCP-AO key-chain.",
+    "security_impact": "One of the OR-triggers of \"Routing-protocol injection / route hijack\" — fires when a neighbor session is unauthenticated, letting an adversary spoof a BGP peer or hijack the TCP session to inject/hijack routes (T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the BGP configuration; each neighbor must carry a password or AO key-chain clause.",
+        "command": "show running-config | section router bgp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: each 'neighbor x.x.x.x' has a 'password' or 'ao' key-chain line. Insecure: neighbors with no authentication clause.",
+        "source": "Cisco IOS XE BGP Configuration / Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "igp_neighbor_authentication_enabled",
+    "option_description": "Whether IGP adjacencies (OSPF/EIGRP) require cryptographic neighbor authentication (OSPF message-digest keys, EIGRP md5 key-chains) on adjacency-forming interfaces.",
+    "security_impact": "One of the OR-triggers of \"Routing-protocol injection / route hijack\" — fires when an IGP adjacency is unauthenticated, letting a rogue on-link device form an adjacency and inject or blackhole routes (T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check OSPF interface authentication and EIGRP md5 authentication mode.",
+        "command": "show ip ospf interface | include Authentication ; show running-config | include ip authentication mode eigrp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: OSPF interfaces report 'Message digest authentication enabled'; EIGRP interfaces have md5 mode + key-chain. Insecure: 'no authentication' on adjacency-forming interfaces.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bgp_rpki_origin_validation_enabled",
+    "option_description": "Whether the router validates BGP route origin against RPKI ROAs (RTR session configured via 'bgp rpki server', invalid-origin routes dropped/depreferenced).",
+    "security_impact": "One of the OR-triggers of \"Routing-protocol injection / route hijack\" — fires when the router accepts mis-originated/hijacked prefixes regardless of ROA, enabling prefix hijack and traffic rerouting (T1565.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the BGP RPKI configuration and the validator session state.",
+        "command": "show running-config | section router bgp ; show ip bgp rpki servers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'bgp rpki server tcp ...' present and validation server reachable. Insecure: no rpki server / no origin-validation policy.",
+        "source": "Cisco BGP Origin AS Validation (RPKI) Configuration Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "proxy_arp_disabled_on_edge",
+    "option_description": "Whether Proxy ARP is disabled ('no ip proxy-arp') on untrusted/edge interfaces.",
+    "security_impact": "One of the OR-triggers of \"On-path interception and boundary bridging pivot\" — fires when the router answers ARP for off-subnet hosts, an adversary-in-the-middle interception primitive (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the Proxy ARP state on each edge interface.",
+        "command": "show ip interface <if> | include Proxy ARP|ICMP redirects",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'Proxy ARP is disabled' on edge interfaces. Insecure: proxy-arp enabled.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "icmp_redirects_disabled",
+    "option_description": "Whether ICMP redirects are not sent ('no ip redirects') on untrusted/edge interfaces.",
+    "security_impact": "One of the OR-triggers of \"On-path interception and boundary bridging pivot\" — fires when redirects can be abused to steer transit traffic through an attacker-chosen next hop for on-path interception (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the ICMP redirects state on each edge interface.",
+        "command": "show ip interface <if> | include Proxy ARP|ICMP redirects",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'ICMP redirects are never sent'. Insecure: redirects enabled.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "interface_acls_enforce_segmentation",
+    "option_description": "Whether interface/transit ACLs actually enforce the trust-boundary segmentation the router separates (no permit-any gaps between straddled segments).",
+    "security_impact": "One of the OR-triggers of \"On-path interception and boundary bridging pivot\" — fires when ACL gaps let traffic cross boundaries the router should isolate (T1599).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect all ACLs and per-interface ip access-group bindings and compare against the intended segmentation policy.",
+        "command": "show ip access-lists ; show running-config | include ip access-group|interface",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: per-interface ACL bindings deny cross-boundary traffic with no permit-any gaps. Insecure: missing bindings or permit-any rules between segments.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Validate the bound ACLs against the documented trust-boundary/segmentation policy the router is meant to enforce.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL set provably matches the intended segmentation with no gaps.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unauthorized_tunnel_interfaces_blocked",
+    "option_description": "Whether only authorized, change-controlled tunnel interfaces exist and creation of new GRE/IPsec/other tunnels is prevented or alerted.",
+    "security_impact": "One of the OR-triggers of \"On-path interception and boundary bridging pivot\" — fires when an attacker who controls the router can stand up a rogue tunnel to bridge segments and proxy traffic (T1599 boundary bridging).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate tunnel interfaces and compare against an approved baseline.",
+        "command": "show running-config | section interface Tunnel",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only change-controlled tunnels present and matching the approved baseline. Insecure: unexpected/undocumented Tunnel interfaces.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the config-change archive notifies on interface/tunnel creation so rogue tunnels are alerted.",
+        "command": "show running-config | section archive",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'log config' with 'notify syslog' present so tunnel creation is audited. Insecure: no config-change archive.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "firmware_integrity_verified",
+    "option_description": "Whether the running IOS/IOS-XE image's authenticity has been verified ('verify' / 'show software authenticity file' report digital-signature and embedded-hash success against the Cisco-signed image).",
+    "security_impact": "One of the OR-triggers of \"Firmware tampering / unsigned-image implant\" — fires when verification failed or was never performed, so a tampered/unsigned image may be running undetected (T1542).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify the running image's digital signature and embedded hash.",
+        "command": "show software authenticity file bootflash:<image> ; verify bootflash:<image>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: signer/cert shown, 'Digital signature successfully verified', 'Embedded hash verification successful'. Insecure: signature failure or unsigned image.",
+        "source": "Cisco IOS XE Software Integrity Assurance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secure_boot_image_verification_enabled",
+    "option_description": "Whether the hardware Trust Anchor / Secure Boot root of trust is enforcing — ROMMON and the IOS-XE image are signature-verified at every boot and the device halts on failure.",
+    "security_impact": "One of the OR-triggers of \"Firmware tampering / unsigned-image implant\" — fires when the device will boot a tampered/implanted image without a hardware-anchored integrity check (T1542).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the platform's hardware Trust Anchor / Secure Boot status reports enforcement with halt-on-failure.",
+        "command": "show platform integrity ; show rommon",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: Trust Anchor / Secure Boot enabled and enforcing (boot halts on signature failure). Insecure: secure boot not enabled/enforcing.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Corroborate via the image authenticity output that the booted image is signed and verified.",
+        "command": "show software authenticity running",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: signer/cert/hash success for the running image. Insecure: unsigned/unverified running image.",
+        "source": "Cisco IOS XE Software Integrity Assurance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "signed_images_only_enforced",
+    "option_description": "Whether device policy permits loading only Cisco-signed images, rejecting unsigned or modified firmware at install/boot time.",
+    "security_impact": "One of the OR-triggers (secondary) of \"Firmware tampering / unsigned-image implant\" — fires when an attacker who can stage an image could install an unsigned/bootkit image (T1542).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify image-installation policy rejects unsigned images; attempt to validate an unsigned image is refused.",
+        "command": "show software authenticity keys ; show running-config | include boot",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only Cisco-signed images accepted at install/boot; unsigned image install refused. Insecure: unsigned images can be staged/booted.",
+        "source": "Cisco IOS XE Software Integrity Assurance"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the operational image-management policy permits only signed images.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented signed-image-only install policy enforced at change time.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the router runs an EoL/unpatched IOS or IOS-XE train affected by a CISA-KEV / known-exploited router CVE (e.g. CVE-2023-20198 + CVE-2023-20273 Web UI implant chain, or CVE-2018-0171 Smart Install). Secure (patched) is false; this fires on true.",
+    "security_impact": "One of the OR-triggers of \"Unpatched known-exploited CVEs and legacy services\" — fires (is_true) when an open known-exploited router CVE applies to the running train (T1190 / T1542).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running version/system image and compare against Cisco PSIRT advisories and the CISA KEV catalog.",
+        "command": "show version | include Version|System image",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compare the reported IOS-XE version against Cisco PSIRT advisories and the CISA KEV catalog; secure = no open KEV CVE applies to that train.",
+        "source": "CISA BOD 22-01 (KEV) / NVD CVE-2018-0171"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether this internet-/edge-facing router runs a vendor-supported release with all applicable KEV-listed CVEs patched within the BOD-22-01 remediation SLA.",
+    "security_impact": "One of the OR-triggers of \"Unpatched known-exploited CVEs and legacy services\" — fires when an out-of-SLA edge appliance is left exposed to a known-exploited router CVE (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running release and confirm it is vendor-supported (non-EoL).",
+        "command": "show version | include Version|System image",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A vendor-supported, non-EoL IOS-XE release.",
+        "source": "CISA BOD 22-01 (KEV) / NVD CVE-2018-0171"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm all applicable KEV CVEs were remediated within the BOD-22-01 SLA window via the patch/change record.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patch ledger shows KEV CVEs remediated within the BOD-22-01 SLA for this edge appliance.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "smart_install_disabled",
+    "option_description": "Whether the Cisco Smart Install client (vstack, TCP/4786) is disabled ('no vstack', port not listening).",
+    "security_impact": "One of the OR-triggers of both \"Unpatched known-exploited CVEs and legacy services\" and \"Control-plane / network denial of service\" — fires when Smart Install is operational; CVE-2018-0171 (CVSS 9.8, CISA KEV) permits unauthenticated RCE / config exfiltration and a single packet can force a reload (T1498).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the Smart Install (vstack) operational state and config.",
+        "command": "show vstack config ; show running-config | include vstack",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'no vstack' / Oper Mode disabled / SmartInstall enabled absent. Insecure: Smart Install operational/enabled.",
+        "source": "NVD CVE-2018-0171 / Cisco IOS XE Software Hardening Guide"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the Smart Install port is not listening.",
+        "command": "nmap -Pn -p 4786 <router_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: TCP/4786 closed/filtered. Insecure: TCP/4786 open (Smart Install listening).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "legacy_services_disabled",
+    "option_description": "Whether the router's legacy/insecure services are all disabled ('no service tcp/udp-small-servers', 'no ip finger', 'no ip bootp server', 'no mop enabled', 'no service pad', 'no ip source-route', 'no cdp run' on untrusted edges).",
+    "security_impact": "One of the OR-triggers of \"Unpatched known-exploited CVEs and legacy services\" — fires when any legacy service widens the attack surface and leaks topology (T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the running config for legacy service enablement.",
+        "command": "show running-config | include small-servers|finger|bootp|mop|service pad|source-route|cdp run",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the corresponding 'no ...' forms present. Insecure: services enabled / 'cdp run' on untrusted edges.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "control_plane_policing_enabled",
+    "option_description": "Whether a CoPP policy is attached and active — a policy-map applied via 'service-policy input' under 'control-plane' rate-limiting/filtering traffic punted to the route-processor CPU.",
+    "security_impact": "One of the OR-triggers of \"Control-plane / network denial of service\" — fires when punted-traffic storms can exhaust route-processor CPU and drop legitimate routing/management (T1498/T1499).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a CoPP policy with class/police actions is attached under control-plane.",
+        "command": "show policy-map control-plane",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a CoPP policy with class/police actions is shown attached. Insecure: 'Control Plane' has no service-policy / empty output.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_in_place",
+    "option_description": "Whether effective DDoS / volumetric-and-protocol-flood protection covers this component (control-plane flood mitigation such as CoPP, hardware control-plane protection, or upstream scrubbing).",
+    "security_impact": "One of the OR-triggers of \"Control-plane / network denial of service\" (AND-grouped with control_plane_policing_enabled) — fires when the route processor is exposed to denial-of-service flooding (T1498/T1499).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm router-local CoPP/hardware control-plane protection is present.",
+        "command": "show policy-map control-plane ; show platform hardware ... control-plane",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: CoPP and/or hardware control-plane protection active. Insecure: no router-local flood mitigation.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm whether upstream volumetric scrubbing (provider/clean-pipe) additionally covers the device.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented router-local protection and/or upstream scrubbing coverage.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_plane_protection_enabled",
+    "option_description": "Whether MPP is configured ('control-plane host management-interface ... allow ssh https snmp') restricting which interfaces accept punted management traffic.",
+    "security_impact": "One of the OR-triggers of \"Control-plane / network denial of service\" — fires when management-plane punted traffic is unbounded and can contribute to CPU exhaustion (T1498/T1499).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for a Management Plane Protection stanza restricting management punt to designated interfaces.",
+        "command": "show running-config | section control-plane host",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'control-plane host management-interface ... allow ssh https snmp' present. Insecure: no MPP stanza.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "infrastructure_acl_mgmt_access",
+    "option_description": "Whether management-plane access (SSH/SNMP/NETCONF) is restricted to authorized management networks via vty 'access-class' / an infrastructure ACL, so untrusted hosts cannot direct floods of management/control traffic at the route processor.",
+    "security_impact": "One of the OR-triggers of \"Control-plane / network denial of service\" (AND-grouped with management_plane_protection_enabled) — fires when management services are reachable from any/internet (T1498/T1499).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm an infrastructure/vty access-class scopes management services to management networks.",
+        "command": "show running-config | section line vty ; show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: vty has 'access-class' referencing an ACL scoped to mgmt nets. Insecure: no access-class on vty / permit any.",
+        "source": "Cisco IOS XE Software Hardening Guide / NSA Network Infrastructure Security Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether the router ships logs to a remote syslog destination at adequate severity ('logging host <syslog>' with 'logging trap' >= informational, 'service timestamps log datetime').",
+    "security_impact": "One of the OR-triggers of \"Logging, change-audit, and NTP gaps\" — fires when logging is local-only/absent, leaving no tamper-resistant, time-correlatable record of attacker activity (T1562.006).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the remote logging host, trap level, and timestamp settings.",
+        "command": "show running-config | include logging host|logging trap|service timestamps ; show archive log config all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: remote 'logging host', 'logging trap 6'+, timestamps on. Insecure: no remote logging host / no timestamps.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the remote syslog collector confirm timestamped log entries from this router are actually arriving.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: collector shows current, timestamped events from the router's IP. Insecure: no entries from the device.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "config_change_audit_logging_enabled",
+    "option_description": "Whether configuration-change auditing is enabled and notified to syslog ('archive' with 'log config' and 'notify syslog').",
+    "security_impact": "One of the OR-triggers of \"Logging, change-audit, and NTP gaps\" — fires when no config-change archive exists, so an attacker can alter config/routing without producing a change-audit trail (T1562.006).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify the archive log-config stanza with notify syslog.",
+        "command": "show running-config | include logging host|logging trap|service timestamps ; show archive log config all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'archive' with 'log config' and 'notify syslog' enabled. Insecure: no config-change archive.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "clocks_synced_to_trusted_time_source",
+    "option_description": "Whether the router's clock is synchronized to a trusted, accurate time source (NTP) so log entries are correlatable across systems.",
+    "security_impact": "One of the OR-triggers of \"Logging, change-audit, and NTP gaps\" — fires when clocks are unsynced/untrustworthy, enabling timestomping and defeating cross-device forensic correlation (T1562.006).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the clock is synchronized to a trusted NTP server.",
+        "command": "show ntp status ; show ntp associations",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'Clock is synchronized' to a known-trusted server stratum. Insecure: 'Clock is unsynchronized' or no server.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authenticated_ntp_enabled",
+    "option_description": "Whether NTP is cryptographically authenticated ('ntp authenticate', 'ntp authentication-key', 'ntp trusted-key', servers bound with 'key').",
+    "security_impact": "One of the OR-triggers of \"Logging, change-audit, and NTP gaps\" — fires when an attacker can spoof time to mask activity, break log correlation, or invalidate time-dependent checks (T1562.006).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the NTP authentication keys and server-key bindings.",
+        "command": "show running-config | include ntp ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'ntp authenticate', 'ntp trusted-key', servers bound with 'key'. Insecure: bare 'ntp server' with no authentication.",
+        "source": "Cisco IOS XE Software Hardening Guide"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

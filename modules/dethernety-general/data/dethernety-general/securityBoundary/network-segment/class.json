@@ -1,0 +1,9 @@
+{
+  "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+  "name": "Network Segment",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "A network segment — also called a subnet, VLAN, security zone, DMZ, or network tier — an internally-partitioned zone (e.g. DMZ, application tier, data tier) that limits lateral movement between groups of components. The place to look for a subnet/VLAN, network zone or tier, DMZ, or an internal segmentation boundary between component groups.",
+  "category": "Network Architecture",
+  "status": "draft"
+}

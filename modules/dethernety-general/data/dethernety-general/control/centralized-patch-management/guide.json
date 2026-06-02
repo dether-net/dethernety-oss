@@ -1,0 +1,415 @@
+[
+  {
+    "option_name": "automated_os_patch_management_enabled",
+    "option_description": "Whether operating-system updates are deployed across enterprise assets through an automated patch-management capability on a configured schedule rather than ad-hoc manual patching (CIS Safeguard 7.3).",
+    "security_impact": "Satisfies \"Automated patch deployment on cadence\" — one of its AND-conditions, firing when automated_os_patch_management_enabled is true (alongside automated_application_patch_management_enabled true and os_patch_deployment_cadence_days <= 30). An active automated OS patch job closes the known-vulnerability window that exploit-known-vulnerability tactics (ATT&CK T1190 / mitigation M1051, D3FEND D3-SU Software Update) rely on, e.g. wormable OS-service RCE like SMBv1 EternalBlue (CVE-2017-0144).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a patch-management tool (WSUS/SCCM/Intune/Ansible/equivalent) deploys OS updates to all in-scope assets on a configured schedule of every 30 days or less.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that a patch-management tool deploys OS updates to all in-scope assets on a configured schedule of every 30 days or less; present = automated job exists and runs <=30d, absent = no automated OS patch job or interval >30d.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.3 Perform Automated Operating System Patch Management)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the patch-management console, open the OS patching policy/deployment ring and confirm it is enabled, targets the production asset group, and shows recent successful runs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Patch console > Software Update / Patch Policies > OS deployment ring > Status & last-run history",
+        "expected_output": "OS patch policy shows Enabled, a populated target collection covering in-scope assets, and a green/successful most-recent deployment cycle.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "automated_application_patch_management_enabled",
+    "option_description": "Whether third-party/application software updates (browsers, runtimes, agents, line-of-business apps) are deployed via automated patch management, not only the OS (CIS Safeguard 7.4).",
+    "security_impact": "Satisfies \"Automated patch deployment on cadence\" — one of its AND-conditions, firing when automated_application_patch_management_enabled is true (with automated_os_patch_management_enabled true and os_patch_deployment_cadence_days <= 30). Automated application patching removes the vulnerable data-tier/core-service surface attackers exploit, e.g. PostgreSQL CVE-2025-1094, Redis CVE-2025-49844 (D3FEND D3-SU, ATT&CK M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the patch tool covers installed applications (browsers, runtimes, agents, line-of-business apps) on a 30-day-or-less cadence, not OS-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence the patch tool covers installed applications on a <=30-day cadence; present = application patch job exists and runs <=30d, absent = OS-only coverage or no application patch automation.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.4 Perform Automated Application Patch Management)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the patch tool's third-party/application catalog and confirm enrolled application titles have an active auto-deploy policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Patch console > Third-Party / Application Catalog > enrolled titles > auto-deploy policy",
+        "expected_output": "Common application titles are subscribed and bound to an active deployment policy with recent successful pushes.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "os_patch_deployment_cadence_days",
+    "option_description": "Interval in days at which the automated OS patch job runs; CIS requires monthly or more frequent (every 30 days or less).",
+    "security_impact": "Satisfies \"Automated patch deployment on cadence\" — one of its AND-conditions, firing when os_patch_deployment_cadence_days <= 30 (with both automated patch-management flags true). A short, enforced cadence is what shrinks the exposure window that exploit-known-vulnerability tactics depend on (ATT&CK M1051 recommends monthly OS schedules).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the configured patch-cycle interval from the patch tool's schedule and record the number of days between routine deployment runs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patch-management software configured to run every 30 days or less; meets the bar = interval <=30d, fails = interval >30d or no scheduled run.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.3 timing — configured to run every 30 days or less)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the deployment schedule/maintenance-window definition for the OS patch policy and record the recurrence interval.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Patch console > OS deployment policy > Schedule / Recurrence",
+        "expected_output": "Recurrence shows a monthly-or-more-frequent cycle (e.g. every 30 days, or aligned to monthly vendor release Tuesday), i.e. <=30.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "14",
+      "7"
+    ]
+  },
+  {
+    "option_name": "emergency_out_of_band_patch_path",
+    "option_description": "Whether a defined emergency/out-of-band maintenance plan fast-tracks patches outside the routine cycle for actively-exploited vulnerabilities (e.g. CISA-KEV entries), targeting deployment within ~24h (ATT&CK M1051).",
+    "security_impact": "Satisfies \"Risk-based critical-SLA and emergency out-of-band patch path\" — one of its AND-conditions, firing when emergency_out_of_band_patch_path is true (with critical_patch_window_days <= 7). An exercisable out-of-band path is what mitigates ransomware-via-unpatched-appliance and KEV exploitation that wait-for-next-window cadences cannot (e.g. CVE-2024-3400, CVE-2024-21762; ATT&CK M1051 emergency protocols).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an emergency maintenance plan documents when to switch from routine to expedited patching and its approval/deploy steps, and that it was exercised for recent KEV CVEs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An emergency maintenance plan documenting when to switch from routine to expedited patching and the approval/deploy steps; present = plan exists and was exercised for recent KEV CVEs, absent = no emergency path.",
+        "source": "NIST SP 800-40 Rev 4 (define maintenance plans and a risk-assessment process for switching between them); ATT&CK M1051 (implement emergency protocols)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review change/deployment records for a recent emergency or KEV-driven patch and confirm it deployed outside the routine cycle within the committed window.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one recent out-of-band deployment record exists for an actively-exploited CVE, deployed ahead of the next routine window.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "critical_patch_window_days",
+    "option_description": "Maximum days the risk-based SLA allows between a critical/actively-exploited patch becoming available and being deployed; lower is more secure, secure value <=7.",
+    "security_impact": "Satisfies \"Risk-based critical-SLA and emergency out-of-band patch path\" — one of its AND-conditions, firing when critical_patch_window_days <= 7 (with emergency_out_of_band_patch_path true). A short committed critical SLA is the measurable commitment that closes the known-vulnerability exposure window (NIST SP 800-40r4 risk-based prioritization; ATT&CK M1051 ~24h for actively-exploited CVEs).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the risk-based remediation SLA for critical/actively-exploited vulnerabilities and record the committed maximum days to deploy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented risk-based remediation timeline (SLA) that assigns shorter windows to higher-severity / actively-exploited vulnerabilities; meets bar = critical SLA defined and tracked (<=7d), fails = no SLA or critical fixes routinely exceed it.",
+        "source": "NIST SP 800-40 Rev 4 (risk-based prioritization and maintenance plans); ATT&CK M1051 (emergency protocols to address critical vulnerabilities within 24 hours)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "3",
+      "1"
+    ]
+  },
+  {
+    "option_name": "documented_vulnerability_and_remediation_process",
+    "option_description": "Whether a documented risk-based vulnerability-management and remediation process exists, assigns ownership, and is reviewed on cadence (CIS 7.1 annually / 7.2 monthly-or-more); it governs the SLA and emergency path and is a required input to compliance reporting.",
+    "security_impact": "Participates in two countermeasures: it is an AND-condition of \"Risk-based critical-SLA and emergency out-of-band patch path\" governance context, and a required AND-condition of \"Patch compliance reporting and metrics\" — firing (with patch_compliance_reporting_and_metrics true) when documented_vulnerability_and_remediation_process is true. A documented, reviewed process is what prevents the prolonged exposure window from an absent/slow patch process (ATT&CK T1190 / M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a written vulnerability-management process (reviewed >=annually) and a risk-based remediation process (reviewed monthly-or-more) both exist, are current, and assign ownership.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented vulnerability-management process (reviewed >=annually) and a risk-based remediation process (reviewed monthly-or-more); present = both exist and are current, absent = missing or stale beyond the review window.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.1 vulnerability-management process reviewed annually; 7.2 remediation process reviewed monthly-or-more)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "patch_coverage_of_inventory_complete",
+    "option_description": "Patch coverage is reconciled against the authoritative asset (CIS 1) and software (CIS 2) inventory so every in-scope asset is enrolled; true when coverage gaps are near zero.",
+    "security_impact": "Satisfies \"Complete patch coverage across the asset and software inventory\" — one of its AND-conditions, firing when patch_coverage_of_inventory_complete is true (with firmware_and_network_device_patch_coverage and third_party_and_agent_patch_coverage true). An asset not enrolled in patch management is an unmanaged exposure where wormable RCE (e.g. CVE-2017-0144) propagates; full inventory reconciliation removes that gap (D3FEND D3-SU, ATT&CK M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Reconcile the patch tool's enrolled-asset list against the authoritative enterprise asset inventory (CIS Control 1) and software inventory (CIS Control 2).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reconcile patch-tool coverage against the enterprise asset inventory and software inventory; present = every in-scope asset is enrolled and reporting, absent = unenrolled or non-reporting assets.",
+        "source": "CIS Controls v8 Control 1 (Inventory and Control of Enterprise Assets); NIST SP 800-40 Rev 4 (patch coverage across the organization)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the patch console, pull the enrolled/reporting-clients count and compare to the inventory's in-scope asset count to quantify the coverage gap.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Patch console > Devices / Clients > reporting status, vs. asset-inventory system total",
+        "expected_output": "Enrolled-and-reporting client count matches the authoritative in-scope asset count with negligible (near-zero) unmanaged gap.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "firmware_and_network_device_patch_coverage",
+    "option_description": "Firmware and network/edge appliances (NGFW, VPN gateways, switches, NAS) are tracked and patched, not only servers/endpoints; true when in scope and current.",
+    "security_impact": "Satisfies \"Complete patch coverage across the asset and software inventory\" — one of its AND-conditions, firing when firmware_and_network_device_patch_coverage is true (with patch_coverage_of_inventory_complete and third_party_and_agent_patch_coverage true). Covering firmware/appliances mitigates exploitation of unpatched infrastructure and ransomware-via-appliance (e.g. CVE-2023-20198, CVE-2022-40684, CVE-2021-28799; ATT&CK M1051 covers OS, applications, drivers, and firmware).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm firmware and network/edge appliances (NGFW, VPN, switches, NAS) are inventoried and tracked for patch-currency under the program.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inventory and patch-currency tracking for firmware and network appliances (NGFW, VPN, switches, NAS); present = these classes are in scope and current, absent = excluded or chronically behind.",
+        "source": "NIST SP 800-40 Rev 4 (scope includes firmware and all technology); ATT&CK M1051 (operating systems, applications, drivers, and firmware)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "third_party_and_agent_patch_coverage",
+    "option_description": "Third-party/dependency software and management/security agents (including the patch agent itself) are enrolled and current; true when tracked and updated.",
+    "security_impact": "Satisfies \"Complete patch coverage across the asset and software inventory\" — one of its AND-conditions, firing when third_party_and_agent_patch_coverage is true (with patch_coverage_of_inventory_complete and firmware_and_network_device_patch_coverage true). Keeping third-party software and agents current removes the unmanaged dependency surface exploited in data-tier/core-service attacks (e.g. CVE-2024-53247; CIS 7.4, ATT&CK M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm third-party/dependency software, libraries, and management/security agents (including the patch agent) are tracked and kept current.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Coverage list shows third-party software, libraries/dependencies, and management/security agents are tracked and updated; present = covered and current, absent = unmanaged third-party surface.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.4 application patch management); NIST SP 800-40 Rev 4 (enterprise-wide patch scope)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "vulnerability_scanning_feeds_prioritization",
+    "option_description": "Automated vulnerability scanning is in place AND its findings are connected to risk-based remediation/patch prioritization (CIS 7.5/7.6/7.7); the program patches what is actually exposed first.",
+    "security_impact": "Satisfies \"Vulnerability scanning feeds risk-based prioritization\" — its standalone OR-trigger group, firing when vulnerability_scanning_feeds_prioritization is true (the rule's second group fires on internal_scan_interval_days <= 90 AND external_scan_interval_days <= 30). Linking scan output to prioritization is what targets remediation at exposed/exploitable surface ahead of T1190 exploitation (D3FEND D3-SU, ATT&CK M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm authenticated vulnerability scanners run on cadence (internal <=quarterly, external <=monthly) and their output is linked to the risk-based remediation/patch prioritization process, not siloed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Automated vulnerability scanners configured for internal assets every 3 months or less (authenticated + unauthenticated) and external assets every 30 days or less, with output linked to the remediation process; present = scans run on cadence and feed prioritization, absent = no scanning or disconnected from patching.",
+        "source": "CIS Controls v8 Control 7 (Safeguards 7.5 internal scans <=quarterly, 7.6 external scans <=monthly, 7.7 remediate detected vulnerabilities)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "internal_scan_interval_days",
+    "option_description": "Maximum interval in days between authenticated internal vulnerability scans; CIS 7.5 requires <=90, lower is more secure.",
+    "security_impact": "Satisfies \"Vulnerability scanning feeds risk-based prioritization\" — an AND-member of the rule's second OR-group, firing when internal_scan_interval_days <= 90 (together with external_scan_interval_days <= 30). A short internal scan cadence keeps the exposed-surface picture current so prioritization stays accurate (CIS 7.5; ATT&CK M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the scan scheduler for authenticated internal scans and record the maximum days between scans.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authenticated internal scans configured every 3 months or less; meets bar = interval <=90d, fails = >90d or no scheduled internal scan.",
+        "source": "CIS Controls v8 Control 7 (Safeguards 7.5 internal scans <=quarterly, 7.6 external scans <=monthly, 7.7 remediate detected vulnerabilities)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "30",
+      "7"
+    ]
+  },
+  {
+    "option_name": "external_scan_interval_days",
+    "option_description": "Maximum interval in days between external-facing-asset vulnerability scans; CIS 7.6 requires <=30, lower is more secure.",
+    "security_impact": "Satisfies \"Vulnerability scanning feeds risk-based prioritization\" — an AND-member of the rule's second OR-group, firing when external_scan_interval_days <= 30 (together with internal_scan_interval_days <= 90). Frequent external scanning surfaces internet-exposed weaknesses before they are exploited (CIS 7.6; ATT&CK T1190 / M1051).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the scan scheduler for external-facing assets and record the maximum days between scans.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "External-asset scans configured every 30 days or less; meets bar = interval <=30d, fails = >30d or no scheduled external scan.",
+        "source": "CIS Controls v8 Control 7 (Safeguards 7.5 internal scans <=quarterly, 7.6 external scans <=monthly, 7.7 remediate detected vulnerabilities)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "14",
+      "7"
+    ]
+  },
+  {
+    "option_name": "remediation_rate_measured_between_scans",
+    "option_description": "Supporting evidence (CIS 7.7) that remediation rate is measured between consecutive scans; context only, not a standalone trigger.",
+    "security_impact": "Supporting context for \"Vulnerability scanning feeds risk-based prioritization\" (CONTEXTUAL_EVIDENCE) — it is not itself a condition operand in the rule's condition_groups, so it does not directly fire the countermeasure; it corroborates that the scan-to-remediation loop is measured (CIS 7.7), backing M1051 compliance reporting.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check whether the program tracks how many detected findings are remediated between consecutive scan cycles.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compliance reports showing per-asset patch state and remediation rate measured between consecutive scans; present = remediation rate tracked, absent = no between-scan measurement.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.7 — metrics measure remediation rate between consecutive scans); ATT&CK M1051 (generate compliance reports)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "patch_tested_in_staging_before_production",
+    "option_description": "Patches pass a documented test/staging ring (or canary group) before broad production rollout (NIST SP 800-40r4).",
+    "security_impact": "Satisfies \"Patch testing, staged rollout, and rollback\" — one of its AND-conditions, firing when patch_tested_in_staging_before_production is true (with patch_rollback_path_exists true). A pre-production test step keeps patching from causing outages that pressure teams to disable it, sustaining the protection (NIST SP 800-40r4 test and verify installation).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm patches are validated in a staging/test ring (or canary group) before broad production deployment, with the test step documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented test/staging step before production rollout (phased rings, snapshots); present = test step documented and used, absent = patches pushed straight to production with no test ring.",
+        "source": "NIST SP 800-40 Rev 4 (test and verify installation of patches); NIST SP 800-128 (recoverability to a known-good configuration)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "patch_rollback_path_exists",
+    "option_description": "A documented rollback/recovery to a known-good configuration (snapshots, image restore, package downgrade) lets a bad patch be reverted (NIST SP 800-128).",
+    "security_impact": "Satisfies \"Patch testing, staged rollout, and rollback\" — one of its AND-conditions, firing when patch_rollback_path_exists is true (with patch_tested_in_staging_before_production true). A usable rollback path lets the program keep deploying patches aggressively without fear of unrecoverable failure, sustaining the protection (NIST SP 800-128 recoverability to a known-good configuration).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented rollback/recovery procedure (snapshots, image restore, package downgrade) can revert a faulty patch to a known-good state and is usable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented rollback procedure (phased rings, snapshots, recovery to a known-good configuration); present = rollback documented and usable, absent = no rollback plan.",
+        "source": "NIST SP 800-40 Rev 4 (test and verify installation of patches); NIST SP 800-128 (recoverability to a known-good configuration)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "patch_change_control_enforced",
+    "option_description": "Patch deployments flow through documented change control with security-impact analysis and authorization (NIST CM-3), producing an auditable record for every push.",
+    "security_impact": "Satisfies \"Change-controlled deployment from a verified update source\" — one of its AND-conditions, firing when patch_change_control_enforced is true (with update_source_integrity_verified true). Managed, authorized, auditable deployment ensures patches are applied in a controlled way (NIST SP 800-53 CM-3 change control with security-impact analysis; SP 800-128).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm patch pushes are governed by change management with impact analysis and authorization, producing an audit record for every deployment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Change records exist for patch deployments with security-impact analysis and authorization; present = every deployment flows through change control, absent = patches applied with no change record.",
+        "source": "NIST SP 800-53 Rev 5 CM-3 (change control with security-impact analysis), CM-14 (prevent unsigned-component install); NIST SP 800-128 (security-focused configuration management)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "update_source_integrity_verified",
+    "option_description": "Patches are delivered only from an integrity-verified, signed update source (NIST CM-14); packages are signature-verified before install (GPG/code-signing/repo trust).",
+    "security_impact": "Satisfies \"Change-controlled deployment from a verified update source\" — one of its AND-conditions, firing when update_source_integrity_verified is true (with patch_change_control_enforced true). Verifying the update channel mitigates the patch supply-chain / unverified-update-channel attack where a spoofed source delivers a backdoored 'patch' (e.g. CVE-2023-28434; NIST CM-14).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm update packages come from trusted, signed sources and signatures are verified before installation (GPG/code-signing/trusted repo or update server).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The update source/repository is integrity-verified (signed packages, trusted update server) with signature verification enforced; present = source-verified, absent = unverified update channel.",
+        "source": "NIST SP 800-53 Rev 5 CM-3 (change control with security-impact analysis), CM-14 (prevent unsigned-component install); NIST SP 800-128 (security-focused configuration management)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "patch_compliance_reporting_and_metrics",
+    "option_description": "The program produces regular patch-compliance metrics — percent patched, mean-time-to-remediate, remediation rate between scans (CIS 7.7; M1051) — that are reviewed.",
+    "security_impact": "Satisfies \"Patch compliance reporting and metrics\" — one of its AND-conditions, firing when patch_compliance_reporting_and_metrics is true (with documented_vulnerability_and_remediation_process true). Visible metrics make the exposure window measurable and gaps actionable, preventing the prolonged-exposure-window failure (CIS 7.7; ATT&CK M1051 generate compliance reports).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the program generates and reviews patch-compliance metrics (percent patched, mean time to remediate, remediation rate between consecutive scans) on cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compliance reports showing per-asset patch state and remediation rate measured between consecutive scans; present = metrics produced and reviewed on cadence, absent = no reporting.",
+        "source": "CIS Controls v8 Control 7 (Safeguard 7.7 — metrics measure remediation rate between consecutive scans); ATT&CK M1051 (generate compliance reports)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  }
+]

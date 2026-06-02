@@ -1,0 +1,337 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "dnssec_validation": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "yes",
+          "no"
+        ],
+        "title": "DNSSEC Validation Mode",
+        "description": "BIND 9 'dnssec-validation' option (named.conf.options). Whether the resolver cryptographically validates DNSSEC signatures on answers — the primary defense against cache poisoning / spoofed answer-record injection for signed zones. Secure: auto or yes (signatures validated). Insecure: no — signatures unchecked, forged records accepted into the cache."
+      },
+      "named_below_cve_fix_line": {
+        "type": "boolean",
+        "title": "named Build Below CVE Fix Line",
+        "description": "Interpreted boolean: true when the running BIND 9 (named) build is BELOW the relevant ISC fix line for a known remotely-exploitable advisory — cache poisoning CVE-2025-40778 (fixed 9.18.41 / 9.20.15 / 9.21.14, or -S1 preview equivalents) plus resource-exhaustion DoS CVEs (CVE-2024-12705 / CVE-2025-8677 / CVE-2024-11187). Such builds are overly lenient in accepting answer records, letting a remote off-path attacker inject forged domain->IP mappings into the cache, and are exposed to remotely-triggerable DoS. Modeled as an interpreted boolean because the security state is a semantic version comparison, not a substring match.",
+        "default": false
+      },
+      "named_patched_within_sla": {
+        "type": "boolean",
+        "title": "named Patched Within SLA",
+        "description": "Shared cross-component patch-cadence facet: the named process is running a release on or after the relevant ISC security-advisory fix line within the organisation's patch SLA. Secure value is true (a patched build); the exposure fires when false (an out-of-SLA build is exposed to the modeled poisoning/DoS CVEs). Mirrors edge_appliance_patched_within_sla / cache_patched_within_sla used elsewhere in the workspace.",
+        "default": false
+      },
+      "open_recursion_enabled": {
+        "type": "boolean",
+        "title": "Open Recursion Enabled",
+        "description": "Interpreted from BIND 'recursion' in named.conf.options: true when the server performs recursive resolution (recursion yes;) — the precondition for open-resolver reflection abuse. An authoritative-only server should have recursion no; (false). True alone is not the exposure; combined with an unrestricted allow-recursion ACL or absent DDoS mitigation it makes the server an open recursive resolver abusable as a DNS amplification reflector.",
+        "default": false
+      },
+      "recursion_acl_unrestricted": {
+        "type": "boolean",
+        "title": "Recursion ACL Unrestricted",
+        "description": "Interpreted from BIND 'allow-recursion' in named.conf.options: true when recursion is offered to untrusted clients — allow-recursion { any; } or no allow-recursion clause while recursion yes; is set. The assessor reads the address-match list rather than substring-matching the raw directive (a trusted ACL like { 10.0.0.0/8; localnets; } is secure → false). True means any spoofed-source client can drive recursive queries, turning the resolver into a reflector for amplification/reflection DDoS.",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Shared-vocabulary attestation: true when effective volumetric/reflection DDoS mitigation is in place for this DNS service (e.g. BIND Response Rate Limiting via a rate-limit{} block, upstream anti-spoofing/BCP38 ingress filtering, or a scrubbing/anycast tier). False means an open recursive resolver has no rate or volume control, so spoofed-source small queries yield large responses flooding a third-party victim unchecked.",
+        "default": false
+      },
+      "response_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Response Rate Limiting Enabled",
+        "description": "Interpreted from the BIND 'rate-limit { responses-per-second N; ... }' block in named.conf.options (ISC RRL): true when a rate-limit block caps identical responses per client-prefix per second. False (no rate-limit block) leaves response volume unbounded, so the server is an unmitigated reflector for DNS amplification. An internet-facing server should have this configured.",
+        "default": false
+      },
+      "minimal_responses_enabled": {
+        "type": "boolean",
+        "title": "Minimal Responses Enabled",
+        "description": "Interpreted from BIND 'minimal-responses' in named.conf.options: true when minimal-responses yes; (or no-auth-recursive) trims unnecessary Additional/Authority records, shrinking response size and thus the amplification factor. False (minimal-responses no;) on a public server yields larger responses, increasing amplification gain when abused as a reflector. Secondary amplification-surface facet that compounds the absence of rate limiting."
+      },
+      "zone_transfer_unrestricted": {
+        "type": "boolean",
+        "title": "Zone Transfer Unrestricted",
+        "description": "Interpreted from the allow-transfer directive in named.conf.local / named.conf.options. True when zone transfers (AXFR/IXFR) are open to any client (allow-transfer { any; }) or the directive is absent on an authoritative zone, so anyone can pull the full zone and enumerate the internal namespace (hostnames, internal IPs). False (secure) when allow-transfer is { none; } or scoped to an explicit secondary-IP/key ACL. Interpreted boolean because the raw allow-transfer value is a composite address-match/key directive that cannot be safely substring-matched.",
+        "default": false
+      },
+      "tsig_authenticated_transfers": {
+        "type": "boolean",
+        "title": "TSIG-Authenticated Zone Transfers",
+        "description": "Interpreted: whether AXFR/IXFR zone transfers are authenticated with a TSIG HMAC shared secret (a key clause referenced from allow-transfer or the matching server stanza, e.g. allow-transfer { key transfer-key; }; with key \"...\" { algorithm hmac-sha256; secret ...; };). True (secure) when a TSIG key gates transfers; false when transfers are gated only by raw, spoofable source-IP ACLs or not authenticated at all — an attacker can impersonate a secondary's source IP to pull the zone. Interpreted boolean to avoid substring-matching the composite key/transfer directives.",
+        "default": false
+      },
+      "transfers_gated_by_ip_only": {
+        "type": "boolean",
+        "title": "Transfers Gated By IP Only",
+        "description": "Interpreted: whether primary->secondary zone transfers are permitted solely on the basis of a raw source-IP address-match list (allow-transfer { <secondary-ip>; };) with no TSIG key requirement, so an attacker who can spoof a known secondary's source address can pull the zone. True when trust rests on IP alone; combined with tsig_authenticated_transfers=false this is the spoofable-trust exposure."
+      },
+      "tsig_authenticated_notify": {
+        "type": "boolean",
+        "title": "TSIG-Authenticated NOTIFY",
+        "description": "Interpreted: whether NOTIFY/also-notify messaging between primary and secondaries is authenticated with a TSIG HMAC key (a key referenced from the server stanza covering the also-notify targets), so a spoofed NOTIFY cannot inject a forged zone-change/serial-bump signal. True when NOTIFY transactions carry TSIG; false when NOTIFY is gated only by source IP or unauthenticated.",
+        "default": false
+      },
+      "dns_query_logging_enabled": {
+        "type": "boolean",
+        "title": "DNS Query Logging Enabled",
+        "description": "Whether the DNS server maintains a query audit trail (BIND 'querylog yes;' or a logging{} channel for the 'queries' category, per named.conf). Off by default for performance (~10x overhead). When false, high-entropy / high-volume subdomain lookups used for DNS tunneling and C2 leave no record and slip past egress filtering unobserved — the primary detection surface for exfiltration over DNS is gone.",
+        "default": false
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Shared workspace attestation: an audit trail of access/resolution events is captured for this component. When false there is no record from which DNS tunneling or exfiltration patterns could be reconstructed, so encoded-data lookups go undetected.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored On Separate System",
+        "description": "Shared workspace attestation: query/audit logs are shipped off-box to a separate system. The vector turns on logs being shipped off-box for anomaly analysis; when false, logs live only on the resolver (tamper-prone, not centrally analyzed) so high-volume/high-entropy DNS tunneling is never correlated and detected.",
+        "default": false
+      },
+      "security_events_fully_logged": {
+        "type": "boolean",
+        "title": "Security Events Fully Logged",
+        "description": "Shared workspace attestation: security-relevant events are fully captured (not sampled/truncated). When false, the partial record leaves gaps an adversary can exfiltrate through, leaving DNS C2/tunneling activity unobserved."
+      },
+      "rndc_bound_to_loopback_only": {
+        "type": "boolean",
+        "title": "rndc Bound To Loopback Only",
+        "description": "Interpreted boolean: true only when the BIND controls{} block binds the rndc administrative channel to a loopback/trusted address (e.g. inet 127.0.0.1 allow { localhost; }). False when the control channel is bound to a non-loopback / routable address. A false value fires this exposure — an internet-reachable rndc channel permits remote nameserver takeover (reconfigure recursion, dump/flush cache, stop the service).",
+        "default": false
+      },
+      "rndc_key_configured": {
+        "type": "boolean",
+        "title": "rndc Key Configured",
+        "description": "Interpreted boolean: true only when the rndc control channel requires an HMAC shared-secret key — the controls{} inet stanza carries a keys{ \"rndc-key\"; } clause backed by a key { algorithm hmac-sha256; secret ...; } definition. False when no keys clause gates the channel (unauthenticated control). A false value fires this exposure — an unauthenticated rndc channel lets any client that can reach it issue administrative commands.",
+        "default": false
+      },
+      "version_string_disclosed": {
+        "type": "boolean",
+        "title": "Version String Disclosed",
+        "description": "Interpreted from the BIND 'version' directive in named.conf.options. True when no 'version none;' (or non-informative string) is set, so the version.bind CHAOS TXT query returns the precise named build (e.g. \"9.18.x\"), letting an attacker match the server against known CVEs. Secure when 'version none;'/'version \"\";' is present (dig @<server> version.bind CHAOS TXT +short returns empty/refused/generic).",
+        "default": false
+      },
+      "listener_bound_to_any": {
+        "type": "boolean",
+        "title": "Listener Bound To Any Interface",
+        "description": "Interpreted from the BIND 'listen-on'/'listen-on-v6' directives in named.conf.options. True when named binds to all interfaces ('listen-on { any; }') on a server meant to be internal-only, widening the reachable attack surface beyond its intended networks. Secure when the listen-on list is an explicit interface set scoped to intended networks (e.g. listen-on { 127.0.0.1; 10.0.0.5; }).",
+        "default": false
+      }
+    },
+    "required": [
+      "dnssec_validation",
+      "named_below_cve_fix_line",
+      "named_patched_within_sla",
+      "open_recursion_enabled",
+      "recursion_acl_unrestricted",
+      "ddos_protection_in_place",
+      "response_rate_limiting_enabled",
+      "minimal_responses_enabled",
+      "zone_transfer_unrestricted",
+      "tsig_authenticated_transfers",
+      "transfers_gated_by_ip_only",
+      "tsig_authenticated_notify",
+      "dns_query_logging_enabled",
+      "access_audit_trail_enabled",
+      "logs_stored_on_separate_system",
+      "security_events_fully_logged",
+      "rndc_bound_to_loopback_only",
+      "rndc_key_configured",
+      "version_string_disclosed",
+      "listener_bound_to_any"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dnssec_validation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rndc_key_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tsig_authenticated_notify"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tsig_authenticated_transfers"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transfers_gated_by_ip_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/recursion_acl_unrestricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_transfer_unrestricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/listener_bound_to_any"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/open_recursion_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rndc_bound_to_loopback_only"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/named_below_cve_fix_line"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/named_patched_within_sla"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/response_rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/minimal_responses_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dns_query_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_events_fully_logged"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/version_string_disclosed"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

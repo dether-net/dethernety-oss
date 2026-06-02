@@ -1,0 +1,9 @@
+{
+  "id": "e5a1c8e8-7037-4559-99c2-edf8b8eace6d",
+  "name": "End User",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "An end user — also called a customer, consumer, website/app user, member, or external human actor — a person interacting with the system through its public interfaces. The source of legitimate input and the impersonation target for account takeover. The place to look for the end user, customer, consumer, or the human persona using the application from outside the trust boundary.",
+  "category": "External Actors",
+  "status": "draft"
+}

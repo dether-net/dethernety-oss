@@ -1,0 +1,826 @@
+[
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Whether the running firmware/build is affected by an unpatched CISA KEV-listed CVE for this appliance family (FortiOS CVE-2024-21762, PAN-OS CVE-2024-3400, Ivanti CVE-2023-46805/CVE-2024-21887, Citrix Bleed CVE-2023-4966), covering both the auth-bypass/RCE chain and the memory-disclosure session-token-leak primitive.",
+    "security_impact": "Primary OR-trigger of \"Unpatched KEV appliance exploit (auth-bypass / RCE chain)\" and also referenced by \"Session token theft bypassing MFA\" (the Citrix-Bleed memory-disclosure primitive); the exposure fires when true (the running build is affected by an unpatched KEV CVE).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the appliance model and running firmware/build so it can be compared against vendor advisories and the CISA KEV catalog.",
+        "command": "show system status / get system status (FortiGate) | show version (Cisco ASA) | show system info (PAN-OS) — capture model + firmware/build",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version compared against vendor advisory + CISA KEV; an affected build is a finding",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-check the captured running build against KEV entries for the platform family.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cross-check the running build against KEV entries for the platform (FortiOS CVE-2024-21762/CVE-2022-40684, PAN-OS CVE-2024-3400, Ivanti CVE-2023-46805/CVE-2024-21887, Citrix CVE-2023-4966).",
+        "source": "Threat Actors Exploit Multiple Vulnerabilities in Ivanti Connect Secure and Policy Secure Gateways (CISA AA24-060B)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "firmware_end_of_support",
+    "option_description": "Whether the appliance runs an end-of-support / end-of-life firmware image that no longer receives security fixes, meaning newly disclosed KEV CVEs will never be patched on this build.",
+    "security_impact": "One of the OR-triggers for \"Unpatched KEV appliance exploit (auth-bypass / RCE chain)\"; fires when true (build is past its security-fix support window).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the running firmware branch/build to compare against the vendor's lifecycle dates.",
+        "command": "show system status / get system status (FortiGate) | show version (Cisco ASA) | show system info (PAN-OS) — capture model + firmware/build",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version compared against vendor advisory + CISA KEV; an affected build is a finding",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Check the captured firmware branch against the vendor's published end-of-support / end-of-life lifecycle dates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running branch is within its vendor security-fix support window (secure); a branch past its EoL/EoS date is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "days_since_last_firmware_update",
+    "option_description": "Number of days since the gateway firmware was last updated. Internet-facing VPN appliances are mass-exploited shortly after disclosure, so a stale patch cadence is itself an exposure proxy.",
+    "security_impact": "An OR-trigger for \"Unpatched KEV appliance exploit (auth-bypass / RCE chain)\"; fires when the value exceeds the 90-day patch-currency threshold.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running firmware build and its install/upgrade date from the appliance status/update history, then compute days elapsed to today.",
+        "command": "show system status / get system status (FortiGate) | show version (Cisco ASA) | show system info (PAN-OS) — capture model + firmware/build",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version compared against vendor advisory + CISA KEV; an affected build is a finding",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Determine the install/upgrade date of the running image from the appliance update/upgrade history and compute days elapsed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Days since last firmware update is small (recently patched, e.g. <90); a large value indicates a stale patch cadence.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "14",
+      "30",
+      "180"
+    ]
+  },
+  {
+    "option_name": "session_idle_timeout_minutes",
+    "option_description": "Idle timeout (minutes) for an established authenticated VPN/admin session before it is terminated. A long or absent idle timeout widens the window in which a stolen session token (e.g. Citrix Bleed CVE-2023-4966) can be replayed.",
+    "security_impact": "An OR-trigger for \"Session token theft bypassing MFA\"; fires when above a tight bound (>15 minutes).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the admin and SSL-VPN idle-timeout settings and record the value in minutes.",
+        "command": "config system global; show | grep admintimeout  (FortiGate). Harden: 'set admintimeout 5'. SSL-VPN: 'config vpn ssl settings' -> 'set idle-timeout'/'set auth-timeout'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admintimeout small (e.g. 5) and SSL-VPN idle/auth timeouts set (secure) vs large/disabled (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "On non-FortiGate platforms, locate the vendor-equivalent SSL-VPN/admin idle-timeout setting and record minutes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Idle session timeout is short (~5 min, <=15); no idle timeout / very long sessions is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "5",
+      "10",
+      "60"
+    ]
+  },
+  {
+    "option_name": "max_session_lifetime_hours",
+    "option_description": "Maximum absolute lifetime (hours) of an authenticated session/token regardless of activity. Long-lived or never-expiring sessions let a hijacked token persist indefinitely after the leak, even post-patch.",
+    "security_impact": "An OR-trigger for \"Session token theft bypassing MFA\"; fires when above a bounded maximum (>24h).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the absolute session/auth-timeout setting and record the value in hours.",
+        "command": "config system global; show | grep admintimeout  (FortiGate). Harden: 'set admintimeout 5'. SSL-VPN: 'config vpn ssl settings' -> 'set idle-timeout'/'set auth-timeout'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admintimeout small (e.g. 5) and SSL-VPN idle/auth timeouts set (secure) vs large/disabled (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "On non-FortiGate platforms, locate the vendor-equivalent absolute auth/session-timeout setting and record hours.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bounded re-authentication interval (<=24h); never-expiring or multi-day sessions is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "8",
+      "12",
+      "24"
+    ]
+  },
+  {
+    "option_name": "session_monitoring_enabled",
+    "option_description": "Whether active VPN sessions are monitored for anomalous source/geo/parallel use and exported to SIEM so a hijacked session can be detected and revoked.",
+    "security_impact": "An OR-trigger for \"Session token theft bypassing MFA\"; fires when monitoring is absent (false).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm session/connection logs are exported off-box so live session inventory can be monitored centrally.",
+        "command": "show log syslog/forwarding config (FortiGate 'config log syslogd setting' -> 'set status enable' + server; PAN-OS log-forwarding profile to syslog)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote syslog/SIEM target configured and enabled (secure) vs logging off or local-only (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm SIEM has detections for anomalous session sources/geo/concurrency for this gateway.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log content and retention meet NIST SP 800-92; SIEM has detections for failed-auth bursts and anomalous session sources.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "concurrent_session_limit_enforced",
+    "option_description": "Whether a per-user concurrent-session cap is enforced, constraining a hijacked-token attacker logging in parallel with the legitimate user and aiding detection of anomalous duplicate sessions.",
+    "security_impact": "An OR-trigger for \"Session token theft bypassing MFA\"; fires when no cap is enforced (false).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check the VPN portal settings for a per-user concurrent-connection / single-login limit.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPN settings show a per-user concurrent-connection limit; anomalous parallel sessions reviewed as part of remote-access policy.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      },
+      {
+        "type": "command",
+        "instruction": "Where the platform exposes it, read the per-user concurrent-session setting from the SSL-VPN portal config.",
+        "command": "config vpn ssl web portal; show (FortiGate — review 'limit-user-logins' / per-portal login cap); PAN-OS GlobalProtect gateway 'Agent > Client Settings' max user sessions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero per-user concurrent-session cap is set (secure) vs unlimited concurrent sessions per identity (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_for_vpn_login",
+    "option_description": "Whether multi-factor (ideally phishing-resistant) authentication is enforced for ALL remote-access VPN logins with no exception groups.",
+    "security_impact": "The defining OR-trigger of \"Valid-account abuse / missing MFA\"; fires (insecure) when login is single-factor/password-only or MFA is optional/bypassable, so stolen/sprayed/stuffed credentials alone grant External Remote Services access.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the VPN authentication policy for mandatory MFA across every realm/portal with no exception groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auth policy shows every VPN realm/portal requires a second factor (RADIUS/SAML push, TOTP, or certificate); no exception groups. Verify phishing-resistant factors per CISA fact sheet.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the authentication assurance level meets NIST AAL2+ for remote access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authentication assurance level meets NIST SP 800-63B AAL2+ for remote access; memorized-secret-only flows flagged.",
+        "source": "NIST SP 800-63B Rev 4 — Digital Identity Guidelines: Authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether account lockout / login throttling (non-zero lockout threshold + duration, bounded SSH grace time) is configured on the public VPN portal and admin interface.",
+    "security_impact": "An OR-trigger for both \"Valid-account abuse / missing MFA\" and \"Internet-exposed management interface / default credentials\"; fires (insecure) when there is no lockout / unlimited attempts, allowing unblunted password spraying and credential stuffing.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the admin lockout threshold/duration and SSH grace-time settings.",
+        "command": "config system global; show | grep 'admin-lockout-threshold\\|admin-lockout-duration\\|admin-ssh-grace-time'  (FortiGate). Harden: 'set admin-lockout-threshold 3', 'set admin-lockout-duration 300', 'set admin-ssh-grace-time 30'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero lockout threshold + duration and short SSH grace time (secure) vs unset/zero (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "On non-FortiGate platforms, confirm the VPN-portal login enforces lockout/throttling via the IdP or local policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero lockout threshold + duration is configured on both admin and VPN-portal login; no lockout / unlimited attempts is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "failed_auth_alerting_enabled",
+    "option_description": "Whether authentication events (including failures) are forwarded to a central SIEM/syslog with failed-auth burst alerting and anomalous-session-source alerting enabled.",
+    "security_impact": "An OR-trigger for both \"Valid-account abuse / missing MFA\" and \"No connection / auth logging to SIEM\"; fires (insecure) when logging is disabled/local-only or no failed-auth alerting exists.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm authentication events are exported to a remote syslog/SIEM target.",
+        "command": "show log syslog/forwarding config (FortiGate 'config log syslogd setting' -> 'set status enable' + server; PAN-OS log-forwarding profile to syslog)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote syslog/SIEM target configured and enabled (secure) vs logging off or local-only (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the SIEM raises alerts on failed-auth bursts and anomalous session sources for this gateway.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log content and retention meet NIST SP 800-92; SIEM has detections for failed-auth bursts and anomalous session sources.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_auth_source",
+    "option_description": "Which identity store the VPN authenticates against — a central IdP (RADIUS/SAML), LDAP directory, certificate CA, or local on-appliance accounts.",
+    "security_impact": "An OR-trigger for \"Valid-account abuse / missing MFA\"; fires (insecure) on local_appliance_accounts, which permits shared/local accounts that bypass central MFA and lifecycle controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the authentication server / backend the VPN binds to.",
+        "command": "show authentication server config (FortiGate 'config user radius'/'config user saml'; PAN-OS authentication-profile referencing RADIUS/SAML server-profile)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "External RADIUS/SAML/LDAP/cert server referenced (secure) vs local-user-db as the VPN auth source (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate the authentication methods to confirm SSL-VPN uses a central directory/IdP/CA, not appliance-local accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authentication methods enumerated: certificate-based machine/user auth, RADIUS, SAML/OIDC federation, LDAP — confirm SSL-VPN uses one of these, not appliance-local accounts.",
+        "source": "NIST SP 800-113 Guide to SSL VPNs"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "central_idp_radius_saml",
+      "ldap_directory",
+      "certificate_ca",
+      "local_appliance_accounts"
+    ]
+  },
+  {
+    "option_name": "vpn_ikev1_aggressive_mode_disabled",
+    "option_description": "Attests that IKEv1 aggressive mode is disabled (IKEv2-only preferred). IKEv1 aggressive mode transmits the PSK hash in a way that exposes it to offline cracking.",
+    "security_impact": "An OR-trigger for \"Weak cryptography / downgrade\"; the exposure fires when aggressive mode is still enabled (false).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the IKE phase1 version/mode configuration.",
+        "command": "show vpn ike-sa / show running-config crypto ikev1|ikev2 (vendor-dependent: FortiGate 'config vpn ipsec phase1-interface' then 'show full-configuration | grep ike-version'; Cisco ASA 'show run crypto ikev1 | crypto ikev2')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ike-version 2 (secure) vs ike-version 1 / aggressive mode keyword present (insecure)",
+        "source": "NSA/CISA Selecting and Hardening Standards-based Remote Access VPN Solutions (2021)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the phase-1 proposals against NIST recommendations — IKEv2 required, IKEv1 aggressive mode and PSK-only auth flagged.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Phase-1 proposals reviewed against NIST SP 800-77r1 Appendix recommendations — IKEv2 required, IKEv1 aggressive mode and PSK-only auth flagged.",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_cipher_suites_strong_only",
+    "option_description": "Attests that weak encryption/integrity algorithms (DES, 3DES, MD5, SHA1) are removed from the accepted phase1/phase2 (and SSL-VPN) proposals in favour of AES-GCM/AES-256 and SHA-256+.",
+    "security_impact": "An OR-trigger for \"Weak cryptography / downgrade\"; the exposure fires when weak ciphers remain accepted (false).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the accepted phase1/phase2 cipher/integrity proposals.",
+        "command": "show running-config of phase1/phase2 proposals (e.g. FortiGate 'show vpn ipsec phase1-interface' -> proposal field; Cisco ASA 'show run crypto ipsec ikev2 ipsec-proposal')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "proposal aes256-sha256 / aes128gcm (secure) vs des-md5, 3des-sha1 (insecure)",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "For the SSL-VPN portal, enumerate the offered ciphers on the wire to confirm no weak algorithms remain.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <vpn-portal-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 with A-grade ciphers (secure); presence of SSLv3/TLSv1.0/TLSv1.1 or weak ciphers (insecure)",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "perfect_forward_secrecy_enabled",
+    "option_description": "Attests that Perfect Forward Secrecy (PFS) is enabled on the IPsec phase2, so a compromised long-term key cannot decrypt past/future sessions.",
+    "security_impact": "An OR-trigger for \"Weak cryptography / downgrade\"; the exposure fires when PFS is disabled (false).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the phase2 PFS and DH-group settings.",
+        "command": "show phase2 PFS / dhgrp settings (FortiGate 'config vpn ipsec phase2-interface' -> 'set pfs enable' + 'set dhgrp 14 19 20'; Cisco 'show run crypto ipsec ... pfs group14')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "pfs enable + dhgrp 14/19/20 (secure) vs pfs disable or dhgrp 1/2/5 (insecure)",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm PFS is enabled in the IPsec phase2 configuration per NIST IPsec guidance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PFS enabled on the IPsec phase2 (secure); PFS disabled is a finding.",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "strong_dh_group_enforced",
+    "option_description": "Attests that only strong Diffie-Hellman groups are accepted (DH group 14+/2048-bit or ECP group 19/20/21) and the weak groups 1/2/5 (768/1024/1536-bit) are not offered.",
+    "security_impact": "An OR-trigger for \"Weak cryptography / downgrade\"; the exposure fires when a weak DH group is still enforceable/offered (false).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the accepted DH-group (dhgrp) settings on phase1/phase2.",
+        "command": "show phase2 PFS / dhgrp settings (FortiGate 'config vpn ipsec phase2-interface' -> 'set pfs enable' + 'set dhgrp 14 19 20'; Cisco 'show run crypto ipsec ... pfs group14')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "pfs enable + dhgrp 14/19/20 (secure) vs pfs disable or dhgrp 1/2/5 (insecure)",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm weak DH groups 1/2/5 are excluded and group 14+ or ECP 19/20/21 are enforced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only DH group 14+ (2048-bit) or ECP group 19/20/21 accepted; presence of group 1/2/5 (768/1024/1536-bit) is a finding.",
+        "source": "NIST SP 800-77r1 Guide to IPsec VPNs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Minimum TLS version accepted on the SSL-VPN portal (GlobalProtect / FortiGate SSL-VPN / AnyConnect WebVPN / NetScaler Gateway).",
+    "security_impact": "An OR-trigger for \"Weak cryptography / downgrade\"; fires when SSLv3/TLS1.0/TLS1.1 are still accepted ('tls1_0_or_tls1_1_or_sslv3_accepted'), enabling protocol downgrade and on-path interception.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the TLS protocols offered by the SSL-VPN portal to determine the minimum accepted version.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <vpn-portal-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLSv1.2/TLSv1.3 with A-grade ciphers (secure); presence of SSLv3/TLSv1.0/TLSv1.1 or weak ciphers (insecure)",
+        "source": "Nmap ssl-enum-ciphers NSE script"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Corroborate the offered protocols with testssl.sh against the portal.",
+        "command": "testssl.sh https://<vpn-portal-host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Protocol section shows TLS 1.2/1.3 offered, older protocols 'not offered'; cipher categories show no NULL/EXPORT/DES/RC4",
+        "source": "testssl.sh — Testing TLS/SSL encryption anywhere on any port"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the configured cipher list matches a Mozilla Intermediate/Modern profile per NIST TLS guidance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configured cipher list matches Mozilla 'Intermediate' or 'Modern' profile; selection rationale documented per NIST SP 800-52r2.",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for the Selection, Configuration, and Use of TLS Implementations"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether the gateway enforces a per-user/per-group least-privilege access policy that restricts which internal services and subnets an admitted session may reach (granular dst/service-scoped firewall rules from the VPN zone into the trust zone).",
+    "security_impact": "An OR-trigger for \"Flat internal access after admission\"; fires when false (any admitted session reaches the whole internal network, enabling lateral movement).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the firewall policies from the VPN/SSL-VPN interface into internal trust zones.",
+        "command": "show firewall policy from ssl.root/VPN interface to internal zones (FortiGate 'show firewall policy'; PAN-OS security rules with source zone = VPN)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Granular dst-service-restricted rules per group (secure) vs single any-any rule from VPN zone to trust zone (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review that each user group maps only to the internal services it needs, with no permit-any from the VPN pool.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPN firewall/access policies reviewed: each user group maps to only the internal services it needs; no 'permit any any' from the VPN pool into internal zones.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "permit_any_from_vpn_pool",
+    "option_description": "Whether a broad 'permit any-any' firewall rule exists from the VPN pool/SSL-VPN interface into internal trust zones, granting every admitted session flat reachability of the internal network.",
+    "security_impact": "An OR-trigger for \"Flat internal access after admission\"; the insecure value is true (a permit-any rule collapses the segmentation the gateway is meant to enforce).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review the firewall policy from the VPN interface for any broad source-VPN to dst-trust any-service allow.",
+        "command": "show firewall policy from ssl.root/VPN interface to internal zones (FortiGate 'show firewall policy'; PAN-OS security rules with source zone = VPN)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Granular dst-service-restricted rules per group (secure) vs single any-any rule from VPN zone to trust zone (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm no 'permit any any' rule exists from the VPN pool into internal zones.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPN firewall/access policies reviewed: each user group maps to only the internal services it needs; no 'permit any any' from the VPN pool into internal zones.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "vpn_pool_to_trust_segmentation_enforced",
+    "option_description": "Supporting context: whether downstream network segmentation (VLAN/zone separation, internal microsegmentation, or a segmentation firewall) constrains traffic originating from the VPN pool so even a broadly-permitted session cannot freely pivot across the trusted zone.",
+    "security_impact": "Defense-in-depth contextual evidence for \"Flat internal access after admission\" (referenced by the rule but not its primary trigger); true indicates downstream containment limiting lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check for downstream segmentation constraining VPN-pool traffic within the trusted zone.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Downstream containment exists (VLAN/zone separation, microsegmentation, segmentation firewall) constraining VPN-pool traffic; flat reachability across the trust zone is a finding.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a host in the VPN pool, probe reachability across the trusted zone to confirm segmentation actually constrains pivoting.",
+        "command": "From an admitted VPN client, attempt connections to internal subnets the user should not reach (e.g. 'nmap -sT <internal-segment-cidr>')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connections to out-of-scope internal segments are filtered/blocked (secure) vs broad reachability across the trusted zone (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_ui_internet_exposed",
+    "option_description": "Whether the web/CLI admin interface (HTTPS/SSH) is reachable from the internet/WAN (e.g. allowaccess includes https/ssh on the external interface, admin bound to 0.0.0.0).",
+    "security_impact": "The defining OR-trigger of \"Internet-exposed management interface / default credentials\"; fires when true — internet-exposed admin panels are the primary entry point for appliance RCE/auth-bypass CVEs.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the WAN interface allowaccess and admin bind/trustedhost configuration.",
+        "command": "config system interface; edit <wan>; show full | grep allowaccess  (FortiGate). To harden: 'unset allowaccess' on external interface; restrict admins with 'config system admin' -> 'set trustedhost1 <cidr>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "allowaccess on WAN has no https/ssh (secure) vs allowaccess includes https ssh on the external interface with no trustedhost restriction (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an external host, attempt to reach the admin port over the WAN IP.",
+        "command": "From an external host: attempt to reach the admin port (e.g. 'curl -k https://<wan-ip>:<admin-sport>/')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused/filtered from the internet (secure) vs admin login page served to arbitrary internet source (insecure)",
+        "source": "CISA Enterprise VPN Security advisory (AA20-073A)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "default_accounts_removed_or_changed",
+    "option_description": "Whether the factory default admin password has been rotated and no vendor backdoor/maintenance accounts use shipped defaults.",
+    "security_impact": "An OR-trigger for \"Internet-exposed management interface / default credentials\"; fires when false (default vendor credentials still valid).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the default admin password was rotated and no built-in/maintenance accounts use shipped defaults.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm the default admin account password was rotated at install and credential-rotation is tracked; verify no enabled built-in accounts use shipped defaults.",
+        "source": "CISA Enterprise VPN Security advisory (AA20-073A)"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate configured admin accounts to verify none retain default usernames/credentials.",
+        "command": "config system admin; show (FortiGate — review the admin account list); PAN-OS 'show admins' / Cisco ASA 'show running-config username'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin accounts are uniquely named with rotated credentials (secure) vs default 'admin' account still using shipped defaults (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_access_ip_restricted",
+    "option_description": "Whether administrative access is restricted to trusted source IPs/CIDRs (e.g. FortiGate trustedhost, management ACL) rather than reachable from any source.",
+    "security_impact": "An OR-trigger for \"Internet-exposed management interface / default credentials\"; fires when false — admin login served to arbitrary internet sources, enabling brute-force/default-credential attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the trusted-host / management ACL restricting admin access source IPs.",
+        "command": "config system interface; edit <wan>; show full | grep allowaccess  (FortiGate). To harden: 'unset allowaccess' on external interface; restrict admins with 'config system admin' -> 'set trustedhost1 <cidr>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "allowaccess on WAN has no https/ssh (secure) vs allowaccess includes https ssh on the external interface with no trustedhost restriction (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a trusted-host/management ACL is configured (FortiGate trustedhost, PAN-OS permitted-IP, Cisco management ACL).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin access restricted to specific source IPs/CIDRs (secure); admin reachable from any source is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "auth_events_logged",
+    "option_description": "Whether the gateway records VPN connect/disconnect and authentication events — both success and failure.",
+    "security_impact": "An OR-trigger for \"No connection / auth logging to SIEM\"; fires when false (credential abuse and anomalous sessions leave no record).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm event/auth logging is enabled and forwarded on the gateway.",
+        "command": "show log syslog/forwarding config (FortiGate 'config log syslogd setting' -> 'set status enable' + server; PAN-OS log-forwarding profile to syslog)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote syslog/SIEM target configured and enabled (secure) vs logging off or local-only (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect the gateway/SIEM logs to confirm VPN connect/disconnect and auth success+failure events are actually recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPN connect/disconnect and authentication success and failure events appear in the log stream (secure); missing auth events is a finding.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "external_siem_forwarding_enabled",
+    "option_description": "Whether connection and authentication logs are exported off-box to a central SIEM/syslog target (not local-only).",
+    "security_impact": "An OR-trigger for \"No connection / auth logging to SIEM\"; fires when false — a compromised gateway can impair its own local logging to evade detection (ATT&CK T1562.008) when records never leave the device.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the remote-syslog / log-forwarding configuration and confirm an off-box target is enabled.",
+        "command": "show log syslog/forwarding config (FortiGate 'config log syslogd setting' -> 'set status enable' + server; PAN-OS log-forwarding profile to syslog)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote syslog/SIEM target configured and enabled (secure) vs logging off or local-only (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm log content/retention and that the SIEM is actually receiving this gateway's logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log content and retention meet NIST SP 800-92; SIEM has detections for failed-auth bursts and anomalous session sources.",
+        "source": "NIST SP 800-92 Guide to Computer Security Log Management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "client_posture_check_enabled",
+    "option_description": "Whether endpoint health/posture evaluation (AV present, OS patch level, disk encryption — e.g. a Host Information Profile / host-check policy) is configured and runs before VPN tunnel admission.",
+    "security_impact": "An OR-trigger for \"No client posture / device-compliance gating\"; fires when false — any device with valid credentials is admitted into the trusted zone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check whether a host-check / Host Information Profile posture policy runs at tunnel admission.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Host-check / HIP (Host Information Profile) / compliance policy configured and enforced on the VPN portal; failing devices denied or quarantined.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the posture/host-check configuration on the platform where it is exposed.",
+        "command": "PAN-OS GlobalProtect: review HIP objects/profiles ('show global-protect-gateway ...' / Objects > GlobalProtect > HIP); FortiGate SSL-VPN: 'config vpn ssl web host-check-software' + portal host-check binding",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A posture/host-check policy (AV, OS patch, disk encryption) is bound to the VPN portal (secure) vs no posture evaluation configured (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_ztna_posture_gating_enabled",
+    "option_description": "Whether the posture/compliance result is actually ENFORCED at admission — non-compliant or unmanaged devices are denied or quarantined rather than the check being advisory/log-only.",
+    "security_impact": "An OR-trigger for \"No client posture / device-compliance gating\"; fires when gating is not enforced, so an unmanaged or compromised host reaches the internal network.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify that non-compliant/unmanaged devices are denied or quarantined at admission, not merely logged.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Host-check / HIP (Host Information Profile) / compliance policy configured and enforced on the VPN portal; failing devices denied or quarantined.",
+        "source": "NIST SP 800-46 Rev. 2 - Guide to Enterprise Telework, Remote Access, and BYOD Security"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt admission from a deliberately non-compliant test device to confirm the posture result is enforced as a hard gate.",
+        "command": "From a non-compliant test endpoint (e.g. AV disabled), attempt VPN tunnel admission and observe the result",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-compliant device is denied or quarantined at admission (secure) vs admitted with only a log entry / advisory warning (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "managed_certificate_required_for_admission",
+    "option_description": "Whether a managed/enterprise device certificate is required as part of admission, distinguishing corporate-managed endpoints from arbitrary personal hosts presenting only user credentials.",
+    "security_impact": "An OR-trigger for \"No client posture / device-compliance gating\"; fires when no managed-certificate requirement exists, allowing any credentialed device in.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the VPN authentication configuration for a required machine/device certificate alongside user credentials.",
+        "command": "show authentication server config (FortiGate 'config user radius'/'config user saml'; PAN-OS authentication-profile referencing RADIUS/SAML server-profile) — and review certificate/machine-cert requirement on the portal/gateway",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admission requires a managed/enterprise device certificate in addition to user credentials (secure) vs credentials-only admission (insecure)",
+        "source": "FortiGate Hardening Guide — System administrator best practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm corporate-managed endpoints are distinguished by an enterprise-issued device certificate requirement at admission.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authentication methods enumerated: certificate-based machine/user auth confirmed required for admission, not appliance-local credentials-only.",
+        "source": "NIST SP 800-113 Guide to SSL VPNs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

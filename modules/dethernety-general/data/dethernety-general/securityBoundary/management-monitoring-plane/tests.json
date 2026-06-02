@@ -1,0 +1,89 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values",
+    "input": {
+      "mfa_enforced_at_boundary_crossing": false,
+      "session_binding_or_short_session_lifetime": false,
+      "no_standing_admin_privileges_jit_required": false,
+      "least_privilege_access_enforced": false,
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": false,
+      "secrets_stored_in_dedicated_secret_manager": false,
+      "artifact_supply_chain_signed_provenance_verified": false,
+      "control_plane_access_mediated_by_pam_with_recording": false,
+      "control_plane_api_not_publicly_exposed": false,
+      "telemetry_pipeline_isolated_from_workload": false,
+      "audit_log_tamper_evident": false,
+      "management_plane_isolated_from_data_plane": false,
+      "paw_required_for_control_plane_access": false,
+      "admin_endpoint_health_attested_at_elevation": false
+    },
+    "expectedExposures": [
+      "Management-plane network boundary bridging",
+      "Admin endpoint compromise via productivity device",
+      "Telemetry tampering and log silencing",
+      "Direct admin-protocol exposure",
+      "Admin credential theft and session-token replay",
+      "CI/CD pipeline compromise (trusted-relationship abuse)",
+      "Artifact supply-chain compromise",
+      "Cloud IAM over-permission abuse"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes secure - no fires",
+    "input": {
+      "mfa_enforced_at_boundary_crossing": true,
+      "session_binding_or_short_session_lifetime": true,
+      "no_standing_admin_privileges_jit_required": true,
+      "least_privilege_access_enforced": true,
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": true,
+      "secrets_stored_in_dedicated_secret_manager": true,
+      "artifact_supply_chain_signed_provenance_verified": true,
+      "control_plane_access_mediated_by_pam_with_recording": true,
+      "control_plane_api_not_publicly_exposed": true,
+      "telemetry_pipeline_isolated_from_workload": true,
+      "audit_log_tamper_evident": true,
+      "management_plane_isolated_from_data_plane": true,
+      "paw_required_for_control_plane_access": true,
+      "admin_endpoint_health_attested_at_elevation": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment",
+    "input": {
+      "mfa_enforced_at_boundary_crossing": true,
+      "session_binding_or_short_session_lifetime": true,
+      "no_standing_admin_privileges_jit_required": true,
+      "least_privilege_access_enforced": true,
+      "cicd_pipeline_identity_per_environment_no_long_lived_keys": true,
+      "secrets_stored_in_dedicated_secret_manager": true,
+      "artifact_supply_chain_signed_provenance_verified": true,
+      "control_plane_access_mediated_by_pam_with_recording": true,
+      "control_plane_api_not_publicly_exposed": true,
+      "telemetry_pipeline_isolated_from_workload": true,
+      "audit_log_tamper_evident": true,
+      "management_plane_isolated_from_data_plane": true,
+      "paw_required_for_control_plane_access": true,
+      "admin_endpoint_health_attested_at_elevation": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input - default handling",
+    "input": {},
+    "expectedExposures": [
+      "Management-plane network boundary bridging",
+      "Admin endpoint compromise via productivity device",
+      "Telemetry tampering and log silencing",
+      "Direct admin-protocol exposure",
+      "Admin credential theft and session-token replay",
+      "CI/CD pipeline compromise (trusted-relationship abuse)",
+      "Artifact supply-chain compromise",
+      "Cloud IAM over-permission abuse"
+    ]
+  }
+]

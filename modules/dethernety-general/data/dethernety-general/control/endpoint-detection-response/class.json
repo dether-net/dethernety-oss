@@ -1,0 +1,9 @@
+{
+  "id": "f18a591e-feff-447c-b569-12d4b35a8524",
+  "name": "Endpoint Detection & Response",
+  "classType": "control",
+  "type": "Endpoint Detection & Response",
+  "description": "Endpoint detection and response (EDR) — also called XDR, antivirus/anti-malware, host-based agent, CrowdStrike/Defender/SentinelOne, or endpoint security — a control that continuously monitors endpoints for malicious behavior and enables containment and remediation. The place to look for EDR/XDR, endpoint protection, host agent, anti-malware, or detecting and responding to threats on devices.",
+  "category": "Endpoint Protection",
+  "status": "draft"
+}

@@ -1,0 +1,484 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "secrets_hardcoded_in_config_or_iac": {
+        "type": "boolean",
+        "title": "Secrets Hardcoded in Config or IaC",
+        "description": "Plaintext secrets present in tracked source/config/IaC (incl. git history); fires is_true.",
+        "default": false
+      },
+      "secret_scanning_enabled": {
+        "type": "boolean",
+        "title": "Secret Scanning Enabled",
+        "description": "Pre-commit and/or CI secret-scanning guard enforced before secrets land in VCS; fires is_false."
+      },
+      "secrets_in_env_or_image_layers": {
+        "type": "boolean",
+        "title": "Secrets in Env Vars or Image Layers",
+        "description": "Secret values in .env/plaintext env vars/docker ENV-ARG/build-args/baked image layers; fires is_true.",
+        "default": false
+      },
+      "secrets_injected_at_runtime_not_baked_in": {
+        "type": "boolean",
+        "title": "Secrets Injected at Runtime (Not Baked In)",
+        "description": "Secrets injected at runtime by the orchestrator (sidecar/in-memory mount/secretKeyRef), absent from the artifact; fires is_false.",
+        "default": false
+      },
+      "secrets_stored_in_dedicated_secret_manager": {
+        "type": "boolean",
+        "title": "Secrets Stored in Dedicated Secret Manager",
+        "description": "Secrets live in a centralized managed vault/secret manager referenced at runtime, not flat config or inline literals; fires is_false. (Merged secrets_stored_in_vault into this canonical attribute.)"
+      },
+      "iac_version_controlled_with_required_review": {
+        "type": "boolean",
+        "title": "IaC Version-Controlled with Required Review",
+        "description": "All IaC/config in VCS with branch protection requiring approving peer-reviewed PR before merge; fires is_false. NIST CM-3/CM-5.",
+        "default": false
+      },
+      "commits_signed": {
+        "type": "boolean",
+        "title": "Commits Signed",
+        "description": "Config/IaC changes carry verified provenance via required signed commits + signature-verified artifacts; fires is_false. NIST CM-14.",
+        "default": false
+      },
+      "config_change_detection_enabled": {
+        "type": "boolean",
+        "title": "Config Change Detection Enabled",
+        "description": "Running config continuously compared to baseline; out-of-band modification/drift detected+alerted; fires is_false. NIST CM-6.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Read/management access to secret+config stores restricted to need-to-know least-privilege, not wildcard; fires is_false. NIST CM-5.",
+        "default": false
+      },
+      "per_secret_access_scoping": {
+        "type": "boolean",
+        "title": "Per-Secret Access Scoping",
+        "description": "Policies scope to individual secrets/paths rather than an entire store/prefix; fires is_false (blanket/wildcard)."
+      },
+      "secret_access_audited": {
+        "type": "boolean",
+        "title": "Secret Access Audited",
+        "description": "Access to secrets + config changes recorded in an audit trail (who/what/when); fires is_false."
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted at Rest",
+        "description": "Secrets+sensitive config encrypted at rest with strong managed-key crypto (AES-256, KMS/HSM separate from data); fires is_false.",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "All secret/config retrieval only over TLS, never plaintext HTTP; fires is_false.",
+        "default": false
+      },
+      "iac_state_secrets_encrypted": {
+        "type": "boolean",
+        "title": "IaC State Secrets Encrypted",
+        "description": "IaC state (can hold plaintext secrets) in an encrypted access-controlled remote backend, not in VCS; fires is_false.",
+        "default": false
+      },
+      "hardened_baseline_documented": {
+        "type": "boolean",
+        "title": "Hardened Baseline Documented",
+        "description": "Approved version-controlled hardened baseline (most-restrictive mode) exists to compare against and ship from; fires is_false. NIST CM-2/CM-6. (Merged documented_baseline_exists into this canonical attribute.)",
+        "default": false
+      },
+      "default_accounts_removed_or_changed": {
+        "type": "boolean",
+        "title": "Default Accounts Removed or Changed",
+        "description": "Vendor/default accounts + default passwords removed or rotated before prod; fires is_false. OWASP A05; CIS 4.",
+        "default": false
+      },
+      "unnecessary_services_disabled": {
+        "type": "boolean",
+        "title": "Unnecessary Services Disabled",
+        "description": "Least-functionality: only essential ports/protocols/services/software enabled; fires is_false. NIST CM-7; CIS 4.",
+        "default": false
+      },
+      "debug_and_verbose_errors_disabled_in_prod": {
+        "type": "boolean",
+        "title": "Debug and Verbose Errors Disabled in Prod",
+        "description": "Debug endpoints + verbose/stack-trace errors disabled in prod; fires is_false. OWASP A05."
+      },
+      "sample_apps_and_default_content_removed": {
+        "type": "boolean",
+        "title": "Sample Apps and Default Content Removed",
+        "description": "Sample apps/demo content/default install artifacts removed from prod; fires is_false. OWASP A05."
+      },
+      "drift_detection_enabled": {
+        "type": "boolean",
+        "title": "Drift Detection Enabled",
+        "description": "Running config continuously compared to baseline with drift detection + alerting; fires is_false. NIST CM-6.",
+        "default": false
+      },
+      "running_config_matches_baseline": {
+        "type": "boolean",
+        "title": "Running Config Matches Baseline",
+        "description": "Live config agrees with the reviewed baseline (no silent divergence); fires is_false.",
+        "default": false
+      },
+      "out_of_band_changes_controlled": {
+        "type": "boolean",
+        "title": "Out-of-Band Changes Controlled",
+        "description": "Changes forced through VCS-reviewed change management, not manual hotfixes; fires is_false."
+      },
+      "config_repo_private": {
+        "type": "boolean",
+        "title": "Config Repo Private",
+        "description": "VCS repo holding config/IaC is private (not publicly clonable); fires is_false.",
+        "default": false
+      },
+      "config_files_not_world_readable": {
+        "type": "boolean",
+        "title": "Config Files Not World-Readable",
+        "description": "Config/secret files not world-readable and not web-served; fires is_false.",
+        "default": false
+      },
+      "config_object_storage_not_publicly_accessible": {
+        "type": "boolean",
+        "title": "Config Object Storage Not Publicly Accessible",
+        "description": "Object-storage buckets holding config/IaC/secrets not publicly accessible; fires is_false.",
+        "default": false
+      },
+      "metadata_endpoint_access_restricted": {
+        "type": "boolean",
+        "title": "Metadata Endpoint Access Restricted",
+        "description": "Cloud instance metadata endpoints access-restricted (IMDSv2 token, hop-limit, not proxied/SSRF-forwarded); fires is_false.",
+        "default": false
+      },
+      "iac_state_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "IaC State Not Publicly Exposed",
+        "description": "IaC state not committed to VCS and backend not publicly accessible; fires is_false."
+      },
+      "config_backed_up_to_known_good": {
+        "type": "boolean",
+        "title": "Config Backed Up to Known-Good",
+        "description": "Config/IaC recoverable to a reviewed known-good state (retained VCS history + revert path); fires is_false. NIST 800-128.",
+        "default": false
+      },
+      "secret_store_and_state_backed_up": {
+        "type": "boolean",
+        "title": "Secret Store and State Backed Up",
+        "description": "Secret-store contents + IaC state backed up and restorable independently of VCS; fires is_false.",
+        "default": false
+      },
+      "rollback_tested": {
+        "type": "boolean",
+        "title": "Rollback Tested",
+        "description": "Rollback/restore to known-good exercised and verified (not assumed); fires is_false."
+      }
+    },
+    "required": [
+      "secrets_hardcoded_in_config_or_iac",
+      "secret_scanning_enabled",
+      "secrets_in_env_or_image_layers",
+      "secrets_injected_at_runtime_not_baked_in",
+      "secrets_stored_in_dedicated_secret_manager",
+      "iac_version_controlled_with_required_review",
+      "commits_signed",
+      "config_change_detection_enabled",
+      "least_privilege_access_enforced",
+      "per_secret_access_scoping",
+      "secret_access_audited",
+      "encrypted_at_rest",
+      "tls_only_transport",
+      "iac_state_secrets_encrypted",
+      "hardened_baseline_documented",
+      "default_accounts_removed_or_changed",
+      "unnecessary_services_disabled",
+      "debug_and_verbose_errors_disabled_in_prod",
+      "sample_apps_and_default_content_removed",
+      "drift_detection_enabled",
+      "running_config_matches_baseline",
+      "out_of_band_changes_controlled",
+      "config_repo_private",
+      "config_files_not_world_readable",
+      "config_object_storage_not_publicly_accessible",
+      "metadata_endpoint_access_restricted",
+      "iac_state_not_publicly_exposed",
+      "config_backed_up_to_known_good",
+      "secret_store_and_state_backed_up",
+      "rollback_tested"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/per_secret_access_scoping"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/iac_state_secrets_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_hardcoded_in_config_or_iac"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_in_env_or_image_layers"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_injected_at_runtime_not_baked_in"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_scanning_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_dedicated_secret_manager"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_access_audited"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_backed_up_to_known_good"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_store_and_state_backed_up"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_tested"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Drift Detection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/drift_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/running_config_matches_baseline"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/out_of_band_changes_controlled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Exposure",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_files_not_world_readable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_object_storage_not_publicly_accessible"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_repo_private"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/metadata_endpoint_access_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/iac_state_not_publicly_exposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Integrity Change Control",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/commits_signed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_change_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/iac_version_controlled_with_required_review"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secure Baseline Hardening",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_accounts_removed_or_changed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hardened_baseline_documented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unnecessary_services_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/debug_and_verbose_errors_disabled_in_prod"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sample_apps_and_default_content_removed"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

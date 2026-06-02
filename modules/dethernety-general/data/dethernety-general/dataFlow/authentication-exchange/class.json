@@ -1,0 +1,9 @@
+{
+  "id": "2c17ba9b-f207-4ec7-a5ea-5180f40f5acc",
+  "name": "Authentication Exchange",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "The authentication exchange — the login/sign-in flow, OAuth2/OIDC handshake, SAML assertion, or token-issuance dialog — carrying credentials, codes, and tokens between clients, the identity provider, and services. The path over which a principal proves identity. The place to look for the auth handshake, login flow, token issuance, SSO/federation exchange, or credential-and-token traffic during sign-in.",
+  "category": "Identity & Access",
+  "status": "draft"
+}

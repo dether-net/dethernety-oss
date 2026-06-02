@@ -1,0 +1,384 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "True when logs from logging-capable assets are forwarded into one central SIEM/data lake, establishing the correlation substrate so no single source is the only copy and cross-source analysis is possible.",
+        "default": false
+      },
+      "required_log_source_classes_onboarded": {
+        "type": "boolean",
+        "title": "Required Log Source Classes Onboarded",
+        "description": "True when every in-scope logging-capable asset class (host/EDR, network, identity/IdP, cloud, application) is actively forwarding to the central platform with fresh last-seen timestamps. An un-onboarded class is a silent blind spot through which a multi-step attack escapes detection.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored on Separate System",
+        "description": "True when the aggregated correlation substrate is stored on a system separate from the monitored assets, so an attacker who compromises a source cannot erase its own copy of the multi-step trail. Contextual to centralization here and load-bearing in the retention facet."
+      },
+      "cross_source_correlation_enabled": {
+        "type": "boolean",
+        "title": "Cross-Source Correlation Enabled",
+        "description": "Attests that enabled correlation rules stitch events ACROSS multiple repositories/source classes (identity/IdP, host/EDR, network, cloud) rather than evaluating each source in isolation — the cross-datamodel substrate without which a multi-step chain spanning sources is never linked.",
+        "default": false
+      },
+      "multistage_incident_correlation_enabled": {
+        "type": "boolean",
+        "title": "Multi-Stage Incident Correlation Enabled",
+        "description": "Attests that at least one enabled multi-datamodel correlation rule exists per major attack chain (lateral movement, C2, credential access) that links sequential stages into a SINGLE incident object, surfacing multi-stage chains invisible to any single-source rule.",
+        "default": false
+      },
+      "detection_rules_attack_mapped": {
+        "type": "boolean",
+        "title": "Detection Rules ATT&CK-Mapped",
+        "description": "Attested true when every enabled detection/correlation rule is tagged with one or more MITRE ATT&CK technique IDs, so coverage can be quantified per technique rather than assumed.",
+        "default": false
+      },
+      "attack_coverage_measured_and_trended": {
+        "type": "boolean",
+        "title": "ATT&CK Coverage Measured and Trended",
+        "description": "Attested true when an ATT&CK Navigator-style coverage heatmap is maintained and trended over time (% of in-scope techniques with at least one tested detection), with zero-coverage techniques tracked to closure.",
+        "default": false
+      },
+      "attack_technique_coverage_pct": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "ATT&CK Technique Coverage Percentage",
+        "description": "Percentage of in-scope MITRE ATT&CK techniques that have at least one tested detection. The protection is effective when this meets or exceeds the minimum coverage threshold (>= 80%)."
+      },
+      "ueba_anomaly_analytics_enabled": {
+        "type": "boolean",
+        "title": "UEBA Anomaly Analytics Enabled",
+        "description": "User and Entity Behavior Analytics (UEBA) is enabled, modeling normal user and entity activity and scoring deviations to complement static correlation rules and catch novel and credential-abuse attacks that signatures miss.",
+        "default": false
+      },
+      "entity_baseline_trained": {
+        "type": "boolean",
+        "title": "Entity Baseline Trained",
+        "description": "Behavioral baselines of normal per-user and per-entity activity have been trained and are active, so the analytics has a learned reference against which to flag deviations rather than running against an empty or cold model.",
+        "default": false
+      },
+      "baseline_training_window_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Baseline Training Window (Days)",
+        "description": "Length in days of the activity window over which the behavioral baseline is trained. A sufficiently long window (>= 14 days) is required for the learned normal profile to be statistically meaningful rather than overfit to a short sample."
+      },
+      "impossible_travel_detection_enabled": {
+        "type": "boolean",
+        "title": "Impossible-Travel Detection Enabled",
+        "description": "Geolocation-based impossible-travel logon detection is enabled — successive authentications from geographically distant locations within a physically impossible interval are flagged (D3FEND D3-UGLPA), surfacing valid-account abuse and credential theft.",
+        "default": false
+      },
+      "authentication_thresholding_enabled": {
+        "type": "boolean",
+        "title": "Authentication Thresholding Enabled",
+        "description": "Authentication-event thresholding/anomaly analysis is enabled — abnormal volumes or patterns of authentication events (failed-logon spikes, off-baseline access patterns) are detected, complementing static rules to catch brute-force and credential-reuse attacks.",
+        "default": false
+      },
+      "detection_as_code_version_controlled": {
+        "type": "boolean",
+        "title": "Detection-as-Code Version Controlled",
+        "description": "True when correlation/detection content (e.g. Sigma rules) is authored and maintained in a version-control system rather than hand-edited directly in the SIEM console, providing change history, auditability, and rollback (CM-2/CM-3).",
+        "default": false
+      },
+      "detection_content_peer_reviewed": {
+        "type": "boolean",
+        "title": "Detection Content Peer Reviewed",
+        "description": "True when changes to detection content are merged only through peer-reviewed pull requests (required reviewer approval), enforcing the change-control review gate (CM-3) so no rule reaches production unreviewed.",
+        "default": false
+      },
+      "detection_content_ci_tested": {
+        "type": "boolean",
+        "title": "Detection Content CI Tested",
+        "description": "True when detection content passes automated CI/CD testing — syntax validation, unit tests, and integration tests against sample telemetry — before deployment, so broken or non-firing rules are caught pre-release rather than silently losing coverage.",
+        "default": false
+      },
+      "detection_content_update_cadence_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Detection Content Update Cadence (Days)",
+        "description": "Maximum number of days between scheduled refreshes of detection content against evolving TTPs (vendor content packs, community Sigma, new CVEs). The protection is present when the cadence is at most a defined threshold (e.g. 90 days). Stale, frozen rules silently lose coverage as attackers shift."
+      },
+      "clocks_synced_to_trusted_time_source": {
+        "type": "boolean",
+        "title": "Clocks Synced to Trusted Time Source",
+        "description": "All log-producing sources synchronize their clocks to at least two approved/trusted NTP time sources, so emitted event timestamps share a common, drift-bounded reference. When false, clock drift mis-orders the events of an attack chain and makes cross-source correlation unreliable.",
+        "default": false
+      },
+      "timestamps_in_utc": {
+        "type": "boolean",
+        "title": "Timestamps Normalized to UTC at Ingest",
+        "description": "Ingested event timestamps from every source are normalized to a single canonical timezone (UTC) at ingest, eliminating mixed-timezone skew so multi-stage correlation can order events across sources deterministically.",
+        "default": false
+      },
+      "threat_intel_enrichment_enabled": {
+        "type": "boolean",
+        "title": "Threat-Intel Enrichment Enabled",
+        "description": "Attests that events and entities are enriched at ingest/correlation time with threat intelligence (known-bad IP/domain/file-hash indicators) and asset/identity context, so matches against known-bad observables and asset criticality feed the correlation and scoring layer.",
+        "default": false
+      },
+      "risk_based_alerting_enabled": {
+        "type": "boolean",
+        "title": "Risk-Based Alerting Enabled",
+        "description": "Attests that the platform assigns risk scores to enriched events/entities and raises an investigative notable only when accumulated risk crosses a defined threshold (AU-6(5)), rather than emitting one alert per rule firing — so multi-step chains are scored, prioritized, and surfaced as a single accumulated-risk notable.",
+        "default": false
+      },
+      "alert_tuning_process_enabled": {
+        "type": "boolean",
+        "title": "Alert Tuning Process Enabled",
+        "description": "Attests that an ongoing alert/false-positive tuning process exists (threshold review, suppression of benign-true patterns, periodic precision review) so the risk-based alerting layer stays effective over time and real correlated incidents are not buried in fatigue."
+      },
+      "alert_response_sla_enforced": {
+        "type": "boolean",
+        "title": "Alert Response SLA Enforced",
+        "description": "Surfaced notable incidents auto-route to the IR queue and are governed by a defined, enforced response-time SLA (IR-4/IR-5), so detections trigger timely response and measurably reduce attacker dwell time rather than sitting unactioned.",
+        "default": false
+      },
+      "soar_response_handoff_enabled": {
+        "type": "boolean",
+        "title": "SOAR Response Handoff Enabled",
+        "description": "Correlated incidents auto-route into the SOAR / IR ticketing workflow (case creation, orchestration, playbook handoff) instead of remaining as console-only alerts, closing the detection-to-response loop.",
+        "default": false
+      },
+      "audit_log_tamper_evident": {
+        "type": "boolean",
+        "title": "Audit Log Tamper-Evident",
+        "description": "The correlated-event substrate (centralized log/SIEM store) is integrity-protected via write-once / cryptographic tamper-evidence and access-restricted (AU-9(2)/(3)/(4)), so an attacker who reaches the SIEM cannot silently erase or alter the multi-step trail.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Log Retention (Days)",
+        "description": "Number of days correlated events are retained hot/online. Protection is present when retention is at least 90 days (CIS 8.10), so slow, multi-month campaigns can still be reconstructed from the substrate."
+      }
+    },
+    "required": [
+      "centralized_log_aggregation",
+      "required_log_source_classes_onboarded",
+      "cross_source_correlation_enabled",
+      "multistage_incident_correlation_enabled",
+      "detection_rules_attack_mapped",
+      "attack_coverage_measured_and_trended",
+      "attack_technique_coverage_pct",
+      "ueba_anomaly_analytics_enabled",
+      "entity_baseline_trained",
+      "baseline_training_window_days",
+      "impossible_travel_detection_enabled",
+      "authentication_thresholding_enabled",
+      "detection_as_code_version_controlled",
+      "detection_content_peer_reviewed",
+      "detection_content_ci_tested",
+      "detection_content_update_cadence_days",
+      "clocks_synced_to_trusted_time_source",
+      "timestamps_in_utc",
+      "threat_intel_enrichment_enabled",
+      "risk_based_alerting_enabled",
+      "alert_tuning_process_enabled",
+      "alert_response_sla_enforced",
+      "soar_response_handoff_enabled",
+      "audit_log_tamper_evident",
+      "log_retention_days"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_thresholding_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/impossible_travel_detection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/attack_coverage_measured_and_trended"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/attack_technique_coverage_pct"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_tamper_evident"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_source_correlation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_rules_attack_mapped"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/entity_baseline_trained"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/multistage_incident_correlation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/required_log_source_classes_onboarded"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/risk_based_alerting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/threat_intel_enrichment_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/timestamps_in_utc"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ueba_anomaly_analytics_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/baseline_training_window_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/alert_response_sla_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/clocks_synced_to_trusted_time_source"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_as_code_version_controlled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_content_ci_tested"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_content_peer_reviewed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_content_update_cadence_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/soar_response_handoff_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/alert_tuning_process_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

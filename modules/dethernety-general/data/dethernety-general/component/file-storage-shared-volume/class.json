@@ -1,0 +1,9 @@
+{
+  "id": "78b75abc-16a9-43af-a677-059030d3208f",
+  "name": "File Storage / Shared Volume",
+  "classType": "component",
+  "type": "STORE",
+  "description": "File storage or a shared volume — also called a network file share, NFS/SMB/CIFS mount, NAS, shared drive, or persistent volume — network-attached storage for documents and application files. Mounted by services and users for shared read/write. The place to look for the file share, shared/network volume, NAS, mounted file system, or where documents and files are stored on disk.",
+  "category": "Data Persistence",
+  "status": "draft"
+}

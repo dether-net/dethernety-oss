@@ -1,0 +1,87 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "nids_sensor_coverage_at_chokepoints": false,
+      "hids_on_critical_hosts": false,
+      "detection_rules_present_and_enabled": false,
+      "threat_signatures_current": false,
+      "behavior_monitoring_enabled": false,
+      "network_flow_logging_enabled": false,
+      "tls_inspection_enabled": false,
+      "centralized_log_aggregation": false,
+      "monitored_response_function_present": false,
+      "clocks_synced_to_trusted_time_source": false,
+      "ids_detection_tuned_and_reviewed": false,
+      "ids_sensor_hardened_and_patched": false,
+      "ids_sensor_fail_mode_defined": false,
+      "ids_sensor_health_monitored": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "nids_sensor_coverage_at_chokepoints": true,
+      "hids_on_critical_hosts": true,
+      "detection_rules_present_and_enabled": true,
+      "threat_signatures_current": true,
+      "behavior_monitoring_enabled": true,
+      "network_flow_logging_enabled": true,
+      "tls_inspection_enabled": true,
+      "centralized_log_aggregation": true,
+      "monitored_response_function_present": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "ids_detection_tuned_and_reviewed": true,
+      "ids_sensor_hardened_and_patched": true,
+      "ids_sensor_fail_mode_defined": true,
+      "ids_sensor_health_monitored": true
+    },
+    "expectedCountermeasures": [
+      "Sensor integrity and fail-safe behavior",
+      "Alerts aggregated and acted on under SLA",
+      "Sensor coverage at chokepoints and critical hosts",
+      "Signature detection enabled with current rulesets",
+      "Anomaly and behavioral detection complementing signatures",
+      "Detection tuned for accuracy",
+      "Encrypted-traffic visibility"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "nids_sensor_coverage_at_chokepoints": true,
+      "hids_on_critical_hosts": true,
+      "detection_rules_present_and_enabled": true,
+      "threat_signatures_current": true,
+      "behavior_monitoring_enabled": true,
+      "network_flow_logging_enabled": true,
+      "tls_inspection_enabled": true,
+      "centralized_log_aggregation": true,
+      "monitored_response_function_present": true,
+      "clocks_synced_to_trusted_time_source": true,
+      "ids_detection_tuned_and_reviewed": true,
+      "ids_sensor_hardened_and_patched": true,
+      "ids_sensor_fail_mode_defined": true,
+      "ids_sensor_health_monitored": true
+    },
+    "expectedCountermeasures": [
+      "Sensor integrity and fail-safe behavior",
+      "Alerts aggregated and acted on under SLA",
+      "Sensor coverage at chokepoints and critical hosts",
+      "Signature detection enabled with current rulesets",
+      "Anomaly and behavioral detection complementing signatures",
+      "Detection tuned for accuracy",
+      "Encrypted-traffic visibility"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

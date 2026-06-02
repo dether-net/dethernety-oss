@@ -1,0 +1,418 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak / Legacy TLS Versions Enabled",
+        "description": "Interpreted from the LB's client-facing listener TLS policy (nginx ssl_protocols / AWS ALB SslPolicy): TRUE when the listener still negotiates any of SSLv3 / TLS 1.0 / TLS 1.1. A secure listener offers only TLSv1.2/TLSv1.3 (nginx default since 1.23.4; ALB ELBSecurityPolicy-TLS13-1-2-* policies), so this is FALSE on a hardened config. Legacy ELBSecurityPolicy-2016-08 / -TLS-1-0-2015-04 still permit TLS 1.0/1.1 and make this TRUE. Modelled as an interpreted boolean rather than a raw protocol-string match to stay polarity-safe.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The lowest TLS protocol version the LB's client-facing listener will negotiate (nginx ssl_protocols floor / AWS ALB SslPolicy floor). Shared-workspace vocabulary so a dataFlow's min_tls_version and this gateway field use one name and one value-set. Secure floor is TLSv1.2 or higher; a floor that accepts TLS 1.0/1.1/SSLv3 fires this exposure (POODLE/BEAST/FREAK/LOGJAM downgrade surface)."
+      },
+      "weak_ciphers_allowed": {
+        "type": "boolean",
+        "title": "Weak Cipher Suites Allowed",
+        "description": "Interpreted from the LB's negotiable cipher suites (nginx ssl_ciphers / the cipher set of the AWS ALB SslPolicy): TRUE when any non-forward-secret or broken cipher is offered — RC4, 3DES/DES, CBC-mode, EXPORT, static-RSA (no PFS), aNULL/eNULL/NULL, MD5. The complement of the strong-cipher posture: a hardened listener offers only ECDHE + AES-GCM / CHACHA20 (Mozilla Intermediate/Modern), so this is FALSE. Modelled as an interpreted boolean rather than a regex over the raw cipher string because the exclusion form mentions the weak tokens as substrings and would false-fire on a secure value.",
+        "default": false
+      },
+      "hsts_enforced": {
+        "type": "boolean",
+        "title": "HSTS Enforced",
+        "description": "Interpreted from the LB's HTTP Strict-Transport-Security response policy (nginx add_header Strict-Transport-Security ... always / equivalent at the ALB edge): TRUE when a long-lived HSTS header (max-age >= 31536000, includeSubDomains, sent on all responses) is enforced on the client-facing edge. FALSE when the header is absent or has a short/zero max-age, which enables SSL-strip / HTTPS-downgrade on the edge the LB terminates — that is when this exposure fires (is_false). The all-secure baseline sets it TRUE, so the hardened config stays silent."
+      },
+      "back_end_traffic_reencrypted_after_tls_termination": {
+        "type": "boolean",
+        "title": "Backend Traffic Re-encrypted After TLS Termination",
+        "description": "Whether, after terminating client TLS, the load balancer re-encrypts the proxied hop to the origin/backend (nginx proxy_pass https:// with TLS to upstream; ALB HTTPS target group) rather than forwarding plaintext (proxy_pass http://). Secure = true. When false the post-termination internal leg travels in cleartext and is sniffable / MITM-able, exposing credentials and PII. Shared workspace attribute reused across the data-flow and gateway components for the same internal-hop encryption concept.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Backend Server Certificate Validated",
+        "description": "Whether the load balancer validates the backend/origin server's TLS certificate when re-encrypting the post-termination hop (nginx proxy_ssl_verify on with proxy_ssl_trusted_certificate; ALB target TLS verification). nginx proxy_ssl_verify defaults to off. Secure = true. When false the LB will accept any certificate from the upstream, so even an encrypted backend leg is MITM-able by an adversary that intercepts the internal connection. Shared workspace attribute reused across components for the same certificate-validation concept.",
+        "default": false
+      },
+      "request_framing_normalized_front_back": {
+        "type": "boolean",
+        "title": "Request Framing Normalized Front-to-Back",
+        "description": "Shared-workspace attestation: the front-end LB and back-end agree on HTTP message framing — Content-Length vs Transfer-Encoding is parsed identically and ambiguous/conflicting framing (CL.TE / TE.CL / TE.TE, and HTTP/2-to-1 H2.CL / H2.TE downgrade) is rejected rather than forwarded. True when framing is normalized end-to-end so no desync window exists. False (insecure) means the edge and origin can disagree, letting an attacker smuggle a request past edge auth, poison the cache, or hijack a session.",
+        "default": false
+      },
+      "desync_mitigation_strict": {
+        "type": "boolean",
+        "title": "Desync Mitigation Set to Strictest",
+        "description": "AWS ALB routing.http.desync_mitigation_mode is set to 'strictest' (only RFC 7230-compliant requests reach targets). True when strictest; false (insecure) when 'monitor' (all requests pass, only logged) or the 'defensive' default, which leave a request-smuggling/desync window between the LB and the backend. Interpreted from describe-load-balancer-attributes Attributes[?Key=='routing.http.desync_mitigation_mode'].Value == 'strictest'.",
+        "default": false
+      },
+      "drop_invalid_header_fields": {
+        "type": "boolean",
+        "title": "Drop Invalid Header Fields Enabled",
+        "description": "AWS ALB routing.http.drop_invalid_header_fields.enabled — HTTP headers whose names do not match [-A-Za-z0-9]+ are stripped before reaching targets, a desync/header-injection guard. True (secure) when enabled; false is the default and insecure, routing invalid headers to backends and enabling header-confusion-based smuggling. From describe-load-balancer-attributes Attributes[?Key=='routing.http.drop_invalid_header_fields.enabled'].Value == 'true'.",
+        "default": false
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "DDoS Protection In Place",
+        "description": "Whether upstream/volumetric DDoS protection (SYN-flood mitigation, connection surge bounds, and an external scrubbing/CDN layer in front of the load balancer) is in place. The LB is the single point of contact, so without a layer that absorbs volumetric floods before they reach the chokepoint, a SYN/HTTP flood saturates the LB's connection and queue capacity and takes down all backends. False (no DDoS protection fronting the LB) fires this exposure. Shared workspace vocabulary attribute reused across components.",
+        "default": false
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting / Lockout Enabled",
+        "description": "Whether per-client request-rate limiting (nginx limit_req_zone keyed on $binary_remote_addr + limit_req at the proxied location; HAProxy stick-table rate limiting) is enabled at the chokepoint. Without a request-rate cap, an HTTP flood drives unbounded request volume through the LB to the backends, exhausting capacity. False (no limit_req zone/directive) fires this exposure. Shared workspace vocabulary attribute reused across components.",
+        "default": false
+      },
+      "connection_idle_timeout_bounded": {
+        "type": "boolean",
+        "title": "Connection Idle Timeout Bounded",
+        "description": "Interpreted boolean: whether the LB's connection idle timeout (AWS ALB idle_timeout.timeout_seconds; nginx/HAProxy keepalive/client timeouts) is bounded to a reasonable value rather than left excessively high. A very large idle timeout lets half-open and slow connections accumulate until connection capacity is exhausted. The assessor interprets the raw idle_timeout value against an app-appropriate bound (the ~60s default is reasonable); a value large enough to let idle connections pile up is interpreted as unbounded. False (idle timeout not bounded) fires this exposure.",
+        "default": false
+      },
+      "request_header_timeout_bounded": {
+        "type": "boolean",
+        "title": "Request Header Timeout Bounded",
+        "description": "Interpreted boolean: whether the time a client may take to send the full request headers is bounded (HAProxy 'timeout http-request 10s'; nginx client_header_timeout 10s), defeating slowloris/slow-read held-open partial requests that exhaust the chokepoint's connection/queue capacity. The assessor interprets the raw header/request-timeout directive — a bounded value (e.g. 10s, generous for legitimate clients) is secure; absence or a very large value enables slowloris. False (no bounded request-header timeout) fires this exposure.",
+        "default": false
+      },
+      "http2_rapid_reset_mitigated": {
+        "type": "boolean",
+        "title": "HTTP/2 Rapid Reset Mitigated",
+        "description": "Interpreted boolean: whether the LB's HTTP/2 stack mitigates rapid-reset and stream-multiplexing abuse — i.e. it runs a build at/above the fixed release for CVE-2023-44487 (HTTP/2 Rapid Reset) and the CVE-2019-9511/9513 stream-multiplexing DoS family, with concurrent-stream/reset-rate limits in effect (or HTTP/2 disabled). Unmitigated, stream-reset flooding and multiplexing abuse exhaust LB CPU/memory and take down the chokepoint. The assessor interprets the running version and HTTP/2 settings against the relevant advisories. False (HTTP/2 rapid-reset not mitigated) fires this exposure.",
+        "default": false
+      },
+      "xff_client_ip_correctly_handled": {
+        "type": "boolean",
+        "title": "X-Forwarded-For Client IP Correctly Handled",
+        "description": "Interpreted assertion that the load balancer authoritatively establishes the client IP rather than trusting client-supplied X-Forwarded-For: the LB overwrites or appends the real last-hop client IP (AWS ALB routing.http.xff_header_processing.mode=append/remove, NOT preserve) AND backends trust X-Forwarded-For only from the LB's address (e.g. nginx set_real_ip_from <lb-cidr> / real_ip_recursive). True when client-supplied XFF cannot reach authorization, rate-limiting, or audit logic unaltered. False (fires) when a spoofable / over-trusted XFF lets a client forge its source IP — bypassing IP allowlists, evading rate limits, and poisoning access logs.",
+        "default": false
+      },
+      "host_header_routing_strict": {
+        "type": "boolean",
+        "title": "Host-Header Routing Strict",
+        "description": "Interpreted attestation: the LB routes requests by strict, explicit Host-header matching and rejects unknown/ambiguous hosts (nginx default catch-all server returning 444, or AWS ALB listener host-rules that route ONLY known Host values with no permissive fall-through). True means a request whose Host does not match a declared virtual host is rejected rather than silently routed to a default/unintended backend. False means ambiguous Host handling can route a request to an unintended backend or bypass virtual-host access controls (cache poisoning, cross-tenant / wrong-app access).",
+        "default": false
+      },
+      "control_plane_api_not_publicly_exposed": {
+        "type": "boolean",
+        "title": "Control-Plane / Admin API Not Publicly Exposed",
+        "description": "Attests that the load balancer's admin/management plane (HAProxy stats socket, vendor GUI, or cloud control API) is reachable only from a restricted management network behind RBAC — NOT from untrusted/public networks. Secure value is true (admin plane bound to localhost or a management subnet). Insecure (fires) when the stats/admin/control endpoint is reachable from the public listener or untrusted networks, permitting config tampering, backend re-pointing, or LB deletion.",
+        "default": false
+      },
+      "endpoint_runs_as_least_privileged_user": {
+        "type": "boolean",
+        "title": "Data-Plane Runs As Least-Privileged User",
+        "description": "Attests that the load balancer worker/data-plane processes run as an unprivileged (non-root) account, so a worker compromise does not yield host root and widen the blast radius. Secure value is true (e.g. nginx 'user nobody;'; the master may bind privileged ports as root but workers must drop privilege). Insecure (fires) when workers run as root.",
+        "default": false
+      },
+      "deletion_protection_enabled": {
+        "type": "boolean",
+        "title": "Deletion Protection Enabled",
+        "description": "Whether deletion protection is enabled on the load balancer, preventing accidental or malicious deletion of the traffic chokepoint (a one-call availability attack). Maps to AWS ALB attribute deletion_protection.enabled (default false). Secure value is true. Insecure (fires) when false — the LB can be deleted via a single control-plane call.",
+        "default": false
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail Enabled",
+        "description": "Whether the load balancer produces connection/request access logs at the chokepoint (AWS ALB access_logs.s3.enabled / nginx access_log on). The LB sees all client traffic and is the prime audit point; when false (ALB default / nginx 'access_log off'), attacks transiting the busiest edge leave no audit trail for detection or forensics. Fires this exposure when false.",
+        "default": false
+      },
+      "logs_stored_on_separate_system": {
+        "type": "boolean",
+        "title": "Logs Stored On Separate System",
+        "description": "Whether the access logs are shipped off-box to a separate/tamper-resistant system (SIEM, S3 bucket, nginx syslog: target) rather than kept only locally on the LB. Logs that stay on the box can be wiped with the host or lost when the chokepoint is compromised. Fires this exposure when false (logs not durably shipped off the component).",
+        "default": false
+      },
+      "waf_active_blocking_on_public_web": {
+        "type": "boolean",
+        "title": "WAF Active-Blocking On Public Web",
+        "description": "Whether a WAF fronting the public-facing LB listener is in active blocking mode (ModSecurity SecRuleEngine On / managed-rule Block action) rather than detection-only/count mode. A detection-only WAF audits but never blocks, silently removing filtering at the edge. Fires this exposure when false (WAF present but not blocking, or no enforcing WAF at the public edge).",
+        "default": false
+      },
+      "waf_fails_open": {
+        "type": "boolean",
+        "title": "WAF Fails Open",
+        "description": "Whether the WAF-fronted LB fails open — forwarding requests unfiltered to targets when it cannot reach the WAF (AWS ALB waf.fail_open.enabled=true). Fail-open silently removes protection during a WAF outage, leaving the edge unfiltered exactly when it matters. Interpreted from the raw waf.fail_open.enabled config value; fires this exposure when true.",
+        "default": false
+      },
+      "edge_appliance_patched_within_sla": {
+        "type": "boolean",
+        "title": "Edge Appliance Patched Within SLA",
+        "description": "Whether the load balancer software/firmware (nginx, HAProxy, or appliance build) is kept at/above the fixed release for all applicable vendor advisories within the patching SLA. Assessor confirms via 'nginx -v' / 'haproxy -v' / appliance firmware version compared against the vendor security-advisory version-CVE map. Secure value is true (current/within SLA); the exposure fires when false (an end-of-life or pre-fix build is running on the chokepoint).",
+        "default": false
+      },
+      "unpatched_known_rce_cve": {
+        "type": "boolean",
+        "title": "Unpatched Known RCE CVE",
+        "description": "Whether the running LB build is affected by at least one known, unmitigated remote-code-execution or memory-corruption CVE in the vendor advisory (e.g. nginx resolver off-by-one CVE-2021-23017, mp4 module CVE-2022-41741/41742). Assessor interprets the reported version against the advisory list and confirms no backport/virtual-patch is in place. Secure value is false (no exploitable RCE CVE outstanding); the exposure fires when true.",
+        "default": false
+      },
+      "version_banner_disclosed": {
+        "type": "boolean",
+        "title": "Version Banner Disclosed",
+        "description": "Whether the LB leaks its software name/version in responses (nginx 'server_tokens on;' default, or an equivalent appliance banner), aiding attacker fingerprinting for version-specific CVE targeting. Assessor confirms via 'grep -i server_tokens nginx.conf' (off is secure) and 'curl -sI https://<lb-host> | grep -i server'. Secure value is false (banner suppressed / server_tokens off); this secondary trigger fires when true."
+      }
+    },
+    "required": [
+      "weak_tls_versions_enabled",
+      "min_tls_version",
+      "weak_ciphers_allowed",
+      "hsts_enforced",
+      "back_end_traffic_reencrypted_after_tls_termination",
+      "server_certificate_validated",
+      "request_framing_normalized_front_back",
+      "desync_mitigation_strict",
+      "drop_invalid_header_fields",
+      "ddos_protection_in_place",
+      "rate_limiting_or_lockout_enabled",
+      "connection_idle_timeout_bounded",
+      "request_header_timeout_bounded",
+      "http2_rapid_reset_mitigated",
+      "xff_client_ip_correctly_handled",
+      "host_header_routing_strict",
+      "control_plane_api_not_publicly_exposed",
+      "endpoint_runs_as_least_privileged_user",
+      "deletion_protection_enabled",
+      "access_audit_trail_enabled",
+      "logs_stored_on_separate_system",
+      "waf_active_blocking_on_public_web",
+      "waf_fails_open",
+      "edge_appliance_patched_within_sla",
+      "unpatched_known_rce_cve",
+      "version_banner_disclosed"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_runs_as_least_privileged_user"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_header_routing_strict"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/xff_client_ip_correctly_handled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/back_end_traffic_reencrypted_after_tls_termination"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_ciphers_allowed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/control_plane_api_not_publicly_exposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/desync_mitigation_strict"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/drop_invalid_header_fields"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_framing_normalized_front_back"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_active_blocking_on_public_web"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_fails_open"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_appliance_patched_within_sla"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_known_rce_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/version_banner_disclosed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/connection_idle_timeout_bounded"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deletion_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http2_rapid_reset_mitigated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_header_timeout_bounded"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logs_stored_on_separate_system"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

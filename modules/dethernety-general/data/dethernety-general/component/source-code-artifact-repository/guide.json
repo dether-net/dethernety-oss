@@ -1,0 +1,1039 @@
+[
+  {
+    "option_name": "sso_with_phishing_resistant_mfa_enforced",
+    "option_description": "Whether human access to the repo/registry is gated by enterprise SSO (SAML/OIDC) with phishing-resistant MFA (WebAuthn/FIDO2/passkey) enforced org-wide, rather than local accounts with optional or SMS-based MFA.",
+    "security_impact": "One of the OR-triggers for the exposure \"Weak access control / maintainer account takeover\" — fires when sso_with_phishing_resistant_mfa_enforced is false, because a phished or sprayed credential then yields a valid-account foothold at the supply-chain root (ATT&CK T1078).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub: Org Settings > Authentication security > confirm 'Require SAML SSO' (or OIDC) enabled and 'Require two-factor authentication' on; verify members enrolled in WebAuthn/passkey.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Org Settings > Authentication security",
+        "expected_output": "SAML/OIDC SSO required for all members; 2FA required org-wide; phishing-resistant (security key/passkey) methods enrolled (secure) vs SSO optional or SMS-only MFA (insecure)",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the identity-provider integration is documented and that no local/standalone accounts can authenticate to the repo platform.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Identity provider integration documented; no local/standalone accounts can authenticate to the repo platform",
+        "source": "NIST SP 800-218 SSDF v1.1"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mfa_available",
+    "option_description": "Whether multi-factor authentication is available and required for accounts that can access the repository/registry.",
+    "security_impact": "One of the OR-triggers for the exposure \"Weak access control / maintainer account takeover\" — fires when mfa_available is false, because single-factor credentials alone then grant access, enabling maintainer account takeover (ATT&CK T1078).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub: Org Settings > Authentication security > confirm 'Require two-factor authentication' is enforced for all members, not merely offered.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Org Settings > Authentication security",
+        "expected_output": "2FA required org-wide for every member (secure) vs MFA optional / not enforced (insecure)",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm every account with repo/registry access has MFA enrolled and that MFA is required rather than optional (review the enforcement policy, not just availability).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MFA required for all accounts with access (secure) vs MFA merely available/optional (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Whether members hold least-privilege roles with a minimized owner/admin set and base permissions default to read/none, write/admin granted per-need; also the cross-cutting least-privilege context for the CI-token facets.",
+    "security_impact": "One of the OR-triggers for both \"Weak access control / maintainer account takeover\" and \"Over-privileged CI tokens / OIDC federation failures\" — fires when least_privilege_access_enforced is false, because over-broad org/admin roles widen the blast radius of any compromised account.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub: Org Settings > People (filter role=Owner) and Member privileges > 'Base permissions' setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Org Settings > People; Org Settings > Member privileges > Base permissions",
+        "expected_output": "Base permission = Read or None and a small owner set (secure) vs Base permission = Write/Admin (insecure)",
+        "source": "CIS Controls v8 Control 6 (cited via CIS Controls v8 Control 4 secure-configuration guidance)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review role assignments to confirm the owner/admin set is minimal and write/admin is granted per-need rather than as a default.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Minimal owner/admin set; write/admin granted per-need (secure) vs broad standing write/admin (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "shared_admin_accounts",
+    "option_description": "Negative-polarity attribute: whether admin/owner access is via shared, non-attributable accounts rather than per-individual identities.",
+    "security_impact": "One of the OR-triggers for the exposure \"Weak access control / maintainer account takeover\" — fires when shared_admin_accounts is true, because shared admin credentials defeat attribution and concentrate takeover risk.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub: Org Settings > People — review accounts holding Owner/Admin roles for any shared/role-mailbox or non-attributable identity.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Org Settings > People (filter role=Owner/Admin)",
+        "expected_output": "All admin/owner access mapped to individual named identities (secure) vs a shared/non-attributable admin account present (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview admins to confirm no shared credential is used for owner/admin access and that each privileged login is per-individual.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No shared admin credential in use; all privileged access per-individual (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "external_collaborator_access_controlled",
+    "option_description": "Whether external collaborators are scoped to least-privilege, time-bound, per-repo access (no standing org-wide or broad write grants to outside collaborators).",
+    "security_impact": "One of the OR-triggers for the exposure \"Weak access control / maintainer account takeover\" — fires when external_collaborator_access_controlled is false, because external collaborators with over-broad access expand the maintainer-takeover surface.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub: Org Settings > Outside collaborators — review each collaborator's repo grants and permission level.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Org Settings > Outside collaborators",
+        "expected_output": "Outside collaborators scoped per-repo at least privilege (secure) vs standing org-wide or broad write grants (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Audit outside-collaborator grants to confirm they are per-repo, least-privilege, and time-bound with a removal/expiry process.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grants are per-repo, least-privilege, time-bound with documented expiry (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "no_anonymous_access_to_private_repos",
+    "option_description": "Whether private source repos and private artifact registries reject unauthenticated read/write and no internal repo is exposed publicly (no anonymous pull on a private registry).",
+    "security_impact": "One of the OR-triggers for the exposure \"Weak access control / maintainer account takeover\" — fires when no_anonymous_access_to_private_repos is false, because anonymous/public access exposes source, secrets, and IP from the central repository (ATT&CK T1213).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub: Org Settings > Member privileges > Repository visibility change; review repos with Public visibility. Artifactory/Harbor: confirm anonymous access disabled on private repos/projects.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Org Settings > Member privileges; review Public repos. Artifactory/Harbor: anonymous-access setting on private repos/projects",
+        "expected_output": "No internal repo set Public; anonymous access disabled (secure) vs anonymous/public access permitted (insecure)",
+        "source": "MITRE ATT&CK T1213 Data from Information Repositories"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated clone/pull against a known-private repo/registry URL to prove the endpoint rejects anonymous access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Unauthenticated request returns 401/403 / auth required (secure) vs returns repo content (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "branch_protection_required_reviews_enabled",
+    "option_description": "Whether the default/protected branch requires a pull request with at least one approving review (and CODEOWNERS review on sensitive paths) before merge, with no direct push permitted.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing branch/repo integrity controls\" — fires when branch_protection_required_reviews_enabled is false (direct pushes or zero required reviews), because unreviewed code can be injected straight into the default branch (ATT&CK T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the repository ruleset / branch-protection for the protected branch and confirm a pull_request rule with required_approving_review_count >= 1.",
+        "command": "gh api repos/{owner}/{repo}/rules/branches/main  # or repos/{owner}/{repo}/branches/main/protection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ruleset includes 'pull_request' rule with required_approving_review_count >= 1 (secure) vs no pull_request rule / direct push permitted (insecure)",
+        "source": "GitHub Docs — Available rules for rulesets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "force_push_blocked_on_default_branch",
+    "option_description": "Whether force-push and deletion / history rewrite of the default/protected branch are blocked (require linear history).",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing branch/repo integrity controls\" — fires when force_push_blocked_on_default_branch is false (force push or branch deletion permitted), enabling silent history tampering of the integrity baseline.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the protected-branch ruleset and confirm it contains 'non_fast_forward' (block force push) and 'deletion' rules.",
+        "command": "gh api repos/{owner}/{repo}/rules/branches/main",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ruleset contains 'non_fast_forward' (block force push) and 'deletion' rules (secure) vs absent (insecure)",
+        "source": "GitHub Docs — Available rules for rulesets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "required_status_checks_enforced",
+    "option_description": "Whether required status checks (CI, scanning) must pass before a merge to the protected branch is allowed (strict mode).",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing branch/repo integrity controls\" — fires when required_status_checks_enforced is false, because unvetted changes then merge without passing security/quality gates.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the protected-branch ruleset and confirm it contains a 'required_status_checks' rule and a pull_request rule with require_code_owner_review where applicable.",
+        "command": "gh api repos/{owner}/{repo}/rules/branches/main",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ruleset contains 'required_status_checks' (and pull_request rule with require_code_owner_review=true; CODEOWNERS file present) (secure)",
+        "source": "GitHub Docs — Available rules for rulesets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "signed_commits_required",
+    "option_description": "Whether commits (and tags) on the protected branch must be cryptographically signed and verified so authorship cannot be forged.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing branch/repo integrity controls\" — fires when signed_commits_required is false (unsigned commits accepted), allowing forged-authorship commits to land on the default branch.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the protected-branch ruleset and confirm it contains a 'required_signatures' rule.",
+        "command": "gh api repos/{owner}/{repo}/rules/branches/main  # look for 'required_signatures' rule",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ruleset contains 'required_signatures' rule (secure) vs absent / commits show 'Unverified' (insecure)",
+        "source": "GitHub Docs — Available rules for rulesets"
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the commit list in the UI — each commit on the protected branch shows a Verified/Partially verified/Unverified badge.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo > Commits — per-commit signature badge",
+        "expected_output": "Verified badge on protected-branch commits (secure) vs Unverified (insecure)",
+        "source": "GitHub — Commit signature verification"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "protected_immutable_tags",
+    "option_description": "Whether release/version tags are protected from overwrite and deletion (immutable tags) so a published tag cannot be silently re-pointed at tampered content after verification.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing branch/repo integrity controls\" — fires when protected_immutable_tags is false (mutable/overwritable tags), allowing a release tag to be re-pushed to different content.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm a ruleset targets 'tag' with 'update'/'deletion' restricted (GitHub); on Artifactory/Harbor confirm immutable tag rules on release repos.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Repo/Org Settings > Rulesets (target = Tag). Artifactory/Harbor: immutable tag rules on release repos",
+        "expected_output": "Immutable/locked release tags configured (secure) vs tags freely overwritable (insecure)",
+        "source": "GitHub Docs — Available rules for rulesets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_signing_enabled",
+    "option_description": "Whether published artifacts/container images are cryptographically signed (Sigstore/cosign keyless) at release time.",
+    "security_impact": "One of the OR-triggers for the exposure \"Unsigned / unverified artifacts with no provenance\" — fires when artifact_signing_enabled is false, because unsigned, swappable artifacts can then be published and consumed (ATT&CK T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run cosign verify against a released image with the pinned signer identity and OIDC issuer to confirm released artifacts are signed.",
+        "command": "cosign verify <image> --certificate-identity=<signer> --certificate-oidc-issuer=https://token.actions.githubusercontent.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verification succeeds with matching identity (secure) vs 'no matching signatures' / verification error for unsigned or wrong-identity image (insecure)",
+        "source": "Sigstore Cosign — Verifying signatures"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the release pipeline to confirm it signs all published artifacts/images with cosign at release time.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Release pipeline signs every published artifact/image (secure) vs signing absent for some/all releases (insecure)",
+        "source": "Sigstore Cosign — Verifying signatures"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "artifact_signature_verified_at_deploy",
+    "option_description": "Whether consumers verify the artifact/image signature and signer identity before deploy (cosign verify with pinned --certificate-identity and --certificate-oidc-issuer, or a Sigstore policy-controller admission gate).",
+    "security_impact": "One of the OR-triggers for the exposure \"Unsigned / unverified artifacts with no provenance\" — fires when artifact_signature_verified_at_deploy is false, because a tampered or wrong-identity artifact then runs unchecked downstream (ATT&CK T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the deploy-time gate runs cosign verify with pinned signer identity and OIDC issuer before an artifact is admitted.",
+        "command": "cosign verify <image> --certificate-identity=<signer> --certificate-oidc-issuer=https://token.actions.githubusercontent.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deploy gate fails closed on a missing/wrong-identity signature (secure) vs no verification step in the deploy path (insecure)",
+        "source": "Sigstore Cosign — Verifying signatures"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm an admission/deploy policy (e.g. Sigstore policy-controller) requires a valid signature from the trusted identity before an image runs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admission/deploy policy requires a valid signature from the trusted identity before an image runs (secure)",
+        "source": "Sigstore policy-controller"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "slsa_provenance_attested",
+    "option_description": "Whether builds emit and consumers verify SLSA / in-toto provenance attestations binding the artifact to its source repo, builder identity, and inputs (SLSA Build L2+/L3).",
+    "security_impact": "One of the OR-triggers for the exposure \"Unsigned / unverified artifacts with no provenance\" — fires when slsa_provenance_attested is false, because an artifact's origin is then unverifiable and a substituted build cannot be detected (ATT&CK T1195.002).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a provenance attestation is attached to each release and verified against the expected builder and source per the SLSA verification flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Provenance attestation attached to each release and verified against expected builder + source (secure) vs no provenance (insecure)",
+        "source": "SLSA v1.0 — Verifying artifacts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "immutable_artifact_tags_enforced",
+    "option_description": "Whether published artifact/image release tags are immutable so a tag cannot be silently overwritten with tampered content after verification (Artifactory/Harbor immutable tag rules).",
+    "security_impact": "One of the OR-triggers for the exposure \"Unsigned / unverified artifacts with no provenance\" — fires when immutable_artifact_tags_enforced is false (mutable tags), allowing a release tag to be re-pushed to different content post-verification.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm the registry enforces immutable release tags (Artifactory/Harbor immutable tag rules) so published artifact tags cannot be overwritten.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory/Harbor: immutable tag rules on release repos",
+        "expected_output": "Immutable/locked release tags configured (secure) vs tags freely overwritable (insecure)",
+        "source": "GitHub Docs — Available rules for rulesets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "oidc_short_lived_tokens_used",
+    "option_description": "Whether CI authenticates to cloud/registries via short-lived OIDC federation (id-token: write) scoped by the token 'sub' claim, with no long-lived PATs or static cloud access keys stored as Actions secrets.",
+    "security_impact": "One of the OR-triggers for the exposure \"Over-privileged CI tokens / OIDC federation failures\" — fires when oidc_short_lived_tokens_used is false, because a standing PAT/static cloud key stored as a secret can be exfiltrated and replayed by compromised workflow code (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep the workflows for 'id-token: write' and OIDC role-assumption usage, and confirm no static cloud keys are stored as secrets.",
+        "command": "grep -R 'id-token: write' .github/workflows/",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "permissions includes 'id-token: write' and uses OIDC role-assumption action (secure) vs static AWS_ACCESS_KEY_ID / long-lived secret in workflow (insecure)",
+        "source": "GitHub Actions — Secure use reference"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the cloud IdP trust policy to confirm the OIDC subject is restricted to a specific repo/branch/environment rather than a wildcard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cloud IdP trust policy restricts the OIDC subject to 'repo:ORG/REPO:environment:prod' (or branch/ref) — not a wildcard subject",
+        "source": "GCP — Workload Identity Federation with deployment pipelines"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "workflow_token_least_privilege",
+    "option_description": "Whether the default workflow GITHUB_TOKEN is set to read-only and each workflow/job declares an explicit narrow 'permissions:' block (e.g. contents: read) granting only the minimum scopes.",
+    "security_impact": "One of the OR-triggers for the exposure \"Over-privileged CI tokens / OIDC federation failures\" — fires when workflow_token_least_privilege is false (default read/write-all, no explicit per-job permissions), so any compromised step wields write-all repo scopes (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Repo/Org Settings > Actions > General > Workflow permissions: confirm 'Read repository contents and packages permissions' (read-only default) is selected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo/Org Settings > Actions > General > Workflow permissions",
+        "expected_output": "Read-only default selected (secure) vs 'Read and write permissions' (insecure)",
+        "source": "GitHub Actions — Secure use reference"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep workflow files for an explicit narrow permissions block at workflow/job level.",
+        "command": "grep -A4 '^permissions:' .github/workflows/*.yml",
+        "file_path": ".github/workflows/*.yml",
+        "expected_output": "permissions: with contents: read (and only needed scopes) at workflow/job level (secure) vs no permissions block / write-all (insecure)",
+        "source": "GitHub Actions — Secure use reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ci_secrets_scoped_not_broad",
+    "option_description": "Whether CI secrets, app installations, and workflow scopes are narrowly scoped to the repo/environment that needs them (environment-scoped secrets, per-job permissions, least-privilege installed apps) rather than broadly available org-wide.",
+    "security_impact": "One of the OR-triggers for the exposure \"Over-privileged CI tokens / OIDC federation failures\" — fires when ci_secrets_scoped_not_broad is false, because over-broad org-wide/unscoped secrets and scopes widen the blast radius of any single compromised workflow.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review Repo/Org Settings > Secrets and variables: confirm secrets are environment-scoped (not blanket org secrets exposed to every workflow) and that installed apps are least-privilege.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo/Org Settings > Secrets and variables > Actions (Environment secrets vs Org secrets)",
+        "expected_output": "Secrets environment-scoped, workflow scopes per-job, installed apps least-privilege (secure) vs broad org-wide secrets/scopes (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm CI secrets and installed app scopes are granted per repo/environment rather than shared org-wide to all workflows.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-repo/per-environment scoping documented (secure) vs unscoped org-wide sharing (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secret_scanning_enabled",
+    "option_description": "Whether secret scanning is enabled on the repo/org so committed credentials (API keys, tokens) are detected. Off by default.",
+    "security_impact": "One of the OR-triggers for the exposure \"Secrets committed to repo with no push protection\" — fires when secret_scanning_enabled is false, because committed credentials then land in git history unnoticed (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Org/Repo Settings > Code security and analysis > Secret scanning: confirm Enabled (ideally auto-enabled org-wide for new repos).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Org/Repo Settings > Code security and analysis > Secret scanning",
+        "expected_output": "Secret scanning Enabled (secure) vs Disabled (insecure)",
+        "source": "GitHub Docs — Enabling push protection for your repository"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "push_protection_enabled",
+    "option_description": "Whether secret-scanning push protection blocks a push that contains a credential before it reaches the repository. Disabled by default.",
+    "security_impact": "One of the OR-triggers for the exposure \"Secrets committed to repo with no push protection\" — fires when push_protection_enabled is false, because secrets are then committed into git history and persist even after later removal (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Org/Repo Settings > Code security and analysis > Secret scanning > Push protection: confirm Enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Org/Repo Settings > Code security and analysis > Secret scanning > Push protection",
+        "expected_output": "Push protection Enabled (secure) vs Disabled (insecure)",
+        "source": "GitHub Docs — Enabling push protection for your repository"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_not_in_build_logs",
+    "option_description": "Whether CI/build pipelines mask registered secrets in build/job logs so credentials are not exposed in plaintext log output (the secondary leak path for this vector).",
+    "security_impact": "One of the OR-triggers for the exposure \"Secrets committed to repo with no push protection\" — fires when secrets_not_in_build_logs is false, because credentials are then exposed in plaintext build/job log output (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect recent CI/build job logs for any plaintext credential and confirm registered secrets are masked (shown as ***) in output.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Repo > Actions > a recent workflow run > job logs",
+        "expected_output": "Registered secrets masked as *** and no credential printed in plaintext (secure) vs credential visible in logs (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm all credentials used in CI are registered as masked secrets (not echoed/exported in plaintext) per the pipeline's secret-handling policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All CI credentials registered as masked secrets; no plaintext echo (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_in_secret_manager_not_repo",
+    "option_description": "Whether credentials are sourced from a dedicated secret manager / encrypted CI secret store rather than committed as plaintext into the repository or config files.",
+    "security_impact": "One of the OR-triggers for the exposure \"Secrets committed to repo with no push protection\" — fires when secrets_in_secret_manager_not_repo is false, because static secrets then live in the repo/config files (ATT&CK T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm credentials come from a dedicated secret manager / encrypted CI secret store and that no static secrets are committed to the repo or config files.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Credentials sourced from a secret manager / encrypted CI store; no static secrets in repo (secure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Run a secret-scanner / history grep across the repo and config files to confirm no plaintext credential is committed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No plaintext credential found in tracked files / history (secure) vs static secret present (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "internal_packages_scoped_no_public_fallback",
+    "option_description": "Internal packages are namespaced/scoped (@org/*) and bound in .npmrc (or registry config) to the private registry only, with public-registry fallback DISABLED for internal scopes and the scope owned on the public registry.",
+    "security_impact": "One of the OR-triggers for the exposure \"Dependency confusion / malicious dependency\" — fires when internal_packages_scoped_no_public_fallback is false, because unscoped internal names plus public-fallback resolution permit a dependency-confusion substitution (ATT&CK T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect .npmrc for the @org scope binding to the private registry only and confirm a committed lockfile is present.",
+        "command": "cat .npmrc; ls package-lock.json yarn.lock poetry.lock",
+        "file_path": ".npmrc",
+        "expected_output": ".npmrc maps @org scope to the private registry only, no public fallback for internal scopes; lockfile present and committed (secure) vs unscoped names + public-fallback registry (insecure)",
+        "source": "Snyk — Detect and prevent dependency confusion attacks on npm"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the internal scope is claimed/owned on the public registry so an attacker cannot publish under the same scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Internal @org scope owned on the public registry (secure) vs scope unclaimed (insecure)",
+        "source": "Snyk — Detect and prevent dependency confusion attacks on npm"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dependency_versions_pinned_lockfile",
+    "option_description": "Dependency versions are pinned via a committed lockfile (package-lock.json / yarn.lock / poetry.lock) so resolution is deterministic and a swapped or higher-versioned malicious package cannot silently enter builds.",
+    "security_impact": "One of the OR-triggers for the exposure \"Dependency confusion / malicious dependency\" — fires when dependency_versions_pinned_lockfile is false (no lockfile / floating ranges), because a swapped or higher-versioned malicious package can silently enter builds (ATT&CK T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a committed lockfile pins all dependency versions and that installs are deterministic (no floating ranges resolved at install time).",
+        "command": "ls package-lock.json yarn.lock poetry.lock; git ls-files package-lock.json yarn.lock poetry.lock",
+        "file_path": "package-lock.json",
+        "expected_output": "Lockfile present and committed; versions pinned (secure) vs no lockfile / floating ranges (insecure)",
+        "source": "Snyk — Detect and prevent dependency confusion attacks on npm"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dependency_vuln_scanning_block_on_critical",
+    "option_description": "Dependencies and artifacts/images are continuously scanned for known vulnerabilities (JFrog Xray watches/policies, Dependabot) with a block-on-critical policy that prevents download/build-promotion/merge of vulnerable or known-malicious artifacts.",
+    "security_impact": "One of the OR-triggers for the exposure \"Dependency confusion / malicious dependency\" — fires when dependency_vuln_scanning_block_on_critical is false (no SCA/vuln scanning or alert-only with no block), allowing vulnerable/malicious artifacts into builds (ATT&CK T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Artifactory: confirm Xray watches/policies block download on critical CVEs; GitHub: confirm Dependabot alerts/updates enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Xray watches/policies. GitHub: Settings > Code security and analysis > Dependabot",
+        "expected_output": "Scanning enabled with block-on-vuln policy (secure) vs scanning off / alert-only (insecure)",
+        "source": "JFrog Xray — Blocking downloads with Artifactory and Xray"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the gate is enforcing (block-on-critical) rather than alert-only by reviewing the watch/policy action configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy action = block download/promotion on critical (secure) vs notify-only (insecure)",
+        "source": "JFrog Xray — Blocking downloads with Artifactory and Xray"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "package_sources_allowlisted",
+    "option_description": "Package resolution is restricted to an explicit allow-list of trusted/curated upstream sources (e.g. a vetted virtual repository / proxy with approved remotes) rather than resolving from arbitrary public registries.",
+    "security_impact": "One of the OR-triggers for the exposure \"Dependency confusion / malicious dependency\" — fires when package_sources_allowlisted is false, because resolution from arbitrary public sources widens the dependency-substitution surface (ATT&CK T1195.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm resolution is restricted to a curated allow-list (vetted virtual repo / proxy with approved remotes) and that arbitrary public registries are not reachable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only allow-listed sources reachable for resolution (secure) vs any public source resolvable (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the package-manager/registry config (.npmrc, Artifactory virtual repo remotes) to confirm only approved upstream remotes are configured.",
+        "command": null,
+        "file_path": ".npmrc",
+        "expected_output": "Config lists only approved/curated remotes (secure) vs direct public-registry resolution (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "webhook_signature_verified",
+    "option_description": "Whether webhook deliveries are configured with a shared secret and the receiver validates the HMAC SHA-256 signature (X-Hub-Signature-256) before acting on the payload.",
+    "security_impact": "One of the OR-triggers for the exposure \"Webhook / third-party integration trust abuse\" — fires when webhook_signature_verified is false (no secret / unverified payloads), letting a forged or replayed payload trigger trusted actions (ATT&CK T1199).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a webhook secret is set and the receiver validates the X-Hub-Signature-256 (HMAC SHA-256) before acting on payloads.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Webhook configured with a secret and receiver verifies the SHA-256 HMAC signature (secure) vs no secret / unverified payloads (insecure)",
+        "source": "MITRE ATT&CK T1199 Trusted Relationship"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "third_party_app_scope_least_privilege",
+    "option_description": "Whether installed third-party OAuth apps and GitHub Apps are granted least-privilege scopes (only the specific repos and minimal permissions they need) rather than broad org-wide / all-repos write or admin access.",
+    "security_impact": "One of the OR-triggers for the exposure \"Webhook / third-party integration trust abuse\" — fires when third_party_app_scope_least_privilege is false, because an over-scoped integration that is compromised can tamper with the supply chain (ATT&CK T1199).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the org 'Installed GitHub Apps' / OAuth apps inventory and confirm each is scoped to only the repos and minimal permissions it needs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Org Settings > Installed GitHub Apps / Third-party access > OAuth app policy",
+        "expected_output": "Each app scoped to only needed repos and minimal permissions (secure) vs broad org-wide/all-repos write or admin grants (insecure)",
+        "source": "MITRE ATT&CK T1199 Trusted Relationship"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "installed_integrations_reviewed_approved",
+    "option_description": "Whether an inventory of installed integrations (OAuth apps, GitHub Apps, webhooks) is periodically reviewed and new installations go through an approval/restriction policy (e.g. org-owner approval for third-party access).",
+    "security_impact": "One of the OR-triggers for the exposure \"Webhook / third-party integration trust abuse\" — fires when installed_integrations_reviewed_approved is false, because an unvetted or compromised integration then gains a trusted-relationship path into the repository (ATT&CK T1199).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the installed-integration inventory is reviewed periodically and that new installs require org-owner approval / a restriction policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Org Settings > Third-party access (OAuth app access restrictions / GitHub App approval)",
+        "expected_output": "Integration inventory reviewed periodically; new installs require approval (secure) vs unrestricted installation (insecure)",
+        "source": "MITRE ATT&CK T1199 Trusted Relationship"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Whether all repo/registry access (clone/push/pull/API) is forced over TLS 1.2+/1.3 with no plaintext HTTP or unencrypted git protocol fallback.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when tls_only_transport is false, because plaintext transport exposes source and credentials in transit.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh against the repo/registry host to confirm TLS 1.2/1.3 only with no plaintext fallback.",
+        "command": "testssl.sh repo.example.com:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.2/1.3 only, no plaintext fallback (secure)",
+        "source": "NIST SP 800-52 Rev. 2 — Guidelines for TLS Implementations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encrypted_at_rest",
+    "option_description": "Whether repositories and stored artifacts are encrypted at rest (KMS-managed) on the backend storage.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when encrypted_at_rest is false, because unencrypted repo/artifact storage is exposed to storage-layer compromise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the storage backend encrypts repos/artifacts at rest (KMS-managed).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Storage backend encrypts repos/artifacts at rest (KMS-managed) (secure) vs unencrypted storage (insecure)",
+        "source": "AWS Well-Architected Security Pillar — Protecting Data at Rest"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_log_streaming_enabled",
+    "option_description": "Whether the audit log (access, admin, and Git push events) is streamed off-host to an external SIEM/object store rather than being web-only with short retention.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when audit_log_streaming_enabled is false, leaving tamperable, short-lived web-only records.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "GitHub Enterprise: Settings > Audit log > Log streaming — confirm a stream endpoint (Splunk/Azure/GCS) is configured and includes Git events.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub Enterprise: Settings > Audit log > Log streaming",
+        "expected_output": "Audit log stream enabled and delivering off-host (secure) vs no stream / web-only short retention (insecure)",
+        "source": "GitHub Docs — Streaming the audit log for your enterprise"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "logs_stored_on_separate_system",
+    "option_description": "Whether audit/access logs are persisted on a system separate from the repository platform itself (off-host SIEM/object store), so a host compromise cannot delete the evidentiary record.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when logs_stored_on_separate_system is false, because logs that live only on a platform an attacker may control can be erased.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Confirm the audit-log stream destination is an off-host SIEM/object store (Splunk/Azure Blob/GCS), separate from the repo platform.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub Enterprise: Settings > Audit log > Log streaming (destination)",
+        "expected_output": "Logs persisted off-host on a separate SIEM/object store (secure) vs logs only on the repo platform (insecure)",
+        "source": "GitHub Docs — Streaming the audit log for your enterprise"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm repo-platform admins cannot delete the off-host log copy (separate trust domain / write-once retention).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Off-host log store in a separate trust domain not deletable by repo-platform admins (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Configured retention period (in days) for audit/access logs.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when log_retention_days is below 90, the threshold at which short/default web-only retention prevents detection and forensic reconstruction of slow-burn repository access abuse.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the configured audit/access log retention period (in days) on the platform and/or the off-host SIEM/object-store retention policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub Enterprise: Settings > Audit log (retention); SIEM/object-store retention policy",
+        "expected_output": "Retention >= 90 days (secure) vs short/default web-only retention < 90 days (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      90,
+      180,
+      365
+    ]
+  },
+  {
+    "option_name": "anomaly_alerting_on_access",
+    "option_description": "Whether anomaly/alerting rules are configured on suspicious repository access (e.g. unusual clone volume, off-hours admin actions, mass push/exfil patterns).",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when anomaly_alerting_on_access is false, because unauthorized reads of the information repository then go unnoticed.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm anomaly/alerting rules fire on suspicious access (unusual clone volume, off-hours admin actions, mass push/exfil patterns) in the SIEM/monitoring stack.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alerting rules configured on anomalous access patterns (secure) vs no alerting (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the SIEM detection content / alert rules tied to the audit-log stream to confirm repo-access anomalies generate alerts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active detection rules on clone-volume / off-hours admin / mass-push events (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_residency_region_pinned",
+    "option_description": "Whether storage of regulated source/artifacts and their logs is pinned to an approved residency region, preventing drift of regulated data to non-compliant geographies.",
+    "security_impact": "One of the OR-triggers for the exposure \"Missing encryption + audit-logging gaps\" — fires when data_residency_region_pinned is false, because regulated source may relocate across jurisdictional boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify storage of regulated source/artifacts and their logs is pinned to an approved residency region and cannot drift to non-compliant geographies.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Storage region pinned to an approved residency geography (secure) vs unpinned / drift possible (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "self_hosted_runner_isolated_ephemeral",
+    "option_description": "Whether self-hosted CI runners are ephemeral/just-in-time, network-isolated from the internal estate, and never attached to public repositories or reused across jobs.",
+    "security_impact": "One of the OR-triggers for the exposure \"Network exposure / self-hosted runner & unpatched instance\" — fires when self_hosted_runner_isolated_ephemeral is false, because attacker-supplied PR/job code can execute on a standing host and persist between jobs (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm runners are ephemeral/JIT and not enabled for public repos, and that the runner host is network-isolated from the internal estate.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runners are ephemeral/JIT and not enabled for public repos; runner host network-isolated (secure)",
+        "source": "GitHub Actions — Secure use reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unpatched_known_rce_cve",
+    "option_description": "Negative-polarity attribute: true (insecure) when the self-hosted repo/registry instance (GitLab/Artifactory) runs a version affected by a known, actively-exploited RCE CVE (e.g. in CISA KEV / vendor advisory) that has not been remediated.",
+    "security_impact": "One of the OR-triggers for the exposure \"Network exposure / self-hosted runner & unpatched instance\" — fires when unpatched_known_rce_cve is true, because an actively-exploited unremediated RCE leaves the supply-chain root remotely exploitable (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Compare the running self-hosted instance version against CISA KEV and vendor advisories; flag true when an actively-exploited unremediated RCE CVE applies.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running version not affected by any KEV-listed RCE (secure, false) vs version matches an actively-exploited unremediated RCE (insecure, true)",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "edge_appliance_patched_within_sla",
+    "option_description": "Whether the self-hosted instance is kept on a current, vendor-supported (non-EoL) version and security patches are applied within the organisation's defined remediation SLA.",
+    "security_impact": "One of the OR-triggers for the exposure \"Network exposure / self-hosted runner & unpatched instance\" — fires when edge_appliance_patched_within_sla is false, leaving exploitable defects open against an internet-facing supply-chain root (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the self-hosted instance is on a vendor-supported (non-EoL) version and security patches are applied within the org's remediation SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Instance on a supported version, patches within SLA (secure) vs unpatched / EoL beyond SLA (insecure)",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "control_plane_api_not_publicly_exposed",
+    "option_description": "Whether the self-hosted instance's API / control-plane endpoint that should be private is not reachable from untrusted public networks (placed behind VPN/private network/allowlist).",
+    "security_impact": "One of the OR-triggers for the exposure \"Network exposure / self-hosted runner & unpatched instance\" — fires when control_plane_api_not_publicly_exposed is false, presenting an externally reachable attack surface for T1190 exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted external network, probe the instance's API/control-plane endpoint to confirm it is not reachable (behind VPN/private network/allowlist).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Control-plane API unreachable from public networks (secure) vs externally reachable (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the private instance is not publicly reachable per the network/firewall design review.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Private instance not publicly reachable per network design (secure)",
+        "source": "CISA BOD 22-01 Known Exploited Vulnerabilities"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Whether administrative/management interfaces of the self-hosted repo/registry instance are not reachable directly from the public internet.",
+    "security_impact": "One of the OR-triggers for the exposure \"Network exposure / self-hosted runner & unpatched instance\" — fires when edge_management_interfaces_not_internet_reachable is false, widening the remotely exploitable surface for an unpatched or misconfigured instance (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From the public internet, scan/probe the instance's administrative/management interfaces to confirm they are not directly reachable.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management interfaces not reachable from the public internet (secure) vs directly reachable (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,212 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "service_to_service_mtls_enforced": {
+        "type": "boolean",
+        "title": "Service-to-Service mTLS Enforced",
+        "description": "Attestation that east-west service-to-service traffic on this flow is encrypted AND mutually authenticated (mTLS) on every hop, with no plaintext fallback. True when, e.g., the destination workload is covered by an Istio PeerAuthentication with mtls.mode=STRICT (or equivalent Linkerd/Consul Connect configuration) and a non-mesh plaintext probe is rejected. False when the flow accepts cleartext, letting any attacker with a pod/node foothold sniff credentials, tokens, and PII off the pod network.",
+        "default": false
+      },
+      "peer_authentication_mtls_mode_strict": {
+        "type": "boolean",
+        "title": "PeerAuthentication mTLS Mode STRICT",
+        "description": "Interpreted attestation: the PeerAuthentication policy(ies) covering this flow's destination workload set mtls.mode=STRICT at the most specific applicable level (workload-selector > namespace > mesh-wide), including any port-level overrides. True only when no PERMISSIVE / DISABLE / UNSET applies on the flow's path — i.e. plaintext fallback is refused end-to-end. False whenever any reachable policy leaves a plaintext path open (mTLS-downgrade exposure)."
+      },
+      "identity_propagated_cryptographically": {
+        "type": "boolean",
+        "title": "Identity Propagated Cryptographically",
+        "description": "Attestation that each workload on this east-west flow proves its identity to peers via a cryptographic per-workload credential (SPIFFE SVID, mesh-issued service-account X.509, or Vault PKI cert presented in the mTLS handshake) — NOT by source IP, hostname, DNS name, or a long-lived shared bearer token. True when peers verify identity from the cryptographic principal in the peer certificate (e.g. spiffe:// SAN) on every call; false when the flow relies on network coordinates or shared secrets.",
+        "default": false
+      },
+      "east_west_microsegmentation_enforced": {
+        "type": "boolean",
+        "title": "East-West Microsegmentation Enforced",
+        "description": "Attestation that east-west pod-to-pod traffic is microsegmented by a default-deny NetworkPolicy baseline (per namespace, ingress AND egress) so any-to-any reachability is blocked by default and explicit allows are required. False = flat pod network: any compromised pod can reach any other pod across the cluster.",
+        "default": false
+      },
+      "east_west_within_segment_restricted": {
+        "type": "boolean",
+        "title": "East-West Within-Segment Restricted",
+        "description": "Attestation that east-west allow rules are scoped per-workload (podSelector / service-account) rather than coarse 'any pod in namespace X to any pod in namespace Y'. False = segmentation is technically present but operationally void: once any pod in the allowed namespace is compromised, lateral movement to the sensitive workload is permitted."
+      },
+      "least_privilege_authorization_at_crossing": {
+        "type": "boolean",
+        "title": "Least-Privilege Authorization at Crossing",
+        "description": "Attests that each east-west call is gated by a least-privilege authorization policy (e.g. Istio AuthorizationPolicy) keyed on the caller's workload identity (SPIFFE principal / ServiceAccount) — a valid mTLS identity is still denied access to endpoints it has no business calling. Secure value is true; when false, any mTLS-authenticated peer can reach any endpoint on this flow.",
+        "default": false
+      },
+      "internal_interface_reauthenticates_calls": {
+        "type": "boolean",
+        "title": "Internal Interface Reauthenticates Calls",
+        "description": "Attests that the callee re-authenticates and re-authorizes every individual east-west call against the caller's attested workload identity, rather than trusting transport-level mTLS establishment alone or a once-per-session check. Secure value is true; when false, downstream services treat the mTLS handshake as a blanket pass and a compromised peer can pivot across endpoints without per-call checks."
+      },
+      "shared_service_credentials_used": {
+        "type": "boolean",
+        "title": "Shared Service Credentials Used",
+        "description": "Attestation: workloads on this east-west flow authenticate to peers (or to backing stores) using a long-lived shared bearer token / API key baked into images, ConfigMaps, or environment variables — the same credential reused across multiple Deployments or Services. True (insecure) when shared long-lived credentials are in use; false when service-to-service auth uses exclusively per-workload short-lived identities (SPIFFE SVIDs, mesh-issued certs, Vault dynamic creds).",
+        "default": false
+      },
+      "centralized_log_aggregation": {
+        "type": "boolean",
+        "title": "Centralized Log Aggregation",
+        "description": "Attestation: every east-west service-to-service request is captured into a central log store (mesh access logs forwarded to Loki/Elastic/CloudWatch with source.principal and destination.principal populated). When false, lateral movement leaves no centrally-correlatable trace and silent pivots go undetected."
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access Audit Trail with Anomaly Alerting",
+        "description": "Attestation: an audit trail of east-west access decisions exists with caller/callee identity, path, and outcome, AND anomaly detection rules fire on new caller-callee pairs or volume spikes against the baseline. When false, even logged traffic produces no alerts on lateral-movement patterns."
+      },
+      "management_plane_isolated_from_data_plane": {
+        "type": "boolean",
+        "title": "Management Plane Isolated from Data Plane",
+        "description": "Attestation: app-namespace pods cannot directly reach the Kubernetes control plane — kube-apiserver privileged endpoints, etcd, and the kubelet read/write port (10250) — from the data plane. Enforced via egress NetworkPolicy ipBlock.except carve-outs (or equivalent CNI policy) that exclude the control-plane CIDR / apiserver service / kubelet port from app-namespace egress allows. Secure value is true (isolated); false (reachable) turns a single app-pod RCE into a cluster-admin pivot.",
+        "default": false
+      },
+      "cloud_metadata_endpoint_blocked": {
+        "type": "boolean",
+        "title": "Cloud Metadata Endpoint Blocked",
+        "description": "Attestation: the cloud-provider instance metadata endpoint (169.254.169.254 — IMDS) is unreachable from app-namespace pods, blocked via egress NetworkPolicy ipBlock.except or equivalent host-level filter. Secure value is true (blocked); false (reachable) lets a compromised pod harvest the node's IAM credentials and pivot to cloud-credential theft (MITRE T1552.005).",
+        "default": false
+      }
+    },
+    "required": [
+      "service_to_service_mtls_enforced",
+      "peer_authentication_mtls_mode_strict",
+      "identity_propagated_cryptographically",
+      "east_west_microsegmentation_enforced",
+      "east_west_within_segment_restricted",
+      "least_privilege_authorization_at_crossing",
+      "internal_interface_reauthenticates_calls",
+      "shared_service_credentials_used",
+      "centralized_log_aggregation",
+      "access_audit_trail_enabled",
+      "management_plane_isolated_from_data_plane",
+      "cloud_metadata_endpoint_blocked"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_propagated_cryptographically"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_authorization_at_crossing"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_interface_reauthenticates_calls"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_to_service_mtls_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/peer_authentication_mtls_mode_strict"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_service_credentials_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_metadata_endpoint_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/east_west_microsegmentation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_plane_isolated_from_data_plane"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/east_west_within_segment_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_aggregation"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

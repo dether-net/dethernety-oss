@@ -1,0 +1,266 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mfa_enforced_for_admin": {
+        "type": "boolean",
+        "title": "MFA Enforced for Admin Access",
+        "description": "MFA mandatory for admin/privileged logins (CIS 6.5). Secure value is true.",
+        "default": false
+      },
+      "mfa_enforced_for_vpn_login": {
+        "type": "boolean",
+        "title": "MFA Enforced for VPN / Remote Login",
+        "description": "MFA mandatory for remote/VPN access (CIS 6.4). Secure value is true.",
+        "default": false
+      },
+      "mfa_enforced_for_externally_exposed_apps": {
+        "type": "boolean",
+        "title": "MFA Enforced for Internet-Exposed Apps",
+        "description": "MFA mandatory for internet-exposed enterprise apps (CIS 6.3). Secure value is true.",
+        "default": false
+      },
+      "phishing_resistant_authenticator_required": {
+        "type": "string",
+        "enum": [
+          "fido2_or_piv",
+          "sms_otp_or_push"
+        ],
+        "title": "Phishing-Resistant Authenticator Required",
+        "description": "Required authenticator strength for high-value access. Secure value is fido2_or_piv (origin-bound, phishing-resistant)."
+      },
+      "phishing_resistant_mfa_enabled": {
+        "type": "boolean",
+        "title": "Phishing-Resistant MFA Available",
+        "description": "Phishing-resistant MFA is available/enabled in the environment. Supporting context for the authenticator-strength facet."
+      },
+      "weak_sms_voice_mfa_disabled": {
+        "type": "boolean",
+        "title": "Weak SMS/Voice MFA Disabled",
+        "description": "SMS-OTP / voice removed as a permitted second factor for high-value accounts (SS7 / SIM-swap exposure). Secure value is true.",
+        "default": false
+      },
+      "mfa_fail_closed": {
+        "type": "boolean",
+        "title": "MFA Fails Closed",
+        "description": "MFA fails closed on service error (no password-only fallback). Secure value is true.",
+        "default": false
+      },
+      "legacy_auth_protocols_disabled": {
+        "type": "boolean",
+        "title": "Legacy Auth Protocols Disabled",
+        "description": "Legacy/basic-auth protocols that skip modern MFA blocked tenant-wide. Secure value is true.",
+        "default": false
+      },
+      "conditional_access_exclusions_minimized": {
+        "type": "boolean",
+        "title": "Conditional-Access Exclusions Minimized",
+        "description": "CA exclusions restricted to one documented break-glass account. Secure value is true.",
+        "default": false
+      },
+      "push_number_matching_enabled": {
+        "type": "boolean",
+        "title": "Push Number-Matching Enabled",
+        "description": "Push MFA enforces number-matching so a user cannot blindly approve. Secure value is true.",
+        "default": false
+      },
+      "push_request_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Push Request Rate-Limiting Enabled",
+        "description": "Push generation throttled per account with anomalous-prompt alerting (anti prompt-bombing). Secure value is true.",
+        "default": false
+      },
+      "step_up_reauth_for_sensitive_actions": {
+        "type": "boolean",
+        "title": "Step-Up Re-Auth for Sensitive Actions",
+        "description": "Sensitive operations trigger a fresh MFA challenge. Secure value is true.",
+        "default": false
+      },
+      "mfa_session_lifetime_bounded": {
+        "type": "boolean",
+        "title": "MFA Session Lifetime Bounded",
+        "description": "Authenticated sessions carry an AAL-appropriate bounded lifetime plus reauthentication interval. Secure value is true.",
+        "default": false
+      },
+      "session_idle_timeout_minutes": {
+        "type": "integer",
+        "title": "Session Idle Timeout (Minutes)",
+        "description": "Idle session timeout in minutes; <=30 is secure.",
+        "minimum": 0,
+        "maximum": 86400
+      },
+      "secure_mfa_enrollment_and_recovery": {
+        "type": "boolean",
+        "title": "Secure MFA Enrollment & Recovery",
+        "description": "Identity-proofed enrollment plus recovery re-establishes equivalent assurance (no weak KBA reset / unverified self-registration). Secure value is true.",
+        "default": false
+      },
+      "mfa_authentication_events_audited": {
+        "type": "boolean",
+        "title": "MFA Authentication Events Audited",
+        "description": "MFA sign-ins, factor registrations, denied/ignored prompts, and policy changes are logged and alerted. Secure value is true.",
+        "default": false
+      }
+    },
+    "required": [
+      "mfa_enforced_for_admin",
+      "mfa_enforced_for_vpn_login",
+      "mfa_enforced_for_externally_exposed_apps",
+      "phishing_resistant_authenticator_required",
+      "weak_sms_voice_mfa_disabled",
+      "mfa_fail_closed",
+      "legacy_auth_protocols_disabled",
+      "conditional_access_exclusions_minimized",
+      "push_number_matching_enabled",
+      "push_request_rate_limiting_enabled",
+      "step_up_reauth_for_sensitive_actions",
+      "mfa_session_lifetime_bounded",
+      "session_idle_timeout_minutes",
+      "secure_mfa_enrollment_and_recovery",
+      "mfa_authentication_events_audited"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/legacy_auth_protocols_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_admin"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_externally_exposed_apps"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_vpn_login"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_fail_closed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_authenticator_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/push_number_matching_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/push_request_rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_mfa_enrollment_and_recovery"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_sms_voice_mfa_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_mfa_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/conditional_access_exclusions_minimized"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_authentication_events_audited"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Session Management",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_session_lifetime_bounded"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/step_up_reauth_for_sensitive_actions"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_idle_timeout_minutes"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

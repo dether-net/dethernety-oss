@@ -1,0 +1,514 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "api_keys_not_in_client_code_or_repo": {
+        "type": "boolean",
+        "title": "API Keys Not in Client Code or Repo",
+        "description": "Secret/restricted PSP keys (sk_*/rk_*) are never embedded in client bundles, mobile apps, or committed source — verified by secret scanning / pre-commit hooks rejecting sk_/rk_ patterns. INSECURE (false) when a secret/restricted key appears in shipped client code or the repository, which is a critical credential-leak exposure. Maps to dossier config key api_key_type_server_side.",
+        "default": false
+      },
+      "restricted_least_privilege_keys_used": {
+        "type": "boolean",
+        "title": "Restricted Least-Privilege Keys Used",
+        "description": "PSP integrations use restricted, least-privilege keys (rk_live_) scoped to minimal per-resource permissions instead of a single unrestricted full-access secret key, limiting blast radius of a compromised key. INSECURE (false) when an unrestricted secret key is shared across all integrations. Maps to dossier config key restricted_api_keys; aligns with canonical least_privilege_access_enforced.",
+        "default": false
+      },
+      "api_keys_stored_in_secret_manager": {
+        "type": "boolean",
+        "title": "API Keys Stored in Secret Manager",
+        "description": "Secret/restricted PSP keys are resolved at runtime from a secrets vault (AWS/GCP Secret Manager, Azure Key Vault, HashiCorp Vault) with access audit logging, not hard-coded or stored in plaintext config / chat / tickets. INSECURE (false) when keys are hard-coded or committed in plaintext. Maps to dossier config key api_key_storage_vault.",
+        "default": false
+      },
+      "api_keys_rotated_regularly": {
+        "type": "boolean",
+        "title": "API Keys Rotated Regularly",
+        "description": "A documented, practiced key-rotation process exists: keys are rotated periodically and immediately on suspected exposure, using the delayed-expiration rollover window. INSECURE (false) when long-lived static keys are never rotated and no contingency plan exists. Maps to dossier config key api_key_rotation."
+      },
+      "test_live_keys_separated": {
+        "type": "boolean",
+        "title": "Test and Live Keys Separated",
+        "description": "Test/sandbox keys (sk_test_/pk_test_) are never used in production and live keys never in non-prod, preventing real-charge accidents and cross-environment data leakage — verified via API request logs. INSECURE (false) when live keys appear in dev/test or test keys are deployed to prod. Maps to dossier config key test_live_key_separation."
+      },
+      "webhook_signature_verified": {
+        "type": "boolean",
+        "title": "Webhook Signature Verified",
+        "description": "Every inbound webhook is verified with the Stripe-Signature header (t=,v1=HMAC-SHA256) against the endpoint signing secret (whsec_) via constructEvent/construct_event over the RAW request body before any handling, and unverified events are rejected. Interpreted boolean over the real config surface (webhook_signature_verification): secure=true. When false, an attacker can POST forged payment_intent.succeeded events to trigger order fulfilment without payment.",
+        "default": false
+      },
+      "webhook_endpoint_https_only": {
+        "type": "boolean",
+        "title": "Webhook Endpoint HTTPS-Only",
+        "description": "The webhook endpoint is served over HTTPS/TLS only (https:// URL), per Stripe's integration security guide. Interpreted boolean over the real config surface (webhook_https_only): secure=true. When false (plaintext http:// endpoint), forged or tampered events can be injected over the cleartext channel and signature material observed in transit.",
+        "default": false
+      },
+      "webhook_source_ip_allowlisted": {
+        "type": "boolean",
+        "title": "Webhook Source IP Allowlisted",
+        "description": "Inbound webhook traffic is restricted to the PSP's published source IP ranges (defence-in-depth alongside signature verification, per Stripe's integration security guide). Interpreted boolean attestation: secure=true. When false, the endpoint accepts POSTs from any source IP, widening the surface for forged-event delivery."
+      },
+      "webhook_replay_timestamp_tolerance_enforced": {
+        "type": "boolean",
+        "title": "Webhook Replay Timestamp Tolerance Enforced",
+        "description": "True when webhook signature verification enforces the library default ~5-minute (300s) timestamp recency window so intercepted-and-replayed signed events are rejected by staleness. Maps to dossier config_surface webhook_replay_tolerance (secure_value: default 300s tolerance). Setting tolerance to 0 disables the recency check (and must never be used), and omitting any timestamp check leaves this false — a captured valid signed event can be replayed indefinitely. Assessor interprets the verified value from the signature-verification call: enforced non-zero tolerance => true; tolerance=0 or no timestamp check => false. Fires the replay exposure when false.",
+        "default": false
+      },
+      "webhook_event_idempotency_enforced": {
+        "type": "boolean",
+        "title": "Webhook Event Idempotency Enforced",
+        "description": "True when the webhook handler deduplicates on event.id before applying side effects, so a re-sent (replayed or Stripe-retried) event with a previously-processed id does not double-apply fulfilment. Maps to dossier config_surface webhook_https_only idempotency facet (secure_value: event.id deduplicated before applying side effects). A non-idempotent handler re-applies effects on replay/retry. Assessor interprets the handler: records processed event.id and skips duplicates => true; no dedup => false. Fires the replay exposure when false.",
+        "default": false
+      },
+      "client_side_tokenization_used": {
+        "type": "boolean",
+        "title": "Client-Side Tokenization Used",
+        "description": "True when card data is tokenized client-side via Stripe.js/Elements/Checkout (or equivalent hosted fields) using the publishable key, so the browser transmits PAN directly to the PSP and only a PaymentMethod/token (pm_/tok_) ever reaches our server. False means a raw PAN is posted to or handled by our servers, pulling our environment into full PCI scope (SAQ-D, 300+ controls). Fires on the insecure (untokenized) state. Maps dossier config_surface client_side_tokenization / pci_saq_scope.",
+        "default": false
+      },
+      "raw_pan_not_stored": {
+        "type": "boolean",
+        "title": "Raw PAN Not Stored",
+        "description": "True when full PAN (and CVV/track data) is never persisted at rest; only non-sensitive Stripe-returned data (last4, brand, expiry) is stored. False means full card data is stored at rest, violating PCI DSS Req 3.4 (PAN must be rendered unreadable) and creating a breach target. Fires on the insecure (PAN-stored) state. Maps dossier config_surface no_pan_stored_or_logged (storage facet).",
+        "default": false
+      },
+      "cardholder_data_not_logged": {
+        "type": "boolean",
+        "title": "Cardholder Data Not Logged",
+        "description": "True when full PAN and sensitive authentication data never appear in application, access, or audit logs (logs masked to last4/****). False means PAN/SAD is written to logs, violating PCI DSS Req 3.4 / Req 10 (audit logs must not themselves leak cardholder data). Fires on the insecure (CHD-in-logs) state. Maps dossier config_surface no_pan_stored_or_logged (logging facet) — reuses the canonical secrets_masked_in_logs / pii_excluded_from_logs intent for card data.",
+        "default": false
+      },
+      "encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Encrypted at Rest",
+        "description": "Canonical workspace attribute. True when persisted account data (tokens plus any stored cardholder metadata) is encrypted at rest. False means stored payment data sits in plaintext, compounding the exposure when PAN-in-scope data is retained (PCI DSS Req 3). Fires on the insecure (unencrypted) state; secondary trigger reinforcing the PCI data-protection facet."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Transport",
+        "description": "All server-to-PSP API calls and payment pages are made over TLS/HTTPS only, with no plaintext HTTP fallback or downgrade path. Fires the TLS-downgrade/MITM exposure when false (any cleartext HTTP call to the PSP API exposes tokens, credentials, and transaction data in motion). Derived from the dossier tls_to_psp_api config surface (secure: HTTPS-only resources; insecure: any plaintext HTTP call).",
+        "default": false
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Versions Enabled",
+        "description": "Interpreted boolean: the HTTP client / TLS stack negotiating with the PSP permits TLS versions below 1.2 (TLS 1.0/1.1 or SSLv3). True means a downgrade to weak/deprecated TLS is possible, exposing transaction data to interception. Modelled as an interpreted boolean (not a raw cipher/protocol string) to stay polarity-safe; secure value is false. Grounds in the dossier tls_to_psp_api insecure_value (TLS <1.2).",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLSv1.0",
+          "TLSv1.1",
+          "TLSv1.2",
+          "TLSv1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The minimum TLS protocol version the connection to the PSP API will negotiate. Canonical shared-workspace enum (granular form). Fires the exposure when set to a weak floor (SSLv3 / TLSv1.0 / TLSv1.1) — a positive condition on the insecure values, so the hardened TLSv1.2/TLSv1.3 floors stay silent. Stripe and equivalent PSPs mandate TLS 1.2 or above."
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Server Certificate Validated",
+        "description": "The HTTP client validates the PSP API server's certificate chain (no verify=False / rejectUnauthorized:false / disabled hostname verification). Fires the MITM exposure when false: disabled certificate verification lets an adversary-in-the-middle present a forged cert and intercept tokens and transaction data. Grounds in the dossier tls_to_psp_api process_audit (no verify=False / rejectUnauthorized:false).",
+        "default": false
+      },
+      "idempotency_key_used_on_charges": {
+        "type": "boolean",
+        "title": "Idempotency Key Used on Charges",
+        "description": "Attests that every mutating charge/PaymentIntent POST to the PSP sends a unique Idempotency-Key header (V4 UUID or order/cart-derived) so network-error retries return the saved first response instead of creating a second charge. Secure value is true; the exposure fires when false (no idempotency key — retries can double-charge). Maps to dossier config key idempotency_keys.",
+        "default": false
+      },
+      "amount_currency_validated_server_side": {
+        "type": "boolean",
+        "title": "Amount and Currency Validated Server-Side",
+        "description": "Attests that the charge amount and currency are computed and authoritatively set server-side from trusted catalog/order data rather than echoed from the client request. Secure value is true; the exposure fires when false (amount/currency taken from a client-trusted value, enabling amount/currency tampering). Maps to dossier config key server_side_amount_validation.",
+        "default": false
+      },
+      "order_total_not_client_trusted": {
+        "type": "boolean",
+        "title": "Order Total Not Client-Trusted",
+        "description": "Attests that the server independently verifies the order total against trusted order/catalog records before charging, never trusting a client-supplied total. Secure value is true; the exposure fires when false (no server-side order-total verification, letting a buyer pay an attacker-chosen amount).",
+        "default": false
+      },
+      "three_ds_sca_enforced": {
+        "type": "boolean",
+        "title": "3DS / SCA Enforced",
+        "description": "3D Secure 2 / PSD2 Strong Customer Authentication is enforced on in-scope card payments via the PaymentIntents flow (which triggers Stripe's mandatory authentication and handles the 3DS next_action), rather than raw charge APIs that bypass authentication. Secure = true; the exposure fires when SCA/3DS2 is not enforced, enabling card-not-present / stolen-card fraud and merchant-borne chargebacks. Maps to dossier config key three_d_secure_sca.",
+        "default": false
+      },
+      "fraud_velocity_anomaly_checks_enabled": {
+        "type": "boolean",
+        "title": "Fraud / Velocity / Anomaly Checks Enabled",
+        "description": "Active fraud/abuse controls — a risk rules engine plus velocity/anomaly checks (Radar-style risk rules) — are enabled for the integration, with a defined dispute/chargeback workflow. Secure = true; the exposure fires when no fraud/velocity/anomaly detection is in place, leaving stolen-card and abusive patterns undetected. Maps to dossier config key fraud_velocity_controls.",
+        "default": false
+      },
+      "sca_exemptions_applied_deliberately": {
+        "type": "boolean",
+        "title": "SCA Exemptions Applied Deliberately",
+        "description": "SCA exemptions (e.g. low-value, TRA, frictionless / Data Only flows) are applied deliberately and narrowly with appropriate liability handling, rather than broad/blanket exemptions that suppress authentication where it is mandated. Interpreted boolean: secure = true (exemptions used intentionally and scoped); the exposure fires when exemptions are improperly broad or misapplied, undermining SCA coverage. Derived from the dossier three_d_secure_sca guidance that exemptions must be used deliberately."
+      },
+      "psp_auth_short_lived_tokens_or_mtls": {
+        "type": "boolean",
+        "title": "PSP Auth via Short-Lived Tokens or mTLS",
+        "description": "True when client authentication to the PSP integration uses OAuth2 client-credentials or mTLS-bound (RFC 8705) short-lived, least-privilege access tokens rather than a long-lived static shared bearer secret/API key. False means long-lived static credentials are the trust anchor, so a single credential compromise grants durable, unbounded access into the trusted PSP relationship (T1199).",
+        "default": false
+      },
+      "psp_integration_ip_allowlisted": {
+        "type": "boolean",
+        "title": "PSP Integration IP Allowlisted",
+        "description": "True when the secret/restricted keys (or token endpoints) for the PSP integration are bound to a NAT-gateway / reserved source-IP allowlist so a stolen credential is unusable from an attacker network. False means the credential is usable from any source IP, removing a network constraint on trusted-relationship abuse (T1199/T1078). Maps to dossier api_key_ip_allowlist.",
+        "default": false
+      },
+      "least_privilege_access_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Access Enforced",
+        "description": "Canonical workspace attribute: true when access granted to/through the integration follows least privilege. For the PSP relationship this is satisfied by scoped restricted keys (rk_live_) with minimal per-resource permissions rather than a single unrestricted full-access secret key. False means over-broad permissions are granted to the trusted PSP connection, widening the blast radius of an abused trust (T1199). Consolidates the contextual least-privilege evidence from the API-key vector into this single load-bearing trigger.",
+        "default": false
+      },
+      "psp_trust_scope_least_privilege": {
+        "type": "boolean",
+        "title": "PSP Trust Scope Least-Privilege",
+        "description": "True when the trust/permission scope specifically granted on the PSP connection (e.g. Connect account scopes, restricted-key resource grants, webhook/event subscriptions) is constrained to only the financial operations this component requires. False means an over-broad trust scope is granted to the PSP integration, so abuse of the trusted relationship can pivot into financial operations beyond the component's legitimate need (T1199)."
+      },
+      "transaction_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Transaction Audit Trail Enabled",
+        "description": "A complete, time-synced audit trail of payment operations and PSP webhook events is recorded per PCI DSS Req 10 (without storing CHD). When absent, transaction-data exfiltration over the trusted PSP HTTPS channel leaves no record and goes undetected. Secure value: true.",
+        "default": false
+      },
+      "anomaly_alerting_on_payment_events": {
+        "type": "boolean",
+        "title": "Anomaly Alerting on Payment Events",
+        "description": "Anomaly/alerting is active on PSP API request logs and webhook events (unusual volume, off-hours bulk reads, residency drift). Without it, attacker pulls of customer/transaction data blend with normal traffic and trigger no alert. Secure value: true.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "title": "Log Retention (Days)",
+        "description": "Retention period (in days) for transaction/audit logs. PCI DSS Req 10 requires audit history retained for at least one year (365 days). A value below 365 means investigation of slow exfiltration over the PSP channel is impossible. Fires insecure when lt 365."
+      },
+      "payment_data_residency_pinned": {
+        "type": "boolean",
+        "title": "Payment Data Residency Pinned",
+        "description": "Regulated transaction-data residency and retention obligations are documented and enforced (data pinned to permitted jurisdictions; only tokenized references + non-sensitive metadata retained). When false, data-residency drift moves regulated transaction data outside permitted jurisdictions undetected. Secure value: true."
+      }
+    },
+    "required": [
+      "api_keys_not_in_client_code_or_repo",
+      "restricted_least_privilege_keys_used",
+      "api_keys_stored_in_secret_manager",
+      "api_keys_rotated_regularly",
+      "test_live_keys_separated",
+      "webhook_signature_verified",
+      "webhook_endpoint_https_only",
+      "webhook_source_ip_allowlisted",
+      "webhook_replay_timestamp_tolerance_enforced",
+      "webhook_event_idempotency_enforced",
+      "client_side_tokenization_used",
+      "raw_pan_not_stored",
+      "cardholder_data_not_logged",
+      "encrypted_at_rest",
+      "tls_only_transport",
+      "weak_tls_versions_enabled",
+      "min_tls_version",
+      "server_certificate_validated",
+      "idempotency_key_used_on_charges",
+      "amount_currency_validated_server_side",
+      "order_total_not_client_trusted",
+      "three_ds_sca_enforced",
+      "fraud_velocity_anomaly_checks_enabled",
+      "sca_exemptions_applied_deliberately",
+      "psp_auth_short_lived_tokens_or_mtls",
+      "psp_integration_ip_allowlisted",
+      "least_privilege_access_enforced",
+      "psp_trust_scope_least_privilege",
+      "transaction_audit_trail_enabled",
+      "anomaly_alerting_on_payment_events",
+      "log_retention_days",
+      "payment_data_residency_pinned"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/psp_auth_short_lived_tokens_or_mtls"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_access_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/psp_trust_scope_least_privilege"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_endpoint_https_only"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/payment_data_residency_pinned"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_keys_not_in_client_code_or_repo"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/api_keys_stored_in_secret_manager"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/restricted_least_privilege_keys_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/api_keys_rotated_regularly"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/test_live_keys_separated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/psp_integration_ip_allowlisted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_source_ip_allowlisted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anomaly_alerting_on_payment_events"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cardholder_data_not_logged"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transaction_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Fraud Abuse",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/fraud_velocity_anomaly_checks_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/three_ds_sca_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sca_exemptions_applied_deliberately"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/amount_currency_validated_server_side"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/idempotency_key_used_on_charges"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/order_total_not_client_trusted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_event_idempotency_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_replay_timestamp_tolerance_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_signature_verified"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Pci Scope Minimization",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_side_tokenization_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/raw_pan_not_stored"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

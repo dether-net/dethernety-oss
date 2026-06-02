@@ -1,0 +1,96 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "mfa_enforced_for_admin": false,
+      "phishing_resistant_authenticator_required": "sms_otp_or_push",
+      "admin_credential_hygiene": false,
+      "no_shared_privileged_credentials": false,
+      "privileged_session_anomaly_monitoring": false,
+      "no_standing_admin_privileges_jit_required": false,
+      "least_privilege_admin_scoping": false,
+      "privileged_access_via_pam_with_session_recording": false,
+      "periodic_privilege_recertification": false,
+      "dormant_admin_accounts_disabled": false,
+      "shared_admin_accounts": true,
+      "operators_hold_raw_longlived_admin_secrets": true,
+      "control_plane_api_not_publicly_exposed": false,
+      "remote_admin_access_requires_mfa": false,
+      "remote_access_via_ztna_or_mfa_vpn": false,
+      "audit_log_tamper_evident": false
+    },
+    "expectedExposures": [
+      "Shared / un-vaulted privileged credentials",
+      "Compromise / abuse of valid privileged credentials",
+      "Weak / non-phishing-resistant admin authentication",
+      "Standing / over-broad privilege exploited for lateral movement",
+      "Internet-exposed admin / management interface",
+      "Non-attributable / unlogged privileged actions",
+      "Privilege creep / dormant admin accounts"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "mfa_enforced_for_admin": true,
+      "phishing_resistant_authenticator_required": "fido2_or_piv",
+      "admin_credential_hygiene": true,
+      "no_shared_privileged_credentials": true,
+      "privileged_session_anomaly_monitoring": true,
+      "no_standing_admin_privileges_jit_required": true,
+      "least_privilege_admin_scoping": true,
+      "privileged_access_via_pam_with_session_recording": true,
+      "periodic_privilege_recertification": true,
+      "dormant_admin_accounts_disabled": true,
+      "shared_admin_accounts": false,
+      "operators_hold_raw_longlived_admin_secrets": false,
+      "control_plane_api_not_publicly_exposed": true,
+      "remote_admin_access_requires_mfa": true,
+      "remote_access_via_ztna_or_mfa_vpn": true,
+      "audit_log_tamper_evident": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "mfa_enforced_for_admin": true,
+      "phishing_resistant_authenticator_required": "sms_otp_or_push",
+      "admin_credential_hygiene": true,
+      "no_shared_privileged_credentials": true,
+      "privileged_session_anomaly_monitoring": true,
+      "no_standing_admin_privileges_jit_required": true,
+      "least_privilege_admin_scoping": true,
+      "privileged_access_via_pam_with_session_recording": true,
+      "periodic_privilege_recertification": true,
+      "dormant_admin_accounts_disabled": true,
+      "shared_admin_accounts": false,
+      "operators_hold_raw_longlived_admin_secrets": false,
+      "control_plane_api_not_publicly_exposed": true,
+      "remote_admin_access_requires_mfa": true,
+      "remote_access_via_ztna_or_mfa_vpn": true,
+      "audit_log_tamper_evident": true
+    },
+    "expectedExposures": [
+      "Compromise / abuse of valid privileged credentials",
+      "Weak / non-phishing-resistant admin authentication"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Shared / un-vaulted privileged credentials",
+      "Compromise / abuse of valid privileged credentials",
+      "Weak / non-phishing-resistant admin authentication",
+      "Standing / over-broad privilege exploited for lateral movement",
+      "Internet-exposed admin / management interface",
+      "Non-attributable / unlogged privileged actions",
+      "Privilege creep / dormant admin accounts"
+    ]
+  }
+]

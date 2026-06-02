@@ -1,0 +1,390 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "accepts_alg_none": {
+        "type": "boolean",
+        "title": "Accepts `alg:none` Tokens",
+        "description": "Whether the JWT verifier accepts tokens presented with alg=none (the unsigned-token mode in RFC 7519). An attacker can strip the signature and set alg=none to forge any claims. Secure = false (alg=none must be rejected at parse time, before signature dispatch).",
+        "default": false
+      },
+      "access_token_ttl_minutes": {
+        "type": "integer",
+        "title": "Access Token TTL (Minutes)",
+        "description": "Lifetime of an issued access token in minutes. Multi-hour or multi-day TTLs widen the window in which a stolen or otherwise compromised bearer remains valid; over 60 minutes is excessive for a bearer token without a working revocation channel."
+      },
+      "audience_claim_validated": {
+        "type": "boolean",
+        "title": "Audience (`aud`) Claim Validated",
+        "description": "Whether the verifier enforces the aud claim against this service's expected audience identifier, rejecting tokens minted for a different relying party. When false, a token issued for another audience can be replayed here.",
+        "default": false
+      },
+      "cookie_httponly_flag": {
+        "type": "boolean",
+        "title": "Auth Cookie `HttpOnly` Flag Set",
+        "description": "True when authentication-bearing cookies carry the HttpOnly attribute, preventing JavaScript (document.cookie) from reading them. Insecure default is false (cookie readable by injected script); secure value is true (cookie hidden from the DOM, only the browser attaches it to requests).",
+        "default": false
+      },
+      "expiry_claim_validated": {
+        "type": "boolean",
+        "title": "Expiry (`exp`/`nbf`) Claims Validated",
+        "description": "Whether the verifier enforces the token's exp (and nbf) temporal claims, rejecting expired or not-yet-valid tokens. When false, expired tokens remain accepted, extending credential lifetime indefinitely.",
+        "default": false
+      },
+      "identifier_entropy_bits": {
+        "type": "integer",
+        "title": "HMAC Signing Key Entropy (Bits)",
+        "description": "Measured/asserted entropy of the HMAC signing key in bits. Industry floor for symmetric secrets is 128 bits; values below this admit feasible offline cracking of a captured JWT signature."
+      },
+      "issuer_claim_validated": {
+        "type": "boolean",
+        "title": "Issuer (`iss`) Claim Validated",
+        "description": "Whether the verifier enforces the iss claim against an allow-list of trusted issuers, rejecting tokens minted by untrusted authorities. When false, any issuer (including attacker-controlled) can mint accepted tokens.",
+        "default": false
+      },
+      "jwt_signature_verified": {
+        "type": "boolean",
+        "title": "JWT Signature Cryptographically Verified",
+        "description": "Whether the application actually performs cryptographic signature verification on every JWT before trusting its claims — as opposed to decoding the payload without verifying (a common library-misuse pattern where decode() is called instead of verify()). Secure = true.",
+        "default": false
+      },
+      "long_lived_token_in_browser_storage": {
+        "type": "boolean",
+        "title": "Long-Lived Token in Browser Storage",
+        "description": "True when a multi-day token (e.g. refresh token, long-TTL access token) is persisted in browser-side storage where an XSS sink can drain it in one shot. Insecure default is true; secure value is false (long-lived material kept server-side or in HttpOnly cookies; only short-TTL access tokens transit the browser)."
+      },
+      "refresh_token_rotation_enabled": {
+        "type": "boolean",
+        "title": "Refresh-Token Rotation Enabled",
+        "description": "True when the token service issues a new refresh token on every use and invalidates the previous one (rotation-on-use). False means the same long-lived refresh token is accepted repeatedly, so a stolen token grants indefinite access.",
+        "default": false
+      },
+      "rs256_to_hs256_confusion_possible": {
+        "type": "boolean",
+        "title": "RS256-to-HS256 Key Confusion Possible",
+        "description": "Whether the verifier is vulnerable to the RS256->HS256 key-confusion attack: it does not validate that the key material's type matches the header's alg family, so an attacker can submit a token with alg=HS256 and have the verifier HMAC-verify it using the RSA public key as the shared secret. Includes the related kid-header-injection failure mode where the verifier follows an attacker-chosen kid to attacker-controlled key material. Secure = false (verifier enforces key-type/alg-family binding and constrains kid resolution to a trusted key set).",
+        "default": true
+      },
+      "samesite_attribute_set": {
+        "type": "boolean",
+        "title": "Cookie `SameSite` Attribute Present",
+        "description": "Whether the session/bearer cookie is issued with a SameSite attribute. When false, the cookie has no SameSite policy, so the browser attaches it to cross-origin requests (including state-changing POSTs from attacker-controlled pages) — the standard CSRF preconditions.",
+        "default": false
+      },
+      "samesite_mode": {
+        "type": "string",
+        "enum": [
+          "Strict",
+          "Lax",
+          "None"
+        ],
+        "title": "Cookie `SameSite` Mode",
+        "description": "The SameSite policy applied to the session cookie. 'Strict' and 'Lax' block (or substantially restrict) cross-site attachment of the cookie; 'None' opts the cookie back into being sent on cross-site requests and is functionally equivalent to the attribute being absent for CSRF purposes on state-changing endpoints."
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Token Values Masked in Logs",
+        "description": "Attestation that raw authentication token values are redacted, masked, or omitted from all logging and telemetry sinks — application logs, access logs, error reports, distributed-tracing spans, APM payloads, and third-party observability vendors. When false, log aggregators and tracing backends become a credential exfiltration surface.",
+        "default": false
+      },
+      "sender_constrained": {
+        "type": "boolean",
+        "title": "Sender-Constrained Tokens",
+        "description": "True when access tokens are cryptographically bound to the legitimate sender (e.g. DPoP RFC 9449, mTLS-bound tokens RFC 8705, or token binding) so a token captured from one host cannot be replayed from another. False when tokens are plain bearers usable by anyone who presents them, enabling XSS/extension/AiTM/log-scrape replay against the API.",
+        "default": false
+      },
+      "server_side_revocation_supported": {
+        "type": "boolean",
+        "title": "Server-Side Revocation Supported",
+        "description": "True when the token service maintains server-side state that can detect reuse of an already-rotated/revoked refresh token and revoke the affected token family. False means there is no reuse-detection or revocation path, so a replayed refresh token cannot be invalidated.",
+        "default": false
+      },
+      "session_absolute_timeout_enforced": {
+        "type": "boolean",
+        "title": "Absolute Session Timeout Enforced",
+        "description": "Whether an absolute (non-sliding) session cap is enforced so that a refresh chain cannot extend access indefinitely. When false, long-lived sessions effectively become permanent regardless of access-token TTL."
+      },
+      "session_id_regenerated_on_auth": {
+        "type": "boolean",
+        "title": "Session ID Regenerated on Authentication",
+        "description": "Whether the session identifier is rotated/regenerated when an anonymous session transitions to an authenticated session. When false, a pre-authentication session id remains valid post-login — the root cause of session fixation: an attacker who plants a known session id rides the victim's authenticated session once the victim logs in with that id.",
+        "default": false
+      },
+      "signature_algorithm_pinned_server_side": {
+        "type": "boolean",
+        "title": "Signature Algorithm Pinned Server-Side",
+        "description": "Whether the verifier pins the expected JWT signature algorithm server-side (e.g. RS256) and rejects tokens whose alg header does not match — instead of trusting the token's alg header to select the verification routine. The root-cause control against algorithm-confusion attacks (alg=none, RS256->HS256 key confusion, kid header injection). Secure = true (algorithm is pinned and the header alg is ignored or strictly validated against the pinned value).",
+        "default": false
+      },
+      "signing_key_csprng_generated": {
+        "type": "boolean",
+        "title": "Signing Key CSPRNG-Generated",
+        "description": "Operator-attested boolean indicating the HMAC signing key was generated by a cryptographically secure random number generator (CSPRNG) rather than chosen by a human, derived from a passphrase without a strong KDF, or sourced from a non-cryptographic RNG. False means the key's provenance does not guarantee unpredictability.",
+        "default": false
+      },
+      "signing_key_high_entropy": {
+        "type": "boolean",
+        "title": "Signing Key Has High Entropy",
+        "description": "Operator-attested boolean indicating the HMAC signing key (HS256/HS384/HS512 shared secret) has high entropy — sufficiently long and unguessable to resist offline brute-force and dictionary attack against a captured JWT. False means the key is weak/guessable (short, human-chosen, dictionary-derived, or known constant).",
+        "default": false
+      },
+      "stored_in_js_accessible_storage": {
+        "type": "boolean",
+        "title": "Token Stored in JS-Accessible Storage",
+        "description": "True when authentication tokens are placed in JavaScript-accessible storage (localStorage or sessionStorage) on the browser, making them reachable by any injected script via DOM APIs. Insecure default is true (localStorage is the common bad pattern); secure value is false (tokens held in HttpOnly cookies or non-persistent in-memory only).",
+        "default": false
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "TLS-Only Token Transport",
+        "description": "Attestation that the authentication token is transmitted exclusively over TLS-protected channels on every leg of its lifecycle (issuance, presentation, refresh, revocation). When false, the token traverses cleartext or mixed-mode transport at some point and can be sniffed off the wire or harvested from intermediate plaintext caches.",
+        "default": false
+      },
+      "transmitted_in_url_or_query": {
+        "type": "boolean",
+        "title": "Token Transmitted in URL or Query",
+        "description": "Attestation that the authentication token is conveyed in a URL component (query string, path, or fragment) rather than only in headers or request bodies. Tokens in URLs are captured by browser history, Referer headers sent to third parties, CDN/edge access logs, proxy logs, and analytics pipelines — making them harvestable by anyone with read access to those sinks even when the underlying TLS transport is clean.",
+        "default": false
+      }
+    },
+    "required": [
+      "accepts_alg_none",
+      "access_token_ttl_minutes",
+      "audience_claim_validated",
+      "cookie_httponly_flag",
+      "expiry_claim_validated",
+      "identifier_entropy_bits",
+      "issuer_claim_validated",
+      "jwt_signature_verified",
+      "long_lived_token_in_browser_storage",
+      "refresh_token_rotation_enabled",
+      "rs256_to_hs256_confusion_possible",
+      "samesite_attribute_set",
+      "samesite_mode",
+      "secrets_masked_in_logs",
+      "sender_constrained",
+      "server_side_revocation_supported",
+      "session_absolute_timeout_enforced",
+      "session_id_regenerated_on_auth",
+      "signature_algorithm_pinned_server_side",
+      "signing_key_csprng_generated",
+      "signing_key_high_entropy",
+      "stored_in_js_accessible_storage",
+      "tls_only_transport",
+      "transmitted_in_url_or_query"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepts_alg_none"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/expiry_claim_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/issuer_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/jwt_signature_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rs256_to_hs256_confusion_possible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/samesite_attribute_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/samesite_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sender_constrained"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_id_regenerated_on_auth"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_algorithm_pinned_server_side"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_claim_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_token_ttl_minutes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/identifier_entropy_bits"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/refresh_token_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signing_key_csprng_generated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signing_key_high_entropy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_absolute_timeout_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transmitted_in_url_or_query"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_revocation_supported"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cookie_httponly_flag"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/stored_in_js_accessible_storage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/long_lived_token_in_browser_storage"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,653 @@
+[
+  {
+    "option_name": "flow_tls_encrypted",
+    "option_description": "Attestation that the request/response channel for this flow is carried over TLS end-to-end — no plaintext HTTP, no opportunistic-encryption fallback. Establishes channel confidentiality and integrity for the entire flow.",
+    "security_impact": "References \"Cleartext transport / TLS strip\" — one of its OR-conditions — firing when flow_tls_encrypted is false. That exposure relays passive sniffing of credentials/tokens/PII (T1040) and exfiltration over an unencrypted channel (T1048.003) to an on-path attacker.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Open a TLS connection to the documented service endpoint and confirm the handshake completes.",
+        "command": "openssl s_client -connect <host>:<port> -servername <host> </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful TLS handshake (CONNECTED, certificate chain printed, 'Verify return code: 0 (ok)') — a connection refused or 'wrong version number' against the documented port indicates plaintext-only or misconfigured TLS.",
+        "source": "NIST SP 800-52 Rev. 2"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Force curl to use HTTPS only and verify the endpoint serves the flow over TLS 1.2+.",
+        "command": "curl -v --proto '=https' --tlsv1.2 https://<host>/<path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake completes and HTTP/1.1 or HTTP/2 response returned; any 301/308 redirect from http:// to https:// confirms the cleartext endpoint at least redirects (and HSTS should be present — see hsts_enforced).",
+        "source": "OWASP ASVS V9 (Communications)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the plaintext port to confirm the server refuses or redirects cleartext requests for every leg of the flow.",
+        "command": "curl -v http://<host>/<path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused, 301/308 redirect to https://, or HTTP 400 'Bad Request: This combination of host and port requires TLS'. A 200 response on plain HTTP is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "hsts_enforced",
+    "option_description": "Attestation that for browser-reachable flows the server emits Strict-Transport-Security with max-age >= 31536000 and includeSubDomains, instructing the user agent to refuse plaintext for the host going forward. Mark not-applicable for pure service-to-service flows.",
+    "security_impact": "References \"Cleartext transport / TLS strip\" — one of its OR-conditions — firing when hsts_enforced is false. Without HSTS the flow is downgradeable via sslstrip on first or any uncached visit, which is the canonical Downgrade Attack (T1562.010) named on this exposure.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Fetch headers from the HTTPS endpoint and confirm the Strict-Transport-Security header is present with a long max-age.",
+        "command": "curl -sIk https://<host>/ | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Strict-Transport-Security: max-age=31536000; includeSubDomains' (preload optional). Absence is a finding for browser-facing flows; for pure service-to-service flows, mark not-applicable.",
+        "source": "RFC 6797 HTTP Strict Transport Security (HSTS)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether the flow has a browser leg at all — if every caller is a service or daemon with no user agent, mark the attribute not-applicable rather than false.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture statement: either 'flow has browser-reachable endpoint, HSTS required' or 'pure service-to-service flow, HSTS N/A'.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "min_tls_version",
+    "option_description": "Minimum TLS protocol version negotiated on the flow. TLS 1.0/1.1 and all SSL versions are deprecated; TLS 1.2 is the floor and TLS 1.3 is preferred for new flows.",
+    "security_impact": "References \"TLS protocol/cipher downgrade\" — one of its OR-conditions — firing when min_tls_version equals 'tls1_0_or_tls1_1_or_sslv3_accepted'. Accepting SSLv3/TLS1.0/1.1 lets an on-path adversary force the flow onto a weaker protocol (POODLE/BEAST-class — ATT&CK T1562.010 Downgrade Attack).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate every TLS protocol the server accepts using nmap's ssl-enum-ciphers NSE script.",
+        "command": "nmap -Pn -p <port> --script ssl-enum-ciphers <host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-protocol section lists only TLSv1.2 and/or TLSv1.3 with grade A; presence of any SSLv2/SSLv3/TLSv1.0/TLSv1.1 section is a finding.",
+        "source": "Nmap ssl-enum-ciphers NSE script documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to enumerate supported protocols deterministically.",
+        "command": "testssl.sh --protocols <host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'TLS 1.2 offered (OK)' and 'TLS 1.3 offered (OK)' with SSLv2/SSLv3/TLS 1/1.1 reported as 'not offered'.",
+        "source": "testssl.sh project documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Negative test — try to negotiate TLS 1.1 explicitly and confirm the server rejects it.",
+        "command": "openssl s_client -connect <host>:<port> -tls1_1 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake failure / 'no protocols available' — success here means TLS 1.1 is still accepted, which is a finding.",
+        "source": "Mozilla Server Side TLS Recommended Configurations"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1_2_or_higher",
+      "tls1_0_or_tls1_1_or_sslv3_accepted"
+    ]
+  },
+  {
+    "option_name": "cipher_suites_strong_only",
+    "option_description": "Whether only strong, NIST/Mozilla-approved cipher suites (AEAD modes with ECDHE/DHE forward secrecy) are negotiated. The insecure value indicates legacy CBC, RC4, 3DES, NULL, EXPORT, or anonymous suites are still accepted, enabling FREAK/LOGJAM/CRIME-class attacks.",
+    "security_impact": "References \"TLS protocol/cipher downgrade\" — one of its OR-conditions — firing when cipher_suites_strong_only equals 'any_legacy_cbc_rc4_3des_null_or_export_suite_accepted'. Weak ciphers enable on-path session weakening (ATT&CK T1562.010 Downgrade Attack).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Enumerate every cipher suite the server accepts with grading via nmap ssl-enum-ciphers.",
+        "command": "nmap -Pn -p <port> --script ssl-enum-ciphers <host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every cipher line graded A; any cipher containing RC4, 3DES, NULL, EXPORT, MD5, anon (aNULL/ADH) is a finding. Mozilla Intermediate suites such as TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256 (1.3) and ECDHE-*-GCM* (1.2) are expected.",
+        "source": "Mozilla Server Side TLS Recommended Configurations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh's cipher-per-protocol scan to flag weak suites colour-coded.",
+        "command": "testssl.sh --cipher-per-proto <host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only AEAD ciphers with ECDHE/DHE listed; output flags any weak (yellow) or insecure (red) suites.",
+        "source": "testssl.sh project documentation"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "aead_with_forward_secrecy_only",
+      "any_legacy_cbc_rc4_3des_null_or_export_suite_accepted"
+    ]
+  },
+  {
+    "option_name": "downgrade_and_renegotiation_protected",
+    "option_description": "Whether the TLS 1.3 downgrade-protection sentinel is honoured and insecure (RFC 5746-violating) renegotiation is disabled. The insecure value indicates either an observed downgrade sentinel or insecure renegotiation, letting a network attacker weaken or hijack the encrypted session (CVE-2009-3555 / POODLE-class).",
+    "security_impact": "References \"TLS protocol/cipher downgrade\" — one of its OR-conditions — firing when downgrade_and_renegotiation_protected equals 'insecure_renegotiation_or_downgrade_observed'. Lets an on-path adversary force weakening or hijack the session (ATT&CK T1562.010 Downgrade Attack).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh's vulnerability scan to check secure-renegotiation and downgrade-class bugs in one pass.",
+        "command": "testssl.sh --vulnerable <host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sections 'Secure Renegotiation (RFC 5746)': supported; 'Secure Client-Initiated Renegotiation': not vulnerable; no LOGJAM/FREAK/POODLE/CRIME findings.",
+        "source": "testssl.sh project documentation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the server negotiates TLS 1.3 when offered (TLS 1.3 includes built-in downgrade-protection sentinel in ServerHello.random).",
+        "command": "openssl s_client -connect <host>:<port> -tls1_3 </dev/null 2>&1 | grep -i 'TLSv1.3'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server negotiates TLS 1.3 when offered; no fallback to TLS 1.2 unless explicitly required by the flow.",
+        "source": "RFC 8446 - The Transport Layer Security (TLS) Protocol Version 1.3"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "downgrade_sentinel_absent_and_secure_renegotiation_only",
+      "insecure_renegotiation_or_downgrade_observed"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Attestation that the client on this flow performs full server certificate validation: chain to a trusted root, hostname (SAN) match, expiry and revocation checks. Disabled hostname/chain verification (Go InsecureSkipVerify, Python verify=False, Node rejectUnauthorized:false, curl -k) turns TLS into MITM theatre.",
+    "security_impact": "References \"Adversary-in-the-Middle via skipped certificate validation\" — one of its OR-conditions — firing when server_certificate_validated is false. Lets an on-path attacker present an arbitrary certificate and read/modify the entire flow (ATT&CK T1557, T1553.004).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Force OpenSSL to return verification errors so a misconfigured chain is surfaced rather than silently accepted.",
+        "command": "openssl s_client -connect <host>:<port> -servername <host> -verify_return_error </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)'. A non-zero code (e.g. 18 self-signed, 19 self-signed in chain, 20 unable to get issuer, 21 unable to verify first cert, 10 expired) is a finding.",
+        "source": "OWASP ASVS V9 (Communications)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review client code/config for any TLS verification short-circuits on this flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code/config review: HTTP clients on this flow do NOT set InsecureSkipVerify=true (Go), verify=False (Python requests), rejectUnauthorized:false (Node TLS), -k/--insecure (curl), or equivalent. Any such call site on this flow is a finding.",
+        "source": "OWASP ASVS V9 (Communications)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_root_trust_managed",
+    "option_description": "Attestation that the trust store used to validate the server certificate is curated and pinned to known CAs (or an internal CA for service-to-service mTLS) rather than the default OS bundle accepted with no review. An overly broad trust store widens the MITM surface — any CA in the bundle can mint a cert accepted on this flow.",
+    "security_impact": "References \"Adversary-in-the-Middle via skipped certificate validation\" — one of its OR-conditions — firing when tls_root_trust_managed is false. Broadens the set of CAs that can mint an accepted cert (ATT&CK T1553.004 Install Root Certificate / T1557 AitM).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the client's TLS configuration for an explicit CA bundle reference rather than reliance on the system default trust store.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Client config references an explicit CA bundle (file path / k8s ConfigMap / mesh-managed) for this flow. For internal mTLS flows, only the internal CA is trusted (not public CAs).",
+        "source": "NIST SP 800-52 Rev. 2"
+      },
+      {
+        "type": "command",
+        "instruction": "Dump every certificate in the referenced CA bundle to verify only expected roots are present.",
+        "command": "openssl x509 -in <ca-bundle-file> -noout -issuer -subject -enddate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bundle contains only the expected roots; no unknown or expired issuers.",
+        "source": "NIST SP 800-52 Rev. 2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sender_constrained",
+    "option_description": "Attestation that access tokens carried on this flow are sender-constrained (proof-of-possession bound to the caller's key) — either DPoP (RFC 9449) or mTLS-bound (RFC 8705). False when the flow accepts plain 'Authorization: Bearer <token>' with no possession proof — such tokens are replayable from any host that obtains them until expiry.",
+    "security_impact": "References \"Stolen-bearer-token replay\" — present in both OR-conditions (alone, and combined with access_token_ttl_minutes > 60) — firing when sender_constrained is false. Plain bearer tokens lifted from a log/proxy/compromised client are replayable from any host (ATT&CK T1550.001 Application Access Token, T1134.001).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture a representative authenticated request and inspect headers for DPoP proof or an mTLS-bound token cnf claim.",
+        "command": "Proxy capture (Burp/mitmproxy) of a representative authenticated request; inspect headers for 'DPoP: <jwt>' alongside 'Authorization: DPoP <token>' OR confirm client cert presented with token containing 'cnf':{'x5t#S256':…}.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Either DPoP proof JWT accompanies the access token (with matching jkt thumbprint in token's cnf claim) or token is mTLS-bound. A plain 'Authorization: Bearer …' on a high-value flow is a finding.",
+        "source": "RFC 9449 - OAuth 2.0 Demonstrating Proof of Possession (DPoP)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the authorization-server configuration / client registration for sender-constrained-token flags.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authorization-server config and client registration show 'dpop_bound_access_tokens': true OR 'tls_client_certificate_bound_access_tokens': true for clients on this flow.",
+        "source": "RFC 8705 — OAuth 2.0 Mutual-TLS Client Authentication"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "access_token_ttl_minutes",
+    "option_description": "Lifetime in minutes of the access token presented on this flow, from issuance to expiry. Long TTLs widen the replay window when a token is exfiltrated: a 60-minute token caps the abuse window at one hour, a multi-hour or multi-day token turns a single compromise into long-lived access. RFC 9700 recommends short-lived access tokens paired with refresh tokens.",
+    "security_impact": "References \"Stolen-bearer-token replay\" — combines with sender_constrained as an OR-trigger — firing when sender_constrained is false AND access_token_ttl_minutes > 60. A long-lived plain bearer enables long-window replay (ATT&CK T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Decode a captured JWT access token and compute exp - iat in minutes to read the configured TTL directly.",
+        "command": "echo '<jwt>' | cut -d. -f2 | base64 -d 2>/dev/null | jq '(.exp - .iat) / 60'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer number of minutes (e.g. 15, 30, 60). Anything above 60 widens the replay window in combination with a plain bearer.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "api",
+        "instruction": "Alternatively, query the IdP's OAuth2 token introspection endpoint for the same value.",
+        "command": "curl -u <client>:<secret> -d 'token=<token>' https://<idp>/oauth2/introspect",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON containing 'iat' and 'exp' epoch timestamps; (exp - iat) / 60 is the TTL in minutes.",
+        "source": "RFC 9700 — Best Current Practice for OAuth 2.0 Security"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      15,
+      30,
+      60,
+      480,
+      1440
+    ]
+  },
+  {
+    "option_name": "jwt_signature_verified",
+    "option_description": "Attestation that on every JWT received on this flow, the receiver cryptographically verifies the signature against the issuer's published key BEFORE trusting any claim. Secure = true. False fires the exposure — an unverified or skipped-signature token path lets an attacker submit any forged token and be trusted.",
+    "security_impact": "References \"JWT signature bypass (alg=none / alg-confusion)\" — one of its OR-conditions — firing when jwt_signature_verified is false. Forged tokens grant arbitrary impersonation (ATT&CK T1550.001, T1606.001 Forge Web Credentials, T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Code-review the token verification path to confirm jwt.verify (or equivalent) is called, not jwt.decode, on every inbound JWT before any claim is read.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code review of token verification: library call passes an explicit algorithm (e.g. RS256/ES256) — not a wildcard, not derived from the incoming token header. 'iss', 'aud', 'exp', 'nbf' validated.",
+        "source": "RFC 8725 - JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Negative test — submit a token with a flipped signature byte; the receiver must reject it.",
+        "command": "Take a captured valid JWT, flip one byte in the signature segment, replay it.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401/invalid_token. A 200 response means the signature was not actually verified.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "accepts_alg_none",
+    "option_description": "Attestation: the JWT verifier accepts tokens whose header declares alg='none' (an unsigned token treated as authentic). Secure = false (the 'none' algorithm is explicitly rejected by the verifier's allowlist). True fires the exposure — CVE-2015-9235 class bug, attacker forges arbitrary claims with no signing key.",
+    "security_impact": "References \"JWT signature bypass (alg=none / alg-confusion)\" — one of its OR-conditions — firing when accepts_alg_none is true. Enables arbitrary token forgery without any key material (ATT&CK T1606.001 Forge Web Credentials, T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Submit a forged JWT with header {\"alg\":\"none\"} and an empty signature — the receiver must reject it.",
+        "command": "Send a forged token with header {\"alg\":\"none\"} and an unsigned tail; send same token modified to alg=HS256 signed with the public key.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both requests rejected (401/invalid token). Acceptance of either is a critical finding.",
+        "source": "RFC 8725 - JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the verifier's algorithm allowlist to confirm 'none' is explicitly excluded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify-call passes an explicit algorithms list (e.g. ['RS256']) that does not contain 'none'. A library default that allows 'none' is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "signature_algorithm_pinned_server_side",
+    "option_description": "Attestation: the verifier passes an explicit, server-side allowlist of acceptable signing algorithms (e.g. RS256/ES256 only) to the JWT library, instead of trusting the algorithm declared in the incoming token's own 'alg' header. Secure = true. False fires the exposure — algorithm-from-header trust is the precondition for both alg=none and alg-confusion attacks.",
+    "security_impact": "References \"JWT signature bypass (alg=none / alg-confusion)\" — one of its OR-conditions — firing when signature_algorithm_pinned_server_side is false. Untrusted algorithm selection is the structural precondition for alg=none and key-confusion forgery (ATT&CK T1606.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the JWT verify call in source: confirm an explicit algorithms allowlist is passed and the algorithm is not derived from the token's own header.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code review of token verification: library call passes an explicit algorithm (e.g. RS256/ES256) — not a wildcard, not derived from the incoming token header. 'iss', 'aud', 'exp', 'nbf' validated.",
+        "source": "RFC 8725 - JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Negative test — submit a token whose header declares a different algorithm than the one the verifier should accept and confirm rejection.",
+        "command": "Take a valid token, rewrite its header to {\"alg\":\"HS512\"}, resign with garbage, replay.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rejected with invalid algorithm / signature error. Acceptance means the verifier honoured the header-declared algorithm.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rs256_to_hs256_confusion_possible",
+    "option_description": "Attestation: the verifier can be tricked into treating an asymmetric (RS256/ES256) key as an HMAC (HS256) shared secret — the same key material is reachable for both code paths and algorithm selection is driven by the token header. Secure = false. True fires the exposure — CVE-2018-1000531 class bug, attacker signs a forged token with the public key.",
+    "security_impact": "References \"JWT signature bypass (alg=none / alg-confusion)\" — one of its OR-conditions — firing when rs256_to_hs256_confusion_possible is true. Attacker forges tokens using the issuer's public key as an HMAC secret (ATT&CK T1606.001, T1134.003).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confusion test — sign a token with header {\"alg\":\"HS256\"} using the issuer's RSA public PEM bytes as the HMAC secret and submit it.",
+        "command": "Send a forged token with header {\"alg\":\"none\"} and an unsigned tail; send same token modified to alg=HS256 signed with the public key.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both requests rejected (401/invalid token). Acceptance of either is a critical finding.",
+        "source": "RFC 8725 - JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm code-level that HS256 is disabled when RS256/ES256 is in use, and asymmetric public keys are never passed to the HMAC verify path.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verifier allowlist contains only asymmetric algs (RS256/ES256) when the issuer uses an asymmetric key; HS256 is explicitly excluded.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "transmitted_in_url_or_query",
+    "option_description": "Attestation: bearer tokens, API keys, session ids, or sensitive PII are carried in the URL path or query string of this flow's requests (instead of in the Authorization header or request body). When true, those values end up in web-server access logs, proxy logs, CDN logs, Referer headers, and browser history. Secure baseline: false.",
+    "security_impact": "References \"Bearer token / sensitive data leakage via URL\" — one of its OR-conditions — firing when transmitted_in_url_or_query is true. Tokens in URLs are credential exfiltration via logs (ATT&CK T1552.001 Credentials in Files).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture representative flow requests via proxy and review URL components for sensitive material.",
+        "command": "Proxy capture (Burp/mitmproxy) of representative flow requests; review URL components.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query strings contain only non-sensitive routing/filtering parameters. Presence of password, ssn, credit card, session id, or bearer token in URL is a finding.",
+        "source": "OWASP Session Management Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture a representative request and confirm tokens travel in the Authorization header (or DPoP/mTLS-bound), never in the URL.",
+        "command": "mitmproxy / Burp / tcpdump capture of the flow during exercise; inspect requests for Authorization header vs query string 'access_token=' or 'api_key='.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token present in 'Authorization: Bearer …' (or 'DPoP' / mTLS-bound) header; NO 'access_token=' / 'apikey=' / similar in URL path or query string. Tokens in URLs are a finding (logged by every proxy/web server in the path).",
+        "source": "OWASP OAuth2 Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_masked_in_logs",
+    "option_description": "Attestation: any access/audit log written for this flow masks or omits secrets (Authorization header values, tokens, API keys, PII). When false, secrets recorded by the gateway/proxy/web-server logging pipeline are recoverable by anyone with log read access — including secrets that leak via URL query strings. Secure baseline: true.",
+    "security_impact": "References \"Bearer token / sensitive data leakage via URL\" — one of its OR-conditions — firing when secrets_masked_in_logs is false. Unredacted log content is an exfiltration channel for the same credentials (ATT&CK T1552.001 Credentials in Files / CWE-532 Insertion of Sensitive Information into Log File).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep a representative gateway/proxy/app access log for token/secret patterns.",
+        "command": "grep -E 'access_token=|api_key=|token=' <webserver-or-proxy-access-log>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches. Any match means tokens leaked into access logs via URL parameters.",
+        "source": "RFC 9700 — Best Current Practice for OAuth 2.0 Security"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Tail the API gateway / service-mesh access log during a test request and verify fields are recorded with the Authorization header redacted.",
+        "command": "Tail the API gateway / service-mesh access log during a test request; verify fields present.",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entry contains timestamp, source identity, destination, method, path, status, latency, trace-id. The Authorization header value is masked/absent. Missing audit log or unredacted tokens in logs are findings.",
+        "source": "OWASP API Security Top 10 2023 — API8 Security Misconfiguration"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "outbound_fetch_destination_allowlisted",
+    "option_description": "Attested: the outbound API call's destination URL is constrained to an explicit allowlist (forward proxy, NAT egress rules, or service-mesh egress policy enumerates permitted destinations). When user-influenced input can drive the fetch destination and no allowlist is enforced, the flow is an SSRF primitive. Secure value: true.",
+    "security_impact": "References \"Server-Side Request Forgery via outbound flow\" — one of its OR-conditions — firing when outbound_fetch_destination_allowlisted is false. SSRF primitive (ATT&CK T1190 Exploit Public-Facing Application, T1537 Transfer Data to Cloud Account).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect egress controls (forward proxy config, NAT/firewall egress rules, or service-mesh egress policy) for an explicit allowlist of permitted destinations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress controls (forward proxy, NAT gateway rules, or service-mesh egress policy) enumerate the allowlisted destinations for this flow. No 'allow 0.0.0.0/0' wildcard.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the calling service's network namespace, attempt connections to an arbitrary unallowlisted public host and confirm it is blocked at the egress layer.",
+        "command": "From the calling service's network namespace: curl --max-time 5 http://<unallowlisted-public-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection times out or 403 from forward proxy. A successful response to an arbitrary public host means egress is unrestricted.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "private_and_metadata_targets_blocked",
+    "option_description": "Attested: the egress path explicitly blocks resolution/connection to private address space (RFC1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback (127.0.0.0/8), link-local (169.254.0.0/16), and other internal ranges — including after DNS rebinding / redirect follow. Without this, an SSRF primitive reaches the internal network even when public allowlisting exists. Secure value: true.",
+    "security_impact": "References \"Server-Side Request Forgery via outbound flow\" — one of its OR-conditions — firing when private_and_metadata_targets_blocked is false. Internal pivot via SSRF (ATT&CK T1190 / T1552.005 Cloud Instance Metadata API).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From the calling service's network namespace, try to reach RFC1918, loopback, and link-local addresses — all should be blocked.",
+        "command": "From the calling service's network namespace: curl --max-time 5 http://10.0.0.1/ ; curl --max-time 5 http://127.0.0.1/ ; curl --max-time 5 http://169.254.0.1/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All time out or are blocked at the egress proxy/firewall (connection refused / 403 from forward proxy). A successful response to an internal address is a finding.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify DNS-rebinding protection — resolve a hostname that returns an RFC1918 A record and confirm the egress layer still blocks the resulting connection post-resolve.",
+        "command": "curl --max-time 5 http://rebind.example.com/  # where rebind.example.com resolves to 10.x.x.x",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused / 403 even though name resolution succeeded. A response from the internal target means DNS-rebinding protection is missing.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cloud_metadata_endpoint_blocked",
+    "option_description": "Attested: the cloud instance metadata service endpoint (AWS/GCP/Azure 169.254.169.254, plus IMDSv2 enforcement on AWS) is unreachable from this flow's egress path — either blocked at the egress proxy/NAT or via IMDSv2 hop-limit and token requirement. Reachability of the metadata endpoint from an SSRF primitive yields IAM credential exfiltration. Secure value: true.",
+    "security_impact": "References \"Server-Side Request Forgery via outbound flow\" — one of its OR-conditions — firing when cloud_metadata_endpoint_blocked is false. Direct path to IAM-credential theft (ATT&CK T1552.005 Cloud Instance Metadata API).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From the calling service's network namespace, attempt to fetch the cloud metadata document — it must time out or be refused.",
+        "command": "From the calling service's network namespace: curl --max-time 5 http://169.254.169.254/latest/meta-data/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection times out or is blocked at the egress proxy/firewall (connection refused / 403 from forward proxy). A successful response listing metadata categories is a critical finding.",
+        "source": "OWASP SSRF Prevention Cheat Sheet"
+      },
+      {
+        "type": "command",
+        "instruction": "On AWS, confirm IMDSv2 is required and hop-limit is 1 so containers cannot reach metadata via the host.",
+        "command": "aws ec2 describe-instances --instance-ids <id> --query 'Reservations[].Instances[].MetadataOptions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HttpTokens=required, HttpPutResponseHopLimit=1. HttpTokens=optional means IMDSv1 is still accepted (SSRF-reachable).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scopes_least_privilege",
+    "option_description": "Attestation: the access token presented on this flow carries the narrowest scopes needed for the called operation — no wildcard scopes (e.g. admin/*, *.write), no scopes unrelated to the target. Assessor decodes a representative token (or queries introspection) per RFC 9700 §2.3 and confirms scope claims are bounded to the called operation. Fires when scopes are over-broad.",
+    "security_impact": "References \"Over-scoped / wrong-audience token abuse\" — one of its OR-conditions — firing when scopes_least_privilege is false. Wildcard scopes amplify blast radius of a single token compromise (ATT&CK T1550.001, T1078 Valid Accounts).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Decode a representative token and compare its scope claims against the operation this flow calls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token introspection (or decoded JWT) shows 'scope' / 'aud' limited to operations needed on this flow's target. Tokens with admin/* or audiences unrelated to the target are findings.",
+        "source": "RFC 9700 — Best Current Practice for OAuth 2.0 Security"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IdP token introspection endpoint for a live decode of scope/aud claims.",
+        "command": "curl -u <client>:<secret> -d 'token=<token>' https://<idp>/oauth2/introspect | jq .scope",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON 'scope' field lists only the narrow operation(s) this flow performs; wildcard or unrelated scopes are findings.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audience_claim_validated",
+    "option_description": "The receiving service verifies the token's 'aud' (audience) claim matches its own identifier and rejects tokens minted for a different audience. Without aud validation, a token issued for service A is silently accepted by service B (RFC 8725 §3.11, RFC 9700).",
+    "security_impact": "References \"Over-scoped / wrong-audience token abuse\" — one of its OR-conditions — firing when audience_claim_validated is false. Cross-service token reuse (ATT&CK T1550.001 Application Access Token).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Negative test — craft (or capture) a token with aud=other-service and present it to this flow's receiver; it must be rejected.",
+        "command": "curl -H 'Authorization: Bearer <token-with-wrong-aud>' https://<this-flow-receiver>/<path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401/invalid_audience. A 200 response means aud is not being checked.",
+        "source": "RFC 8725 - JSON Web Token Best Current Practices"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the verifier code: is the expected audience passed to the verify call and matched against the token's aud claim?",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify call passes the expected audience (e.g. options: { audience: 'this-service' }) and the library is documented to reject mismatches. Absence is a finding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_authorization_at_crossing",
+    "option_description": "Authorization decisions at the boundary crossing this flow traverses grant only the minimum privileges required for the operation (no implicit admin, no shared-superuser identity). A present least-privilege posture is what neutralises an over-scoped/wrong-aud token at the receiver.",
+    "security_impact": "References \"Over-scoped / wrong-audience token abuse\" — one of its OR-conditions — firing when least_privilege_authorization_at_crossing is false. Shared-superuser receivers amplify any token compromise (ATT&CK T1078 Valid Accounts / T1550.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the receiver's authorization policy: does it enforce per-operation roles/permissions, or accept any authenticated caller as effectively admin?",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy declares distinct roles/permissions per operation; no shared-superuser identity, no implicit admin posture. A 'any authenticated caller permitted' posture is a finding.",
+        "source": "OWASP API Security Top 10 2023 — API8 Security Misconfiguration"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Positive/negative role test — present a token bearing a low-privilege role and attempt a privileged operation; it must be rejected.",
+        "command": "curl -H 'Authorization: Bearer <low-priv-token>' -X DELETE https://<this-flow-receiver>/<privileged-path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "403/forbidden. A 200 response means the receiver's authorization layer does not enforce per-operation least privilege.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "0a9df6cc-1216-49d2-ae5d-f6f850246f6f",
+  "name": "Application Service",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "An application service — also called the app server, backend service, microservice, API server, or business-logic tier — the process that executes business logic, enforces authorization, and orchestrates calls to data stores and downstream services. Sits behind the web/edge tier and in front of databases. The place to look for the backend application, service/microservice, business-logic process, or where authorization and core app behavior run.",
+  "category": "Application Processing",
+  "status": "draft"
+}

@@ -1,0 +1,561 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "admin_api_public_bind": {
+        "type": "boolean",
+        "title": "Admin API Bound to Public Interface",
+        "description": "Interpreted from the gateway's admin_listen directive: true when the privileged Admin API binds a publicly reachable interface (e.g. 0.0.0.0:8001) rather than loopback/private (127.0.0.1:8001 or a firewalled private IP). A publicly bound Admin API is full control-plane exposure — any reachable caller can create routes, plugins and credentials. Modelled as an interpreted boolean because admin_listen is a composite address directive whose security depends on interpretation, not a fixed substring.",
+        "default": false
+      },
+      "enforce_rbac": {
+        "type": "string",
+        "enum": [
+          "on",
+          "off",
+          "both"
+        ],
+        "title": "Admin API RBAC Enforcement",
+        "description": "Whether Admin API requests require authorization. 'on' (or 'both') forces every Admin API call to present a valid Kong-Admin-Token mapped to an RBAC role; 'off' (the OSS default) means any caller that can reach the Admin API has full unauthenticated control-plane access. The condition fires on the insecure value 'off'."
+      },
+      "admin_gui_auth_configured": {
+        "type": "boolean",
+        "title": "Admin GUI Authentication Configured",
+        "description": "Interpreted from admin_gui_auth: true when an authentication strategy (basic-auth, ldap-auth-advanced, openid-connect) is configured for the Kong Manager admin GUI; false when admin_gui_auth is unset, leaving the management console reachable without authentication. The exposure fires when this is false (GUI open). The secure baseline is true and stays silent.",
+        "default": false
+      },
+      "accepts_alg_none": {
+        "type": "boolean",
+        "title": "Accepts JWT alg=none",
+        "description": "Interpreted: the gateway accepts a JWT whose header declares the 'none' algorithm (an unsigned token). True means a forged/stripped-signature token is honoured at the edge. Secure value: false (none-alg rejected).",
+        "default": false
+      },
+      "rs256_to_hs256_confusion_possible": {
+        "type": "boolean",
+        "title": "RS256-to-HS256 Key Confusion Possible",
+        "description": "Interpreted: the verifier takes the algorithm from the inbound token header rather than from the registered credential, so an attacker can present an HS256 token signed with the public RSA key as the HMAC secret (RS256->HS256 key confusion) and have it accepted. True means the algorithm is not pinned per credential. Secure value: false (algorithm pinned to the credential's registered RS256/ES256/HS256, header alg ignored).",
+        "default": false
+      },
+      "jwt_signature_verified": {
+        "type": "boolean",
+        "title": "JWT Signature Cryptographically Verified",
+        "description": "Positive-secure attestation: the gateway cryptographically verifies the JWT/OIDC token signature against the credential's pinned key or the IdP JWKS, rather than merely decoding the token. True is the secure state; the exposure fires when this is false (signature check skipped → self-issued or tampered tokens accepted).",
+        "default": false
+      },
+      "issuer_claim_validated": {
+        "type": "boolean",
+        "title": "Token Issuer Claim Validated",
+        "description": "Positive-secure attestation: the gateway pins and validates the token 'iss' claim against the trusted IdP discovery/issuer URL. True is the secure state; the exposure fires when false (no issuer binding → tokens from any IdP or self-issued tokens accepted).",
+        "default": false
+      },
+      "audience_claim_validated": {
+        "type": "boolean",
+        "title": "Token Audience Claim Validated",
+        "description": "Positive-secure attestation: the gateway requires and validates the token 'aud' claim so a token minted for another relying party cannot be replayed against this gateway. True is the secure state; the exposure fires when false (no audience binding).",
+        "default": false
+      },
+      "expiry_claim_validated": {
+        "type": "boolean",
+        "title": "Token Expiry Claim Validated",
+        "description": "Positive-secure attestation: the gateway enforces the token 'exp' claim (and a bounded maximum_expiration) so expired or never-expiring tokens are rejected, preventing indefinite replay. True is the secure state; the exposure fires when false (expiry not checked).",
+        "default": false
+      },
+      "unauthenticated_route_exposed": {
+        "type": "boolean",
+        "title": "Unauthenticated Route Exposed to Backend",
+        "description": "Interpreted: TRUE when at least one route proxies to an internal backend without any authentication plugin (key-auth / jwt / oauth2 / openid-connect / mtls-auth) covering it, AND that route is not an explicitly-public endpoint. Fires on the insecure state (a route exposed unauthenticated to the internet — OWASP API2 broken authentication).",
+        "default": false
+      },
+      "global_auth_plugin_enabled": {
+        "type": "boolean",
+        "title": "Global Authentication Plugin Enabled",
+        "description": "Interpreted: TRUE when a global (workspace/service-wide) authentication plugin is applied that covers all routes by default. When FALSE, route coverage depends entirely on per-route plugins, so any route missing one is exposed. Combined under AND with routes_without_auth_plugin_count > 0, this fires when there is no global auth fallback and concrete uncovered routes exist. Secure baseline: a global auth plugin present (true) keeps this group silent."
+      },
+      "routes_without_auth_plugin_count": {
+        "type": "integer",
+        "title": "Routes Without Auth Plugin (count)",
+        "description": "Count of non-public routes proxying to a backend that have no covering authentication plugin (per-route or service-level). count_gt 0 fires when at least one such gap exists. Secure baseline (every route covered) yields 0, keeping the group silent.",
+        "minimum": 0
+      },
+      "flow_tls_encrypted": {
+        "type": "boolean",
+        "title": "Public Proxy Plane Terminates TLS",
+        "description": "Whether the public proxy data plane terminates TLS — i.e. proxy_listen exposes an 'ssl' listener (e.g. 0.0.0.0:8443 http2 ssl) and plaintext :8000 is disabled or redirected. False when only a non-ssl :8000 listener is exposed, so credentials, tokens and PII traverse the edge in cleartext.",
+        "default": false
+      },
+      "min_tls_version": {
+        "type": "string",
+        "enum": [
+          "tls1_2_or_higher",
+          "tls1_0_or_tls1_1_or_sslv3_accepted"
+        ],
+        "title": "Minimum TLS Version Accepted",
+        "description": "Lowest TLS protocol version the gateway's TLS listeners accept, interpreted from ssl_protocols (kong.conf) / an ssl-enum-ciphers scan. Secure when only TLSv1.2/TLSv1.3 are negotiable (tls1_2_or_higher); insecure when any legacy version (TLSv1.0, TLSv1.1, SSLv3) is still accepted, enabling downgrade and MITM. Shared workspace vocabulary so the gateway, dataFlows and boundaries name the floor identically."
+      },
+      "weak_tls_versions_enabled": {
+        "type": "boolean",
+        "title": "Weak Legacy TLS Versions Enabled",
+        "description": "Interpreted boolean: true when the gateway's accepted ssl_protocols include any broken legacy version (TLSv1.0/TLSv1.1/SSLv3). Modelled as an interpreted flag rather than a substring/regex over the ssl_protocols string (a hardened 'TLSv1.2 TLSv1.3' value would false-match a token like 'TLSv1' otherwise)."
+      },
+      "cipher_suites_strong_only": {
+        "type": "boolean",
+        "title": "Strong Cipher Suites Only",
+        "description": "Interpreted boolean: true when ssl_cipher_suite resolves to AEAD/ECDHE-only suites (Mozilla 'modern' or 'intermediate', or 'fips'), and false when a weak profile ('old') or a custom list including CBC/RC4/3DES/export ciphers is in effect. Modelled as an interpreted boolean rather than a regex/contains over the cipher string, because a hardened exclusion list (e.g. 'HIGH:!RC4:!MD5') still contains the weak token names as substrings and would false-fire.",
+        "default": false
+      },
+      "back_end_traffic_reencrypted_after_tls_termination": {
+        "type": "boolean",
+        "title": "Upstream Hop Re-encrypted After TLS Termination",
+        "description": "Whether the gateway-to-backend hop is re-encrypted after TLS is terminated at the edge — i.e. Kong Services use protocol 'https' to upstreams rather than plaintext 'http'. False when any sensitive upstream Service is reached over cleartext http, leaving the internal trust-zone hop open to sniffing/MITM.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Upstream Server Certificate Validated",
+        "description": "Whether the gateway verifies the upstream backend's TLS certificate on the re-encrypted hop (Service.tls_verify=true with ca_certificates pinned). False when https upstreams run with verification disabled, so an attacker who can position on the internal hop can impersonate the backend despite TLS. Shared workspace vocabulary with dataFlow certificate-validation attestation."
+      },
+      "rate_limiting_or_lockout_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting / Lockout Enabled",
+        "description": "True when a per-consumer/route rate-limiting (or account-lockout) control is applied at the gateway with bounded second/minute/hour limits — e.g. Kong's rate-limiting / rate-limiting-advanced plugin keyed on consumer/credential, with stricter limits on auth endpoints. False (no rate-limiting plugin) permits unlimited request volume, enabling request floods, brute force and enumeration against backends (OWASP API4).",
+        "default": false
+      },
+      "request_body_size_capped": {
+        "type": "boolean",
+        "title": "Request Body Size Capped",
+        "description": "True when the maximum proxied request body size is bounded to a value matched to real payload needs (interpreted from Kong's nginx_http_client_max_body_size — e.g. '10m' — or an equivalent request-size-limiting plugin per route). False when the size is unbounded (nginx_http_client_max_body_size=0, the default, meaning NO limit), allowing large-payload memory/bandwidth exhaustion (OWASP API4). Modelled as an interpreted boolean rather than a raw integer because '0' means unlimited (not zero bytes), which inverts an integer threshold's polarity.",
+        "default": false
+      },
+      "request_size_and_complexity_limits_enforced": {
+        "type": "boolean",
+        "title": "Request Size & Complexity Limits Enforced",
+        "description": "True when schema/content validation bounds payload complexity at the edge — array/string size caps, Content-Type enforcement, server-side pagination/record-count caps and request timeouts (e.g. Kong's request-size-limiting and request-validator plugins). False when arbitrary oversized/complex payloads reach backends, enabling cost/resource exhaustion beyond a simple body-size cap (OWASP API4 / ASVS V13)."
+      },
+      "ddos_protection_in_place": {
+        "type": "boolean",
+        "title": "Volumetric DoS Protection In Place",
+        "description": "True when volumetric/network-layer DoS protection fronts or backs the gateway — upstream WAF/CDN scrubbing, connection-rate limits, and container CPU/memory limits bounding the gateway's own resource use. False when the edge has no defence against high-volume request floods beyond per-consumer rate limits, leaving the gateway and its backends exposed to service-exhaustion floods (OWASP API4)."
+      },
+      "request_framing_normalized_front_back": {
+        "type": "boolean",
+        "title": "Request Framing Normalized Front-to-Back",
+        "description": "Interpreted: the gateway and the back-end agree on request framing (Content-Length vs Transfer-Encoding) — ambiguous CL.TE/TE.CL requests are rejected or normalized so that front-end and back-end parse identical message boundaries. False when framing is inconsistent front-to-back, enabling desync/request smuggling that bypasses edge authorization and poisons caches. Secure state is true.",
+        "default": false
+      },
+      "ambiguous_length_headers_forwarded": {
+        "type": "boolean",
+        "title": "Ambiguous Length Headers Forwarded",
+        "description": "Interpreted: requests carrying duplicate/conflicting message-length headers (both Content-Length and Transfer-Encoding, or duplicated values) are forwarded to the upstream unmodified rather than rejected. True is the insecure state — the gateway passes ambiguous length signalling that the back-end may interpret differently, the root condition for CL.TE/TE.CL smuggling. Secure value is false (ambiguous-length requests rejected/normalized at the edge).",
+        "default": false
+      },
+      "http2_downgrade_strictly_normalized": {
+        "type": "boolean",
+        "title": "HTTP/2 Downgrade Strictly Normalized",
+        "description": "Interpreted: when the gateway terminates HTTP/2 from clients and proxies to HTTP/1.1 upstreams, the downgrade strictly re-derives length framing and strips client-supplied Transfer-Encoding/Content-Length so an H2.TE/H2.CL desync cannot be smuggled across the protocol boundary. False is insecure — an unnormalized HTTP/2-to-HTTP/1 downgrade re-introduces smuggling. Secure state is true."
+      },
+      "content_type_strict_validation": {
+        "type": "boolean",
+        "title": "Strict Content-Type Validation",
+        "description": "Interpreted: the gateway enforces Content-Type on routes accepting request bodies — a mismatched or missing media type is rejected (HTTP 415) rather than passed to the backend. False is the insecure state (no Content-Type enforcement; malformed/ambiguous payloads reach backends). Secure state is true. Shared workspace vocabulary.",
+        "default": false
+      },
+      "request_payload_schema_validated": {
+        "type": "boolean",
+        "title": "Request Payload Schema Validated",
+        "description": "Interpreted: a request-validator (JSON schema / body-size) plugin is applied at the edge on routes accepting bodies, so oversized/malformed payloads are rejected before reaching upstreams (OWASP API4 / ASVS V13). False is insecure (no payload validation — arbitrary malformed bodies forwarded). Secure state is true."
+      },
+      "secrets_masked_in_logs": {
+        "type": "boolean",
+        "title": "Secrets Masked in Logs",
+        "description": "Whether Authorization headers, API keys, bearer tokens and PII are masked or excluded from the gateway's access/audit logs and log plugins (Kong: custom log_format / file-log/http-log/syslog plugins must not capture credential headers). Secure (true) = no credential values appear in log lines. Fires the exposure when false: logging Authorization/apikey headers verbatim leaks credentials into the forensic trail (CWE-532).",
+        "default": false
+      },
+      "secrets_hardcoded_in_config_or_iac": {
+        "type": "boolean",
+        "title": "Secrets Hardcoded in Config or IaC",
+        "description": "Whether plaintext upstream credentials or the Kong-Admin-Token are hardcoded in declarative config or images (kong.yml / kong.conf / container images) instead of being referenced from a secret manager (Kong vault references {vault://...}). True when literal secrets are committed, false when all sensitive values are vault references. Fires the exposure when true — hardcoded admin tokens/upstream credentials are the keys to the kingdom and persist in image layers and IaC history.",
+        "default": false
+      },
+      "access_audit_trail_enabled": {
+        "type": "boolean",
+        "title": "Access / Audit Trail Enabled",
+        "description": "Whether edge access/audit logging is enabled and a forensic trail of proxied requests is being produced (Kong: proxy_access_log / admin_access_log point to a real log path or syslog target — NOT 'off' — and logs ship off-box to a collector). Secure (true) = access logs enabled and collected. Fires the exposure when false: disabling access logs destroys the forensic trail of edge traffic, masking abuse and credential misuse.",
+        "default": false
+      },
+      "upstream_proxy_ips_unscoped": {
+        "type": "boolean",
+        "title": "Upstream Proxy IPs Unscoped (trusts all)",
+        "description": "Whether the gateway trusts all upstream proxies for the client IP (Kong: trusted_ips = 0.0.0.0/0,::/0 rather than scoped to the real fronting LB/CDN CIDRs). True when trusted_ips is unscoped (trusts everyone), false when restricted to the specific fronting proxy ranges. Fires the exposure when true — trusting all upstreams lets clients spoof X-Forwarded-For / X-Real-IP, defeating IP-based rate limits, ACLs and the accuracy of the audit trail.",
+        "default": false
+      },
+      "gateway_image_signature_verified": {
+        "type": "boolean",
+        "title": "Gateway Image Signature Verified",
+        "description": "Whether the gateway container image is cryptographically signature-verified before it is allowed to run (e.g. cosign verify against a trusted key / a ClusterImagePolicy admission gate). When false, an unsigned or tampered gateway image can execute in the edge trust position and intercept all proxied traffic and credentials. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "artifact_supply_chain_signed_provenance_verified": {
+        "type": "boolean",
+        "title": "Signed Build Provenance Verified",
+        "description": "Shared workspace attestation: whether the deployed artifact's build provenance is signed and verified (e.g. SLSA provenance / in-toto attestation checked at deploy time) so the running gateway image traces to a trusted, attested build. When false, an artifact of unknown or forged origin can be admitted. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "artifact_references_immutable_digest_pinned": {
+        "type": "boolean",
+        "title": "Artifact References Pinned to Immutable Digest",
+        "description": "Shared workspace attestation: whether the gateway image and plugin references are pinned to an immutable content digest (sha256@...) rather than a mutable tag (e.g. ':latest'). When false, the resolved artifact can silently change to a tampered or malicious one between pulls. Insecure (false) fires this exposure.",
+        "default": false
+      },
+      "third_party_plugins_version_pinned": {
+        "type": "boolean",
+        "title": "Third-party Plugins Version Pinned",
+        "description": "Whether third-party / community gateway plugins are pinned to a specific reviewed version (and their integrity verified) rather than floating to the newest available. Unpinned plugins let a compromised upstream package execute inside the gateway process. Insecure (false) fires this exposure."
+      },
+      "untrusted_plugins_allowed": {
+        "type": "boolean",
+        "title": "Untrusted Plugins Allowed",
+        "description": "Whether plugins outside a vetted allowlist of trusted/maintained sources may be loaded into the gateway (no source allowlist or provenance gate on plugins). When true, a malicious third-party plugin runs with full access to proxied traffic and credentials at the edge. Insecure (true) fires this exposure."
+      }
+    },
+    "required": [
+      "admin_api_public_bind",
+      "enforce_rbac",
+      "admin_gui_auth_configured",
+      "accepts_alg_none",
+      "rs256_to_hs256_confusion_possible",
+      "jwt_signature_verified",
+      "issuer_claim_validated",
+      "audience_claim_validated",
+      "expiry_claim_validated",
+      "unauthenticated_route_exposed",
+      "global_auth_plugin_enabled",
+      "routes_without_auth_plugin_count",
+      "flow_tls_encrypted",
+      "min_tls_version",
+      "weak_tls_versions_enabled",
+      "cipher_suites_strong_only",
+      "back_end_traffic_reencrypted_after_tls_termination",
+      "server_certificate_validated",
+      "rate_limiting_or_lockout_enabled",
+      "request_body_size_capped",
+      "request_size_and_complexity_limits_enforced",
+      "request_framing_normalized_front_back",
+      "ambiguous_length_headers_forwarded",
+      "http2_downgrade_strictly_normalized",
+      "content_type_strict_validation",
+      "request_payload_schema_validated",
+      "secrets_masked_in_logs",
+      "secrets_hardcoded_in_config_or_iac",
+      "access_audit_trail_enabled",
+      "upstream_proxy_ips_unscoped",
+      "gateway_image_signature_verified",
+      "artifact_supply_chain_signed_provenance_verified",
+      "artifact_references_immutable_digest_pinned",
+      "third_party_plugins_version_pinned",
+      "untrusted_plugins_allowed"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepts_alg_none"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_gui_auth_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/expiry_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/jwt_signature_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rs256_to_hs256_confusion_possible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthenticated_route_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/global_auth_plugin_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/routes_without_auth_plugin_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_claim_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enforce_rbac"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/issuer_claim_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/back_end_traffic_reencrypted_after_tls_termination"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cipher_suites_strong_only"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/flow_tls_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/min_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_versions_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_hardcoded_in_config_or_iac"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_api_public_bind"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/upstream_proxy_ips_unscoped"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ambiguous_length_headers_forwarded"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/content_type_strict_validation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_framing_normalized_front_back"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http2_downgrade_strictly_normalized"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_payload_schema_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_references_immutable_digest_pinned"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_supply_chain_signed_provenance_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/gateway_image_signature_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_plugins_version_pinned"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/untrusted_plugins_allowed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_or_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_body_size_capped"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_size_and_complexity_limits_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ddos_protection_in_place"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_audit_trail_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_in_logs"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,733 @@
+[
+  {
+    "option_name": "breached_password_screening_enabled",
+    "option_description": "Whether prospective/changed consumer passwords are screened against a known-compromised-password blocklist (e.g. Pwned Passwords k-anonymity range API) per NIST SP 800-63B Rev 4 §3.1.1.2 SHALL.",
+    "security_impact": "One of the OR-triggers for both \"Credential stuffing / password spraying\" (fires when breached_password_screening_enabled is false) and \"Weak password policy without breach screening\" (also fires when this is false). With no breach-list screening, reused breached passwords are accepted and credential stuffing succeeds.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Attempt to register or change a password to a known-breached value (e.g. 'Password123!') and confirm with the team that a breach-list / Pwned Passwords range check is wired into the flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Registration/change-password flow rejects the known-breached password and the team confirms a breach-list / Pwned Passwords range check is wired in (secure). Accepts any known-pwned password = insecure.",
+        "source": "OWASP Credential Stuffing Prevention Cheat Sheet"
+      },
+      {
+        "type": "api",
+        "instruction": "Verify the app uses the k-anonymity range API rather than sending full hashes: query the Pwned Passwords range endpoint with the first 5 SHA-1 hex chars of a candidate.",
+        "command": "curl -s https://api.pwnedpasswords.com/range/<first5-of-SHA1-of-candidate>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The range endpoint returns hash suffixes with breach counts; the app is expected to send only the first 5 SHA-1 hex chars (k-anonymity) and reject candidates that appear with a non-zero count.",
+        "source": "Have I Been Pwned — Pwned Passwords Range API (k-anonymity)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mfa_available",
+    "option_description": "Whether end-users can enrol any second authentication factor (TOTP, push, WebAuthn, SMS) on the account at all.",
+    "security_impact": "One of the OR-triggers for both \"Credential stuffing / password spraying\" and \"Phishing / AiTM credential and session theft\" (each fires when mfa_available is false). MFA is the single highest-impact account-takeover defense (stops ~99.9% of automated compromise per OWASP); a password-only account is fully exposed to replayed/phished credentials.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Sign in as a consumer test account and inspect account/security settings for a second-factor enrolment option.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Sign in as a consumer test account → Account / Security settings → look for a 'Two-factor authentication' / 'Add a second factor' enrolment option.",
+        "expected_output": "An MFA enrolment flow exists (secure). No second-factor option anywhere in account settings = insecure.",
+        "source": "OWASP Credential Stuffing Prevention Cheat Sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the product team that at least one second-factor type can be enrolled by an ordinary consumer account (not only by staff/admin tiers).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms consumers can enrol a second factor (TOTP, push, WebAuthn, or SMS). No factor available to the consumer tier = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Whether failed-login attempts are throttled (graduated delays / CAPTCHA / bot detection bound to the account) per NIST SP 800-63B Rev 4 §3.2.2.",
+    "security_impact": "One of the OR-triggers for \"Credential stuffing / password spraying\" (fires when rate_limiting_or_lockout_enabled is false). Unbounded full-speed login attempts permit high-volume password spraying and credential stuffing against the endpoint.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Drive repeated failed logins against a test account and confirm throttling/CAPTCHA/temporary lockout engages, with a documented consecutive-failure cap.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Repeated failed logins trigger increasing delay / CAPTCHA / temporary throttle bound to the account, with a documented consecutive-failure cap (<=100) (secure). Unlimited attempts at full speed = insecure.",
+        "source": "NIST SP 800-63B Rev 4 §3.2.2"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect authentication logs for per-account failed-attempt counters or throttle events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auth logs show failed-attempt counters / throttle events per account; absence of any rate-limit signal = insecure.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "max_consecutive_failed_attempts",
+    "option_description": "The documented cap on consecutive failed login attempts per account before throttle/challenge. NIST SP 800-63B Rev 4 §3.2.2 requires limiting consecutive failures to <=100.",
+    "security_impact": "One of the OR-triggers for \"Credential stuffing / password spraying\" (fires when max_consecutive_failed_attempts is greater than 100). A cap above 100 (or effectively uncapped) gives an attacker a wide per-account guessing window; the hardened baseline of <=100 keeps the trigger silent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Obtain the documented consecutive-failure cap from the auth policy and confirm it against the throttle/lockout behaviour observed on the login endpoint.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented consecutive-failure cap recorded as an integer; hardened policy is <=100. A value >100 or no cap at all = insecure.",
+        "source": "NIST SP 800-63B Rev 4 §3.2.2"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect auth logs / throttle config to derive the actual attempt count that triggers a challenge or lockout per account.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log/config shows the failed-attempt threshold at which throttle/challenge fires; record that number.",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      5,
+      10,
+      100
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_authenticator_required",
+    "option_description": "Whether an origin-bound phishing-resistant authenticator (FIDO2/WebAuthn passkey or PIV/CAC) is REQUIRED — not merely offered — to authenticate the consumer account.",
+    "security_impact": "One of the OR-triggers for \"Phishing / AiTM credential and session theft\" (fires when phishing_resistant_authenticator_required is false). When not required, the account is reachable with phishable factors and an adversary-in-the-middle proxy can relay the real login and capture the credential plus the OTP/push approval.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the login flow to determine whether an origin-bound phishing-resistant authenticator is mandated, versus phishable factors still being accepted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Account → Security → second-factor enrolment: check the list of offered factor types for 'Security key / passkey / WebAuthn'.",
+        "expected_output": "Login mandates an origin-bound FIDO2/WebAuthn/PIV authenticator (secure, set true). If WebAuthn is only offered alongside SMS/OTP/push and not required, set false.",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the team that phishing-resistant MFA is enforced (not optional) for the consumer account, including whether phishable fallback factors remain selectable at login.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms an origin-bound phishing-resistant authenticator is required with no phishable fallback (secure). Any selectable phishable factor at login = not required (false).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_mfa_offered",
+    "option_description": "Which second-factor types the account offers: origin-bound FIDO/WebAuthn or PKI (webauthn_or_piv_offered) versus phishable SMS/OTP/push only (sms_otp_push_only).",
+    "security_impact": "One of the OR-triggers for \"Phishing / AiTM credential and session theft\" (fires when phishing_resistant_mfa_offered equals sms_otp_push_only). Only origin-bound FIDO/WebAuthn or PKI defeats an AiTM proxy; sms_otp_push_only is phishable/downgradable and the proxy relays or generates the approval. The secure value webauthn_or_piv_offered keeps the condition silent.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Examine the second-factor enrolment list for whether a WebAuthn/passkey or hardware-key option is offered alongside (or instead of) SMS/OTP/push.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Account → Security → second-factor enrolment: check the list of offered factor types for 'Security key / passkey / WebAuthn'.",
+        "expected_output": "A WebAuthn/passkey or hardware-key option is offered (secure → webauthn_or_piv_offered). Only SMS / authenticator-app OTP / push offered = insecure (sms_otp_push_only).",
+        "source": "CISA Implementing Phishing-Resistant MFA fact sheet"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the team which factor families the platform supports for consumer accounts and classify accordingly.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms origin-bound FIDO/WebAuthn or PKI is on offer → webauthn_or_piv_offered; only phishable factors → sms_otp_push_only.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "webauthn_or_piv_offered",
+      "sms_otp_push_only"
+    ]
+  },
+  {
+    "option_name": "session_cookie_attributes",
+    "option_description": "Composite verdict on whether the consumer session cookie sets Secure, HttpOnly, and SameSite together (secure_httponly_samesite) or is missing one or more (missing_attributes).",
+    "security_impact": "Part of the AND-group in \"Phishing / AiTM credential and session theft\" — that condition group fires when session_cookie_attributes equals missing_attributes AND session_revocation_on_credential_change equals sessions_survive. Weak cookie attributes widen the live-session theft/replay surface an AiTM proxy uses to bypass MFA.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the session Set-Cookie header on or just after login and inspect its attributes.",
+        "command": "curl -s -I https://<app-host>/login-or-post-login-path | grep -i 'set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session Set-Cookie carries Secure; HttpOnly; SameSite=Strict|Lax (secure → secure_httponly_samesite). Missing Secure/HttpOnly or SameSite=None-without-Secure = insecure (missing_attributes).",
+        "source": "OWASP Session Management Cheat Sheet"
+      },
+      {
+        "type": "gui",
+        "instruction": "Confirm the same via browser devtools after authenticating, inspecting the session cookie's flags.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools → Application/Storage → Cookies → select the session cookie → check Secure, HttpOnly, SameSite columns.",
+        "expected_output": "All three of Secure, HttpOnly, SameSite present → secure_httponly_samesite; any missing → missing_attributes.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "secure_httponly_samesite",
+      "missing_attributes"
+    ]
+  },
+  {
+    "option_name": "session_revocation_on_credential_change",
+    "option_description": "Whether active sessions are revoked on credential change and the user can terminate active sessions (revoked_on_change) or stolen sessions survive a password reset (sessions_survive).",
+    "security_impact": "Part of the AND-group in \"Phishing / AiTM credential and session theft\" — that condition group fires when session_revocation_on_credential_change equals sessions_survive AND session_cookie_attributes equals missing_attributes. When sessions survive, a session cookie captured by an AiTM proxy keeps working even after the victim resets their password.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Test whether changing the password/MFA invalidates other active sessions and whether a 'sign out everywhere' / active-session list exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Changing the password/MFA invalidates all other active sessions and a 'sign out everywhere' / active-session list exists (secure → revoked_on_change). Old sessions remain valid after a password change = insecure (sessions_survive).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "revoked_on_change",
+      "sessions_survive"
+    ]
+  },
+  {
+    "option_name": "password_min_length",
+    "option_description": "The enforced minimum length for a memorized-secret password. NIST SP 800-63B Rev 4 §3.1.1 raised the single-factor memorized-secret minimum to 15 chars.",
+    "security_impact": "One of the OR-triggers for \"Weak password policy without breach screening\" (fires when password_min_length is less than 12). A short minimum pushes users toward short, guessable secrets that fall to guessing, spraying, and reuse; a hardened policy (>=15) does not fire.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the registration/change-password form's stated rules and probe the boundary by attempting short passwords to find the enforced minimum.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Registration / change-password form → read the stated rules and probe boundaries (try a 15+ char passphrase; check the shortest accepted length).",
+        "expected_output": "Accepts long passphrases with a high minimum (secure, >=15). A short enforced minimum (<12) = insecure.",
+        "source": "NIST SP 800-63B Rev 4 §3.1.1"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      8,
+      12,
+      15
+    ]
+  },
+  {
+    "option_name": "password_max_length_cap_below_64",
+    "option_description": "Interpreted boolean: true when the account caps maximum password length below 64 characters, blocking the long passphrases NIST 800-63B §3.1.1 requires verifiers to accept (>=64).",
+    "security_impact": "One of the OR-triggers for \"Weak password policy without breach screening\" (fires when password_max_length_cap_below_64 is true). A low max-length cap is a legacy constraint that suppresses entropy; a policy accepting >=64-char passphrases sets this false and stays silent.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Probe the longest password the account accepts by submitting a passphrase of 64+ characters at registration/change-password.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Registration / change-password form → try a passphrase of 64+ characters and observe whether it is accepted or truncated/rejected.",
+        "expected_output": "A 64+ char passphrase is accepted (secure, set false). A cap below 64 that rejects/truncates the passphrase = insecure (set true).",
+        "source": "NIST SP 800-63B Rev 4 §3.1.1"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "composition_rules_or_forced_rotation_imposed",
+    "option_description": "Interpreted boolean: true when the account imposes legacy memorized-secret rules NIST 800-63B Rev 4 §3.1.1 deprecates — mandatory character-class composition and/or forced periodic rotation.",
+    "security_impact": "One of the OR-triggers for \"Weak password policy without breach screening\" (fires when composition_rules_or_forced_rotation_imposed is true). These rules push users to predictable patterns that fall to guessing; a hardened policy with no composition mandate and no forced rotation sets this false and stays silent.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Read the password rules and probe whether a symbol/number/case mix is demanded or whether the password expires on a schedule.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Registration / change-password form → check whether it demands a symbol/number mix or expires the password on a schedule.",
+        "expected_output": "No mandatory character-class mix and no forced expiry (secure, set false). Forced symbol mix or e.g. 90-day forced rotation = insecure/legacy (set true).",
+        "source": "NIST SP 800-63B Rev 4 §3.1.1"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "recovery_token_csprng_single_use_short_expiry",
+    "option_description": "Attestation that the password-reset token is CSPRNG-generated, unguessable, single-use, short-expiry, user-bound, invalidated after use, and delivered out-of-band (emailed HTTPS URL / SMS PIN) rather than returned in-band. Set true only when ALL hold.",
+    "security_impact": "One of the OR-triggers for \"Insecure account recovery / KBA\" (fires when recovery_token_csprng_single_use_short_expiry is false). Sequential/guessable, reusable, long-lived, or in-band reset tokens let an attacker forge or replay a reset and seize the account through recovery.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the reset-token issuance and delivery, confirming randomness, single-use, short expiry, user-binding, and side-channel delivery.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reset token is random/unguessable, single-use, expires quickly, sent via email/SMS side channel over HTTPS, and invalidated after one use (secure, set true). Sequential/guessable, reusable, long-lived, or returned in-band = insecure (set false).",
+        "source": "OWASP Forgot Password Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "recovery_no_account_enumeration",
+    "option_description": "Attestation that forgot-password and registration return a consistent message AND uniform timing regardless of whether the account exists, so the recovery flow cannot enumerate valid accounts.",
+    "security_impact": "One of the OR-triggers for \"Insecure account recovery / KBA\" (fires when recovery_no_account_enumeration is false). Differential wording ('no such user') or measurable timing differences leak account existence, seeding targeted credential stuffing and phishing.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Submit forgot-password requests for a real address and a nonexistent one, comparing response wording and timing.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Forgot-password submits for a real vs nonexistent address return identical wording and comparable timing (secure, set true). Different message ('no such user') or measurable timing difference = insecure (set false).",
+        "source": "OWASP Forgot Password Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "reset_request_rate_limited",
+    "option_description": "Attestation that password-reset-request submissions are rate-limited per account (throttle / CAPTCHA) so the recovery flow cannot be abused for enumeration, mail-bombing, or brute-forcing the reset token.",
+    "security_impact": "One of the OR-triggers for \"Insecure account recovery / KBA\" (fires when reset_request_rate_limited is false). Unbounded reset triggering enables token brute force and recovery-flow abuse.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Submit repeated reset requests for one account and confirm throttling or CAPTCHA bounds the rate.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Repeated reset requests for one account are throttled / CAPTCHA-gated (secure, set true). Unbounded reset triggering = insecure (set false).",
+        "source": "OWASP Forgot Password Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "no_auto_login_after_reset",
+    "option_description": "Attestation that the user is NOT automatically logged in after completing a password reset and that prior sessions are invalidated.",
+    "security_impact": "One of the OR-triggers for \"Insecure account recovery / KBA\" (fires when no_auto_login_after_reset is false). Auto-login post-reset (or surviving old sessions) lets a recovery-flow abuser obtain an authenticated session directly.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Complete a reset on a test account and observe whether the user is force-logged-in and whether prior sessions remain valid.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "After completing a reset the user must log in afresh and prior sessions are revoked (secure, set true). Auto-login post-reset or surviving old sessions = insecure (set false).",
+        "source": "OWASP Forgot Password Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "kba_security_questions_used",
+    "option_description": "Attestation (insecure-positive) that security questions / knowledge-based answers, or an unauthenticated-readable password hint, are used as an auth or account-recovery factor.",
+    "security_impact": "One of the OR-triggers for \"Insecure account recovery / KBA\" (fires when kba_security_questions_used is true). KBA answers are low-entropy, frequently public or socially harvested, and forbidden as a recovery factor (NIST 800-63B SHALL NOT use KBA; OWASP forbids security questions as a reset mechanism).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Walk the registration, account-security, and forgot-password flows checking for security-question / memorable-word / password-hint prompts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Registration, account-security, and forgot-password flows → check for 'security questions' / 'memorable word' / 'password hint' prompts.",
+        "expected_output": "No security questions or password hint anywhere (secure, set false). Any KBA prompt or unauthenticated-readable hint = insecure (set true).",
+        "source": "NIST SP 800-63B Rev 4 §3.1.1.2"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Attestation that the login flow and all authenticated pages — and therefore the session secret — travel exclusively over HTTPS/TLS, with plain-HTTP redirecting to https:// and HSTS present.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when tls_only_transport is false). Plaintext transport lets the session cookie be observed and replayed (session hijacking).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Request the plain-HTTP login URL and confirm it redirects to HTTPS and that HSTS is set on the HTTPS response.",
+        "command": "curl -s -I http://<app-host>/login",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plain-HTTP login redirects (301/302) to https:// and HSTS is present on the HTTPS response (secure, set true). A 200 served over HTTP for the login page = insecure (set false).",
+        "source": "OWASP Authentication Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cookie_secure_flag",
+    "option_description": "Attestation that the consumer session cookie carries the Secure attribute, so the browser never transmits it over plaintext HTTP.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when cookie_secure_flag is false). Without Secure, the session secret can leak over an unencrypted hop and be stolen.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the session Set-Cookie header and check for the Secure attribute.",
+        "command": "curl -s -I https://<app-host>/login-or-post-login-path | grep -i 'set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session Set-Cookie carries the Secure attribute (set true). Missing Secure = insecure (set false).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "cookie_httponly_flag",
+    "option_description": "Attestation that the consumer session cookie carries the HttpOnly attribute, so client-side script cannot read it.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when cookie_httponly_flag is false). Without HttpOnly, an XSS payload can exfiltrate the session secret and hijack the session.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the session Set-Cookie header and check for the HttpOnly attribute.",
+        "command": "curl -s -I https://<app-host>/login-or-post-login-path | grep -i 'set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session Set-Cookie carries the HttpOnly attribute (set true). Missing HttpOnly = insecure (set false).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "samesite_attribute_set",
+    "option_description": "Attestation that the consumer session cookie sets SameSite (Strict or Lax), preventing the browser from attaching it to cross-site requests.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when samesite_attribute_set is false). Without SameSite, the session can be ridden cross-site (CSRF / cross-site session ride).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture the session Set-Cookie header and check for a SameSite attribute (Strict or Lax).",
+        "command": "curl -s -I https://<app-host>/login-or-post-login-path | grep -i 'set-cookie'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session Set-Cookie carries SameSite=Strict|Lax (set true). Missing SameSite (or SameSite=None) = insecure (set false).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "session_id_regenerated_on_auth",
+    "option_description": "Attestation that the session identifier is regenerated on authentication (and on privilege change), so a pre-auth identifier planted by an attacker cannot become an authenticated one.",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when session_id_regenerated_on_auth is false). Without regeneration the session is open to fixation — the attacker fixes a known session id and rides it after the victim logs in.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Capture the session id cookie value before login and again immediately after a successful login, comparing the two.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser DevTools → Application/Storage → Cookies → record the session cookie pre-login, authenticate, then re-read it post-login.",
+        "expected_output": "The session id value changes on authentication (secure, set true). The same id persists across login = vulnerable to fixation (set false).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "session_absolute_timeout_enforced",
+    "option_description": "Attestation that the consumer session has both an idle and an absolute (overall) timeout sized to the AAL (NIST 800-63B Table 1).",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when session_absolute_timeout_enforced is false). Without timeouts a hijacked or abandoned session never expires, leaving an unbounded exploitation window.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Obtain the documented idle and absolute session timeouts and confirm they are consistent with the target AAL.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented idle and absolute session timeouts consistent with the target AAL (secure, set true). Sessions that never expire = insecure (set false).",
+        "source": "NIST SP 800-63B Rev 4 §2 Table 1"
+      },
+      {
+        "type": "gui",
+        "instruction": "Authenticate, leave the session idle past the stated inactivity window, then attempt an action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Authenticate, leave the session idle past the stated inactivity window, then act — confirm re-authentication is forced.",
+        "expected_output": "Idle session forces reauth (secure, set true); indefinitely usable idle session = insecure (set false).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_side_revocation_supported",
+    "option_description": "Attestation that active sessions are revoked server-side on password change / reset / MFA change and the user can terminate active sessions ('sign out everywhere').",
+    "security_impact": "One of the OR-triggers for \"Session hijacking / fixation\" (fires when server_side_revocation_supported is false). Without server-side revocation a stolen session survives the very credential rotation meant to evict the attacker.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Test whether changing credentials or invoking 'sign out everywhere' terminates existing sessions server-side.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Changing the password/MFA invalidates all other active sessions and a 'sign out everywhere' / active-session list exists (secure, set true). Old sessions remain valid after a password change = insecure (set false).",
+        "source": "OWASP Session Management Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "anomalous_login_detection_enabled",
+    "option_description": "Attestation that anomalous/risky logins (new device, impossible-travel geolocation, new IP) are detected and trigger a user alert (email/push) and/or a step-up challenge.",
+    "security_impact": "One of the OR-triggers for \"Undetected account takeover (no anomaly alerting)\" (fires when anomalous_login_detection_enabled is false). Without anomaly detection a stolen credential or hijacked session yields no signal, letting account takeover persist undetected (NIST SP 800-63B Rev 4 §3.2.2; OWASP ASVS V7).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm new-device / new-location logins trigger a user alert and/or step-up, and that credential changes produce a security-event email.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "New-device / new-location logins trigger a user alert and/or step-up; security-event email on credential changes (secure, set true). No anomaly signal and no user notification = insecure (set false).",
+        "source": "NIST SP 800-63B Rev 4 §3.2.2"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect auth logs for successful/failed logins carrying source IP, device, and timestamp sufficient to detect anomalies.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Auth logs capture successful and failed logins with source IP / device / timestamp sufficient to detect anomalies and reconstruct a takeover timeline.",
+        "source": "OWASP ASVS V7 - Error Handling and Logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "user_alerted_on_credential_change",
+    "option_description": "Attestation that the user receives an out-of-band security-event notification (email/push) on credential changes — password change/reset, MFA enrolment/removal, new-device sign-in.",
+    "security_impact": "One of the OR-triggers for \"Undetected account takeover (no anomaly alerting)\" (fires when user_alerted_on_credential_change is false). Without alerting, an attacker who changes the password or adds a factor does so silently, denying the legitimate owner the signal needed to detect and reclaim the account (NIST SP 800-63B Rev 4 §3.2.2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Trigger a credential change on a test account and confirm an out-of-band notification reaches the account owner.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Credential change produces a security-event email/push to the account owner (secure, set true). No out-of-band notification = insecure (set false).",
+        "source": "NIST SP 800-63B Rev 4 §3.2.2"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check notification/event logs for a dispatched security-event message corresponding to the credential change.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A notification event is logged for the credential change; absence of any dispatch = insecure.",
+        "source": "OWASP ASVS V7 - Error Handling and Logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "least_privilege_authorization_at_crossing",
+    "option_description": "Attestation that the consumer/end-user role grants only customer-scoped capabilities (own data, own actions) with no admin/back-office/cross-tenant authorization.",
+    "security_impact": "One of the OR-triggers for \"Undetected account takeover (no anomaly alerting)\" (fires when least_privilege_authorization_at_crossing is false). An over-privileged consumer role turns a compromised account into a path to elevated function, compounding the blast radius of an undetected takeover (MITRE ATT&CK T1078 Valid Accounts).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the consumer role's granted scopes/permissions for any admin, back-office, or cross-tenant grants beyond the user's own resources.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The end-user role/permission set is scoped to the user's own resources with no admin/cross-tenant grants (secure, set true). Consumer role carrying staff/admin endpoints = insecure (set false).",
+        "source": "MITRE ATT&CK T1078 Valid Accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pii_minimized_to_purpose",
+    "option_description": "Attestation that the account collects only the personal data strictly necessary for the service (purpose limitation / data minimisation, GDPR Art 5(1)(b)(c)).",
+    "security_impact": "One of the OR-triggers for \"Consumer PII over-collection without consent\" (fires when pii_minimized_to_purpose is false). When the registration/profile flow mandates unnecessary or excess-sensitive PII, the breach blast radius enlarges.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit the registration/profile fields against the stated service purpose, flagging any mandatory unnecessary or excess-sensitive PII.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Registration/profile collects only fields needed for the service (secure, set true). Mandatory collection of unnecessary sensitive PII = insecure (set false).",
+        "source": "GDPR Article 5 — Principles relating to processing of personal data"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "lawful_consent_basis_recorded",
+    "option_description": "Attestation that a lawful basis / explicit consent for each category of personal data is captured and recorded at the point of collection (GDPR Art 5(1)(a), Art 6/7).",
+    "security_impact": "One of the OR-triggers for \"Consumer PII over-collection without consent\" (fires when lawful_consent_basis_recorded is false). Collecting PII with no documented consent or lawful-basis record fires the exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the consent record tied to the registration flow, confirming a lawful basis/consent is captured per data category.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A consent record / lawful basis is captured per data category at collection (secure, set true). No consent basis recorded = insecure (set false).",
+        "source": "GDPR Article 5 — Principles relating to processing of personal data"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "retention_limit_defined",
+    "option_description": "Attestation that a stated retention limit (storage-limitation period) exists for the consumer PII the account holds (GDPR Art 5(1)(e)).",
+    "security_impact": "One of the OR-triggers for \"Consumer PII over-collection without consent\" (fires when retention_limit_defined is false). With no declared retention limit, data accumulates indefinitely and the breach blast radius keeps growing.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check the published data-retention policy for the consumer account for a defined storage-limitation period.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A defined storage-limitation period exists in the retention policy (secure, set true). No retention limit declared = insecure (set false).",
+        "source": "GDPR Article 5 — Principles relating to processing of personal data"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "retention_schedule_enforced",
+    "option_description": "Attestation that the declared retention limit is actually operationalised — PII is deleted/anonymised on schedule rather than merely policy-stated (GDPR Art 5(1)(e), enforcement).",
+    "security_impact": "One of the OR-triggers for \"Consumer PII over-collection without consent\" (fires when retention_schedule_enforced is false). A retention limit defined on paper but never executed leaves stale PII persisting.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify that PII deletion/anonymisation actually runs on the declared schedule, requesting evidence of executed deletion jobs rather than policy text.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Demonstrated enforcement — deletion/anonymisation runs on the declared schedule with evidence (secure, set true). Only a policy statement with no executed deletion = insecure (set false).",
+        "source": "GDPR Article 5 — Principles relating to processing of personal data"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect retention/deletion job logs to confirm scheduled purge runs have executed against consumer PII.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Job logs show retention purge/anonymisation runs executing on schedule; absence of any execution record = insecure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

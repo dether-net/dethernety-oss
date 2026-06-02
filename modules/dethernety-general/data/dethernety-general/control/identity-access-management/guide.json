@@ -1,0 +1,352 @@
+[
+  {
+    "option_name": "centralized_aaa_enabled",
+    "option_description": "All human and service identities are governed through a central directory/SSO/identity service (Entra ID, Okta, LDAP/AD) rather than as unmanaged per-system local accounts, so account management, policy, and revocation flow from one authoritative source.",
+    "security_impact": "Satisfies \"Centralized identity governance\" — fires when centralized_aaa_enabled is true (AND-grouped with provisioning_requires_approval). Centralizing account management closes the shadow-directory blind spot, mitigating valid-account abuse and unauthorized account creation (ATT&CK M1018, T1078/T1136).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm account creation/authentication routes through a central directory/SSO for in-scope systems, and review the documented exception register for any local/break-glass accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that account creation/authentication routes through a central directory/SSO (Entra ID, Okta, LDAP/AD, etc.) for in-scope systems, and a documented exception register for any local/break-glass accounts. Secure: centralized; insecure: standalone local accounts manage their own users.",
+        "source": "CIS Controls v8 Control 5 (Safeguard 5.6 — centralize account management through a directory/identity service) and Control 6 (Safeguard 6.7 — centralize access control via directory/SSO)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the identity provider admin console, review the Applications / Connected systems inventory and cross-check against each system's local-account list.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Identity provider admin console -> Applications / Connected systems inventory; cross-check against the system's local-account list",
+        "expected_output": "In-scope applications federated to the central IdP; local-account lists on those systems contain only documented break-glass/service accounts. Unmanaged local user accounts indicate decentralized (insecure) management.",
+        "source": "CIS Controls v8 Control 6 (Safeguard 6.6 — inventory authentication/authorization systems; 6.7 — centralize access control)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "provisioning_requires_approval",
+    "option_description": "Account creation and entitlement grants follow a documented, preferably automated, approval workflow tied to a joiner or role-change event, so access is authorized rather than ad hoc.",
+    "security_impact": "Satisfies \"Centralized identity governance\" — fires when provisioning_requires_approval is true (AND-grouped with centralized_aaa_enabled). Approval-gated provisioning mitigates unauthorized account creation for persistence (ATT&CK M1018, T1136).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented process for granting access on new hire/role change, then sample recently created accounts and confirm each has a matching authorized request (ticket/IGA workflow).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented process for granting access on new hire / role change, with approval records (tickets/IGA requests) sampled against recently created accounts. Secure: every sampled account has a matching authorized request; insecure: accounts exist with no approval trail.",
+        "source": "CIS Controls v8 Control 6 (Safeguard 6.1 — documented, preferably automated, process for granting access on hire/role change); NIST SP 800-53 AC-2 (account creation requires approval)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "offboarding_credential_revocation_enforced",
+    "option_description": "A leaver workflow disables accounts and revokes credentials/sessions promptly on termination or role exit, so departed identities cannot retain valid credentials.",
+    "security_impact": "Satisfies \"Joiner-mover-leaver lifecycle enforcement\" — fires when offboarding_credential_revocation_enforced is true (AND-grouped with dormant_admin_accounts_disabled and dormant_account_disable_window_days <= 45). Prompt deprovisioning shrinks the pool of usable valid accounts, mitigating valid-account abuse (ATT&CK M1018, T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented deprovisioning process and reconcile the HR-termination list against active accounts to confirm terminated identities are disabled immediately.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented deprovisioning process plus evidence (HR-termination list reconciled against active accounts) that terminated identities are disabled immediately. Secure: no active accounts for departed personnel; insecure: orphaned active accounts for terminated users.",
+        "source": "CIS Controls v8 Control 6 (Safeguard 6.2 — revoke access by disabling accounts immediately upon termination); NIST SP 800-53 AC-2 (disable accounts when no longer required)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "dormant_admin_accounts_disabled",
+    "option_description": "An automated process disables dormant/inactive/orphaned accounts within a defined window and reconciles accounts lacking an owner, shrinking the pool of unused-but-valid credentials.",
+    "security_impact": "Satisfies \"Joiner-mover-leaver lifecycle enforcement\" — fires when dormant_admin_accounts_disabled is true (AND-grouped with offboarding_credential_revocation_enforced and dormant_account_disable_window_days <= 45). Disabling dormant accounts mitigates valid-account abuse via stale credentials (ATT&CK M1018, T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify a configured inactivity policy (directory/IdP rule disabling accounts after N days of no logon) and pull an account report showing no enabled accounts past the inactivity threshold.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A configured inactivity policy (e.g. directory/IdP rule disabling accounts after N days of no logon) and an account report showing no enabled accounts past the inactivity threshold. Secure: dormant accounts disabled within the window; insecure: long-idle accounts still enabled.",
+        "source": "CIS Controls v8 Control 5 (Safeguard 5.3 — disable dormant accounts after 45 days); NIST SP 800-53 AC-2(3) — disable accounts within a defined time period when expired, orphaned, policy-violating, or inactive"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "dormant_account_disable_window_days",
+    "option_description": "The configured inactivity threshold (in days) that triggers automatic account disablement; <=45 days meets NIST AC-2(3) / CIS 5.3.",
+    "security_impact": "Satisfies \"Joiner-mover-leaver lifecycle enforcement\" — its condition (dormant_account_disable_window_days <= 45) is AND-grouped with dormant_admin_accounts_disabled and offboarding_credential_revocation_enforced. A tight window minimizes the lifetime of hijackable dormant credentials (ATT&CK M1018, T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the directory/IdP inactivity policy and record the configured number of days of no-logon after which an account is automatically disabled; confirm it is <=45.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A configured inactivity policy (e.g. directory/IdP rule disabling accounts after N days of no logon) and an account report showing no enabled accounts past the inactivity threshold. Secure: window <=45 days per AC-2(3)/CIS 5.3; insecure: long-idle accounts still enabled.",
+        "source": "CIS Controls v8 Control 5 (Safeguard 5.3 — disable dormant accounts after 45 days); NIST SP 800-53 AC-2(3) — disable accounts within a defined time period when expired, orphaned, policy-violating, or inactive"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "45"
+    ]
+  },
+  {
+    "option_name": "least_privilege_access_enforced",
+    "option_description": "Entitlements are assigned per least privilege via documented roles, granting only the access necessary for assigned duties and avoiding broad or default-admin grants.",
+    "security_impact": "Satisfies \"Least-privilege entitlement with periodic recertification\" — fires when least_privilege_access_enforced is true (AND-grouped with periodic_privilege_recertification). Least privilege limits the blast radius of a compromised identity, mitigating privilege escalation / account manipulation (ATT&CK M1018, T1098).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review documented role definitions mapping rights to roles, then sample user entitlements and confirm each matches the assigned role with no excess privilege or wildcard grants.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented role definitions mapping rights to roles, and a sample of user entitlements that matches their assigned role with no excess privilege. Secure: entitlements scoped to role/duties; insecure: standing broad admin or wildcard entitlements.",
+        "source": "NIST SP 800-53 AC-6 Least Privilege (authorize only accesses necessary for assigned tasks); CIS Controls v8 Control 6 (Safeguard 6.8 — define/maintain role-based access control)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "periodic_privilege_recertification",
+    "option_description": "Assigned entitlements (especially privileged ones) are reviewed on a recurring recertification/attestation cadence, with unjustified privileges removed, catching privilege creep and stale access.",
+    "security_impact": "Satisfies \"Least-privilege entitlement with periodic recertification\" — fires when periodic_privilege_recertification is true (AND-grouped with least_privilege_access_enforced). Recurring review mitigates accumulated/stale privilege used for escalation (ATT&CK M1018, T1098).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Collect records of completed access-review/recertification campaigns on the defined cadence, with reviewer sign-off and evidence that revoked entitlements were actually remediated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Records of completed access-review/recertification campaigns (reviewer sign-off, remediation of revoked entitlements) on a defined cadence. Secure: recurring reviews with evidence of removals; insecure: no review records.",
+        "source": "NIST SP 800-53 AC-6(7) — periodically review assigned privileges and reassign/remove where no longer justified"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "segregation_of_duties_enforced",
+    "option_description": "A defined SoD ruleset blocks toxic entitlement combinations (e.g. one identity both requesting and approving) at grant time or flags them during recertification, so no single identity can complete a sensitive end-to-end action unchecked.",
+    "security_impact": "Satisfies \"Segregation of duties enforced\" — this is an OR-group on its own (the rule fires when segregation_of_duties_enforced is true OR no_shared_privileged_credentials is true). SoD enforcement mitigates account manipulation / privilege escalation by toxic combinations (ATT&CK M1018, T1098).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the documented SoD/role-conflict ruleset and gather evidence it is enforced — provisioning blocks at grant time or violation reports surfaced during access reviews.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented SoD/role-conflict ruleset and evidence it is enforced (provisioning blocks or violation reports from access reviews). Secure: conflicts prevented/detected; insecure: no SoD ruleset, toxic combinations present.",
+        "source": "NIST SP 800-53 AC-6 / AC-6(2) (separate privileged from nonsecurity functions); CIS Controls v8 Control 6 (6.8 role-based access — roles bound conflicting rights)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "no_shared_privileged_credentials",
+    "option_description": "Administrative work is performed under dedicated, individually-attributable admin accounts (separate from primary day-to-day accounts) with no shared/team logins, preserving accountability.",
+    "security_impact": "Satisfies \"Segregation of duties enforced\" — this is the second OR-group of that rule (it fires when no_shared_privileged_credentials is true OR segregation_of_duties_enforced is true). Individually-attributable admin accounts preserve accountability and mitigate account manipulation (ATT&CK M1018, T1098).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the admin-account inventory for a one-to-one mapping to named individuals, separation from primary user accounts, and absence of shared/team credentials.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Admin-account inventory showing one-to-one mapping to named individuals and separation from primary user accounts; no shared/team credentials. Secure: dedicated individual admin accounts; insecure: shared admin logins.",
+        "source": "CIS Controls v8 Control 5 (5.4 — restrict administrator privileges to dedicated administrator accounts); NIST SP 800-53 AC-6(2)/AC-6(5)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_for_admin",
+    "option_description": "MFA (ideally phishing-resistant) is enforced centrally — not merely available — for administrative, remote, and externally-exposed access, defeating credential theft and password brute force.",
+    "security_impact": "Satisfies \"Strong central authentication policy\" — this is one of that rule's three OR-groups (it fires when mfa_enforced_for_admin OR breached_password_screening_enabled OR rate_limiting_or_lockout_enabled is true). Enforced MFA mitigates credential brute force / password guessing (ATT&CK M1032, T1110).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the IdP/directory Conditional Access / Authentication policies, verify MFA is required for admin roles, remote access, and external-facing applications, and check for any exempted privileged accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP / directory -> Conditional Access / Authentication policies -> verify MFA required for admin roles, remote access, and external-facing applications",
+        "expected_output": "Policies requiring MFA on administrative, remote, and externally-exposed access, with no exempted privileged accounts. Secure: MFA mandatory; insecure: password-only paths exist.",
+        "source": "CIS Controls v8 Control 6 (6.3 MFA externally-exposed apps; 6.4 MFA remote access; 6.5 MFA for all administrative access); NIST SP 800-63B Rev 4 (AAL2/AAL3, phishing-resistant authenticators)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "breached_password_screening_enabled",
+    "option_description": "Central credential policy screens new/changed passwords against breach and common-password corpora and rejects matches, per NIST 800-63B.",
+    "security_impact": "Satisfies \"Strong central authentication policy\" — one of that rule's three OR-groups (it fires when breached_password_screening_enabled OR mfa_enforced_for_admin OR rate_limiting_or_lockout_enabled is true). Breach screening mitigates credential stuffing / password guessing (ATT&CK M1027/M1032, T1110).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the IdP/directory password/authentication policy settings, confirm breach-password screening is enabled and that there are no counterproductive composition/forced-rotation rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP / directory -> Password / authentication policy settings",
+        "expected_output": "Minimum length and rate-limiting configured; breach-password screening enabled; no composition/forced-rotation rules. Secure: aligned with 800-63B; insecure: short minimums, no breach screening, or rotation-on-schedule.",
+        "source": "NIST SP 800-63B (§5.1.1.2 verifier requirements: salted memory-hard hashing, min length, breach screening, rate-limit <=100); CIS Controls v8 Control 5 (5.2 — >=8 with MFA, >=14 without)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_or_lockout_enabled",
+    "option_description": "Authentication rate-limiting, lockout, or adaptive throttling on failed attempts at the central authN endpoint protects against brute force and password spraying.",
+    "security_impact": "Satisfies \"Strong central authentication policy\" — one of that rule's three OR-groups (it fires when rate_limiting_or_lockout_enabled OR mfa_enforced_for_admin OR breached_password_screening_enabled is true). Throttling/lockout mitigates credential brute force and spraying (ATT&CK M1032, T1110).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the IdP/directory password/authentication policy settings, confirm a throttle/lockout threshold is configured on failed authentication attempts (NIST 800-63B recommends rate-limit <=100).",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP / directory -> Password / authentication policy settings",
+        "expected_output": "Minimum length and rate-limiting configured; breach-password screening enabled; no composition/forced-rotation rules. Secure: throttle/lockout enabled on failed attempts; insecure: no lockout/throttle.",
+        "source": "NIST SP 800-63B (§5.1.1.2 verifier requirements: salted memory-hard hashing, min length, breach screening, rate-limit <=100); CIS Controls v8 Control 5 (5.2 — >=8 with MFA, >=14 without)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "federation_trust_validated",
+    "option_description": "Relying parties validate the federation/SSO trust relationship (issuer, certificate/metadata) before accepting assertions, instead of blindly trusting unverified IdPs.",
+    "security_impact": "Satisfies \"Federation assertion security validated\" — fires when federation_trust_validated is true (AND-grouped with saml_assertion_signature_verified and audience_claim_validated). Validating the trust mitigates assertion forgery / federated-credential theft (ATT&CK T1606; cf. CVE-2024-8883).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review RP/SP configuration to confirm the federation trust (issuer, signing certificate/metadata, per-RP keys) is validated before assertions are accepted, with no RP blindly trusting an unverified IdP.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP/SP configuration showing assertion signature verification enabled, audience restriction enforced, assertion lifetime bounded, and per-RP signing keys. Secure: trust validated by every RP; insecure: any RP accepting assertions from an unverified issuer.",
+        "source": "NIST SP 800-63C Federation and Assertions (assertions SHALL be signed over the full assertion; all RPs SHALL check audience; time-limited; per-RP symmetric keys; FAL ladder)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "saml_assertion_signature_verified",
+    "option_description": "SAML/OIDC assertion signatures are verified over the full assertion, and unsigned or alg-none assertions are rejected.",
+    "security_impact": "Satisfies \"Federation assertion security validated\" — fires when saml_assertion_signature_verified is true (AND-grouped with federation_trust_validated and audience_claim_validated). Full-assertion signature verification mitigates assertion forgery/replay (ATT&CK T1606; cf. CVE-2024-8883).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect RP/SP configuration to confirm signature verification is enabled and covers the entire assertion (not just a fragment), and that unsigned/alg-none assertions are rejected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP/SP configuration showing assertion signature verification enabled over the full assertion, audience restriction enforced, assertion lifetime bounded, and per-RP signing keys. Secure: signature validated by every RP; insecure: any RP accepting unsigned assertions.",
+        "source": "NIST SP 800-63C Federation and Assertions (assertions SHALL be signed over the full assertion; all RPs SHALL check audience; time-limited; per-RP symmetric keys; FAL ladder)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "audience_claim_validated",
+    "option_description": "Every relying party enforces the assertion audience/recipient restriction, so an assertion minted for another RP is rejected — blocking cross-RP injection.",
+    "security_impact": "Satisfies \"Federation assertion security validated\" — fires when audience_claim_validated is true (AND-grouped with federation_trust_validated and saml_assertion_signature_verified). Audience enforcement mitigates cross-RP assertion injection (ATT&CK T1606; cf. CVE-2024-8883).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify each RP enforces the audience (entityID/client_id) restriction so assertions issued for another RP are rejected; confirm assertion lifetimes are bounded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RP/SP configuration showing audience (entityID/client_id) restriction enforced and assertion lifetime bounded. Secure: audience validated by every RP; insecure: any RP accepting an audience-unrestricted assertion.",
+        "source": "NIST SP 800-63C Federation and Assertions (assertions SHALL be signed over the full assertion; all RPs SHALL check audience; time-limited; per-RP symmetric keys; FAL ladder)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "identity_access_audit_logging_enabled",
+    "option_description": "Account-lifecycle and authN/authZ events (creations, privilege changes, logins, MFA, federation) are logged centrally with credential material scrubbed, so account manipulation and abuse are detectable and attributable.",
+    "security_impact": "Satisfies \"Identity and access audit logging\" — this is an OR-group on its own (the rule fires when identity_access_audit_logging_enabled is true OR service_account_inventory_governed is true). Central audit logging mitigates unauthorized account creation and undetected privilege change (ATT&CK M1018, T1136/T1098).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm the central log/SIEM contains account create/modify/disable, privilege-change, and authentication (incl. MFA/federation) events for in-scope identities, with credential material scrubbed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Central log/SIEM contains account create/modify/disable, privilege-change, and authentication (incl. MFA/federation) events for in-scope identities. Secure: events present and centralized; insecure: missing or local-only.",
+        "source": "NIST SP 800-53 AC-2(12) (monitor accounts for atypical usage) and AC-6(9) (log execution of privileged functions); NIST SP 800-63B Rev 4 §5.2.10 (audit authentication events with credential material scrubbed)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  },
+  {
+    "option_name": "service_account_inventory_governed",
+    "option_description": "Non-human (service) identities are inventoried with owners, scoped to least privilege, and subjected to the same lifecycle and recertification governance as human accounts, so machine credentials are not an ungoverned blind spot.",
+    "security_impact": "Satisfies \"Identity and access audit logging\" — this is the second OR-group of that rule (it fires when service_account_inventory_governed is true OR identity_access_audit_logging_enabled is true). Governing service accounts mitigates valid-account abuse via ungoverned machine credentials (ATT&CK M1018, T1078).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the maintained inventory of service accounts confirming each has an owner and scoped privileges, and that service accounts are included in recertification campaigns.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A maintained inventory of service accounts with owners and scoped privileges, included in recertification. Secure: inventoried and governed; insecure: unknown/unowned service accounts.",
+        "source": "CIS Controls v8 Control 5 (5.5 — inventory service accounts); NIST SP 800-53 AC-2 (account types defined and managed)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true"
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "cda026ac-62af-4222-8523-155bc669c77a",
+  "name": "Load Balancer",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A load balancer — also called an ALB/NLB/ELB, reverse proxy, traffic distributor, or HAProxy/Nginx front end — that spreads inbound connections across backend instances and often terminates TLS. A traffic chokepoint at the edge of a service tier. The place to look for the load balancer, ALB/NLB, traffic distribution layer, or the component fronting and balancing requests across backends.",
+  "category": "Edge & Traffic",
+  "status": "draft"
+}
