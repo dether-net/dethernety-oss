@@ -36,6 +36,7 @@ import {
 } from '../interfaces/set-instantiation-attributes.interface';
 import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
+import type { Countermeasure } from '@dethernety/dt-module';
 
 // Pre-validate attribute value shapes against the Memgraph property model.
 // Memgraph properties are primitives or homogeneous lists of primitives;
@@ -67,6 +68,62 @@ export function describeNonPrimitiveValue(value: unknown): string | null {
 
 // Allowlist + sanitiser helpers live in ./shared/finding-attrs (re-used by
 // ElementBindingService for the changeElementBinding mutation).
+
+/**
+ * Edge-property allowlist — the symmetric counterpart of the node-property allowlists
+ * in ./shared/finding-attrs. Widen deliberately (same discipline as adding a verb).
+ * Keys outside this set are dropped at the boundary, so a buggy or malicious module
+ * cannot flatten arbitrary keys onto a graph edge.
+ */
+export const EDGE_ATTR_KEYS = ['justification'] as const;
+
+/**
+ * Apply the edge allowlist to a ref's `attributes`, returning only the keys safe to
+ * write via `SET rel += $attributes`. A non-primitive value is dropped with a warning,
+ * never thrown — a bad provenance string must not abort the whole upsert. Reuses
+ * describeNonPrimitiveValue for the primitive guard. Exported for unit testing.
+ */
+export function sanitiseEdgeAttributes(
+  attributes: Record<string, unknown> | undefined,
+  context: { originName: string; relationName: string },
+  logger: { warn: (message: string, meta?: unknown) => void },
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  if (!attributes) return out;
+  for (const key of EDGE_ATTR_KEYS) {
+    const value = attributes[key];
+    if (value === undefined || value === null) continue;
+    const violation = describeNonPrimitiveValue(value);
+    if (violation) {
+      logger.warn('Dropping non-primitive MITRE edge attribute', { key, ...context, violation });
+      continue;
+    }
+    out[key] = value as string | number | boolean;
+  }
+  return out;
+}
+
+/**
+ * Countermeasure verb field → graph relationship type. Closed set — adding a verb is a
+ * deliberate cross-layer change (the dt-module Countermeasure interface + this map + the
+ * GraphQL schema). `respondsWith` is intentionally absent: it is the identity block,
+ * written as RESPONDS_WITH to its own target labels (Mitigation + D3FEND) by the existing
+ * loop. These map values are the ONLY relationship-type strings written for verb edges —
+ * never data-derived.
+ */
+const COUNTERMEASURE_VERB_EDGES = {
+  mitigates: 'COUNTERMEASURE_MITIGATES',
+  protectsAgainst: 'COUNTERMEASURE_PROTECTS_AGAINST',
+  detects: 'COUNTERMEASURE_DETECTS',
+  isolates: 'COUNTERMEASURE_ISOLATES',
+  deceives: 'COUNTERMEASURE_DECEIVES',
+  evicts: 'COUNTERMEASURE_EVICTS',
+  restores: 'COUNTERMEASURE_RESTORES',
+  respondsTo: 'COUNTERMEASURE_RESPONDS_TO',
+  // `satisfies` ties every key to a real Countermeasure field — renaming a verb
+  // field in the dt-module interface becomes a compile error here rather than a
+  // silently-dropped edge.
+} satisfies Partial<Record<keyof Countermeasure, string>>;
 
 @Injectable()
 export class SetInstantiationAttributesService implements OnModuleInit, OnModuleDestroy {
@@ -191,19 +248,29 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         throw new Error(`Invalid relationship name: ${request.relationName}`);
       }
 
+      // Provenance to copy onto the edge — allowlisted + primitive-guarded. A bad value is
+      // dropped (warn), never thrown, so it cannot abort the upsert. Empty ⇒ SET += {} no-op.
+      const edgeAttrs = sanitiseEdgeAttributes(
+        request.target.attributes,
+        { originName: request.originName, relationName: request.relationName },
+        this.logger,
+      );
+
       const result = await tx.run(
         `
         MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
         OPTIONAL MATCH (t:${request.target.label}) WHERE t.${request.target.property} = $value
         WITH e, t
         WHERE t IS NOT NULL
-        MERGE (e)-[:${request.relationName}]->(t)
+        MERGE (e)-[rel:${request.relationName}]->(t)
+        SET rel += $attributes
         RETURN COUNT(*) as relationshipsCreated
         `,
         {
           elementId: request.elementId,
           originName: request.originName,
           value: request.target.value,
+          attributes: edgeAttrs,
         },
       );
 
@@ -598,6 +665,28 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         };
 
         await this.linkToExternalObject(tx, linkRequest);
+      }
+
+      // Link verb blocks → COUNTERMEASURE_<VERB> edges to the ATT&CK techniques this
+      // countermeasure counters. relationName comes only from the closed
+      // COUNTERMEASURE_VERB_EDGES map (never data-derived); each ref's attributes (e.g.
+      // justification) ride onto the edge via linkToExternalObject.
+      for (const field of Object.keys(COUNTERMEASURE_VERB_EDGES) as (keyof typeof COUNTERMEASURE_VERB_EDGES)[]) {
+        const relationName = COUNTERMEASURE_VERB_EDGES[field];
+        const refs = countermeasure[field] as (ExternalObjectTarget | string)[] | undefined;
+        for (const ref of refs || []) {
+          const target: ExternalObjectTarget = typeof ref === 'string'
+            ? { label: 'MitreAttackTechnique', property: 'attack_id', value: ref }
+            : ref;
+
+          await this.linkToExternalObject(tx, {
+            elementId: request.componentId,
+            elementToOriginRelation: 'HAS_COUNTERMEASURE',
+            originName: countermeasure.name,
+            relationName,
+            target,
+          });
+        }
       }
     }
     return instantiated;

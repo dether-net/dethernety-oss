@@ -526,6 +526,10 @@ Implements: `Element`
 | `dispositionStale` | `Boolean` | True when an instantiation attribute value changed since the disposition was last authored / re-affirmed. Not `@settable`-locked. |
 | `mitigations` | `[MitreAttackMitigation!]!` | ATT&CK mitigations implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `defendedTechniques` | `[MitreDefendTechnique!]!` | D3FEND techniques implemented by this countermeasure (→ `RESPONDS_WITH`) |
+| `mitigates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure mitigates (→ `COUNTERMEASURE_MITIGATES`). Distinct from `mitigations` — those target ATT&CK Mitigation nodes via `RESPONDS_WITH`; these target ATT&CK Techniques. |
+| `protectsAgainst` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure hardens against (→ `COUNTERMEASURE_PROTECTS_AGAINST`) |
+| `detects` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure detects (→ `COUNTERMEASURE_DETECTS`) |
+| `isolates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure isolates (→ `COUNTERMEASURE_ISOLATES`) |
 | `control` | `[Control!]!` | Control that provides this countermeasure (← `HAS_COUNTERMEASURE`) |
 | `controlClass` | `[ControlClass!]!` | Control class this countermeasure belongs to (→ `IS_COUNTERMEASURE_OF`) |
 | `issues` | `[Issue!]!` | Issues associated with this countermeasure (→ `HAS_ISSUE`) |

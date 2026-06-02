@@ -444,6 +444,8 @@ export class DtFileOpaModule implements DTModule {
               category: e.category,
               score: e.score,
               attackVector,
+              // Whole ref array passes through verbatim — each ref's `attributes` (e.g.
+              // justification) survives for the edge writer. Only the interface type widened.
               exploitedBy: e.exploited_by || e.exploitedBy,
             };
           }),
@@ -493,7 +495,20 @@ export class DtFileOpaModule implements DTModule {
             type: c.type,
             category: c.category,
             score: c.score,
+            // Identity block → RESPONDS_WITH (snake or camel as the policy emits it).
             respondsWith: c.responds_with || c.respondsWith,
+            // Verb blocks → COUNTERMEASURE_<VERB> edges. This is the snake→camel adaptation of
+            // the frozen policy shape and the only place it is read. Unknown verb keys (a future
+            // verb, or a stray key) are simply not projected — the closed set is enforced here by
+            // omission, and again downstream by the dt-ws verb→edge allowlist.
+            mitigates: c.mitigates,
+            protectsAgainst: c.protects_against,
+            detects: c.detects,
+            isolates: c.isolates,
+            deceives: c.deceives,
+            evicts: c.evicts,
+            restores: c.restores,
+            respondsTo: c.responds_to,
           })),
       );
     } catch (err: unknown) {

@@ -6,6 +6,7 @@ export * from './interfaces/data-class-metadata-interface';
 export * from './interfaces/control-class-metadata-interface';
 export * from './interfaces/analysis-class-metadata-interface';
 export * from './interfaces/module-metadata-interface';
+export * from './interfaces/mitre-ref-interface';
 export * from './interfaces/exposure-interface';
 export * from './interfaces/countermeasure-interface';
 export * from './interfaces/lg-analysis-config-interface';

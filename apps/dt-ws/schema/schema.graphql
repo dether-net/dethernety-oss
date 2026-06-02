@@ -1044,6 +1044,14 @@ type Countermeasure implements Element  @authentication @node {
   mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
   "D3FEND techniques implemented by this countermeasure"
   defendedTechniques: [MitreDefendTechnique!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  "ATT&CK techniques this countermeasure mitigates (COUNTERMEASURE_MITIGATES). Distinct from `mitigations` — those are the ATT&CK Mitigation nodes this countermeasure implements, via RESPONDS_WITH; these are the ATT&CK Techniques it counters."
+  mitigates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_MITIGATES", direction: OUT)
+  "ATT&CK techniques this countermeasure hardens against (COUNTERMEASURE_PROTECTS_AGAINST)"
+  protectsAgainst: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_PROTECTS_AGAINST", direction: OUT)
+  "ATT&CK techniques this countermeasure detects (COUNTERMEASURE_DETECTS)"
+  detects: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_DETECTS", direction: OUT)
+  "ATT&CK techniques this countermeasure isolates (COUNTERMEASURE_ISOLATES)"
+  isolates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_ISOLATES", direction: OUT)
   "Control that provides this countermeasure"
   control: [Control!]! @relationship(type: "HAS_COUNTERMEASURE", direction: IN)
   "Control class this countermeasure belongs to"
