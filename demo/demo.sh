@@ -121,7 +121,7 @@ if needs_build; then
 
   step "Building workspace packages"
   # Only build the application — modules are built separately by module-manager
-  (cd "${OSS_ROOT}" && pnpm turbo build --filter='!dethernety-module' --filter='!mitre-frameworks')
+  (cd "${OSS_ROOT}" && pnpm turbo build --filter='!dethernety-general' --filter='!mitre-frameworks')
 
   step "Deploying frontend to backend public directory"
   rm -rf "${OSS_ROOT}/apps/dt-ws/public/assets"
@@ -187,22 +187,22 @@ needs_module_install() {
     return 0
   fi
   # Check if dethernety module is recorded
-  if ! grep -q '"dethernety"' "${STATE_FILE}" 2>/dev/null; then
+  if ! grep -q '"dethernety-general"' "${STATE_FILE}" 2>/dev/null; then
     return 0
   fi
   return 1
 }
 
 if needs_module_install; then
-  step "Building dethernety-module"
-  "${MODULE_MANAGER}" build "${OSS_ROOT}/modules/dethernety-module"
+  step "Building dethernety-general"
+  "${MODULE_MANAGER}" build "${OSS_ROOT}/modules/dethernety-general"
 
-  DETHERNETY_TARBALL="${OSS_ROOT}/modules/dethernety-module/dist/dethernety-module-2.0.0.tar.gz"
+  DETHERNETY_TARBALL="${OSS_ROOT}/modules/dethernety-general/dist/dethernety-general-1.0.0.tar.gz"
   if [ ! -f "${DETHERNETY_TARBALL}" ]; then
     die "Expected tarball not found: ${DETHERNETY_TARBALL}"
   fi
 
-  step "Installing dethernety-module"
+  step "Installing dethernety-general"
   "${MODULE_MANAGER}" install "${DETHERNETY_TARBALL}" \
     --target "${DEMO_DIR}/modules" \
     --import-dir "${DEMO_DIR}/data/memgraph_data/import" \

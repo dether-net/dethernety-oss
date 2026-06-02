@@ -1,9 +1,0 @@
-{
-  "id": "e777c477-99fc-4ce6-9c2b-17dd316e5a59",
-  "name": "Mobile Device",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "Personal mobile devices (phones/tablets) running dedicated user-facing applications represent a distributed endpoint layer with significant host-level attack surface. These devices combine personal and operational usage, creating exposure through weak authentication, unmanaged OS states, insecure application configurations, and physical access risks. Misconfiguration at the device level — rather than the application layer — enables credential theft, data exfiltration, unauthorized access, and malware persistence.",
-  "category": "User Devices",
-  "status": "reviewed"
-}

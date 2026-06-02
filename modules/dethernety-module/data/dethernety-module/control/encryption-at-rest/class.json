@@ -1,9 +1,0 @@
-{
-  "id": "71182234-6eec-479d-9c84-9a45ddc468d1",
-  "name": "Encryption at Rest",
-  "classType": "control",
-  "type": "Encryption at Rest",
-  "description": "Encryption at Rest delivers confidentiality protection for stored data by rendering raw file system contents unreadable without proper cryptographic keys. When properly configured with strong algorithms, secure key management, and full-volume coverage, it provides robust prevention of unauthorized data access from physical media theft, unauthorized local access, and decommissioning scenarios.",
-  "category": "Data Security",
-  "status": "reviewed"
-}

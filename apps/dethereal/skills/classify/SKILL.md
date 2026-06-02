@@ -50,7 +50,7 @@ All elements are classified. Quality: X/100.
 3. Group unclassified elements by class label: components (`COMPONENT`), boundaries (`SECURITY_BOUNDARY`), flows (`DATA_FLOW`), data items (`DATA`)
 4. For each label with unclassified elements, call:
    `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, type?, description?}, ...], classLabel: <label>, moduleIds: [...], topN: 3, fields: ['description', 'category', 'type'])`
-5. Cross-module tiebreaking: when multiple modules return same-confidence matches for the same element, prefer the module listed earlier in `activeModules` (user-set priority order). Specialized modules should precede baseline (dethernety-module)
+5. Cross-module tiebreaking: when multiple modules return same-confidence matches for the same element, prefer the module listed earlier in `activeModules` (user-set priority order). Specialized modules should precede baseline (dethernety-general)
 6. For IaC-discovered elements, check `.dethereal/discovery.json` for `sources` — if pre-classification exists and matches a `match_classes` candidate, boost confidence to `high (IaC)`. If they differ, present both options in the confirmation table
 7. Auto-accept `exact_name` matches (high confidence)
 8. Present `fuzzy`/`vector`/`type` matches for confirmation
@@ -98,10 +98,10 @@ Show a single confirmation table for all classification proposals:
 
 | # | Element | Type | Proposed Class | Module | Confidence | Match | Crown Jewel |
 |---|---------|------|----------------|--------|------------|-------|-------------|
-| 1 | Redis | STORE | Key-Value Store | dethernety-module | high (IaC) | exact | — |
+| 1 | Redis | STORE | Key-Value Store | dethernety-general | high (IaC) | exact | — |
 | 2 | PostgreSQL | STORE | Database | Databases | high (IaC) | exact | yes |
-| 3 | Auth0 | EXTERNAL_ENTITY | Identity Provider | dethernety-module | medium | fuzzy | — |
-| 4 | API Server | PROCESS | Web Application | dethernety-module | medium | vector | — |
+| 3 | Auth0 | EXTERNAL_ENTITY | Identity Provider | dethernety-general | medium | fuzzy | — |
+| 4 | API Server | PROCESS | Web Application | dethernety-general | medium | vector | — |
 | 5 | gRPC Handler | PROCESS | — | — | — | unmatched | — |
 
 Apply all? (yes / modify / skip)

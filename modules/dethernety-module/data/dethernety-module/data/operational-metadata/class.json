@@ -1,9 +1,0 @@
-{
-  "id": "12ee6b21-ca38-44be-9e99-e53642508e5e",
-  "name": "Operational Metadata",
-  "classType": "data",
-  "type": "data",
-  "description": "System performance and characteristics data carries operational sensitivity — it reveals system behavior, capacity thresholds, timing patterns, and configuration baselines that adversaries can exploit for targeted attacks. Failures in classification enforcement, retention limits, access scoping, and disposal create persistent exposure windows for insider threats and external reconnaissance.",
-  "category": "Operational Data",
-  "status": "reviewed"
-}

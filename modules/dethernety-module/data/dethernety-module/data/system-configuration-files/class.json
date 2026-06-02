@@ -1,9 +1,0 @@
-{
-  "id": "afe512f2-7f35-4cb4-b2e4-dba27431b598",
-  "name": "System Configuration Files",
-  "classType": "data",
-  "type": "System Configuration Files",
-  "description": "Configuration files stored on the filesystem represent a concentrated source of sensitive operational data — credentials, API keys, database connection strings, feature flags, and application secrets. These files frequently lack consistent classification labeling, are retained beyond operational need, stored in plaintext, accessible to overly broad user/group permissions, and rarely subject to formal disposal procedures. The data lifecycle for configuration files is often informal, leading to chronic exposure across classification, retention, access control, encryption, and disposal dimensions.",
-  "category": "System Foundation",
-  "status": "reviewed"
-}

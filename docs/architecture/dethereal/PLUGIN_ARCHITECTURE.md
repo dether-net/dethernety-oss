@@ -754,7 +754,7 @@ Uses `${CLAUDE_PLUGIN_DATA}` for:
 
 ### Problem
 
-The platform supports multiple specialized modules (General/dethernety-module, Kubernetes, AWS, Azure, Databases, Studio-created). Each module provides classes with attribute templates (JSON Schema, 30-100 fields per class). Without module scoping, `get_classes()` returns all classes from all installed modules — hundreds of classes to search through, most irrelevant for any given model.
+The platform supports multiple specialized modules (dethernety-general, Kubernetes, AWS, Azure, Databases, Studio-created). Each module provides classes with attribute templates (JSON Schema, 30-100 fields per class). Without module scoping, `get_classes()` returns all classes from all installed modules — hundreds of classes to search through, most irrelevant for any given model.
 
 ### Design
 
@@ -763,12 +763,12 @@ Module selection happens **post-discovery, before classification**. Discovery ou
 **Scope storage:** `activeModules` field in `.dethereal/scope.json`:
 ```json
 "activeModules": [
-  { "id": "module-uuid", "name": "dethernety-module" },
+  { "id": "module-uuid", "name": "dethernety-general" },
   { "id": "module-uuid", "name": "Kubernetes" }
 ]
 ```
 
-**Baseline module:** The `dethernety-module` (being refocused as the technology-agnostic General module) is always included and non-removable. Identified by name match: `General` or `dethernety-module`.
+**Baseline module:** The `dethernety-general` module — the platform's technology-agnostic baseline — is always included and non-removable. Identified by name match: `dethernety-general`.
 
 **Source-type → module mapping** (maintained in infrastructure-scout agent):
 
@@ -784,7 +784,7 @@ Module selection happens **post-discovery, before classification**. Discovery ou
 
 When multiple modules offer a matching class:
 1. **Specialized module** (AWS, Kubernetes, Databases) — most targeted attribute schema
-2. **Baseline module** (dethernety-module/General) — technology-agnostic fallback
+2. **Baseline module** (dethernety-general) — technology-agnostic fallback
 3. **All modules** (fallback if quality gate fails)
 
 ### Fallback Broadening

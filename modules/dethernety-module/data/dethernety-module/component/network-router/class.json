@@ -1,9 +1,0 @@
-{
-  "id": "454c4648-82fb-434d-b29c-76154bde478e",
-  "name": "Network Router",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "A routing component manages packet forwarding between subnets and enforces routing policies. Misconfigurations in routing protocols, access controls, authentication, and logging can allow route injection, traffic interception, unauthorized path manipulation, or denial of service, making it a critical control point in network segmentation and traffic integrity.",
-  "category": "Networking",
-  "status": "reviewed"
-}

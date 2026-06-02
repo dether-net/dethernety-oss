@@ -1,9 +1,0 @@
-{
-  "id": "b9fe8545-ce1d-4f83-9624-e2313ffdaaad",
-  "name": "Cloud Storage",
-  "classType": "component",
-  "type": "STORE",
-  "description": "Off-site storage hosting user and business data introduces risks across authentication strength, encryption at rest and in transit, access control granularity, secrets management, network exposure, and operational resilience. Misconfigurations at the host level can expose sensitive data to unauthorized access, interception, or loss without application-layer involvement.",
-  "category": "Data Repositories",
-  "status": "reviewed"
-}

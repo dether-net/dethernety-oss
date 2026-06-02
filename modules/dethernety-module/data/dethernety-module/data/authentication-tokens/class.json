@@ -1,9 +1,0 @@
-{
-  "id": "a50abeb8-af0a-4c28-afbe-99c6482d425b",
-  "name": "Authentication Tokens",
-  "classType": "data",
-  "type": "Authentication Tokens",
-  "description": "Session tokens are high-sensitivity authentication credentials whose compromise enables account takeover without requiring password knowledge. Data lifecycle failures — including improper classification, excessive retention, inadequate encryption at rest, weak access controls on token stores, and absent disposal procedures — create persistent exposure windows that outlast the intended session lifetime.",
-  "category": "Access Credentials",
-  "status": "reviewed"
-}

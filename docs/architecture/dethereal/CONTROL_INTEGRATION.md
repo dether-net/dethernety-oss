@@ -55,7 +55,7 @@ Module -[HAS_CLASS]-> ControlClass            (template: "Encryption at Rest", "
 
 ### Layer 1: ControlClass (module-provided templates)
 
-Defined by modules (e.g., `dethernety-module`). Each ControlClass has `supportedTypes` and `supportedCategories` defining which element types it can apply to, plus `template` and `guide` (custom resolvers resolved at runtime). Examples: Encryption at Rest, MFA, Input Validation, Network Segmentation.
+Defined by modules (e.g., `dethernety-general`). Each ControlClass has `supportedTypes` and `supportedCategories` defining which element types it can apply to, plus `template` and `guide` (custom resolvers resolved at runtime). Examples: Encryption at Rest, MFA, Input Validation, Network Segmentation.
 
 ### Layer 2: Control (user-created instances)
 

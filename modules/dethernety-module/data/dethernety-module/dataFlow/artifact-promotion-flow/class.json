@@ -1,9 +1,0 @@
-{
-  "id": "ba5a2fd4-f57e-4146-b770-e58da206f8a7",
-  "name": "Artifact Promotion Flow",
-  "classType": "dataFlow",
-  "type": "Artifact Promotion Flow",
-  "description": "The CI/CD pipeline-to-artifact repository and container registry data flow is the highest-value transit target in the software supply chain. Built binaries, container images, SBOMs, and cryptographic signatures traverse this channel, making it the primary injection vector for tampered artifacts. Transit vulnerabilities here enable adversaries to substitute legitimate artifacts with malicious ones, strip or forge signatures, or intercept credentials used for write access — all without needing to compromise the endpoints themselves. Mutual TLS, artifact signing verification, and tightly scoped service identity authentication are the critical controls on this flow.",
-  "category": "Software Supply Chain",
-  "status": "reviewed"
-}

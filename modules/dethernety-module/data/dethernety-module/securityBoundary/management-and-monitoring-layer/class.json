@@ -1,9 +1,0 @@
-{
-  "id": "b0a09f93-d115-4640-bb7d-c706de79fa96",
-  "name": "Management and Monitoring Layer",
-  "classType": "securityBoundary",
-  "type": "securityBoundary",
-  "description": "Management and monitoring boundary components represent a high-value attack surface due to their privileged access to system internals across multiple zones. Weaknesses in zone separation here can allow trust escalation, lateral movement into production zones, and unauthorized visibility into sensitive telemetry channels. The boundary must enforce strict ingress/egress policies to prevent management-plane compromise from propagating into data-plane zones.",
-  "category": "Operational Security",
-  "status": "reviewed"
-}

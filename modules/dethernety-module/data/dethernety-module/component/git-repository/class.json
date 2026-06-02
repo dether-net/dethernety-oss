@@ -1,9 +1,0 @@
-{
-  "id": "ddebb81e-763c-4d00-a1b1-4cdf784b3f3e",
-  "name": "Git Repository",
-  "classType": "component",
-  "type": "STORE",
-  "description": "A self-hosted Git service aggregates application code, infrastructure-as-code, secrets, and CI/CD pipeline definitions, making it one of the highest-value targets in an organization's infrastructure. Misconfiguration of authentication controls, access permissions, network exposure, or encryption can enable attackers to exfiltrate sensitive content, inject malicious code into the software supply chain, or enumerate the entire infrastructure topology. Even read-only access to repositories containing Dockerfiles, Terraform configs, Helm charts, and CI/CD YAML files constitutes a critical breach. Host-level configuration weaknesses are the primary attack surface for privilege escalation, lateral movement, and persistent code injection.",
-  "category": "Software Supply Chain",
-  "status": "reviewed"
-}

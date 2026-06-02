@@ -1,9 +1,0 @@
-{
-  "id": "9ae2c40b-4740-4ed9-a8ed-4798baa1654e",
-  "name": "Image Push Flow",
-  "classType": "dataFlow",
-  "type": "Image Push Flow",
-  "description": "The CI/CD pipeline-to-container-registry data flow carries image layers, manifests, and cryptographic signatures representing the final artifact handoff before runtime deployment. Transit vulnerabilities here directly enable supply chain attacks, artifact tampering, signature stripping, and unauthorized pushes that propagate malicious images into production. The channel must enforce mutual TLS, content-addressable integrity verification, replay protection, and authenticated routing to prevent interception or substitution of published artifacts.",
-  "category": "Container Infrastructure",
-  "status": "reviewed"
-}

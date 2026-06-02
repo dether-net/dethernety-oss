@@ -1,9 +1,0 @@
-{
-  "id": "c33571df-2113-4fc6-98b4-61b9d5e3449b",
-  "name": "Monitoring Service",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "Anomaly detection and health monitoring components collect sensitive system telemetry, generate alerts, and often run with elevated privileges to observe system state. Misconfigurations in authentication, encryption, network exposure, and privilege management can allow attackers to suppress alerts, inject false events, exfiltrate telemetry, or pivot through the monitoring infrastructure itself.",
-  "category": "Operational Monitoring",
-  "status": "reviewed"
-}

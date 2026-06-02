@@ -95,7 +95,7 @@ The `ModuleRegistryService` discovers modules in `custom_modules/` at startup. E
 
 ### Pattern 1: Database-Backed Module (Recommended)
 
-Extend `DtNeo4jOpaModule` for modules that store class definitions in the graph database and use OPA/Rego for policy evaluation. This is the pattern used by the built-in `dethernety-module`.
+Extend `DtNeo4jOpaModule` for modules that store class definitions in the graph database and use OPA/Rego for policy evaluation.
 
 ```typescript
 import { DtNeo4jOpaModule } from '@dethernety/dt-module';
@@ -114,7 +114,7 @@ With this pattern, `getMetadata()`, `getClassTemplate()`, `getExposures()`, and 
 
 ### Pattern 2: File-Based Module
 
-Extend `DtFileOpaModule` or `DtFileJsonModule` for modules that store class definitions on the file system.
+Extend `DtFileOpaModule` or `DtFileJsonModule` for modules that store class definitions on the file system. This is the pattern used by the built-in `dethernety-general`.
 
 ```typescript
 import { DtFileOpaModule } from '@dethernety/dt-module';
@@ -797,7 +797,7 @@ network dependency for the vast majority of classes.
 
 Modules can wire the CLI into their `package.json` so authors get a short
 command (`pnpm embed`) that reads `EMBEDDING_MODEL` and `EMBEDDING_URL`
-from the environment with sensible defaults. `modules/dethernety-module`
+from the environment with sensible defaults. `modules/dethernety-general`
 does this; mirror it in your own module:
 
 ```json

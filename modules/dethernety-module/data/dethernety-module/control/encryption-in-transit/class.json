@@ -1,9 +1,0 @@
-{
-  "id": "18e526d2-a089-41e5-b74c-70f0be8f3576",
-  "name": "Encryption in Transit",
-  "classType": "control",
-  "type": "Encryption in Transit",
-  "description": "Transport-layer security control providing cryptographic confidentiality and integrity for data in transit across network channels. When properly configured, it delivers strong encryption coverage, authenticated key exchange, tamper detection, and certificate-based identity assurance.",
-  "category": "Cross Cutting Controls",
-  "status": "reviewed"
-}

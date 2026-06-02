@@ -1,9 +1,0 @@
-{
-  "id": "bf25f0bc-f899-46a5-b099-93abfb3b130e",
-  "name": "Git Operations",
-  "classType": "dataFlow",
-  "type": "DATA_FLOW",
-  "description": "Git repository data flows represent a critical transit attack surface due to the combination of sensitive payload content (source code, embedded secrets, credentials) and the complexity of protocol interactions spanning developer workstations, remote repositories, and CI/CD pipeline engines. Transit risks include plaintext git operations via unencrypted protocols, unauthenticated webhook deliveries enabling supply chain injection, missing mutual TLS allowing credential replay and impersonation, protocol downgrade attacks forcing insecure cipher suites, and lack of commit-level integrity verification allowing in-transit tampering. Compromise of this flow propagates adversarial code directly into build and deployment artifacts across the entire software supply chain.",
-  "category": "Software Supply Chain",
-  "status": "reviewed"
-}

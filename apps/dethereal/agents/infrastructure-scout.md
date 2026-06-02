@@ -84,9 +84,9 @@ Maps discovery source patterns to recommended platform modules. The threat-model
 | `kubernetes`, `helm` charts, K8s manifests | Kubernetes |
 | `database` (SQL migrations, ORM models) | Databases |
 
-**Baseline module (always included):** The platform's general-purpose module — either named `General` or `dethernety-module` (the existing module being refocused as the technology-agnostic baseline). The plugin identifies the baseline by matching the module name `General` or `dethernety-module`. This module is always included and non-removable.
+**Baseline module (always included):** The platform's general-purpose, technology-agnostic module, named `dethernety-general`. The plugin identifies the baseline by matching the module name `dethernety-general`. This module is always included and non-removable.
 
-**Classification precedence:** specialized module > baseline (dethernety-module/General) > fallback to all modules. When a specialized module has a class that matches an element (e.g., "PostgreSQL" from Databases), it takes priority over the baseline module's broader class (e.g., "Database" from dethernety-module). The specialized class has a more targeted attribute schema with technology-specific OPA policies.
+**Classification precedence:** specialized module > baseline (dethernety-general) > fallback to all modules. When a specialized module has a class that matches an element (e.g., "PostgreSQL" from Databases), it takes priority over the baseline module's broader class (e.g., "Database" from dethernety-general). The specialized class has a more targeted attribute schema with technology-specific OPA policies.
 
 When writing the discovery report, populate `recommendedModules: string[]` at the top level of `discovery.json` based on which source patterns were detected.
 

@@ -1,9 +1,0 @@
-{
-  "id": "9ca824c4-0d60-4ed4-9ddc-759a2da06e11",
-  "name": "Deployment Updates",
-  "classType": "dataFlow",
-  "type": "dataFlow",
-  "description": "Configuration update data flows for managed components represent a high-value target for interception and manipulation. Attackers who can intercept, replay, or tamper with update traffic can push malicious configurations, cause service disruptions, or establish persistent footholds. Key risks center on whether transport is encrypted and mutually authenticated, whether update payloads are integrity-verified in transit, and whether the channel is protected against replay and injection attacks.",
-  "category": "Operational Traffic",
-  "status": "reviewed"
-}

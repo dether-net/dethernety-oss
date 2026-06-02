@@ -1,9 +1,0 @@
-{
-  "id": "23bbba4c-bf6c-427f-844d-87f6658317f5",
-  "name": "User Workstation",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "End-user devices (corporate-managed or BYOD) represent a high-value attack surface due to their direct handling of user credentials, organizational data, and network access. Misconfigurations in authentication controls, disk encryption, endpoint protection, patching cadence, and privilege management create exploitable footholds for both remote and physical threat actors. The dual-use nature of BYOD devices amplifies risk by mixing personal and corporate security postures.",
-  "category": "User Devices",
-  "status": "reviewed"
-}

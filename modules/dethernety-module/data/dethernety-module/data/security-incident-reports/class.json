@@ -1,9 +1,0 @@
-{
-  "id": "58557e48-2a36-4cad-904b-44359f3c1d87",
-  "name": "Security Incident Reports",
-  "classType": "data",
-  "type": "Security Incident Reports",
-  "description": "SIEM incident data contains highly sensitive security telemetry including IOCs, attack patterns, affected asset details, and analyst findings. Improper classification enforcement, inadequate access controls, or weak disposal procedures can expose organizational security posture, active investigations, and victim data to unauthorized parties. This data class requires strict lifecycle governance from ingestion through archival and destruction.",
-  "category": "Security",
-  "status": "reviewed"
-}

@@ -1,9 +1,0 @@
-{
-  "id": "c15d4943-ee07-4466-9d2e-c7c74a90c1bf",
-  "name": "Local Storage Environment",
-  "classType": "securityBoundary",
-  "type": "securityBoundary",
-  "description": "The Local Storage Environment functions as a trust zone boundary, isolating internal data and processes from external access. Key boundary enforcement concerns include inadequate ingress/egress filtering at zone transitions, insufficient segmentation between internal subzones, trust propagation leakage allowing external processes to inherit internal trust levels, credential exposure across zone boundaries, and gaps in monitoring coverage at ingress/egress points that enable undetected lateral movement.",
-  "category": "Data Storage",
-  "status": "reviewed"
-}

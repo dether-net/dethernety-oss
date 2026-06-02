@@ -46,7 +46,7 @@ pnpm docker:run           # Run Docker container
 - `packages/typescript-config` — Shared TypeScript configuration
 
 ### Modules
-- `modules/dethernety-module` — Default module with component classes, controls, exposures
+- `modules/dethernety-general` — Default module with component classes, controls, exposures
 - `modules/mitre-frameworks` — MITRE ATT&CK and D3FEND data + ingestion scripts
 
 ### Database

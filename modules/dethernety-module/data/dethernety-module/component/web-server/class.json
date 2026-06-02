@@ -1,9 +1,0 @@
-{
-  "id": "603dc090-0e07-434c-91cc-203800ac1058",
-  "name": "Web Server",
-  "classType": "component",
-  "type": "PROCESS",
-  "description": "A web server handling HTTP/S requests is a high-value perimeter component exposing multiple configuration attack surfaces including TLS configuration, access controls, server identity disclosure, and request handling. Misconfigurations directly enable network-based exploitation, credential interception, and unauthorized access to hosted content or server resources.",
-  "category": "Application Processing",
-  "status": "reviewed"
-}

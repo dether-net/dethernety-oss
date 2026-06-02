@@ -80,7 +80,7 @@ services:
   # EMBEDDING_MODEL env (default: embeddinggemma) drives which model Ollama
   # pulls AND which model the dethernety service queries against. Override
   # via the host environment to try a different model — the MITRE corpus
-  # and dethernety-module per-class embeddings must also be re-built against
+  # and dethernety-general per-class embeddings must also be re-built against
   # the new model (see README §Embedding-model swap).
   #
   # EMBEDDING_SIMILARITY_THRESHOLD is model-dependent. See the threshold

@@ -1,9 +1,0 @@
-{
-  "id": "be4b825f-9b53-433e-bb74-733e18b2b1f8",
-  "name": "Centralized Patch Management",
-  "classType": "control",
-  "type": "Centralized Patch Management",
-  "description": "Automated patch management provides systematic software currency enforcement across device fleets, delivering consistent vulnerability remediation without manual intervention. When properly configured, it ensures timely patch application, maintains audit trails of patch states, and reduces the window between vulnerability disclosure and remediation.",
-  "category": "System Maintenance",
-  "status": "reviewed"
-}
