@@ -58,6 +58,10 @@ export interface ExternalObjectTarget {
   label: string;
   property: string;
   value: string;
+  // Free-form provenance (e.g. justification) copied onto the created edge.
+  // Key-allowlisted + primitive-guarded at the writer; values must be primitives
+  // (Memgraph property model).
+  attributes?: Record<string, string | number | boolean>;
 }
 
 /**
