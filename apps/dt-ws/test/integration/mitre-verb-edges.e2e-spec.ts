@@ -1,4 +1,4 @@
-// Integration coverage for countermeasure → MITRE verb edges (Slice 1).
+// Integration coverage for countermeasure → MITRE verb edges.
 //
 // Strategy: construct SetInstantiationAttributesService directly against a real
 // Memgraph testcontainer with stub Config/Auth/Monitoring (mirrors
@@ -6,9 +6,9 @@
 // drive the public upsertCountermeasuresInTx / upsertExposuresInTx through a real
 // write transaction and assert the created edges + their `justification` property.
 //
-// Covers AC-1..AC-7: verb-edge creation, edge justification, responds_with
-// stability + attribution, exposure parity, closed-set drop of unknown verbs,
-// idempotency + append-only durability, and missing-target tolerance.
+// Covers: verb-edge creation, edge justification, responds_with stability +
+// attribution, exposure parity, closed-set drop of unknown verbs, idempotency +
+// append-only durability (at edge and property level), and missing-target tolerance.
 
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
@@ -181,7 +181,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     }));
   }
 
-  // AC-1
   it('writes COUNTERMEASURE_<VERB> edges to the named techniques', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
@@ -199,7 +198,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     expect(await edges('MFA', 'COUNTERMEASURE_DETECTS')).toEqual([{ target: 'T1110', justification: null }]);
   });
 
-  // AC-2
   it('carries justification on the edge when the ref provides it; bare ref ⇒ no property', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
@@ -219,7 +217,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     ]);
   });
 
-  // AC-3
   it('keeps RESPONDS_WITH edges (Mitigation + D3FEND) and now carries justification', async () => {
     await seedControlAndClass();
     await seedMitigation('M1032');
@@ -238,7 +235,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     ]);
   });
 
-  // AC-4
   it('exposure parity: EXPLOITED_BY edge carries justification', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
@@ -255,7 +251,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     ]);
   });
 
-  // AC-5
   it('drops unknown verb keys (closed set) with no edge and no error', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
@@ -279,7 +274,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     expect(all.records[0].get('types')).toEqual(['COUNTERMEASURE_MITIGATES']);
   });
 
-  // AC-6
   it('is idempotent and append-only: re-run is stable; dropping a ref leaves the old edge', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
@@ -309,7 +303,6 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     expect(await edges('MFA', 'COUNTERMEASURE_DETECTS')).toEqual([{ target: 'T1110', justification: null }]);
   });
 
-  // AC-7
   it('tolerates a ref to a missing technique: no edge, no throw', async () => {
     await seedControlAndClass();
     // T9999 is intentionally not seeded.
@@ -326,7 +319,7 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([]);
   });
 
-  // AC-6b — append-only at the PROPERTY level (AC-6 proves it at the edge level).
+  // Append-only at the PROPERTY level (the idempotency test above covers the edge level).
   // `SET rel += $attributes` merges, it does not replace, so a later run that drops
   // the justification (empty attribute map) must NOT clobber the earlier value.
   it('append-only justification: a later bare ref does not clobber an earlier justification', async () => {
@@ -355,10 +348,11 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     ]);
   });
 
-  // AC-8 — every schema-wired verb routes to its own COUNTERMEASURE_<VERB> edge type.
+  // Every schema-wired verb routes to its own COUNTERMEASURE_<VERB> edge type.
   // Defends the naming isomorphism on the write side across all four production verbs
-  // (AC-1 only exercised mitigates + detects). A typo in a COUNTERMEASURE_VERB_EDGES
-  // map value (e.g. detects → 'COUNTERMEASURE_DETECT') fails exactly its own row here.
+  // (the creation test above only exercised mitigates + detects). A typo in a
+  // COUNTERMEASURE_VERB_EDGES map value (e.g. detects → 'COUNTERMEASURE_DETECT')
+  // fails exactly its own row here.
   it('routes each wired verb field to its own edge type', async () => {
     await seedControlAndClass();
     const wired = [

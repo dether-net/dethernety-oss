@@ -1,9 +1,10 @@
-// Integration coverage for the GraphQL surface of countermeasure verb edges (Slice 2).
+// Integration coverage for the GraphQL surface of countermeasure verb edges.
 //
-// AC-8: the `mitigates` @relationship field returns the linked ATT&CK techniques.
-// AC-9: a hand-authored countermeasure that `connect`s a technique under `mitigates`
-//       is stamped createdBy=USER and survives a subsequent SYSTEM rebuild (the scoped
-//       upsert skips USER findings; verb edges are never pruned).
+// Covers: the `mitigates` @relationship field returns the linked ATT&CK techniques;
+// a hand-authored countermeasure that `connect`s a technique under `mitigates` is
+// stamped createdBy=USER and survives a subsequent SYSTEM rebuild (the scoped upsert
+// skips USER findings; verb edges are never pruned); and the writer-map ↔ schema-field
+// round-trip for every wired verb.
 //
 // Mirrors provenance.e2e-spec: a minimal Neo4jGraphQL probe schema exercises the same
 // @relationship + @populatedBy directives the production schema uses, without booting
@@ -111,7 +112,6 @@ describe('Countermeasure verb edges — GraphQL surface (e2e)', () => {
     }
   }
 
-  // AC-8
   it('the `mitigates` field returns the techniques linked by COUNTERMEASURE_MITIGATES', async () => {
     await runWrite(
       `CREATE (cm:Countermeasure { id: 'cm-1', name: 'MFA', createdBy: 'SYSTEM' })
@@ -130,7 +130,6 @@ describe('Countermeasure verb edges — GraphQL surface (e2e)', () => {
     expect(cm).toEqual({ name: 'MFA', mitigates: [{ attack_id: 'T1078' }] });
   });
 
-  // AC-9
   it('a hand-authored countermeasure connects a technique under `mitigates`, is USER, and survives a SYSTEM rebuild', async () => {
     // Pre-seed the control, its class, and the technique to connect to.
     await runWrite(
@@ -191,7 +190,7 @@ describe('Countermeasure verb edges — GraphQL surface (e2e)', () => {
     expect(sys.records[0].get('createdBy')).toBe('SYSTEM');
   });
 
-  // AC-10 — writer-map ↔ schema-field round-trip for every wired verb (not just `mitigates`).
+  // Writer-map ↔ schema-field round-trip for every wired verb (not just `mitigates`).
   // Drives the real upsert (which selects the edge type from COUNTERMEASURE_VERB_EDGES) then
   // reads it back through the matching GraphQL @relationship field. If the writer's map value
   // and the schema field's relationship type ever disagree, the field returns [] and the row
