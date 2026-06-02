@@ -259,10 +259,17 @@ interface SetInstantiationConfig {
 - **Consistent Patterns**: Same concurrency control and error handling patterns
 
 ### MITRE ATT&CK Integration
-- **External Object Linking**: Links exposures to MITRE techniques
-- **Countermeasure Mapping**: Maps countermeasures to MITRE mitigations
+- **External Object Linking**: Links exposures to MITRE techniques (`EXPLOITED_BY`)
+- **Countermeasure Mapping**: Maps countermeasures to MITRE mitigations + D3FEND techniques (`RESPONDS_WITH`, the identity block)
 - **Data Consistency**: Maintains referential integrity with external frameworks
-- **Validation**: Validates MITRE references for data quality
+- **Validation**: Validates MITRE references for data quality (`validateExternalObjectTarget` — label/property/value, Cypher-identifier regex)
+
+#### Countermeasure verb edges
+- **Closed verb set**: beyond the identity `RESPONDS_WITH`, a countermeasure carries per-verb relations to the ATT&CK **Techniques** it counters — `COUNTERMEASURE_MITIGATES`, `_PROTECTS_AGAINST`, `_DETECTS`, `_ISOLATES`, `_DECEIVES`, `_EVICTS`, `_RESTORES`, `_RESPONDS_TO`. The verb→edge-type map (`COUNTERMEASURE_VERB_EDGES`) is the single source of truth; adding a verb is a deliberate cross-layer change (the dt-module `Countermeasure` interface + this map + the GraphQL schema).
+- **Relationship-type safety**: an edge's `relationName` is **only ever** a compile-time constant (a map value or the `RESPONDS_WITH`/`EXPLOITED_BY` literals) — never data-derived. The `linkToExternalObject` identifier regex is a backstop.
+- **Edge provenance (`justification`)**: each ref may carry edge `attributes`, written via `SET rel += $attributes`. Edge attributes are **key-allowlisted** (`EDGE_ATTR_KEYS = ['justification']`) and primitive-guarded (`describeNonPrimitiveValue`), mirroring the node-property allowlist in `shared/finding-attrs.ts`. A non-allowlisted key is dropped; a non-primitive value is dropped **with a warning, never thrown** — a bad provenance string must not abort the upsert.
+- **Stale-key caveat**: `SET rel += $attributes` *merges*, it does not replace. A key written by an earlier policy version and removed in a later one persists on the edge. The allowlist bounds this to `justification` (the only key that can ever land).
+- **Append-only / durability limit**: verb edges are **never pruned** — the obsolete-cleanup path operates at the node level only. Stale verb edges from a prior policy version persist by design, so analyses that referenced edges at their run time stay valid even as the model evolves.
 
 ## Business Logic
 
