@@ -190,12 +190,12 @@ Quality labels: >= 90 "Comprehensive", 70-89 "Good", 40-69 "In Progress", < 40 "
   "trust_assumptions": [],
   "adversary_classes": [],
   "activeModules": [
-    { "id": "module-uuid", "name": "dethernety-module" }
+    { "id": "module-uuid", "name": "dethernety-general" }
   ]
 }
 ```
 
-`activeModules` is optional. If absent, classification searches all installed modules (backward compatible). The baseline module (`General` or `dethernety-module`) is always included and non-removable. Populated by the module selection step after discovery — the agent recommends modules based on discovered IaC source patterns, the user confirms.
+`activeModules` is optional. If absent, classification searches all installed modules (backward compatible). The baseline module (`dethernety-general`) is always included and non-removable. Populated by the module selection step after discovery — the agent recommends modules based on discovered IaC source patterns, the user confirms.
 
 ### Naming Convention
 

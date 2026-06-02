@@ -72,7 +72,7 @@ If `.dethereal/state.json` exists and `currentState` is not `REVIEWED`:
 ```
 Progress: "<Model Name>" (Quality: X/100)
   [done]        1. Scope Definition
-  [done]        2. Discovery (modules: dethernety-module, Kubernetes)
+  [done]        2. Discovery (modules: dethernety-general, Kubernetes)
   [done]        3. Model Review
   [auto-skip]   4. Boundary Refinement (hierarchy already well-structured)
   [>>>>]        5. Data Flow Mapping  — current step
@@ -159,7 +159,7 @@ Select which platform modules provide classes for classification and enrichment.
 1. Read `.dethereal/discovery.json` — extract `recommendedModules` and source type patterns
 2. Query available modules on the platform: call `mcp__plugin_dethereal_dethereal__match_classes` or `mcp__plugin_dethereal_dethereal__get_classes(fields: ['module'])` with no module filter to list all installed modules
 3. Map discovery source patterns to recommended modules using the infrastructure-scout's Source Type → Module Mapping table
-4. Always include the baseline module — match by name `General` or `dethernety-module` (non-removable)
+4. Always include the baseline module — match by name `dethernety-general` (non-removable)
 5. Present a confirmation table:
 
 ```
@@ -169,7 +169,7 @@ Based on discovery, these modules are recommended for classification:
 
 | # | Module | Reason | Include? |
 |---|--------|--------|----------|
-| 1 | dethernety-module | Always included (baseline classes) | yes (locked) |
+| 1 | dethernety-general | Always included (baseline classes) | yes (locked) |
 | 2 | Kubernetes | K8s manifests found (12 resources) | yes |
 | 3 | AWS | Terraform aws_* resources found (8 resources) | yes |
 
@@ -183,7 +183,7 @@ Confirm selection? (yes / modify)
 6. Write confirmed modules to `.dethereal/scope.json` as `activeModules`:
 ```json
 "activeModules": [
-  { "id": "module-uuid-1", "name": "dethernety-module" },
+  { "id": "module-uuid-1", "name": "dethernety-general" },
   { "id": "module-uuid-2", "name": "Kubernetes" }
 ]
 ```
@@ -198,7 +198,7 @@ No state transition — stays at `DISCOVERED` (same as Step 3).
 
 Run deterministic Pass 1 classification and review the discovered model.
 
-1. Read `activeModules` from `.dethereal/scope.json`. Call `mcp__plugin_dethereal_dethereal__match_classes` with element names, types, and descriptions from the model, scoped to active module IDs (`moduleIds`). Auto-accept `exact_name` matches; present others for confirmation. If `activeModules` is absent, call `match_classes` without `moduleIds` (searches all installed modules). Prefer classes from specialized modules over baseline (dethernety-module/General) when both match — specialized classes have more targeted attribute schemas (D51)
+1. Read `activeModules` from `.dethereal/scope.json`. Call `mcp__plugin_dethereal_dethereal__match_classes` with element names, types, and descriptions from the model, scoped to active module IDs (`moduleIds`). Auto-accept `exact_name` matches; present others for confirmation. If `activeModules` is absent, call `match_classes` without `moduleIds` (searches all installed modules). Prefer classes from specialized modules over baseline (dethernety-general) when both match — specialized classes have more targeted attribute schemas (D51)
 2. For components not matched by the deterministic pass, match by name, type, and description against available classes from active modules
 3. If the component was discovered from IaC (check `.dethereal/discovery.json`), use the pre-classification from IaC mapping
 4. Check decomposition thresholds (21+ components, 9+ boundaries, 36+ flows, 19+ cross-boundary) — follow Decomposition Protocol if exceeded (D56: decomposition check runs after Step 3, not Step 2, because the blind spots interview may add components)

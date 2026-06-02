@@ -505,7 +505,7 @@ Classification uses a two-pass approach (R6/F6):
 
 > D51: Batch classification via `match_classes` reduces tool calls from 15-100 (per-module `get_classes` loops) to 1-5 batch calls, saving significant token overhead. Running Pass 1 at Step 3 (instead of deferring everything to Step 6) additionally improves boundary refinement decisions because component classifications are visible during Step 4. If `match_classes` requires platform connectivity and the platform is offline, Pass 1 is skipped and all classification happens at Step 6.
 
-### Class Inventory (from dethernety-module)
+### Class Inventory (from dethernety-general)
 
 | Class Type | Graph Label | Examples |
 |-----------|-------------|----------|
