@@ -330,6 +330,10 @@ Represents a specific countermeasure implementation.
 **Relationships:**
 - `(Countermeasure)-[:RESPONDS_WITH]->(MitreAttackMitigation)` — ATT&CK mitigations
 - `(Countermeasure)-[:RESPONDS_WITH]->(MitreDefendTechnique)` — D3FEND techniques
+- `(Countermeasure)-[:COUNTERMEASURE_MITIGATES]->(MitreAttackTechnique)` — ATT&CK techniques mitigated (distinct from the `RESPONDS_WITH` Mitigation edge above)
+- `(Countermeasure)-[:COUNTERMEASURE_PROTECTS_AGAINST]->(MitreAttackTechnique)` — ATT&CK techniques hardened against
+- `(Countermeasure)-[:COUNTERMEASURE_DETECTS]->(MitreAttackTechnique)` — ATT&CK techniques detected
+- `(Countermeasure)-[:COUNTERMEASURE_ISOLATES]->(MitreAttackTechnique)` — ATT&CK techniques isolated
 - `(Countermeasure)<-[:HAS_COUNTERMEASURE]-(Control)` — Parent control
 - `(Countermeasure)-[:IS_COUNTERMEASURE_OF]->(ControlClass)` — Control class
 - `(Countermeasure)-[:HAS_ISSUE]->(Issue)` — Issues associated with this countermeasure
@@ -528,7 +532,7 @@ Runtime status of an analysis (not a graph relationship — resolved via custom 
 | Type | Properties | Key Relationships |
 |------|-----------|-------------------|
 | `MitreAttackTactic` | `attack_id`, `attack_version`, `stix_id`, `stix_spec_version`, `stix_type` | `-[:TACTIC_INCLUDES_TECHNIQUE]->` MitreAttackTechnique |
-| `MitreAttackTechnique` | `attack_id`, `attack_spec_version`, `attack_decreased`, `attack_subtechnique`, `attack_version`, `ref_url`, `stix_id`, `stix_spec_version`, `stix_type` | `<-[:SUBTECHNIQUE_OF]-` (subtechniques), `<-[:EXPLOITED_BY]-` Exposure, `<-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]-` MitreAttackMitigation |
+| `MitreAttackTechnique` | `attack_id`, `attack_spec_version`, `attack_decreased`, `attack_subtechnique`, `attack_version`, `ref_url`, `stix_id`, `stix_spec_version`, `stix_type` | `<-[:SUBTECHNIQUE_OF]-` (subtechniques), `<-[:EXPLOITED_BY]-` Exposure, `<-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]-` MitreAttackMitigation, `<-[:COUNTERMEASURE_MITIGATES]-` / `<-[:COUNTERMEASURE_PROTECTS_AGAINST]-` / `<-[:COUNTERMEASURE_DETECTS]-` / `<-[:COUNTERMEASURE_ISOLATES]-` Countermeasure (the ingester also writes the currently-dormant `COUNTERMEASURE_DECEIVES` / `_EVICTS` / `_RESTORES` / `_RESPONDS_TO` verb edges, not yet surfaced as GraphQL fields) |
 | `MitreAttackMitigation` | `attack_id`, `attack_deprecated`, `ref_url`, `attack_spec_version`, `stix_spec_version`, `stix_modified`, `stix_id`, `attack_version`, `stix_created`, `stix_revoked`, `stix_type` | `-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->` MitreAttackTechnique, `<-[:RESPONDS_WITH]-` Countermeasure |
 
 ### D3FEND

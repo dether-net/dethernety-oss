@@ -416,6 +416,21 @@ export interface IssueClassMetadata {
 
 ## Exposure and Countermeasure Interfaces
 
+### MitreRef
+
+A reference from a finding (`Exposure` / `Countermeasure`) to a MITRE node. `label` + `property` + `value` self-describe the target node and its key (e.g. `MitreAttackTechnique` / `attack_id` / `T1078`). The relationship type (edge name) is decided by the field the ref sits under, not by the ref itself. `attributes` is free-form provenance (e.g. `justification`) copied onto the graph edge — values must be primitives.
+
+**Source File:** `packages/dt-module/src/interfaces/mitre-ref-interface.ts`
+
+```typescript
+export interface MitreRef {
+  label: string;
+  property: string;
+  value: string;
+  attributes?: Record<string, string | number | boolean>;
+}
+```
+
 ### Exposure
 
 Represents a security vulnerability or weakness detected for a model element.
@@ -423,6 +438,8 @@ Represents a security vulnerability or weakness detected for a model element.
 **Source File:** `packages/dt-module/src/interfaces/exposure-interface.ts`
 
 ```typescript
+import { MitreRef } from './mitre-ref-interface';
+
 export interface Exposure {
   id?: string;
   name: string;                  // Exposure name
@@ -436,12 +453,9 @@ export interface Exposure {
   detectionTechniques?: string[];  // Detection methods
   tags?: string[];               // Classification tags
 
-  // MITRE ATT&CK mapping
-  exploitedBy?: {
-    label: string;
-    property: string;
-    value: string;
-  }[] | string[];
+  // → EXPLOITED_BY edges to the MITRE node(s) that exploit this exposure.
+  // MitreRef form may carry edge `attributes`; the bare-string fallback is preserved.
+  exploitedBy?: MitreRef[] | string[];
 }
 ```
 
@@ -452,6 +466,8 @@ Represents a security control that addresses exposures.
 **Source File:** `packages/dt-module/src/interfaces/countermeasure-interface.ts`
 
 ```typescript
+import { MitreRef } from './mitre-ref-interface';
+
 export interface Countermeasure {
   id?: string;
   name: string;                   // Countermeasure name
@@ -463,12 +479,21 @@ export interface Countermeasure {
   addressedExposures?: string[];  // Exposures this countermeasure addresses
   tags?: string[];                // Classification tags
 
-  // MITRE D3FEND mapping
-  respondsWith?: {
-    label: string;
-    property: string;
-    value: string;
-  }[] | string[];
+  // Identity block → RESPONDS_WITH edges (the ATT&CK Mitigation + D3FEND technique
+  // this control implements). MitreRef form may carry edge `attributes`; bare-string preserved.
+  respondsWith?: MitreRef[] | string[];
+
+  // Verb blocks → COUNTERMEASURE_<VERB> edges to MitreAttackTechnique (how this control
+  // counters each technique). Each countermeasure populates only the verbs its policy emits.
+  // The first four are surfaced as GraphQL fields; the last four are written ahead but not yet queryable.
+  mitigates?: MitreRef[];
+  protectsAgainst?: MitreRef[];
+  detects?: MitreRef[];
+  isolates?: MitreRef[];
+  deceives?: MitreRef[];
+  evicts?: MitreRef[];
+  restores?: MitreRef[];
+  respondsTo?: MitreRef[];
 }
 ```
 
