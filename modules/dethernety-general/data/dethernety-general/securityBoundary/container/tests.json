@@ -1,0 +1,78 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "container_privileged_mode_disabled": false,
+      "container_capabilities_dropped_to_minimal": false,
+      "container_host_namespaces_not_shared": false,
+      "container_no_sensitive_host_mounts": false,
+      "container_seccomp_and_mac_profile_enforced": false,
+      "container_no_new_privileges_and_nonroot": false,
+      "container_runtime_patch_current": false,
+      "container_readonly_root_filesystem": false,
+      "container_resource_limits_enforced": false,
+      "container_image_pinned_and_signature_verified": false,
+      "container_image_free_of_embedded_secrets": false
+    },
+    "expectedExposures": [
+      "Privileged mode / excessive capabilities",
+      "Host namespace sharing & sensitive host bind-mounts",
+      "Weak kernel-sharing confinement",
+      "Unpatched container runtime",
+      "Writable root filesystem / weak post-compromise hardening",
+      "Missing cgroup resource limits (noisy-neighbour DoS)",
+      "Untrusted / unverified image at the supply-chain boundary"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "container_privileged_mode_disabled": true,
+      "container_capabilities_dropped_to_minimal": true,
+      "container_host_namespaces_not_shared": true,
+      "container_no_sensitive_host_mounts": true,
+      "container_seccomp_and_mac_profile_enforced": true,
+      "container_no_new_privileges_and_nonroot": true,
+      "container_runtime_patch_current": true,
+      "container_readonly_root_filesystem": true,
+      "container_resource_limits_enforced": true,
+      "container_image_pinned_and_signature_verified": true,
+      "container_image_free_of_embedded_secrets": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical hardened container — all attestations secure; no exposures fire",
+    "input": {
+      "container_privileged_mode_disabled": true,
+      "container_capabilities_dropped_to_minimal": true,
+      "container_host_namespaces_not_shared": true,
+      "container_no_sensitive_host_mounts": true,
+      "container_seccomp_and_mac_profile_enforced": true,
+      "container_no_new_privileges_and_nonroot": true,
+      "container_runtime_patch_current": true,
+      "container_readonly_root_filesystem": true,
+      "container_resource_limits_enforced": true,
+      "container_image_pinned_and_signature_verified": true,
+      "container_image_free_of_embedded_secrets": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — every attestation absent (untouched=insecure), all exposures fire",
+    "input": {},
+    "expectedExposures": [
+      "Privileged mode / excessive capabilities",
+      "Host namespace sharing & sensitive host bind-mounts",
+      "Weak kernel-sharing confinement",
+      "Unpatched container runtime",
+      "Writable root filesystem / weak post-compromise hardening",
+      "Missing cgroup resource limits (noisy-neighbour DoS)",
+      "Untrusted / unverified image at the supply-chain boundary"
+    ]
+  }
+]

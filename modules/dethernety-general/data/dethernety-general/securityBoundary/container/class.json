@@ -1,0 +1,9 @@
+{
+  "id": "8e6a3f98-aa54-4596-9cdf-11cf97fd4987",
+  "name": "Container",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "A container / workload sandbox — also called an OS-level virtualization unit, a namespace- and cgroup-isolated workload, a Docker / OCI container, a Linux container (LXC), a pod or runtime sandbox — the lightweight trust boundary that isolates a workload while sharing the host's kernel, a deliberately weaker isolation primitive than a virtual machine. The place to look for the container or sandbox boundary, the Docker / OCI / containerd / runc workload, the namespace / cgroup / seccomp / capabilities isolation surface, or where container escape (breakout-to-host) via privileged mode, host mounts, or kernel exploits lands.",
+  "category": "Compute Architecture",
+  "status": "draft"
+}

@@ -1,0 +1,211 @@
+[
+  {
+    "option_name": "container_privileged_mode_disabled",
+    "option_description": "Attests the workload runs WITHOUT --privileged (no ALL-caps, no host devices, seccomp+MAC intact).",
+    "security_impact": "OR-trigger for \"Privileged mode / excessive capabilities\" — fires when false (HostConfig.Privileged=true). The single largest container-escape primitive (T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the privileged flag.",
+        "command": "docker inspect --format '{{ .HostConfig.Privileged }}' <container>",
+        "expected_output": "false (secure); true = sandbox dissolved (insecure)",
+        "source": "docker-bench-security §5; CIS Docker §5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_capabilities_dropped_to_minimal",
+    "option_description": "Attests CapDrop=[ALL] with minimal CapAdd and no CAP_SYS_ADMIN/PTRACE/MODULE/DAC_READ_SEARCH/NET_RAW.",
+    "security_impact": "OR-trigger for \"Privileged mode / excessive capabilities\" — fires when false; CAP_SYS_ADMIN alone re-enables the CVE-2022-0492 cgroupfs escape (T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read dropped/added capabilities.",
+        "command": "docker inspect --format 'drop:{{ .HostConfig.CapDrop }} add:{{ .HostConfig.CapAdd }}' <container>",
+        "expected_output": "drop:[ALL] + minimal add (secure); empty drop or dangerous add (insecure)",
+        "source": "CIS Docker §5 Container Runtime"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_host_namespaces_not_shared",
+    "option_description": "Attests PidMode/IpcMode/NetworkMode are not 'host'.",
+    "security_impact": "OR-trigger for \"Host namespace sharing & sensitive host bind-mounts\" — fires when false; hostPID/hostNetwork/hostIPC collapse namespace isolation (T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read namespace modes.",
+        "command": "docker inspect --format 'pid:{{ .HostConfig.PidMode }} ipc:{{ .HostConfig.IpcMode }} net:{{ .HostConfig.NetworkMode }}' <container>",
+        "expected_output": "none = host (secure); any = host (insecure)",
+        "source": "docker-bench-security §5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_no_sensitive_host_mounts",
+    "option_description": "Attests no bind-mount of /var/run/docker.sock or host /, /proc, /sys, /var/lib/docker.",
+    "security_impact": "OR-trigger for \"Host namespace sharing & sensitive host bind-mounts\" — fires when false; the docker.sock mount = full daemon control / host takeover (T1610).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate bind mounts.",
+        "command": "docker inspect --format '{{ range .Mounts }}{{ .Source }} -> {{ .Destination }}\\n{{ end }}' <container>",
+        "expected_output": "no docker.sock or host /, /proc, /sys (secure); any present (insecure)",
+        "source": "CIS Docker §5 Container Runtime"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_seccomp_and_mac_profile_enforced",
+    "option_description": "Attests seccomp default/custom allowlist in effect AND AppArmor/SELinux MAC profile active (not unconfined).",
+    "security_impact": "OR-trigger for \"Weak kernel-sharing confinement\" — fires when false; seccomp+MAC jointly block the CVE-2022-0492 cgroup release_agent escape (T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read SecurityOpt + AppArmor profile.",
+        "command": "docker inspect --format 'sec:{{ .HostConfig.SecurityOpt }} aa:{{ .AppArmorProfile }}' <container>",
+        "expected_output": "no seccomp=unconfined, aa=docker-default/custom (secure); unconfined (insecure)",
+        "source": "Docker seccomp docs; docker-bench-security §5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_no_new_privileges_and_nonroot",
+    "option_description": "Attests no-new-privileges:true AND non-root user (or userns-remap so container-root != host-root).",
+    "security_impact": "OR-trigger for \"Weak kernel-sharing confinement\" — fires when false; setuid in-container privesc (T1068) and UID-0 maps to host root on escape.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read no-new-privileges, user, and daemon userns-remap.",
+        "command": "docker inspect --format 'sec:{{ .HostConfig.SecurityOpt }} user:{{ .Config.User }}' <container> ; grep userns-remap /etc/docker/daemon.json",
+        "expected_output": "no-new-privileges:true + non-root user (secure); absent / root (insecure)",
+        "source": "docker-bench-security §5; Docker userns-remap docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_runtime_patch_current",
+    "option_description": "Attests runc >= 1.1.12 (post-CVE-2024-21626) and a current containerd/Docker engine.",
+    "security_impact": "Trigger for \"Unpatched container runtime\" — fires when false; runc <= 1.1.11 (CVE-2024-21626) or <= 1.0-rc6 (CVE-2019-5736) yield host root (T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read runtime versions.",
+        "command": "runc --version ; docker info --format '{{ .DefaultRuntime }} {{ .ServerVersion }}'",
+        "expected_output": "runc >= 1.1.12 (secure); <= 1.1.11 (insecure)",
+        "source": "NVD CVE-2024-21626 / CVE-2019-5736"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_readonly_root_filesystem",
+    "option_description": "Attests ReadonlyRootfs=true (writable paths via tmpfs/volumes only).",
+    "security_impact": "Trigger for \"Writable root filesystem / weak post-compromise hardening\" — fires when false; a mutable rootfs enables persistence + the runc-overwrite step of CVE-2019-5736 (T1222).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the read-only-rootfs flag.",
+        "command": "docker inspect --format '{{ .HostConfig.ReadonlyRootfs }}' <container>",
+        "expected_output": "true (secure); false (insecure)",
+        "source": "CIS Docker §5 Container Runtime"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_resource_limits_enforced",
+    "option_description": "Attests memory, CPU, and PIDs cgroup limits all bounded.",
+    "security_impact": "Trigger for \"Missing cgroup resource limits (noisy-neighbour DoS)\" — fires when false; unbounded → host RAM/CPU/PID exhaustion denying co-tenants (T1499/T1496).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read memory/CPU/PIDs limits.",
+        "command": "docker inspect --format 'mem:{{ .HostConfig.Memory }} cpu:{{ .HostConfig.NanoCpus }}/{{ .HostConfig.CpuQuota }} pids:{{ .HostConfig.PidsLimit }}' <container>",
+        "expected_output": "Memory>0 AND a CPU limit AND PidsLimit>0 (secure); any 0/unbounded (insecure)",
+        "source": "docker-bench-security §5"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_image_pinned_and_signature_verified",
+    "option_description": "Attests image pinned by @sha256 digest AND signature/content-trust verified (DCT/Cosign).",
+    "security_impact": "OR-trigger for \"Untrusted / unverified image at the supply-chain boundary\" — fires when false; a floating/unsigned tag lets untrusted code cross the boundary (T1610/T1525).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm digest pin + signature verification.",
+        "command": "docker inspect --format '{{ .Image }} || {{ index .RepoDigests 0 }}' <container> ; echo $DOCKER_CONTENT_TRUST",
+        "expected_output": "sha256 digest + DCT=1/cosign verify (secure); floating tag / no verify (insecure)",
+        "source": "CIS Docker §4 Images"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "container_image_free_of_embedded_secrets",
+    "option_description": "Attests no plaintext credentials/keys/tokens baked into image layers/ENV/build-args.",
+    "security_impact": "OR-trigger for \"Untrusted / unverified image at the supply-chain boundary\" — fires when false; embedded secrets are extractable by anyone who can pull the image (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review image build history for secrets.",
+        "command": "docker history --no-trunc <image>",
+        "expected_output": "no plaintext credentials in any layer/ENV (secure)",
+        "source": "CIS Docker §4 Images"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]
