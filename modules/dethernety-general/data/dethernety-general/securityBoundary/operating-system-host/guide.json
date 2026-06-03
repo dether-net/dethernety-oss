@@ -1,0 +1,289 @@
+[
+  {
+    "option_name": "host_os_family",
+    "option_description": "The OS-family discriminator (linux/macos/bsd/windows) that selects which OS-specific hardening attestations are evaluated for this host.",
+    "security_impact": "Not itself an exposure trigger — it GATES the OS-specific facets of three exposures: \"Local privilege escalation to root/SYSTEM\", \"Kernel-isolation bypass enabler (MAC not enforcing / unprivileged userns)\", and \"On-host credential / secret exposure\". Linux evaluates SELinux/AppArmor + user-namespaces + sudo/setuid + shadow-file perms; Windows evaluates UAC + LSASS; macOS/BSD evaluate the Unix arm (sudo/setuid/credential-file perms). Setting it correctly is what prevents a Linux host being false-flagged by Windows controls and vice-versa.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the host OS family.",
+        "command": "cat /etc/os-release  # Linux | sw_vers  # macOS | uname -s  # BSD | Get-ComputerInfo|Select OsName  # Windows",
+        "expected_output": "one of: linux / macos / bsd / windows",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "linux",
+      "macos",
+      "bsd",
+      "windows"
+    ]
+  },
+  {
+    "option_name": "host_patch_level_current",
+    "option_description": "Host kernel + privileged packages at/above vendor-fixed builds, no pending security updates.",
+    "security_impact": "OR-trigger for \"Unpatched known-vulnerability exposure window\" — fires when false (T1190). Cross-platform.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List pending security updates + privileged-binary versions.",
+        "command": "apt-get -s upgrade|grep -i security  # or dnf updateinfo list security --available ; uname -r ; sudo --version",
+        "expected_output": "no pending security updates; sudo>=1.9.5p2 (secure)",
+        "source": "NIST SP 800-40 Rev. 4"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_kernel_eol",
+    "option_description": "Whether the running kernel/OS release is past vendor EOL. Inverted: true=EOL=insecure.",
+    "security_impact": "OR-trigger for \"Unpatched known-vulnerability exposure window\" — fires when true (T1190). Cross-platform.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read OS/kernel release vs vendor maintenance window.",
+        "command": "cat /etc/os-release ; uname -r",
+        "expected_output": "within vendor maintenance window (secure, false)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "sudo_least_privilege_configured",
+    "option_description": "Sudo narrowly scoped + patched against LPE CVEs. Unix-like hosts (gated to linux/macos/bsd).",
+    "security_impact": "OR-trigger (Unix facet) for \"Local privilege escalation to root/SYSTEM\" — fires when false on a Unix host (T1068).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search sudoers for broad grants + check version.",
+        "command": "sudo grep -RInE 'NOPASSWD|ALL=\\(ALL' /etc/sudoers /etc/sudoers.d/ ; sudo --version",
+        "expected_output": "narrow grants + sudo>=1.9.5p2/1.9.12p2 (secure)",
+        "source": "Qualys CVE-2021-3156; Red Hat CVE-2023-22809"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "setuid_binaries_minimized_and_protected",
+    "option_description": "Minimal, root-owned, non-writable setuid/setgid set. Unix-like hosts.",
+    "security_impact": "OR-trigger (Unix facet) for \"Local privilege escalation to root/SYSTEM\" — fires when false on a Unix host (T1068).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate setuid/setgid files.",
+        "command": "find / -xdev \\( -perm -4000 -o -perm -2000 \\) -type f 2>/dev/null -printf '%M %u %p\\n'",
+        "expected_output": "short vendor-expected root-owned list, no world-write (secure)",
+        "source": "WeHaveServers CIS-style Linux hardening checklist"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "windows_privilege_boundary_enforced",
+    "option_description": "Windows UAC on + no weak/unquoted service paths. Windows-only (gated).",
+    "security_impact": "OR-trigger (Windows facet) for \"Local privilege escalation to root/SYSTEM\" — fires when false on a Windows host (T1068).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read UAC + audit service ACLs.",
+        "command": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' EnableLUA,ConsentPromptBehaviorAdmin ; accesschk.exe -wuvc *",
+        "expected_output": "EnableLUA=1, no standard-user-writable service binaries (secure)",
+        "source": "CIS Windows Benchmark; HackTricks Windows privesc"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unprivileged_user_namespaces_restricted",
+    "option_description": "Unprivileged user-namespace creation restricted. Linux-only kernel feature (gated to linux).",
+    "security_impact": "OR-trigger for \"Local privilege escalation to root/SYSTEM\" and \"Kernel-isolation bypass enabler\" — fires when false on Linux; prerequisite for many LPE CVEs/escapes (T1068/T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the userns sysctls.",
+        "command": "sysctl kernel.unprivileged_userns_clone 2>/dev/null ; sysctl user.max_user_namespaces ; sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null",
+        "expected_output": "clone=0 or apparmor restriction=1 (secure)",
+        "source": "systemshardening.com — Restricting Unprivileged User Namespaces"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mandatory_access_control_enforcing",
+    "option_description": "SELinux/AppArmor loaded + enforcing. Linux-only (gated to linux).",
+    "security_impact": "OR-trigger for \"Kernel-isolation bypass enabler\" — fires when false on Linux; removes the confinement blocking CVE-2022-0492 (T1611).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check SELinux/AppArmor enforce state.",
+        "command": "getenforce ; sestatus  # RHEL | sudo aa-status  # Debian/Ubuntu",
+        "expected_output": "'Enforcing' or profiles 'in enforce mode' (secure)",
+        "source": "Tecmint — MAC with SELinux or AppArmor"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_credential_files_access_restricted",
+    "option_description": "Unix shadow store root-only + SSH keys 0600. Unix-like hosts (gated to linux/macos/bsd).",
+    "security_impact": "OR-trigger (Unix facet) for \"On-host credential / secret exposure\" — fires when false on a Unix host (T1003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read perms of shadow store + SSH keys.",
+        "command": "stat -c '%a %U:%G %n' /etc/shadow /etc/gshadow ; find / -name 'id_*' -o -name 'ssh_host_*_key' 2>/dev/null | xargs -r stat -c '%a %n'",
+        "expected_output": "shadow 0640+ and keys 0600 (secure)",
+        "source": "WeHaveServers CIS-style Linux hardening checklist"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "windows_lsass_credential_protection_enabled",
+    "option_description": "LSA Protection (RunAsPPL) + Credential Guard. Windows-only (gated).",
+    "security_impact": "OR-trigger (Windows facet) for \"On-host credential / secret exposure\" — fires when false on a Windows host (T1003.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read RunAsPPL + Credential Guard state.",
+        "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa RunAsPPL ; (Get-CimInstance Win32_DeviceGuard -Namespace root\\Microsoft\\Windows\\DeviceGuard).SecurityServicesRunning",
+        "expected_output": "RunAsPPL=1 and Credential Guard running (secure)",
+        "source": "Microsoft Security Blog — preventing LSASS credential dumping"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "instance_metadata_service_hardened",
+    "option_description": "Cloud IMDS requires session tokens (IMDSv2) + low hop limit. N/A-secure off-cloud. Cross-platform.",
+    "security_impact": "Trigger for \"Cloud instance-credential theft via IMDS\" — fires when false (T1552.005).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Read IMDS metadata options.",
+        "command": "aws ec2 describe-instances --instance-id <id> --query 'Reservations[].Instances[].MetadataOptions'",
+        "expected_output": "HttpTokens=required, HopLimit=1 (secure)",
+        "source": "Hacking The Cloud — Steal EC2 Metadata Credentials via SSRF"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "remote_admin_access_hardened",
+    "option_description": "SSH/RDP/WinRM key-only/no-root/NLA + bastion-gated. Cross-platform.",
+    "security_impact": "Trigger for \"Exposed/weak remote administrative access\" — fires when false (T1110).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read effective sshd + admin-port exposure.",
+        "command": "sudo sshd -T | grep -iE 'permitrootlogin|passwordauthentication' ; ss -tlnp | grep -E ':22|:3389|:5985|:5986'",
+        "expected_output": "permitrootlogin no, passwordauthentication no, admin ports allowlisted (secure)",
+        "source": "goteleport.com OpenSSH bastion hardening"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "boot_chain_integrity_protected",
+    "option_description": "UEFI Secure Boot + signed modules (TPM measured boot). Cross-platform.",
+    "security_impact": "OR-trigger for \"Host integrity / boot-chain tamper and rootkit persistence\" — fires when false (T1542/T1014).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read Secure Boot state.",
+        "command": "mokutil --sb-state ; mokutil --list-enrolled  # Linux | Confirm-SecureBootUEFI  # Windows",
+        "expected_output": "'SecureBoot enabled' / True (secure)",
+        "source": "Red Hat — Secure Boot; Microsoft Learn"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_integrity_monitoring_and_audit_enabled",
+    "option_description": "FIM (AIDE) + host audit/EDR (auditd/Sysmon). Cross-platform.",
+    "security_impact": "OR-trigger for \"Host integrity / boot-chain tamper and rootkit persistence\" — fires when false (T1014/T1547).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm auditd+AIDE (Linux) / Sysmon+auditpol (Windows).",
+        "command": "systemctl is-active auditd ; ls -l /var/lib/aide/aide.db.gz  # Linux | Get-Service Sysmon* ; auditpol /get /category:*  # Windows",
+        "expected_output": "auditd active + AIDE baseline / Sysmon running (secure)",
+        "source": "Harry The DevOps Guy — Linux CIS hardening; TrustedSec — Sysmon"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_disk_encryption_at_rest_enabled",
+    "option_description": "Full-disk encryption (LUKS/BitLocker/FileVault). Cross-platform.",
+    "security_impact": "Trigger for \"At-rest disk exposure of a detached/snapshotted volume\" — fires when false (T1005/T1530).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm LUKS/BitLocker/FileVault.",
+        "command": "lsblk -f | grep -i crypto_LUKS  # Linux | manage-bde -status C:  # Windows | fdesetup status  # macOS",
+        "expected_output": "crypto_LUKS / Protection On / FileVault On (secure)",
+        "source": "Red Hat Security Hardening — LUKS; Microsoft Learn — manage-bde"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

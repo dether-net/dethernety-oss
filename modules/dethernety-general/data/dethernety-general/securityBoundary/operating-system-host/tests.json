@@ -1,0 +1,88 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes insecure (os_family=bsd) — every applicable exposure fires; kernel-isolation stays silent (Linux-only) on a BSD host",
+    "input": {
+      "host_os_family": "bsd",
+      "host_patch_level_current": false,
+      "host_kernel_eol": true,
+      "sudo_least_privilege_configured": false,
+      "setuid_binaries_minimized_and_protected": false,
+      "windows_privilege_boundary_enforced": false,
+      "unprivileged_user_namespaces_restricted": false,
+      "mandatory_access_control_enforcing": false,
+      "host_credential_files_access_restricted": false,
+      "windows_lsass_credential_protection_enabled": false,
+      "instance_metadata_service_hardened": false,
+      "remote_admin_access_hardened": false,
+      "boot_chain_integrity_protected": false,
+      "host_integrity_monitoring_and_audit_enabled": false,
+      "host_disk_encryption_at_rest_enabled": false
+    },
+    "expectedExposures": [
+      "Local privilege escalation to root/SYSTEM",
+      "On-host credential / secret exposure",
+      "Host integrity / boot-chain tamper and rootkit persistence",
+      "Cloud instance-credential theft via IMDS",
+      "Exposed/weak remote administrative access",
+      "Unpatched known-vulnerability exposure window",
+      "At-rest disk exposure of a detached/snapshotted volume"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attestations secure (os_family=linux) — no exposures fire",
+    "input": {
+      "host_os_family": "linux",
+      "host_patch_level_current": true,
+      "host_kernel_eol": false,
+      "sudo_least_privilege_configured": true,
+      "setuid_binaries_minimized_and_protected": true,
+      "windows_privilege_boundary_enforced": true,
+      "unprivileged_user_namespaces_restricted": true,
+      "mandatory_access_control_enforcing": true,
+      "host_credential_files_access_restricted": true,
+      "windows_lsass_credential_protection_enabled": true,
+      "instance_metadata_service_hardened": true,
+      "remote_admin_access_hardened": true,
+      "boot_chain_integrity_protected": true,
+      "host_integrity_monitoring_and_audit_enabled": true,
+      "host_disk_encryption_at_rest_enabled": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Hardened BSD host — all attestations secure; no exposures fire (cross-OS controls correctly not evaluated)",
+    "input": {
+      "host_os_family": "bsd",
+      "host_patch_level_current": true,
+      "host_kernel_eol": false,
+      "sudo_least_privilege_configured": true,
+      "setuid_binaries_minimized_and_protected": true,
+      "windows_privilege_boundary_enforced": true,
+      "unprivileged_user_namespaces_restricted": true,
+      "mandatory_access_control_enforcing": true,
+      "host_credential_files_access_restricted": true,
+      "windows_lsass_credential_protection_enabled": true,
+      "instance_metadata_service_hardened": true,
+      "remote_admin_access_hardened": true,
+      "boot_chain_integrity_protected": true,
+      "host_integrity_monitoring_and_audit_enabled": true,
+      "host_disk_encryption_at_rest_enabled": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — no os_family, so OS-gated rules stay silent; only the 5 cross-platform exposures fire",
+    "input": {},
+    "expectedExposures": [
+      "Host integrity / boot-chain tamper and rootkit persistence",
+      "Cloud instance-credential theft via IMDS",
+      "Exposed/weak remote administrative access",
+      "Unpatched known-vulnerability exposure window",
+      "At-rest disk exposure of a detached/snapshotted volume"
+    ]
+  }
+]

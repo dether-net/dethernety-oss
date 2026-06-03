@@ -1,0 +1,9 @@
+{
+  "id": "d1a4f626-9e9f-42f7-9a70-0ea077984685",
+  "name": "Operating System / Host",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "The operating system / host — also called the OS, host, host machine, server, compute instance, virtual machine (VM), bare-metal host, node, or guest operating system — the single-machine trust boundary where a shared kernel separates privileged (root / SYSTEM / ring-0) code from unprivileged user-space processes, and where host hardening, local privilege escalation, and on-host credential isolation are decided. The place to look for the host or OS boundary, the Linux or Windows server, the VM or bare-metal machine, the kernel-to-user-space divide, the root/administrator privilege boundary, or where container escapes, local privilege escalation (privesc), and host-level credential theft land.",
+  "category": "Compute Architecture",
+  "status": "draft"
+}

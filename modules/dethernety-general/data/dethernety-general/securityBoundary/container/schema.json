@@ -1,0 +1,211 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "container_privileged_mode_disabled": {
+        "type": "boolean",
+        "title": "Container not running in privileged mode",
+        "description": "Attests the container is NOT privileged (HostConfig.Privileged=false). Privileged dissolves seccomp+MAC+all caps+host devices — the largest escape-to-host-root primitive. true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_capabilities_dropped_to_minimal": {
+        "type": "boolean",
+        "title": "Linux capabilities dropped to minimal set",
+        "description": "Attests CapDrop=[ALL] with minimal non-dangerous CapAdd — none of CAP_SYS_ADMIN/CAP_SYS_PTRACE/CAP_SYS_MODULE/CAP_DAC_READ_SEARCH/CAP_NET_RAW. true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_host_namespaces_not_shared": {
+        "type": "boolean",
+        "title": "Host PID/IPC/network namespaces not shared",
+        "description": "Attests PidMode/IpcMode/NetworkMode are NOT 'host' — none collapses namespace isolation. true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_no_sensitive_host_mounts": {
+        "type": "boolean",
+        "title": "No Docker socket or sensitive host bind-mounts",
+        "description": "Attests no bind-mount of /var/run/docker.sock or host /, /proc, /sys, /var/lib/docker. docker.sock = full daemon control / host takeover. true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_seccomp_and_mac_profile_enforced": {
+        "type": "boolean",
+        "title": "Seccomp and MAC confinement enforced on the container",
+        "description": "Attests seccomp is default/custom allowlist (NOT unconfined, NOT forced-off by privileged) AND an AppArmor/SELinux MAC profile is active. Both jointly block the CVE-2022-0492 cgroup release_agent escape. true=secure; fires on is_false. Scoped to THIS workload, not host-wide MAC.",
+        "default": false
+      },
+      "container_no_new_privileges_and_nonroot": {
+        "type": "boolean",
+        "title": "No-new-privileges set and container-root is not host-root",
+        "description": "Attests no_new_privs is set AND the workload is not host-root (non-zero UID, or userns-remap maps container UID0 to an unprivileged host UID). true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_runtime_patch_current": {
+        "type": "boolean",
+        "title": "Container runtime patched at or above fixed builds",
+        "description": "Attests runc/containerd/engine at-or-above escape-fix builds: runc >= 1.1.12 (CVE-2024-21626) and past 1.0-rc6 (CVE-2019-5736). true=secure; fires on is_false. Scoped to the container runtime, not host OS packages.",
+        "default": false
+      },
+      "container_readonly_root_filesystem": {
+        "type": "boolean",
+        "title": "Container root filesystem is read-only",
+        "description": "Attests ReadonlyRootfs=true so an attacker with code-exec cannot persist tooling, overwrite in-container binaries, or stage the runc-overwrite escape step. true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_resource_limits_enforced": {
+        "type": "boolean",
+        "title": "Container cgroup resource limits enforced (memory + CPU + PIDs)",
+        "description": "Attests bounded cgroup limits across memory (Memory>0), CPU (NanoCpus/CpuQuota/CpuShares set), and PIDs (PidsLimit>0). true=secure; fires on is_false. Unbounded → host RAM exhaustion / CPU starvation / PID fork-bomb (noisy-neighbour DoS)."
+      },
+      "container_image_pinned_and_signature_verified": {
+        "type": "boolean",
+        "title": "Image pinned to immutable digest and signature/content-trust verified",
+        "description": "Attests the image is referenced by an immutable @sha256 digest (not a mutable :latest) AND its signature/content-trust is verified (Cosign/Sigstore or DOCKER_CONTENT_TRUST=1). true=secure; fires on is_false.",
+        "default": false
+      },
+      "container_image_free_of_embedded_secrets": {
+        "type": "boolean",
+        "title": "No secrets/credentials embedded in image layers",
+        "description": "Attests no plaintext credentials/keys/tokens baked into layers/ENV/build-args; secrets injected at runtime only. true=secure; fires on is_false.",
+        "default": false
+      }
+    },
+    "required": [
+      "container_privileged_mode_disabled",
+      "container_capabilities_dropped_to_minimal",
+      "container_host_namespaces_not_shared",
+      "container_no_sensitive_host_mounts",
+      "container_seccomp_and_mac_profile_enforced",
+      "container_no_new_privileges_and_nonroot",
+      "container_runtime_patch_current",
+      "container_readonly_root_filesystem",
+      "container_resource_limits_enforced",
+      "container_image_pinned_and_signature_verified",
+      "container_image_free_of_embedded_secrets"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_capabilities_dropped_to_minimal"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/container_privileged_mode_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_image_free_of_embedded_secrets"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/container_image_pinned_and_signature_verified"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Filesystem Hardening",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_readonly_root_filesystem"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Host Isolation",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_host_namespaces_not_shared"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/container_no_sensitive_host_mounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Kernel Confinement",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_no_new_privileges_and_nonroot"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/container_seccomp_and_mac_profile_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Resource Isolation",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_resource_limits_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Runtime Patching",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_runtime_patch_current"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,353 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "host_os_family": {
+        "type": "string",
+        "enum": [
+          "linux",
+          "macos",
+          "bsd",
+          "windows"
+        ],
+        "title": "Host operating-system family",
+        "description": "The operating-system family of this host — the discriminator that selects which OS-specific hardening attestations apply. Linux exposes SELinux/AppArmor MAC and user-namespaces (Linux-only) plus sudo/setuid (any Unix); Windows exposes UAC/service-ACL and LSASS/Credential Guard; macOS/BSD use the Unix arm (sudo/setuid/credential-file perms) but not SELinux/AppArmor or user-namespaces. Cross-platform attestations (patch level, EOL, remote admin, boot integrity, disk encryption, IMDS) apply to every family. Gating on this field stops a Linux host being assessed against Windows controls and vice-versa."
+      },
+      "host_patch_level_current": {
+        "type": "boolean",
+        "title": "Host security patch level is current",
+        "description": "Host kernel and privileged OS packages at/above vendor-fixed builds with no pending security updates (e.g. sudo >=1.9.5p2 for CVE-2021-3156, >=1.9.12p2 for CVE-2023-22809). true=secure; exposure fires on is_false. Cross-platform (Linux + Windows).",
+        "default": false
+      },
+      "host_kernel_eol": {
+        "type": "boolean",
+        "title": "Host OS/kernel is past end-of-life",
+        "description": "Host runs an OS release/kernel series past vendor end-of-life (no more security fixes). true=EOL=insecure; exposure fires on is_true (distinct from a current-but-lagging host — an EOL base can never be patched current). Cross-platform.",
+        "default": false
+      },
+      "sudo_least_privilege_configured": {
+        "type": "boolean",
+        "title": "Sudo least-privilege and LPE-patched",
+        "description": "Sudo elevation is least-privilege (no blanket NOPASSWD ALL=(ALL) ALL, no exploitable wildcards) AND patched (>=1.9.5p2 CVE-2021-3156, >=1.9.12p2 CVE-2023-22809). true=secure; fires on is_false. Applies to Unix-like hosts (linux/macos/bsd) — gated to those families.",
+        "default": false
+      },
+      "setuid_binaries_minimized_and_protected": {
+        "type": "boolean",
+        "title": "Setuid/setgid inventory minimal and non-writable",
+        "description": "Host setuid/setgid set is minimal/known-good: only expected vendor binaries, root-owned, none group/world-writable, no setuid interpreters. true=secure; fires on is_false. Applies to Unix-like hosts (linux/macos/bsd).",
+        "default": false
+      },
+      "windows_privilege_boundary_enforced": {
+        "type": "boolean",
+        "title": "Windows SYSTEM/Admin privilege boundary enforced",
+        "description": "UAC enabled (EnableLUA=1, prompting ConsentPromptBehaviorAdmin) and no unquoted service paths / weak service-binary ACLs that let a standard user overwrite a SYSTEM-run binary. true=secure; fires on is_false. Windows-only — gated to the windows family.",
+        "default": false
+      },
+      "unprivileged_user_namespaces_restricted": {
+        "type": "boolean",
+        "title": "Unprivileged user-namespace creation restricted",
+        "description": "Unprivileged unshare(CLONE_NEWUSER) restricted (kernel.unprivileged_userns_clone=0 Debian/Ubuntu, and/or user.max_user_namespaces bounded, and/or AppArmor userns restriction Ubuntu 23.10+). true=secure; fires on is_false. Linux-only kernel feature — gated to the linux family. Structural enabler: unrestricted userns expands reachable kernel surface ~3.4x and is a prerequisite for many netfilter/overlayfs LPE CVEs and container escapes landing as host root.",
+        "default": false
+      },
+      "mandatory_access_control_enforcing": {
+        "type": "boolean",
+        "title": "Host MAC (SELinux/AppArmor) loaded and enforcing",
+        "description": "Kernel MAC (SELinux Enforcing, or AppArmor loaded with profiles in enforce mode) confines processes beyond DAC. true=secure; fires on is_false. Linux-only (SELinux/AppArmor) — gated to the linux family. Enforcing MAC blocks several container-escape/privesc primitives (e.g. the cgroupfs mount of CVE-2022-0492).",
+        "default": false
+      },
+      "host_credential_files_access_restricted": {
+        "type": "boolean",
+        "title": "On-host credential files restricted to root/owner",
+        "description": "On-host credential stores unreadable by unprivileged processes: the shadow store root-only (Linux /etc/shadow 0640 root:shadow; BSD /etc/master.passwd; macOS Directory Services) and SSH private keys 0600 owner-only, ~/.ssh 0700. true=secure; fires on is_false. Applies to Unix-like hosts (linux/macos/bsd).",
+        "default": false
+      },
+      "windows_lsass_credential_protection_enabled": {
+        "type": "boolean",
+        "title": "Windows LSASS credential material protected from dumping",
+        "description": "LSA Protection (RunAsPPL=1) enabled and, where VBS-supported, Credential Guard running — LSASS not dumpable for reusable hashes/tickets. true=secure; fires on is_false. Windows-only — gated to the windows family.",
+        "default": false
+      },
+      "instance_metadata_service_hardened": {
+        "type": "boolean",
+        "title": "Instance metadata service hardened (IMDSv2 enforced)",
+        "description": "Cloud host IMDS (169.254.169.254) cannot surrender IAM creds to an unauthenticated GET: session tokens mandatory (AWS HttpTokens=required) and PUT hop limit 1; or N/A-secure where the host runs no cloud metadata service. true=secure; fires on is_false. Cross-platform (cloud, OS-agnostic).",
+        "default": false
+      },
+      "remote_admin_access_hardened": {
+        "type": "boolean",
+        "title": "Remote administrative access hardened",
+        "description": "Host management plane (SSH/RDP/WinRM) hardened: SSH key-only with root login disabled, RDP requires NLA, all admin surfaces (22/3389/5985-5986) reachable only via bastion/VPN/ZTNA or admin source-IP allowlist (not the open internet). true=secure; fires on is_false. Cross-platform (the assessor attests whichever of SSH/RDP/WinRM the host exposes).",
+        "default": false
+      },
+      "boot_chain_integrity_protected": {
+        "type": "boolean",
+        "title": "Boot chain integrity protected (Secure/measured boot + signed modules)",
+        "description": "Host boot chain integrity-protected below the OS: UEFI Secure Boot enabled (only vendor/enrolled keys), unsigned/tampered kernel modules and bootkits cannot load; TPM measured boot where supported. true=secure; fires on is_false. Cross-platform (Secure Boot on Linux + Windows).",
+        "default": false
+      },
+      "host_integrity_monitoring_and_audit_enabled": {
+        "type": "boolean",
+        "title": "Host file-integrity monitoring and tamper audit enabled",
+        "description": "Host can detect+record tamper of system binaries/modules/boot files: file-integrity baseline active (AIDE) AND host audit logging/EDR running (auditd / Windows Event Log + Sysmon). true=secure; fires on is_false. Cross-platform (auditd/AIDE on Unix, Event Log/Sysmon on Windows). Scoped to the host's own integrity/tamper-evidence, not downstream SIEM/log-retention.",
+        "default": false
+      },
+      "host_disk_encryption_at_rest_enabled": {
+        "type": "boolean",
+        "title": "Host volume at-rest disk encryption enabled",
+        "description": "Every data-bearing host volume encrypted at rest (LUKS on Linux, BitLocker Protection On on Windows, FileVault on macOS) so physical theft/detached disk/cloud snapshot yields only ciphertext. true=secure; fires on is_false. Cross-platform. Scoped to the machine's own disks, not app-level field encryption.",
+        "default": false
+      }
+    },
+    "required": [
+      "host_os_family",
+      "host_patch_level_current",
+      "host_kernel_eol",
+      "instance_metadata_service_hardened",
+      "remote_admin_access_hardened",
+      "boot_chain_integrity_protected",
+      "host_integrity_monitoring_and_audit_enabled",
+      "host_disk_encryption_at_rest_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Host Platform",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_os_family"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/instance_metadata_service_hardened"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_admin_access_hardened"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/setuid_binaries_minimized_and_protected",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "linux",
+                        "macos",
+                        "bsd"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sudo_least_privilege_configured",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "linux",
+                        "macos",
+                        "bsd"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/windows_privilege_boundary_enforced",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "windows"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_disk_encryption_at_rest_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_credential_files_access_restricted",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "linux",
+                        "macos",
+                        "bsd"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/windows_lsass_credential_protection_enabled",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "windows"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Host Integrity & Boot Chain",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boot_chain_integrity_protected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_integrity_monitoring_and_audit_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Kernel Isolation",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mandatory_access_control_enforcing",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "linux"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unprivileged_user_namespaces_restricted",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/host_os_family",
+                    "schema": {
+                      "enum": [
+                        "linux"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Patch & Vulnerability Management",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_kernel_eol"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_patch_level_current"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
