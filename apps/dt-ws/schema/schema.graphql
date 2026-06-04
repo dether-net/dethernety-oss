@@ -813,7 +813,7 @@ type Exposure implements Element  @authentication @node {
   "Exposure category"
   category: String
   "Risk score"
-  score: Int
+  score: Float
   "External references (URLs, CVE IDs)"
   references: String
   "Suggested mitigations"
@@ -1011,7 +1011,7 @@ type Countermeasure implements Element  @authentication @node {
   "Countermeasure category"
   category: String
   "Effectiveness score"
-  score: Int
+  score: Float
   "External references"
   references: String
   "Exposure names this countermeasure addresses"
