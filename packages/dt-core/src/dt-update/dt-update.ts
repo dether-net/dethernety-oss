@@ -257,17 +257,19 @@ export class DtUpdate {
         }
       }
 
-      this.updateProgress(4, 'Updating default boundary')
+      this.updateProgress(4, 'Updating data items')
 
-      // Step 5: Update default boundary
-      await this.updateDefaultBoundary(jsonData.defaultBoundary)
-
-      this.updateProgress(5, 'Updating data items')
-
-      // Step 6: Update/create data items FIRST (before components/dataflows need to reference them)
+      // Step 5: Update/create data items FIRST — before any element (including the
+      // default boundary, boundaries, components, and data flows) references them
+      // via dataItemIds, so their ids are resolvable in this.idMapping.
       if (jsonData.dataItems) {
         await this.updateDataItems(jsonData.dataItems)
       }
+
+      this.updateProgress(5, 'Updating default boundary')
+
+      // Step 6: Update default boundary (may itself carry dataItemIds)
+      await this.updateDefaultBoundary(jsonData.defaultBoundary)
 
       this.updateProgress(6, 'Updating boundaries and components')
 
@@ -444,6 +446,16 @@ export class DtUpdate {
     return controlIds
   }
 
+  /**
+   * Resolve data-item reference ids through the id-mapping so newly-created
+   * items carry their server ids; ids already on the platform fall through
+   * unchanged. Returns [] when no ids are given. Used to populate
+   * `node.data.dataItems` / `edge.data.dataItems`, which the per-element
+   * mutations REPLACE-sync (connect the listed items, disconnect the rest).
+   */
+  private mapDataItemIds = (ids?: string[]): string[] =>
+    (ids ?? []).map(id => this.idMapping.get(id) || id)
+
   private updateModelProperties = async (data: any, existingModel: Model): Promise<void> => {
     try {
       // Get current model state to preserve unchanged fields
@@ -576,6 +588,12 @@ export class DtUpdate {
       const resolvedControls = await this.resolveControls(boundaryData.controls)
       if (resolvedControls !== undefined) {
         boundaryNode.data.controls = resolvedControls
+      }
+
+      // Associate data items handled within the default boundary (REPLACE on full sync).
+      const defaultBoundaryDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
+      if (defaultBoundaryDataItems.length > 0) {
+        boundaryNode.data.dataItems = defaultBoundaryDataItems
       }
 
       await this.dtBoundary.updateBoundaryNode({
@@ -739,6 +757,12 @@ export class DtUpdate {
         boundaryNode.data.controls = resolvedControls
       }
 
+      // Associate data items handled within this boundary (REPLACE on full sync).
+      const boundaryDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
+      if (boundaryDataItems.length > 0) {
+        boundaryNode.data.dataItems = boundaryDataItems
+      }
+
       await this.dtBoundary.updateBoundaryNode({
         updatedNode: boundaryNode,
         defaultBoundaryId: this.defaultBoundaryId
@@ -810,10 +834,13 @@ export class DtUpdate {
         )
       }
 
-      // Associate controls with newly created boundary via follow-up update
-      if (createdBoundary && boundaryData.controls) {
+      // Associate controls and/or data items with the newly created boundary via a
+      // follow-up update (the create mutation carries neither).
+      if (createdBoundary) {
         const resolvedControls = await this.resolveControls(boundaryData.controls)
-        if (resolvedControls && resolvedControls.length > 0) {
+        const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
+        const followUpDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
+        if (followUpControls || followUpDataItems.length > 0) {
           const updateNode: Node = {
             id: createdBoundary.id,
             type: 'SECURITY_BOUNDARY',
@@ -821,7 +848,8 @@ export class DtUpdate {
             data: {
               label: boundaryData.name,
               description: boundaryData.description || '',
-              controls: resolvedControls
+              ...(followUpControls ? { controls: followUpControls } : {}),
+              ...(followUpDataItems.length > 0 ? { dataItems: followUpDataItems } : {})
             },
             parentNode: parentBoundaryId,
             width: boundaryData.dimensionsWidth || 0,
@@ -913,6 +941,13 @@ export class DtUpdate {
         componentNode.data.controls = resolvedControls
       }
 
+      // Associate data items (REPLACE on full sync). Assign only when non-empty;
+      // an absent/empty list falls through to the mutation's disconnect-all path.
+      const componentDataItems = this.mapDataItemIds(componentData.dataItemIds)
+      if (componentDataItems.length > 0) {
+        componentNode.data.dataItems = componentDataItems
+      }
+
       await this.dtComponent.updateComponent({
         updatedNode: componentNode,
         defaultBoundaryId: this.defaultBoundaryId
@@ -984,10 +1019,13 @@ export class DtUpdate {
         )
       }
 
-      // Associate controls with newly created component via follow-up update
-      if (createdComponent && componentData.controls) {
+      // Associate controls and/or data items with the newly created component via a
+      // follow-up update (the create mutation carries neither).
+      if (createdComponent) {
         const resolvedControls = await this.resolveControls(componentData.controls)
-        if (resolvedControls && resolvedControls.length > 0) {
+        const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
+        const followUpDataItems = this.mapDataItemIds(componentData.dataItemIds)
+        if (followUpControls || followUpDataItems.length > 0) {
           const updateNode: Node = {
             id: createdComponent.id,
             type: componentData.type,
@@ -995,7 +1033,8 @@ export class DtUpdate {
             data: {
               label: componentData.name,
               description: componentData.description || '',
-              controls: resolvedControls
+              ...(followUpControls ? { controls: followUpControls } : {}),
+              ...(followUpDataItems.length > 0 ? { dataItems: followUpDataItems } : {})
             },
             parentNode: parentBoundaryId
           }
@@ -1092,6 +1131,12 @@ export class DtUpdate {
         edge.data.controls = resolvedControls
       }
 
+      // Associate data items carried by this flow (REPLACE on full sync).
+      const flowDataItems = this.mapDataItemIds(flowData.dataItemIds)
+      if (flowDataItems.length > 0) {
+        edge.data.dataItems = flowDataItems
+      }
+
       await this.dtDataflow.updateDataFlow({
         edge,
         updates: {
@@ -1162,10 +1207,13 @@ export class DtUpdate {
         )
       }
 
-      // Associate controls with newly created data flow via follow-up update
-      if (createdFlow && flowData.controls) {
+      // Associate controls and/or data items with the newly created data flow via a
+      // follow-up update (the create mutation carries neither).
+      if (createdFlow) {
         const resolvedControls = await this.resolveControls(flowData.controls)
-        if (resolvedControls && resolvedControls.length > 0) {
+        const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
+        const followUpDataItems = this.mapDataItemIds(flowData.dataItemIds)
+        if (followUpControls || followUpDataItems.length > 0) {
           const updateEdge: Edge = {
             id: createdFlow.id,
             source: sourceId,
@@ -1175,7 +1223,8 @@ export class DtUpdate {
             label: flowData.name,
             data: {
               description: flowData.description || '',
-              controls: resolvedControls
+              ...(followUpControls ? { controls: followUpControls } : {}),
+              ...(followUpDataItems.length > 0 ? { dataItems: followUpDataItems } : {})
             }
           }
           await this.dtDataflow.updateDataFlow({
