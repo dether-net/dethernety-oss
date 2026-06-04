@@ -274,7 +274,7 @@ Represents a potential security vulnerability.
 - `description` (String) — Exposure description
 - `type` (String) — Exposure type
 - `category` (String) — Exposure category
-- `score` (Int) — Risk score
+- `score` (Float) — Risk score
 - `references` (String) — References
 - `mitigationSuggestions` ([String!]) — Suggested mitigations
 - `detectionMethods` ([String!]) — Detection methods
@@ -319,7 +319,7 @@ Represents a specific countermeasure implementation.
 - `description` (String) — Countermeasure description
 - `type` (String) — Countermeasure type
 - `category` (String) — Countermeasure category
-- `score` (Int) — Effectiveness score
+- `score` (Float) — Effectiveness score
 - `references` (String) — References
 - `addressedExposures` ([String!]) — Addressed exposures
 - `tags` ([String!]) — Tags
