@@ -1,6 +1,6 @@
 <!--
-  ThreatReportDashboard.vue — the registered report root (key
-  `threat_report_dashboard`).
+  ThreatReportShell.vue — the registered report root (registry/document key
+  `threat_report_dashboard`, unchanged — the backend getDocument contract).
 
   Mounted by the platform analysis-results page (analysisresults.vue), which
   resolves this component via componentRegistry.getComponent('threat_report_dashboard')
@@ -11,15 +11,20 @@
     - scope-id    : the model id
   and listens for @update:content (it re-fetches getDocument when we emit it).
 
-  Sprint 1 responsibility: the snapshot LIFECYCLE — never-generated / fresh /
-  stale / generating — plus the in-component Generate/Recreate that rides the
-  platform's native runAnalysis (via the host analysisStore) on this existing
-  instance. The real report surfaces (coverage, boundary-crossing, residual-risk)
-  build on this in later sprints; for now the fresh state shows the trivial
-  posture facts.
+  The shell owns the snapshot LIFECYCLE (never / fresh / stale / generating, the
+  Generate/Recreate that rides the platform runAnalysis) and the IN-COMPONENT
+  view-switching (tech §2.1): ⑤ Posture / ③ Boundary Crossings / ④ Residual Risk
+  are views of ONE component reached by a segmented control (NO routes); ⑥
+  Component Profile is a drill TARGET overlaid on the active view, with a
+  removable breadcrumb so a drill never silently hides scope. ① coverage + ②
+  reachability are P2 — deliberately absent (no dead "coming soon" tabs).
+  Navigation/filter state is module-local (lib/reportNavigation pure reducers,
+  held in a reactive here). The banner is pinned ABOVE the switcher — a workflow
+  requirement (ux §3): the modeler learns "stale" / "exclusions" before reading a
+  reassuring count.
 -->
 <template>
-  <div class="threat-report-dashboard">
+  <div class="threat-report-shell">
     <h2 class="trd-title">Threat Report</h2>
 
     <ScopeBanner
@@ -38,7 +43,7 @@
       <p class="trd-hint">Generate a posture snapshot to get started.</p>
     </div>
 
-    <!-- fresh / stale / generating: the residual-risk / disposition ledger -->
+    <!-- fresh / stale / generating: the view-switching report surface -->
     <div v-else class="trd-snapshot" :class="{ 'trd-snapshot--stale': lifecycle === 'stale' }">
       <div class="trd-actions">
         <span class="trd-meta">
@@ -49,29 +54,100 @@
           <button type="button" class="trd-export-btn" @click="handleExport('html')">Export HTML</button>
         </span>
       </div>
-      <!-- ③ Boundary-Crossing ledger + the faithful minimap (structural). -->
-      <section class="trd-section">
-        <h3 class="trd-section-head">Boundary Crossings</h3>
-        <BoundaryCrossings :model-graph="snapshot.modelGraph" :ledger="snapshot.ledger" />
-      </section>
 
-      <!-- ④ Residual-Risk / Disposition ledger. -->
-      <section class="trd-section">
-        <h3 class="trd-section-head">Residual Risk</h3>
-        <FindingsLedger :ledger="snapshot.ledger" :can-dispose="canDispose" @dispose="handleDispose" />
-      </section>
+      <!-- Segmented control across ⑤③④ (① ② are P2 — absent, not dead tabs). -->
+      <nav class="trd-tabs" role="tablist" aria-label="Report views">
+        <button
+          v-for="v in VIEWS"
+          :key="v"
+          type="button"
+          role="tab"
+          class="trd-tab"
+          :class="{ 'trd-tab--active': nav.activeView === v && !nav.drill }"
+          :aria-selected="nav.activeView === v && !nav.drill"
+          @click="onSetView(v)"
+        >{{ VIEW_LABELS[v] }}</button>
+      </nav>
+
+      <!-- Breadcrumb: the drill trail or the active filter chips (removable). -->
+      <div v-if="nav.drill || nav.filters.length" class="trd-breadcrumb">
+        <template v-if="nav.drill">
+          <button type="button" class="trd-crumb-link" @click="onPopDrill">{{ VIEW_LABELS[nav.drill.fromView] }}</button>
+          <span class="trd-crumb-sep" aria-hidden="true">›</span>
+          <span class="trd-crumb-current">{{ drillName }}</span>
+          <button type="button" class="trd-crumb-x" @click="onPopDrill" title="Back">✕ back</button>
+        </template>
+        <template v-else>
+          <span class="trd-crumb-current">{{ VIEW_LABELS[nav.activeView] }}</span>
+          <template v-for="f in nav.filters" :key="f.key">
+            <span class="trd-crumb-sep" aria-hidden="true">›</span>
+            <span class="trd-chip">
+              {{ f.label }}
+              <button type="button" class="trd-chip-x" @click="onRemoveFilter(f.key)" title="Remove filter">✕</button>
+            </span>
+          </template>
+        </template>
+      </div>
+
+      <!-- The active view, OR the ⑥ drill overlay. -->
+      <div class="trd-view">
+        <ComponentProfile
+          v-if="nav.drill"
+          :element-id="nav.drill.elementId"
+          :ledger="snapshot.ledger"
+          :model-graph="snapshot.modelGraph"
+          :can-dispose="canDispose"
+          @drill="onDrill"
+          @dispose="handleDispose"
+        />
+        <template v-else>
+          <PostureSummary
+            v-if="nav.activeView === 'posture'"
+            :ledger="snapshot.ledger"
+            :model-graph="snapshot.modelGraph"
+            @navigate="onNavigate"
+          />
+          <BoundaryCrossings
+            v-else-if="nav.activeView === 'boundary'"
+            :model-graph="snapshot.modelGraph"
+            :ledger="snapshot.ledger"
+            @drill="onDrill"
+          />
+          <FindingsLedger
+            v-else-if="nav.activeView === 'residual'"
+            :ledger="snapshot.ledger"
+            :filter="residualFilter"
+            :can-dispose="canDispose"
+            @dispose="handleDispose"
+            @drill="onDrill"
+          />
+        </template>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-  import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+  import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
   import ScopeBanner from './ScopeBanner.vue'
+  import PostureSummary from './PostureSummary.vue'
   import FindingsLedger from './FindingsLedger.vue'
   import BoundaryCrossings from './BoundaryCrossings.vue'
+  import ComponentProfile from './ComponentProfile.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint } from '../composables/useThreatReportData.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
+  import { computeCompletenessFlags } from '../lib/completenessFlags.js'
+  import {
+    defaultNavState,
+    setView,
+    gotoFilteredView,
+    drillTo,
+    popDrill,
+    removeFilter,
+    VIEWS,
+    VIEW_LABELS,
+  } from '../lib/reportNavigation.js'
 
   const props = defineProps({
     analysisId: { type: String, default: null },
@@ -107,7 +183,9 @@
       boundaryCount: doc.boundaryCount ?? 0,
       modelId: doc.modelId ?? props.scopeId ?? '',
       ledger: doc.ledger ?? [],
-      modelGraph: doc.modelGraph ?? { boundaries: [], components: [], flows: [] },
+      // Always present the four graph keys so the pure libs never see undefined;
+      // dataNodes (S4) may be absent on a pre-S4 snapshot — default it.
+      modelGraph: { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) },
     }
   })
 
@@ -120,9 +198,11 @@
     }),
   )
 
-  // Completeness flags S1 can derive from snapshot-level data. Disposition-
-  // dependent flags (zero-dispositioned, silent-green) light up in a later
-  // sprint once the exposures fan-out exists.
+  // Completeness flags, surfaced banner-first (§4.3): freshness + structural
+  // flags here, plus the model-wide silent-green guards (under-analyzed
+  // high-value elements, orphan components) from computeCompletenessFlags over
+  // the snapshot graph + ledger. A reviewer must learn these BEFORE reading a
+  // reassuring count, so they live on the banner above every view.
   const completenessFlags = computed(() => {
     const flags = []
     if (lifecycle.value === 'stale') {
@@ -131,8 +211,54 @@
     if (snapshot.value.generated && snapshot.value.boundaryCount === 0) {
       flags.push({ key: 'no-boundaries', label: 'No security boundaries modeled', severity: 'warning' })
     }
+    if (snapshot.value.generated) {
+      flags.push(...computeCompletenessFlags(snapshot.value.modelGraph, snapshot.value.ledger))
+    }
     return flags
   })
+
+  // --- In-component navigation -------------------------------------------
+  // Module-local nav state (pure reducers in lib/reportNavigation; this reactive
+  // is the holder). The reducers return fresh snapshots; assign them back.
+  const nav = reactive(defaultNavState())
+  const apply = (next) => Object.assign(nav, next)
+
+  const onSetView = (v) => apply(setView(nav, v))
+  const onPopDrill = () => apply(popDrill(nav))
+  const onRemoveFilter = (key) => apply(removeFilter(nav, key))
+  const onDrill = (elementId) => apply(drillTo(nav, elementId, nav.activeView))
+  const onNavigate = (intent) => {
+    if (!intent) return
+    if (intent.type === 'view') apply(setView(nav, intent.view))
+    else if (intent.type === 'filter') apply(gotoFilteredView(nav, intent.view, intent.filter))
+    else if (intent.type === 'drill') apply(drillTo(nav, intent.elementId, nav.activeView))
+  }
+
+  // The ④ filter prop derived from the active filter chips (only on the residual
+  // view; band + live in P1).
+  const residualFilter = computed(() => {
+    if (nav.activeView !== 'residual') return null
+    const out = {}
+    for (const f of nav.filters) {
+      if (f.type === 'band') out.band = f.value
+      if (f.type === 'live') out.live = f.value
+    }
+    return Object.keys(out).length ? out : null
+  })
+
+  // Breadcrumb label for the drilled element (looked up across the snapshot).
+  const elementName = (id) => {
+    const mg = snapshot.value.modelGraph
+    return (
+      mg.components.find((c) => c.id === id)?.name ??
+      mg.boundaries.find((b) => b.id === id)?.name ??
+      (mg.dataNodes ?? []).find((d) => d.id === id)?.name ??
+      mg.flows.find((f) => f.id === id)?.name ??
+      snapshot.value.ledger.find((e) => e.id === id)?.name ??
+      '(element)'
+    )
+  }
+  const drillName = computed(() => (nav.drill ? elementName(nav.drill.elementId) : ''))
 
   const modelId = computed(() => snapshot.value.modelId || props.scopeId || '')
 
@@ -226,6 +352,10 @@
   const handleDispose = async (finding) => {
     if (!openDispositionDialog || !finding) return
     try {
+      // findingType is 'EXPOSURE' regardless of which element class hosts it:
+      // every finding in the ledger is an Exposure (HAS_EXPOSURE), whether on a
+      // Component, DataFlow, SecurityBoundary, or Data node — so the host element
+      // class never changes the disposition routing.
       const result = await openDispositionDialog({ finding, findingType: 'EXPOSURE' })
       if (result && result.success) await refreshLiveFingerprint()
     } catch (err) {
@@ -234,7 +364,9 @@
   }
 
   onMounted(() => {
-    // Fresh mount: clear any leftover singleton state, then establish freshness.
+    // Fresh mount: reset nav to the ⑤ default, clear any leftover singleton
+    // state, then establish freshness.
+    apply(defaultNavState())
     generating.value = false
     refreshLiveFingerprint()
   })
@@ -247,7 +379,7 @@
 </script>
 
 <style scoped>
-  .threat-report-dashboard {
+  .threat-report-shell {
     padding: 1.5rem;
     /* The host analysis-results content area is fixed-height + overflow:hidden,
        so the report owns its own vertical scroll (the ledger can be long). */
@@ -293,18 +425,62 @@
   .trd-export-btn:hover {
     opacity: 1;
   }
-  .trd-section {
-    margin-top: 1.5rem;
+
+  /* Segmented control */
+  .trd-tabs {
+    display: inline-flex;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 0.8rem;
   }
-  .trd-section:first-of-type {
-    margin-top: 0.5rem;
+  .trd-tab {
+    background: transparent;
+    border: none;
+    border-right: 1px solid rgba(127, 127, 127, 0.25);
+    padding: 0.4rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    opacity: 0.75;
   }
-  .trd-section-head {
-    margin: 0 0 0.6rem;
-    font-size: 1.05rem;
-    padding-bottom: 0.3rem;
-    border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+  .trd-tab:last-child { border-right: none; }
+  .trd-tab:hover { background: rgba(127, 127, 127, 0.08); opacity: 1; }
+  .trd-tab--active {
+    background: rgba(0, 184, 212, 0.12);
+    opacity: 1;
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 0 #00b8d4;
   }
+  .trd-tab:focus-visible { outline: 2px solid #00b8d4; outline-offset: -2px; }
+
+  /* Breadcrumb (drill trail / filter chips) */
+  .trd-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.82rem;
+  }
+  .trd-crumb-link {
+    background: none; border: none; padding: 0; font: inherit; color: inherit;
+    cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
+  }
+  .trd-crumb-link:hover { text-decoration-style: solid; }
+  .trd-crumb-sep { opacity: 0.5; }
+  .trd-crumb-current { font-weight: 600; }
+  .trd-crumb-x, .trd-chip-x {
+    background: none; border: none; padding: 0 0 0 0.3rem; font: inherit;
+    color: inherit; cursor: pointer; opacity: 0.7;
+  }
+  .trd-crumb-x:hover, .trd-chip-x:hover { opacity: 1; }
+  .trd-chip {
+    display: inline-flex; align-items: center;
+    border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 12px;
+    padding: 0.05rem 0.5rem; font-size: 0.78rem;
+  }
+
   .trd-empty {
     opacity: 0.8;
   }

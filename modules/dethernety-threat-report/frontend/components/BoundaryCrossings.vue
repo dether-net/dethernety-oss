@@ -93,6 +93,11 @@
         >
           <header class="trd-flow-head">
             <span class="trd-flow-name">{{ g.flowName || '(unnamed flow)' }}</span>
+            <span class="trd-flow-endpoints">
+              <button type="button" class="trd-drill-mini" @click.stop="$emit('drill', g.sourceId)" :title="`Open ${compName(g.sourceId)} profile`">{{ compName(g.sourceId) }}</button>
+              <span class="trd-ep-arrow" aria-hidden="true">→</span>
+              <button type="button" class="trd-drill-mini" @click.stop="$emit('drill', g.targetId)" :title="`Open ${compName(g.targetId)} profile`">{{ compName(g.targetId) }}</button>
+            </span>
             <span class="trd-sens" :class="sensClass(g)">{{ sensChipLabel(g) }}</span>
             <span v-if="g.flowLiveCount > 0" class="trd-flow-expo" :title="`${g.flowLiveCount} live exposure(s) on the flow`">
               flow: {{ g.flowLiveCount }} live<span v-if="g.flowWorstBand"> ({{ g.flowWorstBand }})</span>
@@ -103,7 +108,7 @@
           <ul class="trd-membranes">
             <li v-for="(m, i) in g.membranes" :key="i" class="trd-membrane" :class="{ 'trd-membrane--context': !m.signal }">
               <span class="trd-dir" :class="`trd-dir--${m.direction.toLowerCase()}`">{{ m.direction }}</span>
-              <span class="trd-bname">{{ m.boundaryName }}</span>
+              <button type="button" class="trd-bname trd-drill-mini" @click.stop="$emit('drill', m.boundaryId)" :title="`Open ${m.boundaryName} profile`">{{ m.boundaryName }}</button>
               <span v-if="m.boundaryLiveCount > 0" class="trd-weaken" title="crossed boundary has live exposures (makes the crossing easier)">
                 ⚠ {{ m.boundaryLiveCount }} live on boundary
               </span>
@@ -161,6 +166,14 @@
     // boundary posture (findings + supporting controls), so ③ needs no own query.
     ledger: { type: Array, default: () => [] },
   })
+
+  // Drill into ⑥ for a crossed boundary or a flow endpoint (the shell handles it).
+  defineEmits(['drill'])
+
+  const componentById = computed(
+    () => new Map((props.modelGraph?.components ?? []).map((c) => [c.id, c])),
+  )
+  const compName = (id) => componentById.value.get(id)?.name ?? '(unknown)'
 
   const result = computed(() => computeCrossings(props.modelGraph, props.ledger))
   const crossings = computed(() => result.value.crossings)
@@ -298,6 +311,18 @@
   .trd-dir--exit { color: #b9651b; }
   .trd-dir--enter { color: #2c6fbb; }
   .trd-bname { font-variant-numeric: tabular-nums; }
+  /* Drill affordances (endpoints + crossed-boundary names) — dotted-underline
+     links, click.stop so the card's map-highlight click is preserved. */
+  .trd-flow-endpoints { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; }
+  .trd-ep-arrow { opacity: 0.5; }
+  .trd-drill-mini {
+    background: none; border: none; padding: 0; font: inherit; color: inherit;
+    cursor: pointer; text-decoration: underline; text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+  .trd-drill-mini:hover { text-decoration-style: solid; }
+  .trd-drill-mini:focus-visible { outline: 2px solid #00b8d4; outline-offset: 1px; }
+  button.trd-bname { font-size: 0.82rem; }
   /* Weakening/hardening are muted context tones — NOT a saturated red/green
      stoplight pair on the same row. The ⚠/✓ glyphs + labels carry the meaning. */
   .trd-weaken { font-size: 0.74rem; color: #8a5a00; }

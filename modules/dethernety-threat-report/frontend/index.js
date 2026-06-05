@@ -9,7 +9,10 @@
 // The analysis-results page resolves that key via componentRegistry.getComponent
 // and renders the component below — so the key here MUST match the document key.
 
-import ThreatReportDashboard from './components/ThreatReportDashboard.vue'
+// The shell SFC was renamed from ThreatReportDashboard (ux anti-pattern 15 —
+// name toward a task surface). The registry/document KEY below stays
+// `threat_report_dashboard` (the backend getDocument contract is unchanged).
+import ThreatReportShell from './components/ThreatReportShell.vue'
 
 export default {
   id: 'dethernety-threat-report',
@@ -27,7 +30,7 @@ export default {
     }
 
     const componentsToRegister = [
-      { key: 'threat_report_dashboard', component: ThreatReportDashboard },
+      { key: 'threat_report_dashboard', component: ThreatReportShell },
     ]
 
     componentsToRegister.forEach(({ key, component }) => {

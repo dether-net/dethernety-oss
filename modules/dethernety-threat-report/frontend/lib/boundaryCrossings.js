@@ -33,7 +33,7 @@ const BAND_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 }
 // orphan↔orphan flows. Because ROOT is in BOTH stacks it is never in the
 // symmetric difference — it is excluded from emitted rows by construction
 // (we also filter it defensively).
-const ROOT = '__ROOT__'
+export const ROOT = '__ROOT__'
 
 // Cap displayed membrane rows per flow in the worklist (the v1 UI risk on
 // deeply-nested models — compute is cheap, row count is not). When a flow
@@ -66,8 +66,12 @@ export function maxSensitivity(sensitivities) {
  * first repeat and records the truncation (never a silent drop — this resolution
  * is the single source for the diff; a silent corruption would hit every
  * consumer identically).
+ *
+ * Exported so ⑥ Component Profile reuses the EXACT same ancestor walk (cycle /
+ * dangling-parent handling included) rather than re-implementing it — the stack
+ * is the single structural truth shared by ③ and ⑥.
  */
-function makeStackResolver(modelGraph) {
+export function makeStackResolver(modelGraph) {
   const boundaryById = new Map((modelGraph.boundaries ?? []).map((b) => [b.id, b]))
   const componentById = new Map((modelGraph.components ?? []).map((c) => [c.id, c]))
   const cache = new Map()
@@ -110,6 +114,10 @@ function makeStackResolver(modelGraph) {
 
   return {
     stackOfComponent,
+    // Ancestor stack starting AT a boundary (the boundary itself + its ancestors,
+    // innermost-first, ROOT last) — ⑥ uses this for a SecurityBoundary target's
+    // own boundary context.
+    stackOfBoundary: stackOfBoundaryId,
     boundaryById,
     componentById,
     truncatedBoundaries,
@@ -119,7 +127,7 @@ function makeStackResolver(modelGraph) {
 
 /** Posture lens over a raw ledger element (or undefined): live findings, the
  *  worst live score band, and whether a supporting control is present. */
-function postureOf(ledgerEl) {
+export function postureOf(ledgerEl) {
   const findings = ledgerEl?.findings ?? []
   const live = findings.filter(isLive)
   let worstBand = 'unknown'

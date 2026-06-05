@@ -53,11 +53,17 @@
     <p v-if="totals.findings === 0" class="trd-empty">
       No findings in this model.
     </p>
+    <!-- Empty state: the active deep-link filter matched nothing -->
+    <p v-else-if="visibleGroups.length === 0" class="trd-empty">
+      No findings match the current filter.
+    </p>
 
     <!-- Element groups -->
-    <section v-for="g in groups" :key="g.id" class="trd-group">
+    <section v-for="g in visibleGroups" :key="g.id" class="trd-group">
       <h3 class="trd-group-head">
-        {{ g.name }}
+        <button type="button" class="trd-drill" @click="$emit('drill', g.id)" :title="`Open ${g.name} profile`">
+          {{ g.name }}
+        </button>
         <span class="trd-etype">{{ g.type }}</span>
         <span class="trd-group-counts">{{ g.liveCount }} open · {{ g.dispositionedCount }} reviewed</span>
       </h3>
@@ -137,9 +143,13 @@
     // Whether the host exposes the disposition opener; when false, the Review/Edit
     // affordance is hidden rather than rendered as a silent no-op.
     canDispose: { type: Boolean, default: false },
+    // Optional deep-link filter from ⑤ (P1: { band?, live? }). When set, findings
+    // not matching are hidden and emptied groups dropped; the totals row stays
+    // whole-model (the breadcrumb chip in the shell conveys the active filter).
+    filter: { type: Object, default: null },
   })
 
-  defineEmits(['dispose'])
+  defineEmits(['dispose', 'drill'])
 
   const bandOrder = ['critical', 'high', 'medium', 'low', 'unknown']
   const kindLabel = dispositionKindLabel
@@ -154,6 +164,22 @@
   const totals = computed(() => aggregation.value.totals)
   const groups = computed(() => aggregation.value.groups)
   const presentBands = computed(() => bandOrder.filter((b) => totals.value.byBand[b]))
+
+  // Apply the optional ⑤ deep-link filter: band-match across both partitions, and
+  // `live: true` hides the dispositioned partition. Drop groups left empty.
+  const matchBand = (f) => !props.filter?.band || f.band === props.filter.band
+  const visibleGroups = computed(() => {
+    const flt = props.filter
+    if (!flt || (!flt.band && !flt.live)) return groups.value
+    const out = []
+    for (const g of groups.value) {
+      const live = g.live.filter(matchBand)
+      const dispositioned = flt.live ? [] : g.dispositioned.filter(matchBand)
+      if (live.length === 0 && dispositioned.length === 0) continue
+      out.push({ ...g, live, dispositioned, liveCount: live.length, dispositionedCount: dispositioned.length })
+    }
+    return out
+  })
 </script>
 
 <style scoped>
@@ -197,6 +223,20 @@
   .trd-empty { opacity: 0.7; }
   .trd-group { margin-bottom: 1.5rem; }
   .trd-group-head { margin: 0 0 0.3rem; font-size: 1rem; }
+  /* Element name is the drill affordance into ⑥ — a link, not a button chrome. */
+  .trd-drill {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: 1rem;
+    color: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+  .trd-drill:hover { text-decoration-style: solid; }
   .trd-etype {
     font-size: 0.7rem;
     font-weight: 400;

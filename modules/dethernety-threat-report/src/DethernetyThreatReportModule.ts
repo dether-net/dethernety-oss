@@ -132,6 +132,21 @@ interface ModelGraphFlow {
   dataItemCount: number;
 }
 
+/** A Data node with its author-asserted sensitivity and the ids of the elements
+ *  that HANDLE it (Component / DataFlow / SecurityBoundary). `sensitivity` is
+ *  null ⇒ unclassified (never coerced to a level). Feeds ⑥'s data-handled
+ *  sub-block: the frontend reverse-indexes `handledBy` to list, per element, the
+ *  Data it handles, then joins each `id` to its existing `ledger` entry for that
+ *  Data's own exposures (coverage is attributed to the handling element, spec
+ *  §6.④ — Data nodes carry no typed control support). Data exposures are NOT
+ *  duplicated here; only the sensitivity + handling topology the ledger lacks. */
+interface ModelGraphDataNode {
+  id: string;
+  name: string;
+  sensitivity: string | null; // SensitivityLevel value, null ⇒ unclassified
+  handledBy: string[]; // element ids with (el)-[:HANDLES]->(this Data)
+}
+
 /** The positional model graph — the minimap's `modelGraph` contract and the ③
  *  crossing engine's structural input. Gathered at generate time so the report
  *  is snapshot-faithful (same as-of-generation model as the ledger). */
@@ -139,6 +154,10 @@ interface ModelGraph {
   boundaries: ModelGraphBoundary[];
   components: ModelGraphComponent[];
   flows: ModelGraphFlow[];
+  /** Data nodes + their HANDLES topology, for ⑥'s data-handled sub-block. The
+   *  sensitivity + handler ids the raw `ledger` doesn't carry; Data's own
+   *  exposures still come from the ledger (Data is a first-class ledger element). */
+  dataNodes: ModelGraphDataNode[];
 }
 
 interface SnapshotDoc {
@@ -251,6 +270,14 @@ class DethernetyThreatReportModule implements DTModule {
    * fingerprint (→ the open snapshot reads stale), while a no-op model save does
    * not. This is what the staleness UX compares the snapshot's stored
    * fingerprint against.
+   *
+   * It is also SENSITIVITY- and HANDLES-AWARE (S4): each Data's id + sensitivity
+   * and each (element)-[:HANDLES]->(Data) edge are folded in, because S4's ③
+   * ranking and ⑥ data sub-block render those — so re-classifying a Data
+   * (PUBLIC→RESTRICTED) or re-wiring which element handles it flips the
+   * fingerprint, instead of a now-misclassified snapshot reading "fresh". Stays
+   * cheap (scalar id/sensitivity collects only — never the full ledger), so the
+   * live staleness poll remains light.
    */
   private async computeStructure(
     modelId: string,
@@ -270,28 +297,38 @@ class DethernetyThreatReportModule implements DTModule {
          WITH [x IN bs | x.id] AS boundaryIds,
               [x IN cs | x.id] AS componentIds,
               [x IN ds | x.id] AS dataIds,
+              [x IN ds | x.id + '|' + coalesce(x.sensitivity, '')] AS dataSigs,
               [x IN fs | x.id] AS dataFlowIds,
               bs + cs + ds + fs AS allEls
          UNWIND (CASE WHEN size(allEls) = 0 THEN [null] ELSE allEls END) AS el
          OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(ex:Exposure)
-         WITH boundaryIds, componentIds, dataIds, dataFlowIds,
-              collect(DISTINCT ex.id + '|' + coalesce(ex.dispositionKind, '') + '|' + coalesce(toString(ex.dispositionStale), '')) AS exposureSigs
-         RETURN boundaryIds, componentIds, dataIds, dataFlowIds, exposureSigs`,
+         OPTIONAL MATCH (el)-[:HANDLES]->(hd:Data)
+         WITH boundaryIds, componentIds, dataIds, dataSigs, dataFlowIds,
+              collect(DISTINCT ex.id + '|' + coalesce(ex.dispositionKind, '') + '|' + coalesce(toString(ex.dispositionStale), '')) AS exposureSigs,
+              collect(DISTINCT el.id + '|' + hd.id) AS handlesSigs
+         RETURN boundaryIds, componentIds, dataIds, dataSigs, dataFlowIds, exposureSigs, handlesSigs`,
         { modelId },
       );
       const rec = result.records[0];
       const boundaryIds: string[] = (rec?.get('boundaryIds') ?? []) as string[];
       const componentIds: string[] = (rec?.get('componentIds') ?? []) as string[];
       const dataIds: string[] = (rec?.get('dataIds') ?? []) as string[];
+      const dataSigs: string[] = (rec?.get('dataSigs') ?? []) as string[];
       const dataFlowIds: string[] = (rec?.get('dataFlowIds') ?? []) as string[];
       const exposureSigs: string[] = (rec?.get('exposureSigs') ?? []) as string[];
+      // (el)-[:HANDLES]->(hd) yields "elId|hdId" pairs; for an el with no HANDLES
+      // the concat with a null hd is null, which collect() drops — so this holds
+      // exactly the real handler→data edges. Re-wiring HANDLES changes the set.
+      const handlesSigs: string[] = (rec?.get('handlesSigs') ?? []) as string[];
 
       const digestInput = JSON.stringify({
         b: [...boundaryIds].sort(),
         c: [...componentIds].sort(),
         d: [...dataIds].sort(),
+        ds: [...dataSigs].sort(), // Data id|sensitivity — S4 ③/⑥ render sensitivity
         f: [...dataFlowIds].sort(),
         e: [...exposureSigs].sort(),
+        h: [...handlesSigs].sort(), // HANDLES edges — S4 ⑥ data sub-block
       });
       const fingerprint = createHash('sha256')
         .update(digestInput)
@@ -398,8 +435,8 @@ class DethernetyThreatReportModule implements DTModule {
    * element's exposures + supporting controls, reused for crossed-boundary /
    * on-flow posture, so ③ needs no separate posture query).
    *
-   * Three small, independently-portable passes (boundaries, components, flows),
-   * each in the same OPTIONAL MATCH + collect style as computeLedger — no
+   * Four small, independently-portable passes (boundaries, components, flows,
+   * dataNodes), each in the same OPTIONAL MATCH + collect style as computeLedger — no
    * pattern comprehensions, no nodes-in-maps, scalar fields only — so they run
    * on both Neo4j and Memgraph. Element discovery mirrors computeStructure /
    * computeLedger (same boundary-forest traversal), so the modelGraph element
@@ -469,6 +506,30 @@ class DethernetyThreatReportModule implements DTModule {
         { modelId },
       );
 
+      // Data nodes + their HANDLES topology. Data hangs off the model via
+      // CONTAINS (mirrors computeStructure/computeLedger); handlers reach it via
+      // (el)-[:HANDLES]->(d) where el is a Component, DataFlow, or
+      // SecurityBoundary (all three can HANDLE data per the schema). collect +
+      // scalar-only map keeps it Neo4j/Memgraph-portable; the Data's own
+      // exposures are NOT gathered here (they're already first-class ledger
+      // elements) — only the sensitivity + handler ids the ledger lacks.
+      const dataNodesRes = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(d:Data)
+         WITH collect(DISTINCT d) AS ds
+         UNWIND (CASE WHEN size(ds) = 0 THEN [null] ELSE ds END) AS d
+         WITH d WHERE d IS NOT NULL
+         OPTIONAL MATCH (el)-[:HANDLES]->(d)
+         WHERE el:Component OR el:DataFlow OR el:SecurityBoundary
+         WITH d, collect(DISTINCT el.id) AS handledBy
+         RETURN collect({
+           id: d.id, name: d.name,
+           sensitivity: d.sensitivity,
+           handledBy: handledBy
+         }) AS dataNodes`,
+        { modelId },
+      );
+
       const toNum = (v: any): number | null =>
         v == null
           ? null
@@ -481,6 +542,7 @@ class DethernetyThreatReportModule implements DTModule {
       const rawB = (boundariesRes.records[0]?.get('boundaries') ?? []) as any[];
       const rawC = (componentsRes.records[0]?.get('components') ?? []) as any[];
       const rawF = (flowsRes.records[0]?.get('flows') ?? []) as any[];
+      const rawD = (dataNodesRes.records[0]?.get('dataNodes') ?? []) as any[];
 
       return {
         boundaries: rawB
@@ -518,6 +580,16 @@ class DethernetyThreatReportModule implements DTModule {
               ? f.sensitivities.filter((s: any) => s != null)
               : [],
             dataItemCount: toNum(f.dataItemCount) ?? 0,
+          })),
+        dataNodes: rawD
+          .filter((d) => d && d.id)
+          .map((d) => ({
+            id: d.id,
+            name: d.name ?? '',
+            sensitivity: d.sensitivity ?? null,
+            handledBy: Array.isArray(d.handledBy)
+              ? d.handledBy.filter((x: any) => x != null)
+              : [],
           })),
       };
     } finally {
