@@ -1,12 +1,12 @@
 <!--
-  CoverageMatrix.vue — the ① MITRE Coverage & Gaps matrix (the graph-native payoff).
+  CoverageMatrix.vue — the MITRE Coverage & Gaps matrix (the graph-native payoff).
 
   Consumes the LIVE graded-coverage facts (dethernety-coverage-tools, via
   fetchGradedCoverage) joined to the SNAPSHOT ledger for disposition, through the
   pure buildCoverageView() honesty layer. This component is ENCODING ONLY — all
   bucketing/filtering/honesty lives in the lib.
 
-  The encoding (ux §4, one legend to rule them all — the contract against a
+  The encoding (one legend to rule them all — the contract against a
   traffic-light buffet):
     TIER  = FILL, a monochrome ramp + ONE break-out texture:
               UNCOVERED  dotted-empty cell
@@ -16,12 +16,12 @@
     FUNCTION = GLYPH (not hue), across all tiers:  ⛉ prevent · ◎ detect
               detect-only = ◎ with no ⛉ ("see it, can't stop it")
   Hard budget: ONE fill + at most ONE glyph per cell. Provenance/disposition never
-  enter a cell (ux anti-patterns 2–4). Colour is reserved for severity + stale
+  enter a cell. Colour is reserved for severity + stale
   elsewhere; this grid is monochrome. Rows = techniques the model's LIVE exposures
   map to (never the full ATT&CK matrix); columns = the tactics actually reached.
 
   Two disclosure levels (not three): L1 = fill + glyph + residual string in the
-  cell title; L3 = drill → ⑥ (the element profile). No L2 popover.
+  cell title; L3 = drill → the element profile. No L2 popover.
 -->
 <template>
   <div class="trd-coverage">
@@ -245,7 +245,7 @@
 
     <!-- "What is this technique?" dialog — an attack_id is opaque on its own, so a
          row's ⓘ opens the ATT&CK name + tactics + description here. The SHARED
-         dialog (also used by ⑥ and ④), so the affordance is identical everywhere. -->
+         dialog (also used by Component Profile and Residual Risk), so the affordance is identical everywhere. -->
     <TechniqueInfoDialog :technique="infoTech" @close="closeInfo" />
   </div>
 </template>
@@ -263,7 +263,7 @@
     ledger: { type: Array, default: () => [] },
   })
 
-  // Drill to ⑥ for an element (the shell turns this into a profile overlay).
+  // Drill to the Component Profile for an element (the shell turns this into a profile overlay).
   const emit = defineEmits(['drill'])
 
   const showLegend = ref(false)
@@ -479,7 +479,7 @@
   /* The encoding — a MONOCHROME ramp (magnitude, not colour) + one hatch texture.
      Greyscale only: tier strength never shares a channel with severity (which owns
      colour elsewhere). D3FEND is a TEXTURE, so the broad tier can't masquerade as
-     "a little covered" (ux anti-pattern #3). */
+     "a little covered". */
   .cov-cell {
     display: inline-flex; align-items: center; justify-content: center;
     width: 1.5rem; height: 1.1rem; border-radius: 3px; vertical-align: middle;

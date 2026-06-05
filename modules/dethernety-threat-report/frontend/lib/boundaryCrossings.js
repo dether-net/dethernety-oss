@@ -1,17 +1,17 @@
-// frontend/lib/boundaryCrossings.js — the ③ Boundary-Crossing engine.
+// frontend/lib/boundaryCrossings.js — the Boundary-Crossing engine.
 //
 // Pure presentation logic over the snapshot doc's `modelGraph` (topology +
 // geometry + per-flow carried sensitivity, gathered backend-side) joined with
 // the RAW `ledger` (every element's findings + supporting controls — reused for
-// on-flow and crossed-boundary posture, so ③ needs no separate posture query).
-// No Vue, no network — pure functions, unit-tested with fixtures.
+// on-flow and crossed-boundary posture, so this engine needs no separate posture
+// query). No Vue, no network — pure functions, unit-tested with fixtures.
 //
-// ③ is STRUCTURAL (spec §6.③): `trustLevel` is a dormant placeholder (uniformly
-// UNTRUSTED), so a crossing NEVER ranks on a trust gradient. The crossing is the
-// symmetric difference of the two endpoints' ancestor-boundary stacks; the
-// primary signals are the data sensitivity carried + the crossed boundary's own
-// posture — all real, populated fields. Direction is structural (EXIT/ENTER),
-// never a trust comparison. No single risk score, no coverage %.
+// Boundary Crossings is STRUCTURAL: `trustLevel` is a dormant placeholder
+// (uniformly UNTRUSTED), so a crossing NEVER ranks on a trust gradient. The
+// crossing is the symmetric difference of the two endpoints' ancestor-boundary
+// stacks; the primary signals are the data sensitivity carried + the crossed
+// boundary's own posture — all real, populated fields. Direction is structural
+// (EXIT/ENTER), never a trust comparison. No single risk score, no coverage %.
 
 import { isLive, scoreBand } from './aggregateLedger.js'
 
@@ -35,10 +35,10 @@ const BAND_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 }
 // (we also filter it defensively).
 export const ROOT = '__ROOT__'
 
-// Cap displayed membrane rows per flow in the worklist (the v1 UI risk on
+// Cap displayed membrane rows per flow in the worklist (the UI concern on
 // deeply-nested models — compute is cheap, row count is not). When a flow
 // crosses more than this, keep the INNERMOST membranes on each side and collapse
-// the OUTER shared-context ones (spec §6.③ watch-item).
+// the OUTER shared-context ones.
 const MAX_MEMBRANES_PER_FLOW = 6
 
 /**
@@ -67,9 +67,10 @@ export function maxSensitivity(sensitivities) {
  * is the single source for the diff; a silent corruption would hit every
  * consumer identically).
  *
- * Exported so ⑥ Component Profile reuses the EXACT same ancestor walk (cycle /
+ * Exported so the Component Profile reuses the EXACT same ancestor walk (cycle /
  * dangling-parent handling included) rather than re-implementing it — the stack
- * is the single structural truth shared by ③ and ⑥.
+ * is the single structural truth shared by the Boundary Crossings and Component
+ * Profile engines.
  */
 export function makeStackResolver(modelGraph) {
   const boundaryById = new Map((modelGraph.boundaries ?? []).map((b) => [b.id, b]))
@@ -115,8 +116,8 @@ export function makeStackResolver(modelGraph) {
   return {
     stackOfComponent,
     // Ancestor stack starting AT a boundary (the boundary itself + its ancestors,
-    // innermost-first, ROOT last) — ⑥ uses this for a SecurityBoundary target's
-    // own boundary context.
+    // innermost-first, ROOT last) — the Component Profile uses this for a
+    // SecurityBoundary target's own boundary context.
     stackOfBoundary: stackOfBoundaryId,
     boundaryById,
     componentById,
@@ -159,7 +160,7 @@ function flowRankKey(g) {
     if (!m.boundaryHasControl) worstControlAbsent = 1
   }
   // NB: term positions intentionally mix scales — term 2 is a band rank (0–4),
-  // terms 3–5 are presence bits (0/1). That is the spec's ordering; lexicographic
+  // terms 3–5 are presence bits (0/1). That is the intended ordering; lexicographic
   // comparison never weighs term 2 against term 3, so the mix is safe. Do NOT
   // "normalise" term 2 to a presence bit — it would silently flatten ranking.
   return [
@@ -255,8 +256,8 @@ export function computeCrossings(modelGraph, ledger) {
     ]
 
     // A flow CARRIES DATA if it has any data items — classified OR not. The
-    // under-modeled tail is "zero data AND zero exposures AND zero controls"
-    // (spec §6.③), so a flow carrying *unclassified* data is NOT under-modeled:
+    // under-modeled tail is "zero data AND zero exposures AND zero controls",
+    // so a flow carrying *unclassified* data is NOT under-modeled:
     // it is a flagged modeling gap that belongs in the worklist (it ranks low —
     // unknown sensitivity — but it is surfaced, not buried in a muted accordion).
     const carriesData = (flow.dataItemCount ?? 0) > 0

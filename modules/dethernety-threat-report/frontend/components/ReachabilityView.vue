@@ -1,5 +1,5 @@
 <!--
-  ReachabilityView.vue — the ② Flow-Route / Reachability view.
+  ReachabilityView.vue — the Flow-Route / Reachability view.
 
   Presentational over the pure `reachability.js` engine (client-side, simple-path,
   bounded). TWO modes share one engine + one minimap:
@@ -16,7 +16,7 @@
       (first click = pending dashed, second = commit, third = reset). The selected
       route renders as a linearised "subway strip".
 
-  HONESTY (spec §5, ux §8): these are FLOW ROUTES and the threats on them — NEVER
+  HONESTY: these are FLOW ROUTES and the threats on them — NEVER
   "attack paths". The model is TOPOLOGICAL (hop count is proximity, not effort; it
   does not model credential reuse / token theft). Unreachable = "no modeled flow
   route" tied to the scope banner — never "segmented / safe". Crossings are
@@ -221,7 +221,7 @@
                     <button type="button" class="trd-onward" @click="pivotTo(n.id)" title="trace onward from here">▸ onward</button>
                   </span>
                   <!-- hop connector (between node ni and ni+1) = the DataFlow itself,
-                       now NAMED + drillable into its own ⑥ profile. -->
+                       NAMED + drillable into its own Component Profile. -->
                   <span v-if="ni < r.hops.length" class="trd-strip-hop">
                     <span class="trd-strip-line" aria-hidden="true">──</span>
                     <button
@@ -264,7 +264,7 @@
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [], dataNodes: [] }) },
     ledger: { type: Array, default: () => [] },
   })
-  // drill → ⑥ (the shell handles it); navigate reserved for future deep-links.
+  // drill → the Component Profile (the shell handles it); navigate reserved for future deep-links.
   defineEmits(['drill', 'navigate'])
 
   const EXTERNAL = '__EXTERNAL__'
@@ -493,7 +493,7 @@
   .trd-cross { font-size: 0.66rem; white-space: nowrap; }
   .trd-cross--exit { color: #b9651b; }
   .trd-cross--enter { color: #2c6fbb; }
-  /* The crossed boundary is drillable into its own ⑥ profile. Button reset only
+  /* The crossed boundary is drillable into its own Component Profile. Button reset only
      (font-family/size, not the `font` shorthand) so the direction colour + 0.66rem
      size survive; colour comes from the direction class above. */
   .trd-cross-btn { background: none; border: none; padding: 0; font-family: inherit; cursor: pointer; }

@@ -1,19 +1,19 @@
 <!--
-  PostureSummary.vue — the ⑤ Posture Summary view (the default landing surface).
+  PostureSummary.vue — the Posture Summary view (the default landing surface).
 
-  ⑤ is the ONLY aggregating view (tech §2.2). It rolls up the P1 engines
-  (computePostureSummary over the ④ aggregator + the ③ crossing totals) into an
-  at-a-glance posture, and EVERY stat is an in-component deep-link (a
-  non-clickable number on a summary screen is a workflow dead-end — ux
-  anti-pattern A). It emits `navigate` intents; the shell turns them into view
+  This is the ONLY aggregating view. It rolls up the analysis engines
+  (computePostureSummary over the Residual Risk aggregator + the Boundary
+  Crossings totals) into an at-a-glance posture, and EVERY stat is an
+  in-component deep-link (a non-clickable number on a summary screen is a
+  workflow dead-end). It emits `navigate` intents; the shell turns them into view
   switches / filters / drills.
 
-  Honesty contracts (func §4, ux §8): the scope caveat rides ON the artifact
-  (survives screenshotting); live-exposure bands are LIVE-only (null ⇒ unknown,
-  never low); defense-in-depth is a SEPARATE positive line, never folded into
-  coverage; NO single risk score, NO coverage %, NO "Covered: N", no charts. The
-  P2 COVERAGE block (from the coverage module) and the crown-jewel REACHABILITY
-  tile (from the client-side ② engine) light when their inputs are present, and
+  Honesty contracts: the scope caveat rides ON the artifact (survives
+  screenshotting); live-exposure bands are LIVE-only (null ⇒ unknown, never low);
+  defense-in-depth is a SEPARATE positive line, never folded into coverage; NO
+  single risk score, NO coverage %, NO "Covered: N", no charts. The COVERAGE
+  block (from the coverage module) and the crown-jewel REACHABILITY tile (from
+  the client-side Reachability engine) light when their inputs are present, and
   degrade to a modeling-gap line — never a flattering green — when they are not.
 -->
 <template>
@@ -30,7 +30,7 @@
     </p>
 
     <template v-else>
-      <!-- LIVE EXPOSURES — band tiles, each a deep-link into ④ filtered to that band. -->
+      <!-- LIVE EXPOSURES — band tiles, each a deep-link into Residual Risk filtered to that band. -->
       <section class="trd-block">
         <h4 class="trd-block-head">Live exposures</h4>
         <div v-if="summary.liveTotal > 0" class="trd-tiles">
@@ -57,8 +57,7 @@
       <!-- COVERAGE — tier-segregated, function-classified; NEVER a % or "Covered: N".
            The broad D3FEND tier carries (broad/inferred) + ░ inline so a screenshot
            can't show a flattering aggregate. Absent when coverage-tools isn't
-           deployed (the matrix tab shows its own affordance). The crown-jewel
-           REACHABILITY tile stays absent — it needs the path/reachability engine. -->
+           deployed (the matrix tab shows its own affordance). -->
       <section v-if="coverageView.available" class="trd-block">
         <h4 class="trd-block-head">
           Coverage
@@ -107,20 +106,20 @@
         </template>
       </section>
 
-      <!-- CROWN-JEWEL REACHABILITY (②) — rolled up from mode-A (external entry).
+      <!-- CROWN-JEWEL REACHABILITY — rolled up from external-entry reachability.
            STRUCTURAL "from external entry" (never "from untrusted"); each count
-           deep-links to the ② view. Honest when no jewels / no entry are modeled
-           (a modeling state, never a flattering "0 reachable" green). -->
+           deep-links to the Reachability view. Honest when no jewels / no entry
+           are modeled (a modeling state, never a flattering "0 reachable" green). -->
       <section v-if="reachability" class="trd-block trd-statline">
         <template v-if="reachability.hasCrownJewels && reachability.hasOrigin">
           <button type="button" class="trd-stat" @click="emitView('reachability')" title="Open the Reachability view — flow routes to crown jewels">
-            <strong>{{ reachability.reachableCount }}</strong> of <strong>{{ reachability.jewelCount }}</strong> crown jewels reachable from external entry (②) ↗
+            <strong>{{ reachability.reachableCount }}</strong> of <strong>{{ reachability.jewelCount }}</strong> crown jewels reachable from external entry ↗
           </button>
           <span v-if="reachability.unreachableCount > 0" class="trd-muted">· {{ reachability.unreachableCount }} with no modeled flow route</span>
         </template>
         <template v-else-if="reachability.hasCrownJewels && !reachability.hasOrigin">
           <button type="button" class="trd-stat" @click="emitView('reachability')" title="Open the Reachability view">
-            <strong>{{ reachability.jewelCount }}</strong> crown jewel{{ reachability.jewelCount === 1 ? '' : 's' }} · no external entry-points modeled — assess in ② ↗
+            <strong>{{ reachability.jewelCount }}</strong> crown jewel{{ reachability.jewelCount === 1 ? '' : 's' }} · no external entry-points modeled — assess in Reachability ↗
           </button>
         </template>
         <span v-else class="trd-muted">
@@ -135,7 +134,7 @@
         <strong>not</strong> folded into any coverage measure.
       </p>
 
-      <!-- TOP RESIDUAL RISKS — ranked, each row drills to ⑥. -->
+      <!-- TOP RESIDUAL RISKS — ranked, each row drills to the Component Profile. -->
       <section class="trd-block">
         <h4 class="trd-block-head">
           Top residual risks
@@ -171,11 +170,11 @@
   const props = defineProps({
     ledger: { type: Array, default: () => [] },
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [], dataNodes: [] }) },
-    // Live graded-coverage facts (or null). When present, the ⑤ coverage block
+    // Live graded-coverage facts (or null). When present, the coverage block
     // lights up; when absent, the block is simply not rendered (not a dead tile).
     coverage: { type: Object, default: null },
-    // The ② mode-A (external entry) reachability rollup, computed client-side in
-    // the shell. Lights the crown-jewel reachability tile; null ⇒ tile absent.
+    // The external-entry reachability rollup, computed client-side in the shell.
+    // Lights the crown-jewel reachability tile; null ⇒ tile absent.
     reachability: { type: Object, default: null },
   })
 
@@ -186,13 +185,13 @@
   const bandOrder = ['critical', 'high', 'medium', 'low', 'unknown']
   const bandLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', unknown: 'Unknown' }
 
-  // ⑤ reuses the SAME ③ engine result (cheap, pure) for its boundary-crossing
-  // count — no second analysis.
+  // Reuses the SAME boundary-crossing engine result (cheap, pure) for its
+  // crossing count — no second analysis.
   const crossings = computed(() => computeCrossings(props.modelGraph, props.ledger))
   const summary = computed(() => computePostureSummary(props.ledger, { crossings: crossings.value }))
   const presentLiveBands = computed(() => bandOrder.filter((b) => summary.value.liveBands[b] > 0))
 
-  // The ⑤ coverage block, from the same pure honesty layer the ① matrix uses.
+  // The coverage block, from the same pure honesty layer the Coverage & Gaps matrix uses.
   const coverageView = computed(() => buildCoverageView(props.coverage, props.ledger))
 
   const emitView = (view) => emit('navigate', { type: 'view', view })
@@ -259,12 +258,14 @@
 
   .trd-did { font-size: 0.82rem; color: #4a6a55; margin: 0 0 1.1rem; line-height: 1.45; }
 
-  /* Coverage block: tier-segregated lines, each a deep-link to the ① matrix. The
-     tiny fill swatches mirror the matrix encoding (monochrome ramp + D3FEND hatch)
-     so a screenshot can't read the broad tier as "a little covered". */
+  /* Coverage block: tier-segregated lines, each a deep-link to the Coverage &
+     Gaps matrix. The tiny fill swatches mirror the matrix encoding (monochrome
+     ramp + D3FEND hatch) so a screenshot can't read the broad tier as "a little
+     covered". */
   .trd-cov-lines { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
-  /* Mirrors the ① matrix encoding (CoverageMatrix.vue .cov-* fills) — same ramp +
-     same coarse D3FEND hatch, so ⑤ and ① read as one legend. */
+  /* Mirrors the Coverage & Gaps matrix encoding (CoverageMatrix.vue .cov-* fills)
+     — same ramp + same coarse D3FEND hatch, so the Posture Summary and the matrix
+     read as one legend. */
   .cov-fill { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; vertical-align: middle; border: 1px solid rgba(var(--v-theme-on-surface, 255 255 255), 0.2); }
   .cov-DIRECT { background: rgba(var(--v-theme-on-surface, 255 255 255), 0.88); }
   .cov-MIT { background: rgba(var(--v-theme-on-surface, 255 255 255), 0.45); }

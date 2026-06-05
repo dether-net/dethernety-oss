@@ -51,7 +51,7 @@ const MG = {
 }
 
 const LEDGER = [
-  // API: a live high + a STALE risk-accepted (fuels ④ killer cross-ref + worstOnRoute).
+  // API: a live high + a STALE risk-accepted (fuels the Residual Risk cross-ref + worstOnRoute).
   {
     id: 'api',
     name: 'API',
@@ -184,7 +184,7 @@ describe('annotateRoute', () => {
     expect(a.crossingCount).toBe(2)
 
     // each hop carries its DataFlow id + name (the strip renders them as a
-    // drillable edge label → the flow's own ⑥ profile).
+    // drillable edge label → the flow's own Component Profile).
     expect(a.hops.map((h) => h.flowId)).toEqual(['f1', 'f2', 'f3'])
     expect(a.hops[1]).toHaveProperty('flowName')
 
@@ -269,8 +269,8 @@ describe('modeAReachability — assumed-breach node origin (onward pivot)', () =
   })
 })
 
-// --- the ④ killer cross-ref join + ⑤ helpers ------------------------------
-describe('crownJewelRouteElements (④ join)', () => {
+// --- the Residual Risk cross-ref join + Posture Summary helpers ------------------------------
+describe('crownJewelRouteElements (Residual Risk join)', () => {
   it('maps every on-route element to the jewel(s) it leads to — excludes unreachable', () => {
     const a = modeAReachability(MG, LEDGER, { kind: 'external' })
     const map = crownJewelRouteElements(a)
@@ -286,7 +286,7 @@ describe('crownJewelRouteElements (④ join)', () => {
   })
 })
 
-describe('entry/jewel id helpers (⑤ tile + minimap styling)', () => {
+describe('entry/jewel id helpers (Posture Summary tile + minimap styling)', () => {
   it('externalEntryIds / crownJewelIds read the structural flags', () => {
     expect(externalEntryIds(MG)).toEqual(['ext'])
     expect(crownJewelIds(MG).sort()).toEqual(['db', 'vault'])

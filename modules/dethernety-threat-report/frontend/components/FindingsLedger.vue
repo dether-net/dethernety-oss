@@ -1,5 +1,5 @@
 <!--
-  FindingsLedger.vue — the ④ Residual-Risk / Disposition ledger view.
+  FindingsLedger.vue — the Residual-Risk / Disposition ledger view.
 
   Presentational: it aggregates the snapshot doc's `ledger` (pure TS,
   aggregateLedger) and renders findings grouped by element, partitioned open vs
@@ -108,12 +108,12 @@
       <p v-if="coverage && mismatchCount(g) > 0" class="trd-mismatch-note">
         ⚠ {{ mismatchCount(g) }} control(s) here are <strong>configured-but-mismatched</strong> — present on this
         element but pointed at threats it doesn’t model, while real gaps stay open. The full “other technique set”
-        view is a later sprint.
+        view is not modeled here.
       </p>
       <p v-if="g.compensatingClaimNoControl" class="trd-inconsistent">
         ⚠ Compensating-control disposition on an element with no control present.
       </p>
-      <!-- ④ killer ②-route cross-ref (group-level, visible before the reviewed
+      <!-- Crown-jewel-route cross-ref (group-level, visible before the reviewed
            partition is expanded). Louder when a disposition here is stale. -->
       <p
         v-if="reachability && g.dispositionedCount > 0 && onRoute(g.id)"
@@ -122,7 +122,7 @@
       >
         ‼ {{ g.dispositionedCount }} reviewed finding{{ g.dispositionedCount === 1 ? '' : 's' }} here sit on a
         crown-jewel route to <strong>{{ routeJewels(g.id).join(', ') }}</strong> —
-        <button type="button" class="trd-linkbtn" @click="openReachability">view in ② ↗</button>
+        <button type="button" class="trd-linkbtn" @click="openReachability">view in Reachability ↗</button>
         <span v-if="groupHasStaleDisposition(g)" class="trd-muted"> · a stale disposition still guards a path to a high-value asset</span>
       </p>
 
@@ -189,7 +189,7 @@
                     class="trd-route-xref-row"
                     :class="{ 'trd-route-xref--stale': f.stale }"
                   >
-                    ‼ ALSO on crown-jewel route to {{ routeJewels(g.id).join(', ') }} (②)<span v-if="f.stale"> — louder: this disposition is stale</span>
+                    ‼ ALSO on crown-jewel route to {{ routeJewels(g.id).join(', ') }} (see Reachability)<span v-if="f.stale"> — louder: this disposition is stale</span>
                   </div>
                 </div>
               </td>
@@ -204,7 +204,7 @@
       </details>
     </section>
 
-    <!-- Shared ATT&CK technique dialog (same as ① and ⑥) — opened by a chip. -->
+    <!-- Shared ATT&CK technique dialog (same as Coverage & Gaps and Component Profile) — opened by a chip. -->
     <TechniqueInfoDialog :technique="infoTech" @close="infoTech = null" />
   </div>
 </template>
@@ -222,14 +222,14 @@
     // Whether the host exposes the disposition opener; when false, the Review/Edit
     // affordance is hidden rather than rendered as a silent no-op.
     canDispose: { type: Boolean, default: false },
-    // Optional deep-link filter from ⑤ (P1: { band?, live? }). When set, findings
+    // Optional deep-link filter from the Posture Summary ({ band?, live? }). When set, findings
     // not matching are hidden and emptied groups dropped; the totals row stays
     // whole-model (the breadcrumb chip in the shell conveys the active filter).
     filter: { type: Object, default: null },
-    // Live graded-coverage facts (or null) — drives the ④ configured-mismatch
+    // Live graded-coverage facts (or null) — drives the configured-mismatch
     // signal (a supporting control covering none of an element's modeled threats).
     coverage: { type: Object, default: null },
-    // The ② mode-A (external entry) reachability rollup — drives the killer
+    // The mode-A (external entry) reachability rollup — drives the killer
     // cross-ref: a dispositioned finding on an element that ALSO sits on a
     // crown-jewel route. A visibility JOIN, not a score (no double-penalisation).
     reachability: { type: Object, default: null },
@@ -282,7 +282,7 @@
     emit('navigate', { type: 'toggle-filter', filter: { key: 'type', type: 'type', value: t, label: `type: ${typeLabel(t)}` } })
   const clearAll = () => emit('navigate', { type: 'clear-filters' })
 
-  // ④ configured-mismatch: controls supporting an element but covering none of its
+  // Configured-mismatch: controls supporting an element but covering none of its
   // modeled-threat gaps (from the live coverage facts). Absent coverage ⇒ no flags.
   const mismatchByElement = computed(() => {
     if (!props.coverage) return {}
@@ -298,7 +298,7 @@
       .sort((a, b) => (b.mismatched ? 1 : 0) - (a.mismatched ? 1 : 0))
   }
 
-  // ④ killer ②-route cross-ref: the jewel name(s) this element leads to on a
+  // Crown-jewel-route cross-ref: the jewel name(s) this element leads to on a
   // reachable crown-jewel route (element-keyed join from mode-A). A visibility
   // join — surfacing "you accepted this, and it still sits on a path to a high-
   // value asset" — never a score. routeElementToJewels is an in-memory Map (Set).
@@ -315,7 +315,7 @@
   const techsFor = (id) => props.techniqueIndex[id] ?? []
   const infoTech = ref(null)
 
-  // Apply the active filter (⑤ deep-link AND/OR the in-view facet bar): band +
+  // Apply the active filter (Posture Summary deep-link AND/OR the in-view facet bar): band +
   // provenance match individual findings; `live: true` hides the dispositioned
   // partition; elementType matches the whole group. Drop groups left empty.
   const matchFinding = (f) => {
@@ -400,7 +400,7 @@
   .trd-empty { opacity: 0.7; }
   .trd-group { margin-bottom: 1.5rem; }
   .trd-group-head { margin: 0 0 0.3rem; font-size: 1rem; }
-  /* Element name is the drill affordance into ⑥ — a link, not a button chrome. */
+  /* Element name is the drill affordance into the Component Profile — a link, not a button chrome. */
   .trd-drill {
     background: none;
     border: none;
@@ -428,7 +428,7 @@
   .trd-ctl-flag { font-size: 0.7rem; font-weight: 600; }
   .trd-mismatch-note { font-size: 0.78rem; color: #c77700; margin: 0.2rem 0 0.4rem; line-height: 1.4; }
   .trd-inconsistent { font-size: 0.8rem; color: #c77700; margin: 0.2rem 0; }
-  /* ④ killer ②-route cross-ref — a visibility join, louder (saturated) only when
+  /* Crown-jewel-route cross-ref — a visibility join, louder (saturated) only when
      the disposition guarding the route is stale. */
   .trd-route-xref { font-size: 0.8rem; color: #b9651b; margin: 0.2rem 0 0.4rem; line-height: 1.4; }
   .trd-route-xref--stale { color: #c0392b; font-weight: 600; }

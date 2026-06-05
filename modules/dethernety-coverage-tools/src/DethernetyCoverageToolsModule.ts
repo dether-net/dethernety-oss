@@ -55,8 +55,7 @@ import {
  * attack techniques through shared artifacts) is therefore eliminated by
  * construction — we test "does this defend-technique bridge to THIS exposure's
  * technique", never enumerate the defend-technique's whole bridge set — so no
- * explicit cap is needed. (A per-cell degree-normalized relevance score, to rank
- * within the broad D3FEND tier, stays deferred.)
+ * explicit cap is needed.
  *
  * The driver handed to the constructor is the secure, session-scoping driver;
  * this module adds NO authz and broadens NO scope — the JWT guard + session
@@ -231,7 +230,7 @@ class DethernetyCoverageToolsModule implements DTModule {
     //    single-level (ATT&CK sub-techniques are one level), so anchor-first holds.
     //  - controlId: the covering countermeasure's parent Control. HAS_COUNTERMEASURE
     //    is 1 control per countermeasure (verified), so this is a single hop with no
-    //    fan-out; the report uses it for the ④ configured-mismatch signal + L3 provenance.
+    //    fan-out; the report uses it for the Residual Risk configured-mismatch signal + L3 provenance.
 
     // 2) DIRECT tier: a supporting countermeasure with an author-asserted edge to
     //    the exposed technique (or its parent). type(r) IN [...] is the most

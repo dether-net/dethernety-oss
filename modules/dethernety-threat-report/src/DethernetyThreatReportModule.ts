@@ -74,7 +74,7 @@ interface LedgerFinding {
 }
 
 /** A control supporting an element — shown as muted "controls present" context,
- *  never a coverage claim (coverage grading is a later, separate module). */
+ *  never a coverage claim (coverage grading is owned by a separate module). */
 interface LedgerControl {
   id: string;
   name: string;
@@ -94,7 +94,7 @@ interface LedgerElement {
 /** A security boundary with its canvas geometry + nesting parent. The geometry
  *  (parent-relative positionX/Y + width/height) lets the minimap reproduce the
  *  hand-laid layout; parentBoundaryId drives both the minimap's nesting and the
- *  ③ crossing engine's ancestor-stack walk. */
+ *  Boundary Crossings engine's ancestor-stack walk. */
 interface ModelGraphBoundary {
   id: string;
   name: string;
@@ -134,11 +134,11 @@ interface ModelGraphFlow {
 
 /** A Data node with its author-asserted sensitivity and the ids of the elements
  *  that HANDLE it (Component / DataFlow / SecurityBoundary). `sensitivity` is
- *  null ⇒ unclassified (never coerced to a level). Feeds ⑥'s data-handled
- *  sub-block: the frontend reverse-indexes `handledBy` to list, per element, the
- *  Data it handles, then joins each `id` to its existing `ledger` entry for that
- *  Data's own exposures (coverage is attributed to the handling element, spec
- *  §6.④ — Data nodes carry no typed control support). Data exposures are NOT
+ *  null ⇒ unclassified (never coerced to a level). Feeds the Component Profile
+ *  data-handled sub-block: the frontend reverse-indexes `handledBy` to list, per
+ *  element, the Data it handles, then joins each `id` to its existing `ledger`
+ *  entry for that Data's own exposures (coverage is attributed to the handling
+ *  element — Data nodes carry no typed control support). Data exposures are NOT
  *  duplicated here; only the sensitivity + handling topology the ledger lacks. */
 interface ModelGraphDataNode {
   id: string;
@@ -147,16 +147,17 @@ interface ModelGraphDataNode {
   handledBy: string[]; // element ids with (el)-[:HANDLES]->(this Data)
 }
 
-/** The positional model graph — the minimap's `modelGraph` contract and the ③
- *  crossing engine's structural input. Gathered at generate time so the report
- *  is snapshot-faithful (same as-of-generation model as the ledger). */
+/** The positional model graph — the minimap's `modelGraph` contract and the
+ *  Boundary Crossings engine's structural input. Gathered at generate time so the
+ *  report is snapshot-faithful (same as-of-generation model as the ledger). */
 interface ModelGraph {
   boundaries: ModelGraphBoundary[];
   components: ModelGraphComponent[];
   flows: ModelGraphFlow[];
-  /** Data nodes + their HANDLES topology, for ⑥'s data-handled sub-block. The
-   *  sensitivity + handler ids the raw `ledger` doesn't carry; Data's own
-   *  exposures still come from the ledger (Data is a first-class ledger element). */
+  /** Data nodes + their HANDLES topology, for the Component Profile data-handled
+   *  sub-block. The sensitivity + handler ids the raw `ledger` doesn't carry;
+   *  Data's own exposures still come from the ledger (Data is a first-class ledger
+   *  element). */
   dataNodes: ModelGraphDataNode[];
 }
 
@@ -172,7 +173,7 @@ interface SnapshotDoc {
   ledger?: LedgerElement[];
   /** The positional model graph (boundaries/components/flows with canvas
    *  geometry + nesting + per-flow carried sensitivity). Feeds the faithful
-   *  minimap and the ③ boundary-crossing engine; both pure-TS over this + the
+   *  minimap and the Boundary Crossings engine; both pure-TS over this + the
    *  raw `ledger` (which carries each element's exposures + supporting controls,
    *  reused for crossed-boundary / on-flow posture — no separate posture query). */
   modelGraph?: ModelGraph;
@@ -219,8 +220,8 @@ class DethernetyThreatReportModule implements DTModule {
   /**
    * One custom query: a cheap structural fingerprint of a model's current
    * report-relevant content. The frontend compares the live fingerprint to the
-   * one stored in a snapshot to detect staleness (the staleness UX itself is a
-   * later slice). Every field declared here has a resolver in getResolvers().
+   * one stored in a snapshot to detect staleness. Every field declared here has
+   * a resolver in getResolvers().
    */
   getSchemaExtension(): string {
     return /* GraphQL */ `
@@ -271,13 +272,13 @@ class DethernetyThreatReportModule implements DTModule {
    * not. This is what the staleness UX compares the snapshot's stored
    * fingerprint against.
    *
-   * It is also SENSITIVITY- and HANDLES-AWARE (S4): each Data's id + sensitivity
-   * and each (element)-[:HANDLES]->(Data) edge are folded in, because S4's ③
-   * ranking and ⑥ data sub-block render those — so re-classifying a Data
-   * (PUBLIC→RESTRICTED) or re-wiring which element handles it flips the
-   * fingerprint, instead of a now-misclassified snapshot reading "fresh". Stays
-   * cheap (scalar id/sensitivity collects only — never the full ledger), so the
-   * live staleness poll remains light.
+   * It is also SENSITIVITY- and HANDLES-AWARE: each Data's id + sensitivity
+   * and each (element)-[:HANDLES]->(Data) edge are folded in, because the
+   * Boundary Crossings ranking and the Component Profile data sub-block render
+   * those — so re-classifying a Data (PUBLIC→RESTRICTED) or re-wiring which
+   * element handles it flips the fingerprint, instead of a now-misclassified
+   * snapshot reading "fresh". Stays cheap (scalar id/sensitivity collects only —
+   * never the full ledger), so the live staleness poll remains light.
    */
   private async computeStructure(
     modelId: string,
@@ -325,10 +326,10 @@ class DethernetyThreatReportModule implements DTModule {
         b: [...boundaryIds].sort(),
         c: [...componentIds].sort(),
         d: [...dataIds].sort(),
-        ds: [...dataSigs].sort(), // Data id|sensitivity — S4 ③/⑥ render sensitivity
+        ds: [...dataSigs].sort(), // Data id|sensitivity — Boundary Crossings / Component Profile render sensitivity
         f: [...dataFlowIds].sort(),
         e: [...exposureSigs].sort(),
-        h: [...handlesSigs].sort(), // HANDLES edges — S4 ⑥ data sub-block
+        h: [...handlesSigs].sort(), // HANDLES edges — Component Profile data sub-block
       });
       const fingerprint = createHash('sha256')
         .update(digestInput)
@@ -353,7 +354,7 @@ class DethernetyThreatReportModule implements DTModule {
    * digest) — only run at generate time, never on the live staleness check.
    *
    * Element discovery mirrors the platform's own model→all-elements traversal
-   * (control-gaps-resolver) and the S1 fingerprint query. Maps are built with
+   * (control-gaps-resolver) and the fingerprint query. Maps are built with
    * scalar fields only (no nodes-in-maps) + labels()-derived type, for
    * Neo4j/Memgraph portability; toString() the timestamp; Integer score is
    * normalized to a JS number below so the doc JSON-stringifies cleanly.
@@ -430,10 +431,10 @@ class DethernetyThreatReportModule implements DTModule {
   /**
    * Gather the positional model graph (boundaries/components/flows with canvas
    * geometry + nesting + per-flow carried data sensitivity) for a model. Feeds
-   * the faithful minimap and the ③ boundary-crossing engine — both pure-TS over
+   * the faithful minimap and the Boundary Crossings engine — both pure-TS over
    * this graph joined with the raw `ledger` (which already carries every
    * element's exposures + supporting controls, reused for crossed-boundary /
-   * on-flow posture, so ③ needs no separate posture query).
+   * on-flow posture, so Boundary Crossings needs no separate posture query).
    *
    * Four small, independently-portable passes (boundaries, components, flows,
    * dataNodes), each in the same OPTIONAL MATCH + collect style as computeLedger — no

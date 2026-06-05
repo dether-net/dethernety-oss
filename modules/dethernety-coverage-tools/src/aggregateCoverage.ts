@@ -78,9 +78,10 @@ export interface TierFact {
   tier: CoverageTier;
   function: CoverageFunction;
   countermeasureIds: string[];
-  /** Parent controls of the contributing countermeasures — the report's ④
-   *  configured-mismatch signal (a supporting control covering none of an
-   *  element's gaps) is derived from these vs. the ledger's supportingControls. */
+  /** Parent controls of the contributing countermeasures — the report's
+   *  Residual Risk configured-mismatch signal (a supporting control covering none
+   *  of an element's gaps) is derived from these vs. the ledger's
+   *  supportingControls. */
   controlIds: string[];
 }
 

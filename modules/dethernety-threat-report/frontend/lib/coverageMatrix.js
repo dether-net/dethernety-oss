@@ -8,13 +8,13 @@
 //     finding's dispositionKind and each element's supportingControls.
 // They join on exposureId === ledger.findings[].id.
 //
-// This layer is where the honesty rules live (functional §4/§6.①, ux §4/§5/§8):
+// This layer is where the honesty rules live:
 //   - LIVE-ONLY disposition filter — only `dispositionKind == null` exposures enter
 //     the live grid/counts; dispositioned ones are excluded but COUNTED (never
-//     silently dropped — they still render in ④).
+//     silently dropped — they still render in the Residual Risk view).
 //   - Data exposures OFF the grid (controls can't SUPPORTS Data → permanent-UNCOVERED
-//     would be a false catastrophe); ATT&CK-mapped Data → §4.3 completeness count.
-//   - SecurityBoundary exposures fold into the ⑤ counts, NOT matrix rows (v1).
+//     would be a false catastrophe); ATT&CK-mapped Data feeds the completeness count.
+//   - SecurityBoundary exposures fold into the Posture Summary counts, NOT matrix rows.
 //   - tier-segregated, function-classified counts — NEVER a percentage, NEVER a
 //     single "Covered: N", NEVER a cross-tier rollup.
 //   - detect-only = covered but no PREVENT edge at ANY tier (a reduction).
@@ -91,8 +91,8 @@ function reduceTiers(tierFacts) {
 }
 
 /**
- * Build the full coverage view-model consumed by the ① matrix, the ⑤ coverage
- * block, and the ④ configured-mismatch column.
+ * Build the full coverage view-model consumed by the Coverage & Gaps matrix, the
+ * Posture Summary coverage block, and the Residual Risk configured-mismatch column.
  *
  * @param {object|null} coverage  parsed gradedCoverage (or null when unavailable)
  * @param {Array}       ledger    SnapshotDoc.ledger (elements with findings + controls)
@@ -126,8 +126,9 @@ export function buildCoverageView(coverage, ledger) {
   // techniqueId -> { tactics:Set, elementsTotal:Set, elementsCovered:Set,
   //                  cms:Set, controls:Set, tierFacts:[] }
   const grid = new Map()
-  // ⑤ tier-segregated bucket sets, over LIVE non-Data exposures (Component+DataFlow
-  // +SecurityBoundary). Keyed by (exposureId|techniqueId) so a pair is counted once.
+  // Posture Summary tier-segregated bucket sets, over LIVE non-Data exposures
+  // (Component+DataFlow+SecurityBoundary). Keyed by (exposureId|techniqueId) so a
+  // pair is counted once.
   const bucket = {
     directPrevent: new Set(),
     directDetect: new Set(),
@@ -136,7 +137,7 @@ export function buildCoverageView(coverage, ledger) {
     detectOnly: new Set(),
     uncovered: new Set(),
   }
-  // ④ per-element covering controls (controlIds that cover ≥1 of the element's gaps)
+  // per-element covering controls (controlIds that cover ≥1 of the element's gaps)
   const coveringControlsByElement = new Map()
   const allCoveringControls = new Set()
 
@@ -145,9 +146,9 @@ export function buildCoverageView(coverage, ledger) {
   let dispositionedExcluded = 0
   // Data exposures are OFF the coverage grid (a control can't SUPPORTS Data, so
   // coverage is not assessable) — but the ATT&CK mapping itself IS a known fact
-  // about the exposure. Collect it, grouped by the Data element, so ① can reveal
-  // (off-grid, no tier encoding) WHICH techniques each Data element maps to —
-  // never a coverage claim, just the mapping the banner used to only count.
+  // about the exposure. Collect it, grouped by the Data element, so Coverage & Gaps
+  // can reveal (off-grid, no tier encoding) WHICH techniques each Data element maps
+  // to — never a coverage claim, just the mapping the banner used to only count.
   const dataMappedByElement = new Map()
 
   for (const e of coverage.exposures) {
@@ -162,10 +163,11 @@ export function buildCoverageView(coverage, ledger) {
       continue
     }
     if (e.elementKind === 'Data') {
-      // off the grid (controls can't SUPPORTS Data); count toward §4.3 completeness
+      // off the grid (controls can't SUPPORTS Data); count toward completeness
       dataMappedCount++
-      // …and retain the technique mapping (deduped, resolved) so ① can disclose it
-      // without ever charting Data as covered/uncovered. Grouped per Data element.
+      // …and retain the technique mapping (deduped, resolved) so Coverage & Gaps can
+      // disclose it without ever charting Data as covered/uncovered. Grouped per Data
+      // element.
       for (const t of e.techniques ?? []) {
         if (!t || !t.techniqueId) continue
         let d = dataMappedByElement.get(e.elementId)
@@ -187,7 +189,7 @@ export function buildCoverageView(coverage, ledger) {
       const red = reduceTiers(tiers)
       const pairKey = `${e.exposureId}|${t.techniqueId}`
 
-      // ⑤ counts (non-Data live universe — incl. SecurityBoundary)
+      // Posture Summary counts (non-Data live universe — incl. SecurityBoundary)
       for (const tf of tiers) {
         if (tf.tier === 'DIRECT' && tf.function === 'PREVENT') bucket.directPrevent.add(pairKey)
         if (tf.tier === 'DIRECT' && tf.function === 'DETECT') bucket.directDetect.add(pairKey)
@@ -197,19 +199,19 @@ export function buildCoverageView(coverage, ledger) {
       if (!red.covered) bucket.uncovered.add(pairKey)
       else if (red.status === 'DETECT_ONLY') bucket.detectOnly.add(pairKey)
 
-      // ④ covering controls for this element. "Covering" here means contributing
+      // Covering controls for this element. "Covering" here means contributing
       // ANY covering edge (preventive OR detective) — a detect-only control is
       // still doing something on this element, so it is NOT "configured-but-
       // mismatched" (mismatch = covers none of the element's modeled threats at
       // all). The prevent/detect distinction is preserved where it matters: the
-      // tier facts, the detect-only reduction, and the ⑤ block.
+      // tier facts, the detect-only reduction, and the Posture Summary block.
       if (red.covered) {
         let set = coveringControlsByElement.get(e.elementId)
         if (!set) coveringControlsByElement.set(e.elementId, (set = new Set()))
         for (const tf of tiers) for (const c of tf.controlIds ?? []) { set.add(c); allCoveringControls.add(c) }
       }
 
-      // ① grid rows (Component + DataFlow only)
+      // Coverage & Gaps grid rows (Component + DataFlow only)
       if (!inGrid) continue
       let g = grid.get(t.techniqueId)
       if (!g) grid.set(t.techniqueId, (g = {
@@ -253,8 +255,9 @@ export function buildCoverageView(coverage, ledger) {
         .map((id) => ({ id, name: nameById.get(id) ?? id, covered: g.elementsCovered.has(id) }))
         .sort((a, b) => Number(a.covered) - Number(b.covered) || a.name.localeCompare(b.name)),
       // technique-scoped (unioned across the covering elements) — NOT per-element
-      // attributed; the L3 drill goes to ⑥, which recomputes per-element controls
-      // from the ledger, so no element-level mis-attribution is possible here.
+      // attributed; the drill goes to the Component Profile, which recomputes
+      // per-element controls from the ledger, so no element-level mis-attribution is
+      // possible here.
       countermeasureIds: [...g.cms].sort(),
       controlIds: [...g.controls].sort(),
     })
@@ -263,7 +266,8 @@ export function buildCoverageView(coverage, ledger) {
   const tactics = [...tacticSet].sort(tacticSort)
 
   // --- off-grid Data → ATT&CK disclosure: one drillable entry per Data element,
-  //     its techniques deduped + id-sorted (the chips the ① banner reveals) ---
+  //     its techniques deduped + id-sorted (the chips the Coverage & Gaps banner
+  //     reveals) ---
   const dataMapped = [...dataMappedByElement.entries()]
     .map(([elementId, d]) => ({
       elementId,
@@ -287,7 +291,7 @@ export function buildCoverageView(coverage, ledger) {
   for (const el of ledgerEls) for (const c of el.supportingControls ?? []) if (c?.id) allSupportingControls.add(c.id)
   const defenseInDepth = [...allSupportingControls].filter((c) => !allCoveringControls.has(c)).length
 
-  // --- ④ mismatched controls per element: supports the element, covers none of its gaps ---
+  // --- mismatched controls per element: supports the element, covers none of its gaps ---
   const mismatchByElement = {}
   for (const el of ledgerEls) {
     const supporting = (el.supportingControls ?? []).map((c) => c?.id).filter(Boolean)
@@ -319,8 +323,9 @@ export function buildCoverageView(coverage, ledger) {
 }
 
 /**
- * Per-exposure ATT&CK technique index for the ⑥ profile + ④ ledger technique
- * chips. The coverage payload is the ONLY source of exposure→technique mappings
+ * Per-exposure ATT&CK technique index for the Component Profile + Residual Risk
+ * ledger technique chips. The coverage payload is the ONLY source of
+ * exposure→technique mappings
  * (the snapshot ledger carries none), so this resolves each exposure's techniques
  * to the full { techniqueId, name, tactics, description } the shared
  * TechniqueInfoDialog renders.
@@ -374,10 +379,11 @@ export function filterByTier(rows, tier) {
 }
 
 /**
- * The exact ⑤ coverage-block lines — tier-segregated + function-classified, with
- * D3FEND carried as "(broad/inferred)" so a screenshot can't show a flattering
- * aggregate. NEVER a percentage, NEVER a single "Covered: N". Defense-in-depth is
- * its own line (anti-pattern #9). Returns an array of {label, value, note?} so the
+ * The exact Posture Summary coverage-block lines — tier-segregated +
+ * function-classified, with D3FEND carried as "(broad/inferred)" so a screenshot
+ * can't show a flattering aggregate. NEVER a percentage, NEVER a single
+ * "Covered: N". Defense-in-depth is its own line. Returns an array of
+ * {label, value, note?} so the
  * component renders deep-links; a pure string form is available for the export.
  */
 export function coverageSummaryLines(summary) {

@@ -1,24 +1,26 @@
-// frontend/lib/reachability.js — the ② Flow-Route / Reachability engine.
+// frontend/lib/reachability.js — the Reachability / Flow-Route engine.
 //
 // Pure, synchronous, client-side compute over the snapshot doc's `modelGraph`
 // (topology + per-flow carried sensitivity, gathered backend-side) joined with
 // the RAW `ledger` (every element's findings + supporting controls — reused for
-// on-route posture, exactly as ③/⑥ do). No Vue, no network, no Cypher — the
-// simple-path invariant is enforced HERE by a TS visited-set, NOT by Memgraph
-// variable-length semantics (func §13). Unit-tested with fixtures.
+// on-route posture, exactly as the Boundary Crossings and Component Profile
+// engines do). No Vue, no network, no Cypher — the simple-path invariant is
+// enforced HERE by a TS visited-set, NOT by Memgraph variable-length semantics.
+// Unit-tested with fixtures.
 //
-// HONESTY (spec §5): these are FLOW ROUTES and the threats sitting on them —
-// NEVER "attack paths". The model is TOPOLOGICAL: hop count is proximity, not
-// attacker effort; it does NOT model credential reuse or token theft. An
-// unreachable crown jewel is reported as "no modeled flow route" (a modeling
-// gap, tie to the §4.3 completeness banner) — NEVER "segmented" or "safe".
-// `trustLevel` is dormant: the entry set is STRUCTURAL (external entities / a
-// chosen assumed-breach node), never "untrusted". No score, no coverage %.
+// HONESTY: these are FLOW ROUTES and the threats sitting on them — NEVER "attack
+// paths". The model is TOPOLOGICAL: hop count is proximity, not attacker effort;
+// it does NOT model credential reuse or token theft. An unreachable crown jewel
+// is reported as "no modeled flow route" (a modeling gap, tied to the
+// completeness banner) — NEVER "segmented" or "safe". `trustLevel` is dormant:
+// the entry set is STRUCTURAL (external entities / a chosen assumed-breach node),
+// never "untrusted". No score, no coverage %.
 //
 // Reuse, not reinvention: the ancestor-boundary stack (EXIT/ENTER crossings) is
-// the SAME `makeStackResolver` ③ uses; on-route posture is the SAME `postureOf`
-// + `isLive` + `scoreBand`; the per-hop neighbour walk generalises ⑥'s 1-hop
-// loop to a bounded multi-hop DFS over the identical `sourceId`/`targetId` edges.
+// the SAME `makeStackResolver` the Boundary Crossings engine uses; on-route
+// posture is the SAME `postureOf` + `isLive` + `scoreBand`; the per-hop neighbour
+// walk generalises the Component Profile's 1-hop loop to a bounded multi-hop DFS
+// over the identical `sourceId`/`targetId` edges.
 
 import { isLive, scoreBand } from './aggregateLedger.js'
 import {
@@ -60,7 +62,8 @@ export const EXTERNAL_ENTITY_TYPE = 'external_entity'
  * Project the model's `Component-[:FLOWS]->DataFlow-[:FLOWS]->Component` graph
  * onto a directed component-to-component adjacency (each logical hop = one
  * labeled edge carrying the DataFlow's id/name/sensitivities). Dangling-endpoint
- * and non-component-endpoint flows are dropped (same guard as ⑥).
+ * and non-component-endpoint flows are dropped (same guard as the Component
+ * Profile).
  *
  * @param {{components:Array,flows:Array}} modelGraph
  * @returns {{ forward:Map, backward:Map, componentById:Map, flowById:Map, components:Array, flows:Array }}
@@ -218,7 +221,8 @@ export function enumerateRoutes(forward, originId, targetId, opts = {}) {
 
 // ─── Route annotation (the mode-B subway strip view-model) ───────────────────
 
-/** EXIT/ENTER membranes pierced going src→dst, reusing ③'s ancestor stacks. */
+/** EXIT/ENTER membranes pierced going src→dst, reusing the Boundary Crossings
+ *  engine's ancestor stacks. */
 function crossingsForHop(stackOfComponent, boundaryById, srcId, dstId) {
   const stackSrc = stackOfComponent(srcId)
   const stackDst = stackOfComponent(dstId)
@@ -344,7 +348,7 @@ function worstBandOf(ids, ledgerById) {
 }
 
 // Count RISK_ACCEPTED (and stale-among-them) dispositioned findings across a set
-// of elements — fuels mode-A's "1 RISK_ACCEPTED ⚠" and the ④ louder-if-stale.
+// of elements — fuels mode-A's "1 RISK_ACCEPTED ⚠" and the Residual Risk louder-if-stale.
 function riskAcceptedOf(ids, ledgerById) {
   let riskAccepted = 0
   let staleRiskAccepted = 0
@@ -381,7 +385,8 @@ export function crownJewelIds(modelGraph) {
  * @param {object} modelGraph
  * @param {Array}  ledger
  * @param {{kind:'external'}|{kind:'node',id:string}} originSpec
- * @returns view model consumed by ②, ⑤, and ④ alike.
+ * @returns view model consumed by the Reachability, Posture Summary, and Residual
+ *   Risk views alike.
  */
 export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'external' }) {
   const proj = buildProjection(modelGraph)
@@ -407,7 +412,7 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
   const fwdClosure = closure(proj.forward, originIds, (e) => e.to)
 
   // elementId → Set(jewelName) for every element on SOME reachable origin→jewel
-  // route (the ④ killer cross-ref join + the minimap route paint set).
+  // route (the Residual Risk cross-ref join + the minimap route paint set).
   const routeElementToJewels = new Map()
   const addRouteElement = (id, jewelName) => {
     if (!routeElementToJewels.has(id)) routeElementToJewels.set(id, new Set())
@@ -480,7 +485,7 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
     hasCrownJewels: jewels.length > 0,
     hasOrigin: originIds.size > 0,
     jewels: jewelsView,
-    // In-memory join maps (NOT serialized through GraphQL — consumed by ④/minimap).
+    // In-memory join maps (NOT serialized through GraphQL — consumed by Residual Risk/minimap).
     routeElementToJewels,
     entryPointIds: externalEntryIds(modelGraph),
     crownJewelIds: jewels.map((j) => j.id),
@@ -488,7 +493,7 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
 }
 
 /** The set of element ids (components + flows) on ANY reachable crown-jewel
- *  route, mapped to the jewel name(s) reached through them — the ④ killer
+ *  route, mapped to the jewel name(s) reached through them — the Residual Risk
  *  cross-ref join. Convenience accessor over a mode-A result. */
 export function crownJewelRouteElements(modeAResult) {
   return modeAResult?.routeElementToJewels ?? new Map()

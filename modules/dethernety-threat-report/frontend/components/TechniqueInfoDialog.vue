@@ -2,14 +2,15 @@
   TechniqueInfoDialog.vue — the shared "what is this ATT&CK technique?" dialog.
 
   An attack_id is opaque on its own, so this resolves it to the ATT&CK name +
-  tactics + cleaned description. Used by the ① Coverage matrix (the ⓘ on a
-  technique row), the ⑥ Component Profile, and the ④ Residual ledger (the
+  tactics + cleaned description. Used by the Coverage & Gaps matrix (the ⓘ on a
+  technique row), the Component Profile, and the Residual Risk ledger (the
   technique chips on a finding) — ONE component so the affordance is identical
   everywhere.
 
   A Vuetify v-dialog (not the hand-rolled fixed overlay this replaced) so it
-  stacks correctly ABOVE the ⑥ profile dialog (Vuetify gives nested dialogs an
-  incrementally higher z-index) and inherits the host scrim / Esc / teleport. The
+  stacks correctly ABOVE the Component Profile dialog (Vuetify gives nested
+  dialogs an incrementally higher z-index) and inherits the host scrim / Esc /
+  teleport. The
   inner panel keeps the original info-panel look so it reads the same as before.
 -->
 <template>

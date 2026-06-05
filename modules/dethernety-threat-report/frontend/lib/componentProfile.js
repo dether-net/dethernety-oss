@@ -1,22 +1,23 @@
-// frontend/lib/componentProfile.js — the ⑥ Component Profile synthesis.
+// frontend/lib/componentProfile.js — the Component Profile synthesis.
 //
-// ⑥ is a DRILL TARGET, not a top-level report (func §6.⑥): it earns its place by
-// SYNTHESISING residual risk per element rather than re-skinning the canvas
-// inspector. Reachable for a Component, a SecurityBoundary, a Data node, or a
-// DataFlow (all finding-bearing) — same drill, applied to whichever element. Pure
-// composition
+// The Component Profile is a DRILL TARGET, not a top-level report: it earns its
+// place by SYNTHESISING residual risk per element rather than re-skinning the
+// canvas inspector. Reachable for a Component, a SecurityBoundary, a Data node, or
+// a DataFlow (all finding-bearing) — same drill, applied to whichever element.
+// Pure composition
 // over the snapshot doc (`ledger` + `modelGraph`, both gathered at generate
 // time) — no Vue, no network, unit-tested.
 //
 // Reuse, not reinvention: the ancestor-boundary stack comes from the SAME
-// `makeStackResolver` ③ uses (cycle / dangling-parent handling included), and
-// the per-element exposure partition + control consistency come from
-// `aggregateLedger` (run over the single element) — so ⑥'s posture is identical
-// to ④'s by construction. The data sub-block joins `modelGraph.dataNodes`
-// (HANDLES topology + sensitivity, gathered backend-side) to each Data's OWN
-// ledger exposures; coverage is attributed to the handling element (func §6.④),
-// never to the Data node. Controls are muted defense-in-depth context — the
-// technique-set intent partition needs the P2 coverage engine and is NOT here.
+// `makeStackResolver` the Boundary Crossings engine uses (cycle / dangling-parent
+// handling included), and the per-element exposure partition + control consistency
+// come from `aggregateLedger` (run over the single element) — so the Component
+// Profile's posture is identical to the Residual Risk view's by construction. The
+// data sub-block joins `modelGraph.dataNodes` (HANDLES topology + sensitivity,
+// gathered backend-side) to each Data's OWN ledger exposures; coverage is
+// attributed to the handling element, never to the Data node. Controls are muted
+// defense-in-depth context — the technique-set intent partition needs the coverage
+// engine and is NOT here.
 
 import { aggregateLedger } from './aggregateLedger.js'
 import {
@@ -28,7 +29,7 @@ import {
   SENSITIVITY_RANK,
 } from './boundaryCrossings.js'
 
-// Aggregate a single ledger element through the ④ aggregator and return its
+// Aggregate a single ledger element through the Residual Risk aggregator and return its
 // group (the annotated live/dispositioned partition + control consistency), or a
 // finding-free shell when the element has no findings (aggregateLedger drops
 // finding-free elements from `groups`).
@@ -57,11 +58,11 @@ function singleGroup(ledgerEl) {
 }
 
 /**
- * Synthesise the ⑥ profile for an element.
+ * Synthesise the Component Profile for an element.
  *
  * @param {string} elementId
  * @param {{ ledger: Array, modelGraph: object }} doc
- * @returns {object} the ⑥ view model (see fields below)
+ * @returns {object} the Component Profile view model (see fields below)
  */
 export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
@@ -117,7 +118,7 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
       }
     })
 
-  // The element's own exposure posture — identical partition to ④.
+  // The element's own exposure posture — identical partition to the Residual Risk view.
   const own = singleGroup(ledgerEl)
   const ownUncovered = own.supportingControls.length === 0
   const ownExposures = {
@@ -127,9 +128,9 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
     dispositionedCount: own.dispositionedCount,
     uncovered: ownUncovered, // coarse element-level proxy: no supporting control
     // Honesty for the coarse model: an element WITH a control AND live exposures
-    // is NOT "covered" — P1 has no control→exposure edge, so whether the control
-    // mitigates these exposures is simply unknown. Surface that, so the absence
-    // of an "uncovered" flag is never misread as "covered".
+    // is NOT "covered" — this element-level proxy has no control→exposure edge, so
+    // whether the control mitigates these exposures is simply unknown. Surface that,
+    // so the absence of an "uncovered" flag is never misread as "covered".
     controlRelevanceUnassessed: !ownUncovered && own.liveCount > 0,
     compensatingClaimNoControl: own.compensatingClaimNoControl,
   }
@@ -171,8 +172,9 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
 
   // Inverse of the data sub-block: for a DATA target, the elements that HANDLE it
   // (its `handledBy` topology) — components / data flows / security boundaries —
-  // each with its own posture, drillable to its ⑥. This is the relational context a
-  // Data profile would otherwise lack (the forward `dataHandled` block above covers
+  // each with its own posture, drillable to its Component Profile. This is the
+  // relational context a Data profile would otherwise lack (the forward
+  // `dataHandled` block above covers
   // the handling element → its Data; this covers Data → its handlers). A
   // since-removed handler that no longer resolves is marked so the view renders it
   // non-clickable rather than a dead link. Empty for non-Data targets.
@@ -214,7 +216,7 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
   // 1-hop flow neighbours. For a Component: every flow with this element as an
   // endpoint → the OTHER endpoint, with direction + carried sensitivity. For a
   // DataFlow target: its two endpoints. Boundary / Data ⇒ none (flows connect
-  // components). Each neighbour is drillable to its own ⑥ — UNLESS it can't be
+  // components). Each neighbour is drillable to its own Component Profile — UNLESS it can't be
   // resolved in the snapshot (a since-removed / non-component endpoint), in which
   // case it's marked unresolved so the view renders it as non-clickable rather
   // than a dead "(unknown)" link. Resolve across every element type, not just
@@ -277,8 +279,9 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
   )
 
   // Minimap highlight: a Component / SecurityBoundary / Data highlights itself; a
-  // DataFlow has no node of its own on the map, so — exactly like ③'s flow
-  // selection — it highlights its two endpoints (the edge between them reads as the
+  // DataFlow has no node of its own on the map, so — exactly like the Boundary
+  // Crossings flow selection — it highlights its two endpoints (the edge between
+  // them reads as the
   // flow). Falls back to the flow id if endpoints are missing.
   const highlightIds =
     type === 'DataFlow' && flow

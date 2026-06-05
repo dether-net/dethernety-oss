@@ -1,8 +1,8 @@
 <!--
-  BoundaryCrossings.vue — the ③ Boundary-Crossing ledger view.
+  BoundaryCrossings.vue — the Boundary Crossings ledger view.
 
-  Presentational over computeCrossings(modelGraph, ledger) (pure TS). ③ is
-  STRUCTURAL: a crossing is the symmetric difference of the two endpoints'
+  Presentational over computeCrossings(modelGraph, ledger) (pure TS). A crossing
+  is STRUCTURAL: it is the symmetric difference of the two endpoints'
   boundary-nesting stacks — NEVER a trust gradient (trustLevel is dormant).
   Direction is EXIT/ENTER (containment), not a trust comparison.
 
@@ -174,11 +174,13 @@
     // The snapshot doc's modelGraph (boundaries/components/flows + geometry).
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [] }) },
     // The RAW snapshot ledger (LedgerElement[]) — reused for on-flow / crossed-
-    // boundary posture (findings + supporting controls), so ③ needs no own query.
+    // boundary posture (findings + supporting controls), so this view needs no
+    // own query.
     ledger: { type: Array, default: () => [] },
   })
 
-  // Drill into ⑥ for a crossed boundary or a flow endpoint (the shell handles it).
+  // Drill into the Component Profile for a crossed boundary or a flow endpoint
+  // (the shell handles it).
   defineEmits(['drill'])
 
   const componentById = computed(
@@ -203,7 +205,7 @@
 
   // Selection drives the minimap highlight: a selected crossing lights its
   // flow's endpoint components (the edge between two highlighted nodes reads as
-  // the crossing). Full pick-two interaction is a later sprint.
+  // the crossing).
   const selectedFlowId = ref('')
   const selectedFlow = computed(() =>
     [...crossings.value, ...underModeled.value].find((g) => g.flowId === selectedFlowId.value),
@@ -225,8 +227,8 @@
   const clearSelection = () => {
     selectedFlowId.value = ''
   }
-  // Keyboard activation for the clickable crossing cards (a11y parity with ④'s
-  // real buttons).
+  // Keyboard activation for the clickable crossing cards (a11y parity with the
+  // Residual Risk view's real buttons).
   const onCardKey = (e, g) => {
     if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
       e.preventDefault()
@@ -306,8 +308,9 @@
   .trd-flow--muted { opacity: 0.62; }
 
   .trd-flow-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  /* The flow name drills into the flow's own ⑥ profile (its on-flow exposures +
-     endpoints). A dotted-underline link like the other drill affordances; @click.stop
+  /* The flow name drills into the flow's own Component Profile (its on-flow
+     exposures + endpoints). A dotted-underline link like the other drill
+     affordances; @click.stop
      keeps the card's map-highlight click intact. font-family/size inherit (not the
      `font` shorthand) so the 600 weight survives. */
   .trd-flow-name {

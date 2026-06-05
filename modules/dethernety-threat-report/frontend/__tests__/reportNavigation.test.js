@@ -19,10 +19,10 @@ const PROV_USER = { key: 'provenance', type: 'provenance', value: 'USER', label:
 const TYPE_COMP = { key: 'type', type: 'type', value: 'Component', label: 'type: Component' }
 
 describe('defaultNavState', () => {
-  it('lands on ⑤ posture, no drill, no filters', () => {
+  it('lands on the Posture Summary, no drill, no filters', () => {
     expect(defaultNavState()).toEqual({ activeView: 'posture', drill: null, filters: [] })
   })
-  it('⑤①②③④ are segmented-control views (① coverage + ② reachability now lit)', () => {
+  it('the segmented-control views (coverage + reachability now lit)', () => {
     expect(VIEWS).toEqual(['posture', 'coverage', 'reachability', 'boundary', 'residual'])
   })
 })
@@ -32,19 +32,19 @@ describe('setView', () => {
     const s = { activeView: 'posture', drill: { elementId: 'c1', fromView: 'posture' }, filters: [HIGH] }
     expect(setView(s, 'boundary')).toEqual({ activeView: 'boundary', drill: null, filters: [] })
   })
-  it('switches to the coverage / reachability views (① ② are now tabs)', () => {
+  it('switches to the coverage / reachability views (now tabs)', () => {
     const s = { activeView: 'posture', drill: { elementId: 'c1', fromView: 'posture' }, filters: [HIGH] }
     expect(setView(s, 'coverage')).toEqual({ activeView: 'coverage', drill: null, filters: [] })
     expect(setView(s, 'reachability')).toEqual({ activeView: 'reachability', drill: null, filters: [] })
   })
   it('is a no-op for an unknown view (defensive)', () => {
     const s = defaultNavState()
-    expect(setView(s, 'profile')).toBe(s) // ⑥ is a drill target, not a tab
+    expect(setView(s, 'profile')).toBe(s) // the Component Profile is a drill target, not a tab
     expect(setView(s, 'bogus')).toBe(s)
   })
 })
 
-describe('gotoFilteredView (⑤ deep-link)', () => {
+describe('gotoFilteredView (Posture Summary deep-link)', () => {
   it('sets view + a single filter, clears drill', () => {
     const s = { activeView: 'posture', drill: { elementId: 'c1', fromView: 'posture' }, filters: [] }
     expect(gotoFilteredView(s, 'residual', HIGH)).toEqual({
@@ -58,12 +58,12 @@ describe('gotoFilteredView (⑤ deep-link)', () => {
   })
   it('unknown view ⇒ no-op', () => {
     const s = defaultNavState()
-    expect(gotoFilteredView(s, 'profile', HIGH)).toBe(s) // ⑥ is a drill target, not a tab
+    expect(gotoFilteredView(s, 'profile', HIGH)).toBe(s) // the Component Profile is a drill target, not a tab
   })
 })
 
 describe('drillTo / popDrill', () => {
-  it('drills into ⑥, recording the view to return to, preserving filters', () => {
+  it('drills into the Component Profile, recording the view to return to, preserving filters', () => {
     const s = { activeView: 'residual', drill: null, filters: [HIGH] }
     const d = drillTo(s, 'c1', 'residual')
     expect(d.drill).toEqual({ elementId: 'c1', fromView: 'residual' })

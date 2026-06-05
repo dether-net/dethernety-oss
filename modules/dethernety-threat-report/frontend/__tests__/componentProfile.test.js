@@ -40,13 +40,13 @@ describe('computeComponentProfile — Component target', () => {
   it('resolves identity incl. crown-jewel', () => {
     expect(p.element).toMatchObject({ id: 'c1', name: 'API', type: 'Component', crownJewel: true, found: true })
   })
-  it('reuses the ③ ancestor stack (innermost-first, ROOT dropped) with per-boundary posture', () => {
+  it('reuses the Boundary Crossings ancestor stack (innermost-first, ROOT dropped) with per-boundary posture', () => {
     expect(p.boundaryContext.map((b) => b.id)).toEqual(['dmz', 'outer'])
     const dmz = p.boundaryContext[0]
     expect(dmz).toMatchObject({ name: 'DMZ', liveCount: 1, worstBand: 'high', hasControl: false })
     expect(p.boundaryContext[1]).toMatchObject({ id: 'outer', liveCount: 0, worstBand: null })
   })
-  it('own exposures match ④ partition; uncovered (no control) flagged', () => {
+  it('own exposures match the Residual Risk partition; uncovered (no control) flagged', () => {
     expect(p.ownExposures.liveCount).toBe(1)
     expect(p.ownExposures.live[0].id).toBe('e1')
     expect(p.ownExposures.uncovered).toBe(true)
@@ -143,7 +143,7 @@ describe('computeComponentProfile — coarse-control & unclassified data honesty
     expect(p.ownExposures.uncovered).toBe(false)
   })
   it('flags control-relevance-unassessed when an element has BOTH a control and a live exposure', () => {
-    // c2 has ctrlA AND live e2 → not "uncovered", but coverage is unknown in P1
+    // c2 has ctrlA AND live e2 → not "uncovered", but coverage is unknown
     const p = computeComponentProfile('c2', doc)
     expect(p.ownExposures.controlRelevanceUnassessed).toBe(true)
     // c1 has no control → genuinely uncovered, not "unassessed"

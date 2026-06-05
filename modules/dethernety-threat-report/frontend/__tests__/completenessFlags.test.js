@@ -5,7 +5,7 @@ const comp = (id, name, extra = {}) => ({ id, name, type: 'process', boundaryId:
 const led = (id, findings = []) => ({ id, name: id, type: 'Component', findings, supportingControls: [] })
 const finding = (id) => ({ id, name: id, score: 7, dispositionKind: null })
 
-describe('computeCompletenessFlags — silent-green guards (§4.3)', () => {
+describe('computeCompletenessFlags — silent-green guards', () => {
   it('flags a crown jewel with NO modeled exposures (under-analyzed, not safe)', () => {
     const mg = {
       components: [comp('c1', 'Vault', { crownJewel: true }), comp('c2', 'Web')],

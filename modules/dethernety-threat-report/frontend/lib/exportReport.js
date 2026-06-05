@@ -12,7 +12,7 @@ import { aggregateLedger, dispositionKindLabel } from './aggregateLedger.js'
 import { buildCoverageView } from './coverageMatrix.js'
 import { modeAReachability } from './reachability.js'
 
-// The ① coverage view for export, or null when coverage-tools wasn't deployed (the
+// The Coverage & Gaps view for export, or null when coverage-tools wasn't deployed (the
 // matrix simply doesn't appear in the export). Built from the LIVE coverage facts
 // joined to the snapshot ledger — the same honesty layer the UI uses.
 function coverageForExport(doc, coverage) {
@@ -73,8 +73,8 @@ function provenanceFooter(doc, totals) {
 }
 
 // The coverage export payload — TIER-SEGREGATED, never a rolled-up "covered" and
-// never a percentage (the JSON is exactly where that conflation would leak back in,
-// ux §5.①). Carries the per-technique tier + function + bucket and the off-grid
+// never a percentage (the JSON is exactly where that conflation would leak back
+// in). Carries the per-technique tier + function + bucket and the off-grid
 // caveat counts.
 function coverageExport(view) {
   if (!view) return null
@@ -100,10 +100,10 @@ function coverageExport(view) {
   }
 }
 
-// The ② reachability export payload — the mode-A (external entry) crown-jewel
+// The Reachability export payload — the mode-A (external entry) crown-jewel
 // rollup, computed client-side from the snapshot's modelGraph + ledger. Routes
-// are serialised as `flowRoutes`, NEVER `attackPaths` (spec §5); an unreachable
-// jewel serialises as "no modeled flow route", never "segmented/safe".
+// are serialised as `flowRoutes`, NEVER `attackPaths`; an unreachable jewel
+// serialises as "no modeled flow route", never "segmented/safe".
 function reachabilityExport(doc) {
   const mg = doc?.modelGraph
   if (!mg || !Array.isArray(mg.components) || mg.components.length === 0) return null
@@ -134,7 +134,7 @@ function reachabilityExport(doc) {
 }
 
 // JSON export: the raw snapshot doc + a provenance footer + the tier-segregated
-// coverage facts + the ② reachability rollup (each when available).
+// coverage facts + the Reachability rollup (each when available).
 export function buildJsonExport(doc, coverage = null) {
   const { totals } = aggregateLedger(doc?.ledger ?? [])
   const cov = coverageExport(coverageForExport(doc, coverage))

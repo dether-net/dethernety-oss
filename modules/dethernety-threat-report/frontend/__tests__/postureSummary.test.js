@@ -131,13 +131,13 @@ describe('computePostureSummary — honesty guards (no silent green)', () => {
     expect(s.hasElements).toBe(true)
     expect(s.hasAnyFindings).toBe(false)
   })
-  it('does NOT emit any coverage/reachability fields (P1 absent, not dead)', () => {
+  it('does NOT emit any coverage/reachability fields (absent, not dead)', () => {
     const s = computePostureSummary(LEDGER, { crossings: CROSSINGS })
     expect(s).not.toHaveProperty('coverage')
     expect(s).not.toHaveProperty('reachability')
     expect(s).not.toHaveProperty('crownJewelReachable')
     // The prohibition is a coverage % / "Covered: N" aggregate — NOT the
-    // `uncovered` coarse proxy (which is spec-sanctioned). Match the forbidden
+    // `uncovered` coarse proxy (which is sanctioned). Match the forbidden
     // forms precisely so `uncovered` doesn't trip it.
     expect(JSON.stringify(s)).not.toMatch(/"covered"|coverage|%/i)
   })

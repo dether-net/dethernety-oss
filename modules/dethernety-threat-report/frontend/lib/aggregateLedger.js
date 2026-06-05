@@ -2,7 +2,7 @@
 // snapshot doc's `ledger` (gathered backend-side at generate time). No Vue, no
 // network — pure functions, unit-tested with fixtures.
 //
-// Honesty contracts (functional spec §4): dispositioned findings are NEVER
+// Honesty contracts: dispositioned findings are NEVER
 // dropped (they move to a muted partition); live = `dispositionKind == null`;
 // USER/SYSTEM provenance is surfaced (null createdBy ⇒ SYSTEM, per the schema's
 // legacy-data note); NO single risk score, NO coverage %, NO "Covered: N".
@@ -64,7 +64,7 @@ function bySeverity(a, b) {
 }
 
 /**
- * Aggregate the ledger into the ④ view model.
+ * Aggregate the ledger into the Residual Risk view model.
  *
  * @param {Array} ledger  the snapshot doc's `ledger` (LedgerElement[])
  * @returns {{ totals, groups }}
@@ -92,7 +92,7 @@ export function aggregateLedger(ledger) {
 
   for (const el of els) {
     const findings = (el.findings ?? []).map(annotate)
-    if (findings.length === 0) continue // ④ is finding-focused
+    if (findings.length === 0) continue // the Residual Risk view is finding-focused
 
     const live = []
     const dispositioned = []

@@ -41,7 +41,7 @@ const MG = {
   ],
 }
 
-// Raw ledger (S2 shape): Inner boundary has a live exposure (weakening);
+// Raw ledger: Inner boundary has a live exposure (weakening);
 // Right boundary is finding-FREE but has a supporting control (hardening) —
 // proves the engine reads controls from the raw ledger even with no findings.
 const LEDGER = [
@@ -139,7 +139,7 @@ describe('posture join + signal-bearing partition', () => {
   })
 
   it('a flow carrying UNCLASSIFIED data is in the worklist (a flagged gap, not buried)', () => {
-    // spec §6.③: under-modeled = "zero DATA and zero exposures and zero controls".
+    // under-modeled = "zero DATA and zero exposures and zero controls".
     // Unclassified data is non-zero data → worklist, even with no classified
     // sensitivity and no exposures/controls.
     expect(r.crossings.some((g) => g.flowId === 'f_unclassified')).toBe(true)

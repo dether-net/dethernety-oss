@@ -21,7 +21,8 @@ export const THREAT_REPORT_FINGERPRINT = gql`
 // and layers the disposition filter, tier-segregated bucketing, the detect-only
 // reduction, and the no-% honest presentation on top (the honesty layer stays in
 // the report). The field is ABSENT when coverage-tools isn't deployed — the
-// fetcher degrades to null and the report simply ships without the ① matrix.
+// fetcher degrades to null and the report simply ships without the Coverage &
+// Gaps matrix.
 export const GRADED_COVERAGE = gql`
   query GradedCoverage($modelId: ID!) {
     gradedCoverage(modelId: $modelId)

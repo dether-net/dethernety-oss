@@ -8,8 +8,9 @@
   additive enrichment.
 
   Honesty: a chip is an IDENTITY + a launcher, deliberately NOT tinted by coverage
-  tier — coverage encoding lives only in the ① matrix, so a chip never doubles as a
-  coverage claim. Their absence is not a "no techniques" assertion (an unmapped
+  tier — coverage encoding lives only in the Coverage & Gaps matrix, so a chip
+  never doubles as a coverage claim. Their absence is not a "no techniques"
+  assertion (an unmapped
   exposure simply has no entry; the matrix owns that accounting).
 -->
 <template>
@@ -29,7 +30,7 @@
   defineProps({
     // Resolved techniques: [{ techniqueId, name?, tactics?, description? }].
     techniques: { type: Array, default: () => [] },
-    // Tighter sizing for the dense ledger tables (vs the roomier ⑥ profile).
+    // Tighter sizing for the dense ledger tables (vs the roomier Component Profile).
     dense: { type: Boolean, default: false },
   })
   defineEmits(['show'])

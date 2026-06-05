@@ -1,17 +1,18 @@
-// frontend/lib/postureSummary.js — the ⑤ Posture Summary roll-up.
+// frontend/lib/postureSummary.js — the Posture Summary roll-up.
 //
-// ⑤ is the ONLY aggregating surface (tech §2.2) and the default landing view. It
-// is pure COMPOSITION over the already-computed P1 engines — `aggregateLedger`
-// (④) for exposure bands / dispositions / controls and `computeCrossings` (③)
-// for boundary-crossing counts — so it introduces no new analysis, only a
-// roll-up. No Vue, no network — pure, unit-tested.
+// Posture Summary is the only aggregating surface and the default landing view.
+// It is pure COMPOSITION over already-computed engines — `aggregateLedger`
+// (Residual Risk) for exposure bands / dispositions / controls and
+// `computeCrossings` (Boundary Crossings) for boundary-crossing counts — so it
+// introduces no new analysis, only a roll-up. No Vue, no network — pure,
+// unit-tested.
 //
-// Honesty contracts (func §4, ux §8): NO single risk score, NO coverage %, NO
-// "Covered: N" aggregate; live-exposure bands are LIVE-only; null score ⇒
-// unknown (never low); defense-in-depth controls are a SEPARATE positive line,
-// never folded into coverage. In P1 the COVERAGE block and the crown-jewel
-// REACHABILITY tile are ABSENT (they need the P2 coverage/path engines) — this
-// roll-up simply does not emit them (no dead "coming soon" fields).
+// Honesty contracts: NO single risk score, NO coverage %, NO "Covered: N"
+// aggregate; live-exposure bands are LIVE-only; null score ⇒ unknown (never
+// low); defense-in-depth controls are a SEPARATE positive line, never folded
+// into coverage. This roll-up emits exposure bands, dispositions, boundary-
+// crossing counts, defense-in-depth, and top residuals; it does not emit a
+// coverage block or a crown-jewel reachability tile.
 
 import { aggregateLedger, scoreBand, isLive } from './aggregateLedger.js'
 
@@ -23,7 +24,7 @@ function emptyBands() {
 }
 
 /**
- * Roll up the snapshot into the ⑤ view model.
+ * Roll up the snapshot into the Posture Summary view model.
  *
  * @param {Array} ledger  the raw snapshot `ledger` (LedgerElement[])
  * @param {object} [opts]
@@ -40,8 +41,9 @@ export function computePostureSummary(ledger, opts = {}) {
 
   // Hollow risk acceptances: elements whose dispositions claim a compensating
   // control while NO control is present (already audited per-element by
-  // aggregateLedger). ⑤ surfaces the count — a dropped one on the landing screen
-  // hides exactly the disposition a reviewer most needs to re-examine.
+  // aggregateLedger). The summary surfaces the count — a dropped one on the
+  // landing screen hides exactly the disposition a reviewer most needs to
+  // re-examine.
   const compensatingNoControl = groups.filter((g) => g.compensatingClaimNoControl).length
 
   // Live-only exposure bands — derived from the annotated live findings, NOT
@@ -58,8 +60,9 @@ export function computePostureSummary(ledger, opts = {}) {
 
   // Defense-in-depth: distinct supporting controls on elements that have NO live
   // exposure — i.e. controls present that aren't compensating a modeled live
-  // exposure (the honest coarse reading; P1 has no control→exposure edge, so this
-  // is element-level, consistent with ③/④). Iterates the RAW ledger because
+  // exposure (the honest coarse reading; there is no control→exposure edge, so
+  // this is element-level, consistent with Boundary Crossings / Residual Risk).
+  // Iterates the RAW ledger because
   // these elements are typically finding-free (aggregateLedger's groups drop
   // finding-free elements). NEVER folded into a coverage number.
   const didControls = new Set()
@@ -74,8 +77,9 @@ export function computePostureSummary(ledger, opts = {}) {
   }
 
   // Top residual risks — the ranked live findings across all elements (band desc,
-  // score desc, name), each an in-component deep-link to ④ (filtered) or ⑥.
-  // `uncovered` is the coarse proxy: the element carries no supporting control.
+  // score desc, name), each an in-component deep-link to Residual Risk (filtered)
+  // or Component Profile. `uncovered` is the coarse proxy: the element carries no
+  // supporting control.
   const residuals = []
   for (const g of groups) {
     const uncovered = (g.supportingControls ?? []).length === 0
@@ -126,7 +130,7 @@ export function computePostureSummary(ledger, opts = {}) {
     defenseInDepth: { controlCount: didControls.size, elementCount: didElements },
     topResiduals,
     residualTotal: residuals.length,
-    // Honesty guards for the view's empty states (ux §8 #5 — never silent green).
+    // Honesty guards for the view's empty states — never silent green.
     hasElements: els.length > 0,
     hasAnyFindings: totals.findings > 0,
     hasLiveFindings: totals.live > 0,

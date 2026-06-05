@@ -6,13 +6,13 @@
   relative positionX/Y walked through the boundary nesting chain), so it is a
   small faithful copy of the hand-laid diagram — not an auto-layout.
 
-  In the threat report it is ③'s visual home AND ②'s: crossings/routes are
-  highlighted purely via the `highlightIds` prop — no new render logic. It is
-  presentational by default (selection driven by the parent setting
-  `highlightIds`), and OPTIONALLY interactive: when `selectable` is set it emits
-  `pick(componentId)` on a node click and renders a `pendingIds` node with a
-  dashed stroke (②'s mode-B "pick two" first-click state). Default off, so ③'s
-  usage is unchanged.
+  In the threat report it is the visual home for both Boundary Crossings and
+  Reachability: crossings/routes are highlighted purely via the `highlightIds`
+  prop — no new render logic. It is presentational by default (selection driven
+  by the parent setting `highlightIds`), and OPTIONALLY interactive: when
+  `selectable` is set it emits `pick(componentId)` on a node click and renders a
+  `pendingIds` node with a dashed stroke (the "pick two" first-click state).
+  Default off, so the Boundary Crossings usage is unchanged.
 
   Expects `modelGraph` = {
     boundaries: [{ id, name, positionX, positionY, width, height, parentBoundaryId }],
@@ -37,10 +37,10 @@
     highlightEdgeIds: { type: Array, default: () => [] },
     crownJewelIds: { type: Array, default: () => [] },
     entryPointIds: { type: Array, default: () => [] },
-    // ②'s mode-B "pick two" first-pick state — a dashed-stroke pending node.
+    // The "pick two" first-pick state — a dashed-stroke pending node.
     pendingIds: { type: Array, default: () => [] },
-    // When true, node clicks emit `pick(componentId)` (②'s click-to-select). Off
-    // by default → ③'s presentational usage is unchanged.
+    // When true, node clicks emit `pick(componentId)` (click-to-select). Off
+    // by default → the presentational usage is unchanged.
     selectable: { type: Boolean, default: false },
     completenessScore: { type: Number, default: null },
     // 'sidebar' (default, in-panel; dots-only, hover tooltips, expand button)
@@ -434,7 +434,7 @@
 
       <!-- Component nodes (DFD shapes in expanded; dots in sidebar).
            Sizes are scaled 1.4× when highlighted via nodeR/rectW/rectH/storeW/storeH.
-           When `selectable`, the group is clickable (②'s mode-B pick-two). -->
+           When `selectable`, the group is clickable (the pick-two interaction). -->
       <g
         v-for="c in layout.components"
         :key="'c-' + c.id"

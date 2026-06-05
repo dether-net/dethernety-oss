@@ -1,17 +1,17 @@
 // frontend/lib/completenessFlags.js — model-wide completeness/honesty flags.
 //
-// The §4.3 scope-honesty contract: a clean-looking report must NEVER read as an
+// The scope-honesty contract: a clean-looking report must NEVER read as an
 // all-clear when the truth is "we didn't analyse the risky parts." These are the
 // model-wide silent-green guards that the per-view honesty (untriaged counts,
-// empty-state guards, ③'s own flags, the freshness banner) doesn't cover. Pure
-// over the snapshot doc — no Vue, no network, unit-tested. Surfaced banner-first
-// (the shell folds them into the ScopeBanner) so a reviewer learns them BEFORE
-// reading a reassuring count.
+// empty-state guards, Boundary Crossings' own flags, the freshness banner)
+// doesn't cover. Pure over the snapshot doc — no Vue, no network, unit-tested.
+// Surfaced banner-first (the shell folds them into the ScopeBanner) so a
+// reviewer learns them BEFORE reading a reassuring count.
 
 /**
  * @param {object} modelGraph  the snapshot doc's modelGraph (components + dataNodes)
  * @param {Array}  ledger      the raw snapshot ledger (LedgerElement[])
- * @returns {Array<{key,label,severity}>}  same flag shape ScopeBanner/③ use
+ * @returns {Array<{key,label,severity}>}  same flag shape ScopeBanner / Boundary Crossings use
  */
 export function computeCompletenessFlags(modelGraph, ledger) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
@@ -41,7 +41,8 @@ export function computeCompletenessFlags(modelGraph, ledger) {
   }
 
   // Orphan components — outside any security boundary: segmentation / boundary-
-  // crossing analysis can't place them, so their crossings are invisible to ③.
+  // crossing analysis can't place them, so their crossings are invisible to the
+  // Boundary Crossings view.
   const orphans = components.filter((c) => c.boundaryId == null)
   if (orphans.length > 0) {
     flags.push({

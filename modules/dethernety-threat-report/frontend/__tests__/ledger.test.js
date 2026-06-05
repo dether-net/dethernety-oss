@@ -192,7 +192,7 @@ describe('buildHtmlExport', () => {
   })
 })
 
-// --- ② reachability in export ---------------------------------------------
+// --- reachability in export ---------------------------------------------
 const REACH_DOC = {
   generated: true,
   modelId: 'm',

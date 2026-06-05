@@ -1,8 +1,8 @@
 <!--
-  ComponentProfile.vue — the ⑥ Component Profile view (a drill target, not a tab).
+  ComponentProfile.vue — the Component Profile view (a drill target, not a tab).
 
   Presentational over computeComponentProfile(elementId, { ledger, modelGraph })
-  (pure TS). It SYNTHESISES residual risk for one element (func §6.⑥) rather than
+  (pure TS). It SYNTHESISES residual risk for one element rather than
   re-skinning the canvas inspector: ancestor-boundary context with each
   boundary's own posture, the data it handles as a finding-bearing sub-block
   (each Data's sensitivity + its OWN exposures), the element's live-vs-
@@ -14,9 +14,8 @@
 
   Honesty: null sensitivity reads "unknown" (never "low"); the score band is a
   triage aid, not a rating; coverage is attributed to the handling element, never
-  the Data node; controls are context, never a coverage claim. The technique-set
-  control-intent partition + "trace route → ②" need the P2 engines and are absent
-  here (not dead affordances). The breadcrumb/back lives in the shell.
+  the Data node; controls are context, never a coverage claim. The breadcrumb/back
+  lives in the shell.
 -->
 <template>
   <div class="trd-profile">
@@ -62,8 +61,8 @@
             ⚠ Compensating-control disposition on an element with no control present.
           </p>
           <p v-if="profile.ownExposures.controlRelevanceUnassessed" class="trd-note">
-            Controls are present, but their relevance to these open exposures is not assessed in P1 (control→exposure
-            mapping is a later phase) — the absence of an “uncovered” flag does <strong>not</strong> mean “covered.”
+            Controls are present, but their relevance to these open exposures is not assessed (control-to-exposure
+            mapping is not modeled) — the absence of an “uncovered” flag does <strong>not</strong> mean “covered.”
           </p>
           <p v-if="profile.ownExposures.liveCount === 0 && profile.ownExposures.dispositionedCount === 0" class="trd-none">
             No exposures modeled on this element.
@@ -180,7 +179,7 @@
       </aside>
     </div>
 
-    <!-- Shared ATT&CK technique dialog (same as ① and ④) — opened by a chip. -->
+    <!-- Shared ATT&CK technique dialog (same as Coverage & Gaps and Residual Risk) — opened by a chip. -->
     <TechniqueInfoDialog :technique="infoTech" @close="infoTech = null" />
   </div>
 </template>

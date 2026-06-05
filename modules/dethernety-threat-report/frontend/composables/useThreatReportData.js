@@ -54,8 +54,8 @@ export async function fetchLiveFingerprint(dtUtils, modelId) {
  * aggregateCoverage), or null when coverage is UNAVAILABLE — which is a normal,
  * non-error state, not a failure:
  *   - the `gradedCoverage` field is absent (coverage-tools not deployed) → the
- *     query errors and we degrade to null so the report ships without the ①
- *     matrix (never a silent-green empty grid; the caller renders the
+ *     query errors and we degrade to null so the report ships without the
+ *     Coverage & Gaps matrix (never a silent-green empty grid; the caller renders the
  *     "coverage module not available" / never-generated affordance instead);
  *   - the resolver returns null (no/empty modelId);
  *   - a superseded call (CancelledError) — only the latest answer drives the UI.

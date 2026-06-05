@@ -13,16 +13,15 @@
 
   The shell owns the snapshot LIFECYCLE (never / fresh / stale / generating, the
   Generate/Recreate that rides the platform runAnalysis) and the IN-COMPONENT
-  view-switching (tech §2.1): ⑤ Posture / ③ Boundary Crossings / ④ Residual Risk
-  are views of ONE component reached by a segmented control (NO routes); ⑥
-  Component Profile is a drill TARGET overlaid on the active view, with a
-  removable breadcrumb so a drill never silently hides scope. ① coverage + ②
-  reachability are the P2 graph-facts views (① via the coverage module; ②
-  computed client-side over the snapshot — the flow-route / crown-jewel engine).
+  view-switching: Posture Summary / Boundary Crossings / Residual Risk are views
+  of ONE component reached by a segmented control (NO routes); Component Profile
+  is a drill TARGET overlaid on the active view, with a removable breadcrumb so a
+  drill never silently hides scope. Coverage & Gaps and Reachability are the
+  graph-facts views (Coverage via the coverage module; Reachability computed
+  client-side over the snapshot — the flow-route / crown-jewel engine).
   Navigation/filter state is module-local (lib/reportNavigation pure reducers,
-  held in a reactive here). The banner is pinned ABOVE the switcher — a workflow
-  requirement (ux §3): the modeler learns "stale" / "exclusions" before reading a
-  reassuring count.
+  held in a reactive here). The banner is pinned ABOVE the switcher: the modeler
+  learns "stale" / "exclusions" before reading a reassuring count.
 -->
 <template>
   <div class="threat-report-shell">
@@ -56,7 +55,7 @@
         </span>
       </div>
 
-      <!-- Segmented control across ⑤①②③④ (the P2 graph-facts views now lit). -->
+      <!-- Segmented control across the report's views. -->
       <nav class="trd-tabs" role="tablist" aria-label="Report views">
         <button
           v-for="v in VIEWS"
@@ -70,9 +69,9 @@
         >{{ VIEW_LABELS[v] }}</button>
       </nav>
 
-      <!-- Breadcrumb: the active filter chips (removable). The ⑥ drill is a
-           dialog overlay (below), so it no longer needs a breadcrumb trail —
-           the dialog carries its own title + close. -->
+      <!-- Breadcrumb: the active filter chips (removable). The Component Profile
+           drill is a dialog overlay (below), so it no longer needs a breadcrumb
+           trail — the dialog carries its own title + close. -->
       <div v-if="nav.filters.length" class="trd-breadcrumb">
         <span class="trd-crumb-current">{{ VIEW_LABELS[nav.activeView] }}</span>
         <template v-for="f in nav.filters" :key="f.key">
@@ -84,7 +83,7 @@
         </template>
       </div>
 
-      <!-- The active view. ⑥ Component Profile is a drill TARGET shown as a
+      <!-- The active view. Component Profile is a drill TARGET shown as a
            dialog OVERLAY (below) rather than replacing this region, so the view
            underneath stays mounted — the modeler returns to exactly where they
            were (scroll position, expanded rows, reachability selections). -->
@@ -129,7 +128,7 @@
         />
       </div>
 
-      <!-- ⑥ Component Profile drill overlay. A dialog (not a view swap) so the
+      <!-- Component Profile drill overlay. A dialog (not a view swap) so the
            view underneath keeps its state. v-model bridges nav.drill ↔ open, so
            Esc / scrim-click closes through popDrill. A neighbour link inside the
            profile re-targets the SAME dialog (onDrill swaps elementId). -->
@@ -209,7 +208,7 @@
 
   const { generating, liveFingerprint } = useThreatReportState()
   const errorMessage = ref('')
-  // The LIVE graded-coverage facts (① matrix + ⑤ block). Fetched through the
+  // The LIVE graded-coverage facts (the coverage matrix + posture block). Fetched through the
   // merged schema from the sibling coverage-tools module; null when that module
   // isn't deployed (the matrix renders its no-coverage affordance, the rest of the
   // report is unaffected). Coverage is live graph facts, independent of the
@@ -232,11 +231,12 @@
     }
   })
 
-  // ② Reachability — the DEFAULT (external entry-point) mode-A rollup, computed
+  // Reachability — the DEFAULT (external entry-point) mode-A rollup, computed
   // synchronously over the snapshot (no fetch, no Cypher — the engine is pure-TS,
-  // simple-path/bounded). This external rollup is what ⑤ (crown-jewel tile) and ④
-  // (killer ②-route cross-ref) read; the ② view itself recomputes for a selectable
-  // assumed-breach origin internally. A `computed` so it re-derives when the
+  // simple-path/bounded). This external rollup is what the Posture Summary
+  // (crown-jewel tile) and Residual Risk (the crown-jewel-route cross-ref) read;
+  // the Reachability view itself recomputes for a selectable assumed-breach
+  // origin internally. A `computed` so it re-derives when the
   // snapshot changes and caches otherwise.
   const reachability = computed(() =>
     modeAReachability(snapshot.value.modelGraph, snapshot.value.ledger, { kind: 'external' }),
@@ -244,7 +244,7 @@
 
   // exposureId → resolved ATT&CK techniques, derived from the live coverage facts
   // (the ONLY source of exposure→technique mappings). Feeds the clickable technique
-  // chips on each finding in ⑥ Component Profile and ④ Residual Risk. Empty {} when
+  // chips on each finding in Component Profile and Residual Risk. Empty {} when
   // coverage-tools isn't deployed — the chips simply don't render.
   const techniqueIndex = computed(() => buildExposureTechniqueIndex(coverageData.value))
 
@@ -257,7 +257,7 @@
     }),
   )
 
-  // Completeness flags, surfaced banner-first (§4.3): freshness + structural
+  // Completeness flags, surfaced banner-first: freshness + structural
   // flags here, plus the model-wide silent-green guards (under-analyzed
   // high-value elements, orphan components) from computeCompletenessFlags over
   // the snapshot graph + ledger. A reviewer must learn these BEFORE reading a
@@ -284,7 +284,7 @@
 
   const onSetView = (v) => apply(setView(nav, v))
   const onPopDrill = () => apply(popDrill(nav))
-  // ⑥ Component Profile is shown as a dialog OVERLAY (not a view swap), so the
+  // Component Profile is shown as a dialog OVERLAY (not a view swap), so the
   // underlying view stays mounted and keeps its state. This computed bridges the
   // nav.drill model to the v-dialog's v-model: opening is driven by drillTo;
   // closing (Esc / scrim-click / the dialog ✕) routes back through popDrill.
@@ -303,8 +303,8 @@
     else if (intent.type === 'drill') apply(drillTo(nav, intent.elementId, nav.activeView))
   }
 
-  // The ④ filter prop derived from the active filter chips (only on the residual
-  // view; band + live in P1).
+  // The Residual Risk filter prop derived from the active filter chips (only on
+  // the residual view; band + live).
   const residualFilter = computed(() => {
     if (nav.activeView !== 'residual') return null
     const out = {}
@@ -410,7 +410,7 @@
     async () => {
       if (generating.value) {
         await refreshLiveFingerprint()
-        // The model changed; refresh coverage too so the ① matrix + ⑤ block
+        // The model changed; refresh coverage too so the coverage matrix + posture block
         // reflect the just-generated snapshot (fire-and-forget — not gate-bearing).
         refreshCoverage()
         releaseGate()
@@ -444,7 +444,7 @@
   }
 
   onMounted(() => {
-    // Fresh mount: reset nav to the ⑤ default, clear any leftover singleton
+    // Fresh mount: reset nav to the Posture Summary default, clear any leftover singleton
     // state, then establish freshness.
     apply(defaultNavState())
     generating.value = false
@@ -594,7 +594,7 @@
     padding: 0.05rem 0.5rem; font-size: 0.78rem;
   }
 
-  /* ⑥ drill dialog header — a muted eyebrow + the element name, so the dialog
+  /* Component Profile drill dialog header — a muted eyebrow + the element name, so the dialog
      is self-labelling without duplicating the profile's own rich header. */
   .trd-dialog-head {
     gap: 0.55rem;

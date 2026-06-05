@@ -1,4 +1,4 @@
-// frontend/__tests__/coverageMatrix.test.js — the coverage presentation/honesty lib.
+// coverageMatrix.test.js — the coverage presentation/honesty lib.
 import { describe, it, expect } from 'vitest'
 import { buildCoverageView, buildExposureTechniqueIndex, coverageSummaryLines, filterByTier } from '../lib/coverageMatrix.js'
 
@@ -46,7 +46,7 @@ describe('buildCoverageView — live-only disposition filter', () => {
 })
 
 describe('buildCoverageView — element-scope routing', () => {
-  it('Data exposures are off-grid; ATT&CK-mapped Data counted for the §4.3 completeness banner', () => {
+  it('Data exposures are off-grid; ATT&CK-mapped Data counted for the completeness banner', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'd1', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1530')] }),
     ]), [{ id: 'data1', type: 'Data', findings: [{ id: 'd1', dispositionKind: null }], supportingControls: [] }])
@@ -81,13 +81,13 @@ describe('buildCoverageView — element-scope routing', () => {
     expect(v.offGrid.dataMapped).toEqual([])
     expect(v.offGrid.dispositionedExcluded).toBe(1)
   })
-  it('SecurityBoundary exposures fold into ⑤ counts but get no matrix row (v1)', () => {
+  it('SecurityBoundary exposures fold into Posture Summary counts but get no matrix row', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'b1', elementId: 'bnd1', elementKind: 'SecurityBoundary',
         techniques: [technique('T1190', ['Initial Access'], [tier('INDIRECT_MITIGATION', 'PREVENT')])] }),
     ]), [{ id: 'bnd1', type: 'SecurityBoundary', findings: [{ id: 'b1', dispositionKind: null }], supportingControls: [] }])
     expect(v.rows).toEqual([]) // no boundary row
-    expect(v.summary.mitigation).toBe(1) // but counted in ⑤
+    expect(v.summary.mitigation).toBe(1) // but counted in the Posture Summary
   })
 })
 
@@ -116,7 +116,7 @@ describe('buildCoverageView — detect-only reduction + best tier', () => {
   })
   it('a covered pair never returns the impossible covered+UNCOVERED state (unknown function ⇒ detect-only, never over-claims prevent)', () => {
     // a future/foreign function value must default to detect-only (seen-not-stopped),
-    // never silently fall out of every ⑤ bucket.
+    // never silently fall out of every Posture Summary bucket.
     const v = buildCoverageView(coverage([
       exposure({ techniques: [technique('T1', ['Execution'], [{ tier: 'INDIRECT_D3FEND', function: 'RESPOND', countermeasureIds: ['c'], controlIds: ['k'] }])] }),
     ]), [ledgerEl({ findings: [{ id: 'e1', dispositionKind: null }] })])
@@ -200,7 +200,7 @@ describe('buildCoverageView — soft / structural / defense-in-depth honesty', (
   })
 })
 
-describe('buildCoverageView — ④ configured-mismatch', () => {
+describe('buildCoverageView — Residual Risk configured-mismatch', () => {
   it('a control supporting an element but covering none of its gaps is mismatched', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'e1', elementId: 'c1',
