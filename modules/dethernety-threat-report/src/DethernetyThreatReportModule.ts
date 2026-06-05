@@ -62,6 +62,7 @@ interface SnapshotDoc {
   generatedAt?: string;
   fingerprint?: string;
   componentCount?: number;
+  boundaryCount?: number;
 }
 
 class DethernetyThreatReportModule implements DTModule {
@@ -141,45 +142,73 @@ class DethernetyThreatReportModule implements DTModule {
   }
 
   /**
-   * Compute the model's structural digest. Components reach the model via the
+   * Compute the model's structural digest. Elements reach the model via the
    * boundary forest: (:Model)-[:CONTAINS]->(top:SecurityBoundary), then
-   * descendants via BELONGS_TO, then (:Component)-[:BELONGS_TO]->(boundary).
-   * This mirrors the platform's own allDescendantComponents @cypher field, so
-   * it is engine-portable (the *0..50 bound matches the schema's traversals).
+   * descendants via BELONGS_TO, then (:Component)-[:BELONGS_TO]->(boundary);
+   * DataFlows hang off components via FLOWS; Data via (:Model)-[:CONTAINS].
+   * This mirrors the platform's own traversals, so it is engine-portable (the
+   * *0..50 bound matches the schema's allDescendantComponents).
+   *
    * The digest is hashed in TS (sorted ids) to stay independent of any
-   * graph-engine hash function.
+   * graph-engine hash function. It is DISPOSITION-AWARE: alongside the element
+   * ids it folds in each exposure's id + disposition signature
+   * (dispositionKind + dispositionStale, via HAS_EXPOSURE across all four
+   * element types). So disposing/clearing a finding or a stale-flip changes the
+   * fingerprint (→ the open snapshot reads stale), while a no-op model save does
+   * not. This is what the staleness UX compares the snapshot's stored
+   * fingerprint against.
    */
   private async computeStructure(
     modelId: string,
-  ): Promise<{ fingerprint: string; componentCount: number }> {
+  ): Promise<{ fingerprint: string; componentCount: number; boundaryCount: number }> {
     const session = this.session();
     try {
       const result = await session.run(
         `MATCH (m:Model {id: $modelId})
          OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(b:SecurityBoundary)
-         WITH m, collect(DISTINCT b.id) AS boundaryIds
+         WITH m, collect(DISTINCT b) AS bs
          OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(c:Component)
-         WITH m, boundaryIds, collect(DISTINCT c.id) AS componentIds
+         WITH m, bs, collect(DISTINCT c) AS cs
          OPTIONAL MATCH (m)-[:CONTAINS]->(d:Data)
-         RETURN boundaryIds, componentIds, collect(DISTINCT d.id) AS dataIds`,
+         WITH m, bs, cs, collect(DISTINCT d) AS ds
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(:Component)-[:FLOWS]-(df:DataFlow)
+         WITH bs, cs, ds, collect(DISTINCT df) AS fs
+         WITH [x IN bs | x.id] AS boundaryIds,
+              [x IN cs | x.id] AS componentIds,
+              [x IN ds | x.id] AS dataIds,
+              [x IN fs | x.id] AS dataFlowIds,
+              bs + cs + ds + fs AS allEls
+         UNWIND (CASE WHEN size(allEls) = 0 THEN [null] ELSE allEls END) AS el
+         OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(ex:Exposure)
+         WITH boundaryIds, componentIds, dataIds, dataFlowIds,
+              collect(DISTINCT ex.id + '|' + coalesce(ex.dispositionKind, '') + '|' + coalesce(toString(ex.dispositionStale), '')) AS exposureSigs
+         RETURN boundaryIds, componentIds, dataIds, dataFlowIds, exposureSigs`,
         { modelId },
       );
       const rec = result.records[0];
       const boundaryIds: string[] = (rec?.get('boundaryIds') ?? []) as string[];
       const componentIds: string[] = (rec?.get('componentIds') ?? []) as string[];
       const dataIds: string[] = (rec?.get('dataIds') ?? []) as string[];
+      const dataFlowIds: string[] = (rec?.get('dataFlowIds') ?? []) as string[];
+      const exposureSigs: string[] = (rec?.get('exposureSigs') ?? []) as string[];
 
       const digestInput = JSON.stringify({
         b: [...boundaryIds].sort(),
         c: [...componentIds].sort(),
         d: [...dataIds].sort(),
+        f: [...dataFlowIds].sort(),
+        e: [...exposureSigs].sort(),
       });
       const fingerprint = createHash('sha256')
         .update(digestInput)
         .digest('hex')
         .slice(0, 16);
 
-      return { fingerprint, componentCount: componentIds.length };
+      return {
+        fingerprint,
+        componentCount: componentIds.length,
+        boundaryCount: boundaryIds.length,
+      };
     } finally {
       await session.close();
     }
@@ -200,7 +229,10 @@ class DethernetyThreatReportModule implements DTModule {
     _additionalParams?: object,
   ): Promise<AnalysisSession> {
     const modelId = scope;
-    const { fingerprint, componentCount } = await this.computeStructure(modelId);
+    // Compute BEFORE the write: a compute failure throws here, before any SET,
+    // so a prior snapshot is left intact (keep-prior-on-partial-failure).
+    const { fingerprint, componentCount, boundaryCount } =
+      await this.computeStructure(modelId);
     const generatedAt = new Date().toISOString();
     const doc: SnapshotDoc = {
       generated: true,
@@ -208,11 +240,15 @@ class DethernetyThreatReportModule implements DTModule {
       generatedAt,
       fingerprint,
       componentCount,
+      boundaryCount,
     };
 
     const session = this.session();
     try {
-      await session.run(
+      // Single-statement SET ⇒ atomic snapshot replacement. Fail loud if the
+      // Analysis node is missing: MATCH yields zero rows, the SET silently
+      // no-ops, and we must NOT report success for a write that didn't land.
+      const result = await session.run(
         `MATCH (a:Analysis {id: $analysisId})
          SET a.threatReportDoc = $doc,
              a.threatReportGeneratedAt = $generatedAt,
@@ -225,6 +261,11 @@ class DethernetyThreatReportModule implements DTModule {
           fingerprint,
         },
       );
+      if (result.records.length === 0) {
+        throw new Error(
+          `threat-report: cannot generate snapshot — Analysis node '${analysisId}' not found`,
+        );
+      }
     } finally {
       await session.close();
     }
