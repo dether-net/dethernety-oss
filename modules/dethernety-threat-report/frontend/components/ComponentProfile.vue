@@ -7,8 +7,10 @@
   boundary's own posture, the data it handles as a finding-bearing sub-block
   (each Data's sensitivity + its OWN exposures), the element's live-vs-
   dispositioned exposures with uncovered ones highlighted, supporting controls as
-  muted defense-in-depth context, and 1-hop flow neighbours (each drillable).
-  Reachable for a Component, a SecurityBoundary, or a Data node.
+  muted defense-in-depth context, and 1-hop flow neighbours (each drillable). For a
+  Data target it instead surfaces the elements that HANDLE the data (the inverse of
+  "Data handled"), each drillable with its posture.
+  Reachable for a Component, a SecurityBoundary, a DataFlow, or a Data node.
 
   Honesty: null sensitivity reads "unknown" (never "low"); the score band is a
   triage aid, not a rating; coverage is attributed to the handling element, never
@@ -75,6 +77,10 @@
                   {{ f.name }}
                   <span v-if="f.attackVector" class="trd-vec">{{ f.attackVector }}</span>
                   <span v-if="profile.ownExposures.uncovered" class="trd-uncovered" title="no supporting control present on this element">⛉ uncovered</span>
+                  <div v-if="techsFor(f.id).length" class="trd-tech-row">
+                    <span class="trd-tech-label">ATT&amp;CK</span>
+                    <TechniqueChips :techniques="techsFor(f.id)" @show="infoTech = $event" />
+                  </div>
                 </td>
                 <td class="trd-c-prov">{{ f.provenance }}</td>
                 <td class="trd-c-act">
@@ -92,6 +98,10 @@
                   <td class="trd-c-name">
                     {{ f.name }}
                     <span class="trd-disp">{{ kindLabel(f.dispositionKind) }}<span v-if="f.stale" class="trd-stale"> · ⚠ stale</span></span>
+                    <div v-if="techsFor(f.id).length" class="trd-tech-row">
+                      <span class="trd-tech-label">ATT&amp;CK</span>
+                      <TechniqueChips :techniques="techsFor(f.id)" @show="infoTech = $event" />
+                    </div>
                   </td>
                   <td class="trd-c-act">
                     <button v-if="canDispose" type="button" class="trd-review" @click="$emit('dispose', f)">Edit →</button>
@@ -112,6 +122,24 @@
               <span v-if="d.liveCount > 0" class="trd-weaken">{{ d.liveCount }} open exposure(s)</span>
               <span v-if="d.dispositionedCount > 0" class="trd-muted">· {{ d.dispositionedCount }} reviewed</span>
               <span v-if="d.liveCount === 0 && d.dispositionedCount === 0" class="trd-muted">· no exposures</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Handled by — the inverse relation for a DATA target: the components,
+             data flows & security boundaries that touch this data, each drillable
+             with its own posture. (Empty for non-Data targets; the forward "Data
+             handled" block above covers handler → its data.) -->
+        <section v-if="profile.handledByElements.length" class="trd-prof-section">
+          <h4 class="trd-prof-sec-head">Handled by <span class="trd-muted">(elements that touch this data)</span></h4>
+          <ul class="trd-handlers">
+            <li v-for="h in profile.handledByElements" :key="h.id" class="trd-handler">
+              <span class="trd-etype">{{ h.type }}</span>
+              <button v-if="h.resolved" type="button" class="trd-drill-mini" @click="$emit('drill', h.id)" :title="`Open ${h.name} profile`">{{ h.name }}</button>
+              <span v-else class="trd-unresolved" title="handler not present in this snapshot">{{ h.name }}</span>
+              <span v-if="h.liveCount > 0" class="trd-weaken" :title="`${h.liveCount} live exposure(s) on this element`">⚠ {{ h.liveCount }} live<span v-if="h.worstBand"> ({{ h.worstBand }})</span></span>
+              <span v-if="h.hasControl" class="trd-harden">✓ control present</span>
+              <span v-if="h.liveCount === 0 && !h.hasControl" class="trd-muted">· no modeled posture</span>
             </li>
           </ul>
         </section>
@@ -144,18 +172,24 @@
         <ModelMinimap
           :model-graph="modelGraph"
           :highlight-ids="profile.highlightIds"
+          :highlight-edge-ids="profile.highlightEdgeIds"
           :crown-jewel-ids="crownJewelIds"
           variant="sidebar"
         />
-        <p class="trd-map-hint">This element highlighted on the model.</p>
+        <p class="trd-map-hint">{{ profile.element.type === 'DataFlow' ? "This flow's endpoints highlighted on the model." : 'This element highlighted on the model.' }}</p>
       </aside>
     </div>
+
+    <!-- Shared ATT&CK technique dialog (same as ① and ④) — opened by a chip. -->
+    <TechniqueInfoDialog :technique="infoTech" @close="infoTech = null" />
   </div>
 </template>
 
 <script setup>
-  import { computed } from 'vue'
+  import { computed, ref } from 'vue'
   import ModelMinimap from './ModelMinimap.vue'
+  import TechniqueChips from './TechniqueChips.vue'
+  import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
   import { computeComponentProfile } from '../lib/componentProfile.js'
   import { dispositionKindLabel } from '../lib/aggregateLedger.js'
 
@@ -164,6 +198,9 @@
     ledger: { type: Array, default: () => [] },
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [], dataNodes: [] }) },
     canDispose: { type: Boolean, default: false },
+    // exposureId → resolved ATT&CK techniques (buildExposureTechniqueIndex over the
+    // live coverage facts). Empty when coverage-tools isn't deployed → no chips.
+    techniqueIndex: { type: Object, default: () => ({}) },
   })
 
   defineEmits(['drill', 'dispose'])
@@ -171,6 +208,10 @@
   const profile = computed(() =>
     computeComponentProfile(props.elementId, { ledger: props.ledger, modelGraph: props.modelGraph }),
   )
+
+  // Resolved techniques for a finding (by exposure id) + the shared info dialog.
+  const techsFor = (id) => props.techniqueIndex[id] ?? []
+  const infoTech = ref(null)
   const crownJewelIds = computed(() =>
     (props.modelGraph?.components ?? []).filter((c) => c.crownJewel).map((c) => c.id),
   )
@@ -209,10 +250,13 @@
   .trd-inconsistent { font-size: 0.8rem; color: #c77700; margin: 0.2rem 0; }
   .trd-note { font-size: 0.76rem; opacity: 0.7; margin: 0.2rem 0; line-height: 1.4; }
   .trd-vec { font-size: 0.68rem; opacity: 0.6; text-transform: lowercase; border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; margin-left: 0.3rem; }
+  /* ATT&CK technique chips under a finding — a muted "ATT&CK" label + the chips. */
+  .trd-tech-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.25rem; }
+  .trd-tech-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.45; font-weight: 600; }
   .trd-unresolved { opacity: 0.6; font-style: italic; }
 
-  .trd-bstack, .trd-data, .trd-neighbours, .trd-controls { list-style: none; margin: 0; padding: 0; }
-  .trd-bstack-item, .trd-data-item, .trd-neighbour {
+  .trd-bstack, .trd-data, .trd-neighbours, .trd-controls, .trd-handlers { list-style: none; margin: 0; padding: 0; }
+  .trd-bstack-item, .trd-data-item, .trd-neighbour, .trd-handler {
     display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.2rem 0; font-size: 0.85rem;
   }
   .trd-controls li { font-size: 0.84rem; padding: 0.1rem 0; }

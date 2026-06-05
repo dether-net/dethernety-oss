@@ -1,6 +1,6 @@
 // frontend/__tests__/coverageMatrix.test.js — the coverage presentation/honesty lib.
 import { describe, it, expect } from 'vitest'
-import { buildCoverageView, coverageSummaryLines, filterByTier } from '../lib/coverageMatrix.js'
+import { buildCoverageView, buildExposureTechniqueIndex, coverageSummaryLines, filterByTier } from '../lib/coverageMatrix.js'
 
 // --- fixture builders -------------------------------------------------------
 const tier = (t, fn, cms = ['cm1'], controls = ['k1']) => ({
@@ -52,6 +52,34 @@ describe('buildCoverageView — element-scope routing', () => {
     ]), [{ id: 'data1', type: 'Data', findings: [{ id: 'd1', dispositionKind: null }], supportingControls: [] }])
     expect(v.rows).toEqual([])
     expect(v.offGrid.dataMappedCount).toBe(1)
+  })
+  it('Data → ATT&CK mapping is disclosed off-grid: one drillable entry per Data element, techniques resolved + deduped + id-sorted', () => {
+    const v = buildCoverageView(coverage([
+      // two exposures on ONE Data element → grouped, techniques unioned + deduped
+      exposure({ exposureId: 'd1', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1213'), technique('T1530')] }),
+      exposure({ exposureId: 'd2', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1530')] }),
+      exposure({ exposureId: 'd3', elementId: 'data2', elementKind: 'Data', techniques: [technique('T1005')] }),
+    ], { techniques: { T1530: { name: 'Data from Cloud Storage', description: 'd-1530' }, T1213: { name: 'Data from Info Repos', description: 'd' }, T1005: { name: 'Data from Local System', description: 'd' } } }), [
+      { id: 'data1', name: 'PII store', type: 'Data', findings: [{ id: 'd1', dispositionKind: null }, { id: 'd2', dispositionKind: null }], supportingControls: [] },
+      { id: 'data2', name: 'Card data', type: 'Data', findings: [{ id: 'd3', dispositionKind: null }], supportingControls: [] },
+    ])
+    expect(v.offGrid.dataMappedCount).toBe(3) // exposure count unchanged
+    // …but the disclosure groups per element (sorted by name): Card data, then PII store
+    expect(v.offGrid.dataMapped.map((d) => [d.elementId, d.elementName])).toEqual([
+      ['data2', 'Card data'],
+      ['data1', 'PII store'],
+    ])
+    const pii = v.offGrid.dataMapped.find((d) => d.elementId === 'data1')
+    expect(pii.techniques.map((t) => t.techniqueId)).toEqual(['T1213', 'T1530']) // unioned, deduped, id-sorted
+    expect(pii.techniques.find((t) => t.techniqueId === 'T1530')).toMatchObject({ name: 'Data from Cloud Storage', tactics: ['Initial Access'] })
+  })
+  it('a dispositioned Data exposure does not enter the off-grid disclosure (live-only, like the grid)', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'd1', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1530')] }),
+    ]), [{ id: 'data1', name: 'PII', type: 'Data', findings: [{ id: 'd1', dispositionKind: 'RISK_ACCEPTED' }], supportingControls: [] }])
+    expect(v.offGrid.dataMappedCount).toBe(0)
+    expect(v.offGrid.dataMapped).toEqual([])
+    expect(v.offGrid.dispositionedExcluded).toBe(1)
   })
   it('SecurityBoundary exposures fold into ⑤ counts but get no matrix row (v1)', () => {
     const v = buildCoverageView(coverage([
@@ -222,5 +250,53 @@ describe('coverage view — no percentage / no rollup (honesty lint)', () => {
     const d3 = lines.find((l) => l.key === 'd3fend')
     expect(d3.note).toBe('broad/inferred')
     expect(lines.some((l) => /covered:\s*\d/i.test(l.label))).toBe(false)
+  })
+})
+
+describe('buildExposureTechniqueIndex — per-exposure technique chips', () => {
+  it('coverage null/unavailable ⇒ {} (chips simply do not render, never a false "no techniques")', () => {
+    expect(buildExposureTechniqueIndex(null)).toEqual({})
+    expect(buildExposureTechniqueIndex(undefined)).toEqual({})
+    expect(buildExposureTechniqueIndex({})).toEqual({})
+  })
+
+  it('resolves each exposure to its techniques with name + tactics + description', () => {
+    const cov = coverage(
+      [exposure({ exposureId: 'x1', techniques: [technique('T1190', ['Initial Access'])] })],
+      { techniques: { T1190: { name: 'Exploit Public-Facing Application', description: 'desc-1190' } } },
+    )
+    const idx = buildExposureTechniqueIndex(cov)
+    expect(idx.x1).toEqual([
+      { techniqueId: 'T1190', name: 'Exploit Public-Facing Application', tactics: ['Initial Access'], description: 'desc-1190' },
+    ])
+  })
+
+  it('is disposition-AGNOSTIC — a dispositioned exposure still gets its techniques (a mapping is a fact about the exposure)', () => {
+    // No ledger is consulted at all; the index is built purely from coverage.exposures.
+    const cov = coverage([exposure({ exposureId: 'disp1', techniques: [technique('T1059')] })],
+      { techniques: { T1059: { name: 'Command and Scripting Interpreter', description: 'd' } } })
+    expect(buildExposureTechniqueIndex(cov).disp1).toHaveLength(1)
+  })
+
+  it('sorts techniques by id and dedupes a repeated technique on one exposure', () => {
+    const cov = coverage([
+      exposure({ exposureId: 'm1', techniques: [technique('T1110'), technique('T1078'), technique('T1078')] }),
+    ], { techniques: { T1078: { name: 'Valid Accounts', description: 'a' }, T1110: { name: 'Brute Force', description: 'b' } } })
+    expect(buildExposureTechniqueIndex(cov).m1.map((t) => t.techniqueId)).toEqual(['T1078', 'T1110'])
+  })
+
+  it('soft / unmapped exposures yield NO entry (additive — no key, not an empty array)', () => {
+    const cov = coverage([
+      exposure({ exposureId: 'soft1', soft: true, techniques: [] }),
+      exposure({ exposureId: 'none1', techniques: [] }),
+    ])
+    const idx = buildExposureTechniqueIndex(cov)
+    expect(idx.soft1).toBeUndefined()
+    expect(idx.none1).toBeUndefined()
+  })
+
+  it('missing technique-dict entry ⇒ name/description null (id + tactics still usable)', () => {
+    const cov = coverage([exposure({ exposureId: 'x1', techniques: [technique('T9999', ['Impact'])] })], { techniques: {} })
+    expect(buildExposureTechniqueIndex(cov).x1[0]).toEqual({ techniqueId: 'T9999', name: null, tactics: ['Impact'], description: null })
   })
 })

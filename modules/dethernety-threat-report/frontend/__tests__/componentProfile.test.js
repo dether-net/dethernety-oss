@@ -30,6 +30,7 @@ const LEDGER = [
   { id: 'c2', name: 'DB', type: 'Component', findings: [live('e2', 'Leak', 5), disp('e3', 'Noise', 4, 'FALSE_POSITIVE')], supportingControls: [ctrl('ctrlA')] },
   { id: 'dmz', name: 'DMZ', type: 'SecurityBoundary', findings: [live('eb', 'WeakSeg', 7)], supportingControls: [] },
   { id: 'd1', name: 'PII', type: 'Data', findings: [live('ed', 'Exfil', 9)], supportingControls: [] },
+  { id: 'f1', name: 'req', type: 'DataFlow', findings: [live('ef', 'MITM', 6)], supportingControls: [] },
 ]
 
 const doc = { ledger: LEDGER, modelGraph: MODEL_GRAPH }
@@ -62,8 +63,9 @@ describe('computeComponentProfile — Component target', () => {
     ])
     expect(p.neighbours.every((n) => n.neighbourResolved)).toBe(true)
   })
-  it('highlights itself on the minimap', () => {
+  it('highlights itself on the minimap (no edge highlight for a node element)', () => {
     expect(p.highlightIds).toEqual(['c1'])
+    expect(p.highlightEdgeIds).toEqual([])
   })
 })
 
@@ -85,6 +87,51 @@ describe('computeComponentProfile — Data target', () => {
     expect(p.element).toMatchObject({ type: 'Data', sensitivity: 'RESTRICTED', sensitivityLabel: 'Restricted' })
     expect(p.ownExposures.live.map((f) => f.id)).toEqual(['ed'])
     expect(p.dataHandled).toEqual([])
+    expect(p.boundaryContext).toEqual([])
+  })
+  it('surfaces the elements that HANDLE it (inverse of dataHandled), typed + sorted + drillable, with posture', () => {
+    // d1.handledBy = ['c1','f1'] → a Component (API) and a DataFlow (req), sorted by type then name
+    expect(p.handledByElements.map((h) => [h.id, h.type, h.name, h.resolved])).toEqual([
+      ['c1', 'Component', 'API', true],
+      ['f1', 'DataFlow', 'req', true],
+    ])
+    // posture carried per handler (c1 has live e1 @ score 8 → high band, no control)
+    expect(p.handledByElements.find((h) => h.id === 'c1')).toMatchObject({ liveCount: 1, worstBand: 'high', hasControl: false })
+  })
+  it('non-Data targets carry an empty handledByElements', () => {
+    expect(computeComponentProfile('c1', doc).handledByElements).toEqual([])
+    expect(computeComponentProfile('f1', doc).handledByElements).toEqual([])
+    expect(computeComponentProfile('dmz', doc).handledByElements).toEqual([])
+  })
+  it('a Data node with a since-removed handler marks it unresolved (non-clickable), never a dead link', () => {
+    const docGone = {
+      ledger: LEDGER,
+      modelGraph: { ...MODEL_GRAPH, dataNodes: [{ id: 'd9', name: 'Secret', sensitivity: 'RESTRICTED', handledBy: ['c1', 'ghost'] }] },
+    }
+    const pg = computeComponentProfile('d9', docGone)
+    const ghost = pg.handledByElements.find((h) => h.id === 'ghost')
+    expect(ghost).toMatchObject({ resolved: false, name: '(not in snapshot)' })
+  })
+})
+
+describe('computeComponentProfile — DataFlow target', () => {
+  const p = computeComponentProfile('f1', doc)
+  it('resolves identity as a DataFlow with its own on-flow exposures', () => {
+    expect(p.element).toMatchObject({ id: 'f1', name: 'req', type: 'DataFlow', found: true })
+    expect(p.ownExposures.live.map((f) => f.id)).toEqual(['ef'])
+  })
+  it('neighbours are its two endpoints (source + target), each drillable', () => {
+    expect(p.neighbours.map((n) => [n.direction, n.neighbourId])).toEqual([
+      ['source', 'c1'],
+      ['target', 'c2'],
+    ])
+    expect(p.neighbours.every((n) => n.neighbourResolved)).toBe(true)
+  })
+  it('highlights its ENDPOINTS as nodes + its OWN edge (flow id) so the line is traceable', () => {
+    expect(p.highlightIds).toEqual(['c1', 'c2'])
+    expect(p.highlightEdgeIds).toEqual(['f1'])
+  })
+  it('has no boundary stack (flows are not boundary members)', () => {
     expect(p.boundaryContext).toEqual([])
   })
 })

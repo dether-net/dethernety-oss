@@ -29,16 +29,46 @@
         </span>
         <span v-if="totals.stale > 0" class="trd-stale-count">· {{ totals.stale }} stale</span>
       </span>
-      <span class="trd-bands">
-        <span class="trd-bands-label">by score band:</span>
-        <span
+    </div>
+
+    <!-- In-view facet filter bar (band · source · element type). Each facet is a
+         single-select toggle that AND-combines with the others and shows as a
+         removable breadcrumb chip above. Counts are whole-model totals. -->
+    <div v-if="totals.findings > 0" class="trd-filterbar" role="group" aria-label="Filter findings">
+      <span class="trd-fb-label">Filter</span>
+      <span class="trd-fb-group">
+        <button
           v-for="b in presentBands"
           :key="b"
-          class="trd-band"
-          :class="`trd-band--${b}`"
-        >{{ b }} {{ totals.byBand[b] }}</span>
+          type="button"
+          class="trd-fb-chip trd-fb-band"
+          :class="[`trd-band--${b}`, { 'trd-fb-chip--on': isBandActive(b) }]"
+          :aria-pressed="isBandActive(b)"
+          @click="toggleBand(b)"
+        >{{ bandLabel(b) }} <span class="trd-fb-count">{{ totals.byBand[b] || 0 }}</span></button>
       </span>
-      <span class="trd-prov">USER {{ totals.byProvenance.USER }} · SYSTEM {{ totals.byProvenance.SYSTEM }}</span>
+      <span class="trd-fb-sep" aria-hidden="true">·</span>
+      <span class="trd-fb-group">
+        <button type="button" class="trd-fb-chip" :class="{ 'trd-fb-chip--on': isProvActive('USER') }" :aria-pressed="isProvActive('USER')" @click="toggleProv('USER')">
+          User <span class="trd-fb-count">{{ totals.byProvenance.USER }}</span>
+        </button>
+        <button type="button" class="trd-fb-chip" :class="{ 'trd-fb-chip--on': isProvActive('SYSTEM') }" :aria-pressed="isProvActive('SYSTEM')" @click="toggleProv('SYSTEM')">
+          System <span class="trd-fb-count">{{ totals.byProvenance.SYSTEM }}</span>
+        </button>
+      </span>
+      <span v-if="typeFacets.length" class="trd-fb-sep" aria-hidden="true">·</span>
+      <span class="trd-fb-group">
+        <button
+          v-for="t in typeFacets"
+          :key="t.value"
+          type="button"
+          class="trd-fb-chip"
+          :class="{ 'trd-fb-chip--on': isTypeActive(t.value) }"
+          :aria-pressed="isTypeActive(t.value)"
+          @click="toggleType(t.value)"
+        >{{ t.label }} <span class="trd-fb-count">{{ t.count }}</span></button>
+      </span>
+      <button v-if="anyFilterActive" type="button" class="trd-fb-clear" @click="clearAll">✕ clear</button>
     </div>
 
     <!-- On-artifact caveat (survives screenshotting; mirrors the export footer). -->
@@ -112,7 +142,16 @@
           <tr v-for="f in g.live" :key="f.id">
             <td class="trd-c-band"><span class="trd-band" :class="`trd-band--${f.band}`">{{ f.band }}</span></td>
             <td class="trd-c-score">{{ f.score == null ? '—' : f.score }}</td>
-            <td class="trd-c-name">{{ f.name }}</td>
+            <td class="trd-c-name">
+              {{ f.name }}
+              <TechniqueChips
+                v-if="techsFor(f.id).length"
+                class="trd-tech-inline"
+                dense
+                :techniques="techsFor(f.id)"
+                @show="infoTech = $event"
+              />
+            </td>
             <td class="trd-c-vector">{{ f.attackVector || '—' }}</td>
             <td class="trd-c-prov" :title="f.provenance">{{ f.provenance }}</td>
             <td class="trd-c-act">
@@ -132,6 +171,13 @@
               <td class="trd-c-score">{{ f.score == null ? '—' : f.score }}</td>
               <td class="trd-c-name">
                 {{ f.name }}
+                <TechniqueChips
+                  v-if="techsFor(f.id).length"
+                  class="trd-tech-inline"
+                  dense
+                  :techniques="techsFor(f.id)"
+                  @show="infoTech = $event"
+                />
                 <div class="trd-disp">
                   {{ kindLabel(f.dispositionKind) }}<span v-if="f.stale" class="trd-stale"> · ⚠ stale</span>
                   <span v-if="f.dispositionedBy || f.dispositionedAt" class="trd-disp-by">
@@ -157,13 +203,18 @@
         </table>
       </details>
     </section>
+
+    <!-- Shared ATT&CK technique dialog (same as ① and ⑥) — opened by a chip. -->
+    <TechniqueInfoDialog :technique="infoTech" @close="infoTech = null" />
   </div>
 </template>
 
 <script setup>
-  import { computed } from 'vue'
+  import { computed, ref } from 'vue'
   import { aggregateLedger, dispositionKindLabel } from '../lib/aggregateLedger.js'
   import { buildCoverageView } from '../lib/coverageMatrix.js'
+  import TechniqueChips from './TechniqueChips.vue'
+  import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
 
   const props = defineProps({
     // The snapshot doc's `ledger` (LedgerElement[]).
@@ -182,11 +233,19 @@
     // cross-ref: a dispositioned finding on an element that ALSO sits on a
     // crown-jewel route. A visibility JOIN, not a score (no double-penalisation).
     reachability: { type: Object, default: null },
+    // exposureId → resolved ATT&CK techniques (buildExposureTechniqueIndex over the
+    // live coverage facts). Empty when coverage-tools isn't deployed → no chips.
+    techniqueIndex: { type: Object, default: () => ({}) },
   })
 
   const emit = defineEmits(['dispose', 'drill', 'navigate'])
 
   const bandOrder = ['critical', 'high', 'medium', 'low', 'unknown']
+  const bandLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', unknown: 'Unknown' }
+  const bandLabel = (b) => bandLabels[b] ?? b
+  const typeOrder = ['Component', 'Data', 'SecurityBoundary', 'DataFlow']
+  const typeLabels = { Component: 'Component', Data: 'Data', SecurityBoundary: 'Boundary', DataFlow: 'Data Flow' }
+  const typeLabel = (t) => typeLabels[t] ?? t
   const kindLabel = dispositionKindLabel
 
   const formatTs = (ts) => {
@@ -199,6 +258,29 @@
   const totals = computed(() => aggregation.value.totals)
   const groups = computed(() => aggregation.value.groups)
   const presentBands = computed(() => bandOrder.filter((b) => totals.value.byBand[b]))
+
+  // --- in-view facet filtering (band · source · element type) ----------------
+  // Each facet is a removable breadcrumb chip in the shell; clicking a chip here
+  // toggles it (single-select per facet, AND-combined). Counts are whole-model
+  // totals — the bar is a SELECTOR, not a live faceted recount.
+  const typeFacets = computed(() => {
+    const counts = {}
+    for (const g of groups.value) counts[g.type] = (counts[g.type] ?? 0) + g.liveCount + g.dispositionedCount
+    return typeOrder.filter((t) => counts[t]).map((t) => ({ value: t, label: typeLabel(t), count: counts[t] }))
+  })
+  const isBandActive = (b) => props.filter?.band === b
+  const isProvActive = (p) => props.filter?.provenance === p
+  const isTypeActive = (t) => props.filter?.elementType === t
+  const anyFilterActive = computed(
+    () => !!(props.filter && (props.filter.band || props.filter.live || props.filter.provenance || props.filter.elementType)),
+  )
+  const toggleBand = (b) =>
+    emit('navigate', { type: 'toggle-filter', filter: { key: 'band', type: 'band', value: b, label: `band: ${bandLabel(b)}` } })
+  const toggleProv = (p) =>
+    emit('navigate', { type: 'toggle-filter', filter: { key: 'provenance', type: 'provenance', value: p, label: `source: ${p === 'USER' ? 'User' : 'System'}` } })
+  const toggleType = (t) =>
+    emit('navigate', { type: 'toggle-filter', filter: { key: 'type', type: 'type', value: t, label: `type: ${typeLabel(t)}` } })
+  const clearAll = () => emit('navigate', { type: 'clear-filters' })
 
   // ④ configured-mismatch: controls supporting an element but covering none of its
   // modeled-threat gaps (from the live coverage facts). Absent coverage ⇒ no flags.
@@ -229,16 +311,26 @@
   const groupHasStaleDisposition = (g) => g.dispositioned.some((f) => f.stale)
   const openReachability = () => emit('navigate', { type: 'view', view: 'reachability' })
 
-  // Apply the optional ⑤ deep-link filter: band-match across both partitions, and
-  // `live: true` hides the dispositioned partition. Drop groups left empty.
-  const matchBand = (f) => !props.filter?.band || f.band === props.filter.band
+  // Resolved ATT&CK techniques for a finding (by exposure id) + the shared dialog.
+  const techsFor = (id) => props.techniqueIndex[id] ?? []
+  const infoTech = ref(null)
+
+  // Apply the active filter (⑤ deep-link AND/OR the in-view facet bar): band +
+  // provenance match individual findings; `live: true` hides the dispositioned
+  // partition; elementType matches the whole group. Drop groups left empty.
+  const matchFinding = (f) => {
+    if (props.filter?.band && f.band !== props.filter.band) return false
+    if (props.filter?.provenance && f.provenance !== props.filter.provenance) return false
+    return true
+  }
   const visibleGroups = computed(() => {
     const flt = props.filter
-    if (!flt || (!flt.band && !flt.live)) return groups.value
+    if (!flt || (!flt.band && !flt.live && !flt.provenance && !flt.elementType)) return groups.value
     const out = []
     for (const g of groups.value) {
-      const live = g.live.filter(matchBand)
-      const dispositioned = flt.live ? [] : g.dispositioned.filter(matchBand)
+      if (flt.elementType && g.type !== flt.elementType) continue
+      const live = g.live.filter(matchFinding)
+      const dispositioned = flt.live ? [] : g.dispositioned.filter(matchFinding)
       if (live.length === 0 && dispositioned.length === 0) continue
       out.push({ ...g, live, dispositioned, liveCount: live.length, dispositionedCount: dispositioned.length })
     }
@@ -260,9 +352,30 @@
   }
   .trd-untriaged { opacity: 0.7; }
   .trd-stale-count { color: #c77700; font-weight: 600; }
-  .trd-prov { font-size: 0.8rem; opacity: 0.7; margin-left: auto; }
-  .trd-bands { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-  .trd-bands-label { font-size: 0.75rem; opacity: 0.6; }
+  /* In-view facet filter bar (band · source · element type) */
+  .trd-filterbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.4rem;
+    margin: 0 0 0.8rem; font-size: 0.78rem;
+  }
+  .trd-fb-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.5; font-weight: 600; margin-right: 0.15rem; }
+  .trd-fb-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+  .trd-fb-sep { opacity: 0.35; }
+  .trd-fb-chip {
+    background: transparent; border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 12px;
+    padding: 0.1rem 0.6rem; font: inherit; font-size: 0.74rem; line-height: 1.5;
+    color: inherit; cursor: pointer; opacity: 0.85;
+  }
+  .trd-fb-chip:hover { opacity: 1; border-color: rgba(127, 127, 127, 0.7); }
+  .trd-fb-chip--on { background: rgba(0, 184, 212, 0.14); border-color: #00b8d4; opacity: 1; font-weight: 600; }
+  .trd-fb-chip:focus-visible { outline: 2px solid #00b8d4; outline-offset: 1px; }
+  /* band facets carry their band hue on the text (via .trd-band--*), neutral frame */
+  .trd-fb-count { opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .trd-fb-clear {
+    background: none; border: none; padding: 0.1rem 0.4rem; font: inherit; font-size: 0.74rem;
+    color: inherit; cursor: pointer; opacity: 0.7;
+    text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
+  }
+  .trd-fb-clear:hover { opacity: 1; }
   /* Outlined, low-saturation chips: a label/sort-aid, NOT a solid stoplight. */
   .trd-band {
     display: inline-block;
@@ -325,7 +438,16 @@
     text-decoration: underline; cursor: pointer; opacity: 0.85;
   }
   .trd-linkbtn:hover { opacity: 1; }
-  .trd-table { border-collapse: collapse; width: 100%; }
+  /* table-layout:fixed + per-column widths so EVERY group table shares the same
+     column geometry → the last three columns (Vector · Source · action) line up
+     vertically across all the group tables. The Finding column takes the rest. */
+  .trd-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  /* border-box on BOTH cell types so a column's specified width is its actual
+     rendered width (padding inside). Without this, the header table (th, treated
+     border-box here) and the body-only reviewed tables (td, content-box) compute
+     column widths 16px apart and the columns don't line up across tables. */
+  .trd-table th,
+  .trd-table td { box-sizing: border-box; }
   .trd-table th {
     text-align: left;
     font-size: 0.7rem;
@@ -341,9 +463,15 @@
   .trd-row-stale td { border-left: 3px solid #c77700; }
   .trd-c-band { width: 5rem; }
   .trd-c-score { width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
-  .trd-c-vector { font-size: 0.75rem; opacity: 0.7; white-space: nowrap; }
-  .trd-c-prov { font-size: 0.72rem; opacity: 0.7; }
+  .trd-c-vector { width: 7rem; font-size: 0.75rem; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* ATT&CK chips sit just under the finding name, inset slightly to read as a
+     sub-line of the same cell. */
+  .trd-tech-inline { margin-top: 0.2rem; }
+  .trd-c-prov { width: 5rem; font-size: 0.72rem; opacity: 0.7; }
   .trd-c-act { width: 5rem; text-align: right; }
+  /* The Finding column takes the remaining width (table-layout:fixed); long names
+     + chips wrap inside it rather than widening the column. */
+  .trd-c-name { overflow-wrap: anywhere; }
   .trd-disp { font-size: 0.75rem; opacity: 0.85; margin-top: 0.15rem; }
   .trd-disp-by { opacity: 0.7; }
   .trd-stale { color: #c77700; font-weight: 600; }

@@ -7,12 +7,16 @@ import {
   popDrill,
   applyFilter,
   removeFilter,
+  toggleFilter,
+  clearFilters,
   VIEWS,
 } from '../lib/reportNavigation.js'
 
 const HIGH = { key: 'band', type: 'band', value: 'high', label: 'high' }
 const MED = { key: 'band', type: 'band', value: 'medium', label: 'medium' }
 const LIVE = { key: 'live', type: 'live', value: true, label: 'open only' }
+const PROV_USER = { key: 'provenance', type: 'provenance', value: 'USER', label: 'source: User' }
+const TYPE_COMP = { key: 'type', type: 'type', value: 'Component', label: 'type: Component' }
 
 describe('defaultNavState', () => {
   it('lands on ⑤ posture, no drill, no filters', () => {
@@ -119,5 +123,49 @@ describe('applyFilter / removeFilter', () => {
   it('applyFilter of a malformed filter (no key) is a no-op', () => {
     const s = defaultNavState()
     expect(applyFilter(s, { value: 'x' })).toBe(s)
+  })
+})
+
+describe('toggleFilter (in-view facet bar)', () => {
+  it('adds a facet when absent', () => {
+    expect(toggleFilter(defaultNavState(), HIGH).filters).toEqual([HIGH])
+  })
+  it('removes the same key+value on a second click (toggle off)', () => {
+    const s = toggleFilter(defaultNavState(), HIGH)
+    expect(toggleFilter(s, { ...HIGH }).filters).toEqual([])
+  })
+  it('replaces a different value of the same key (single-select per facet)', () => {
+    const s = toggleFilter(defaultNavState(), HIGH)
+    expect(toggleFilter(s, MED).filters).toEqual([MED])
+  })
+  it('AND-combines distinct facet keys (band + provenance + type)', () => {
+    let s = toggleFilter(defaultNavState(), HIGH)
+    s = toggleFilter(s, PROV_USER)
+    s = toggleFilter(s, TYPE_COMP)
+    expect(s.filters.map((f) => f.key).sort()).toEqual(['band', 'provenance', 'type'])
+  })
+  it('toggling one facet off leaves the others intact', () => {
+    let s = toggleFilter(defaultNavState(), HIGH)
+    s = toggleFilter(s, TYPE_COMP)
+    s = toggleFilter(s, { ...HIGH }) // band off
+    expect(s.filters).toEqual([TYPE_COMP])
+  })
+  it('malformed filter (no key) is a no-op', () => {
+    const s = defaultNavState()
+    expect(toggleFilter(s, { value: 'x' })).toBe(s)
+  })
+})
+
+describe('clearFilters', () => {
+  it('drops every filter, keeping the view + drill', () => {
+    let s = toggleFilter(defaultNavState(), HIGH)
+    s = toggleFilter(s, TYPE_COMP)
+    const c = clearFilters(s)
+    expect(c.filters).toEqual([])
+    expect(c.activeView).toBe(s.activeView)
+  })
+  it('is a no-op when there are no filters', () => {
+    const s = defaultNavState()
+    expect(clearFilters(s)).toBe(s)
   })
 })

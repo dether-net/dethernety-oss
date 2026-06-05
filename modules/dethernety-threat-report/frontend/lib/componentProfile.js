@@ -2,8 +2,9 @@
 //
 // ⑥ is a DRILL TARGET, not a top-level report (func §6.⑥): it earns its place by
 // SYNTHESISING residual risk per element rather than re-skinning the canvas
-// inspector. Reachable for a Component, a SecurityBoundary, or a Data node (all
-// finding-bearing) — same drill, applied to whichever element. Pure composition
+// inspector. Reachable for a Component, a SecurityBoundary, a Data node, or a
+// DataFlow (all finding-bearing) — same drill, applied to whichever element. Pure
+// composition
 // over the snapshot doc (`ledger` + `modelGraph`, both gathered at generate
 // time) — no Vue, no network, unit-tested.
 //
@@ -159,6 +160,57 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
       return String(a.name).localeCompare(String(b.name))
     })
 
+  // Cross-type id → display name (every element class), reused by the handled-by
+  // resolver below and the 1-hop neighbour resolver further down.
+  const nameById = new Map([
+    ...components.map((c) => [c.id, c.name]),
+    ...boundaries.map((b) => [b.id, b.name]),
+    ...dataNodes.map((d) => [d.id, d.name]),
+    ...ledgerArr.map((e) => [e.id, e.name]),
+  ])
+
+  // Inverse of the data sub-block: for a DATA target, the elements that HANDLE it
+  // (its `handledBy` topology) — components / data flows / security boundaries —
+  // each with its own posture, drillable to its ⑥. This is the relational context a
+  // Data profile would otherwise lack (the forward `dataHandled` block above covers
+  // the handling element → its Data; this covers Data → its handlers). A
+  // since-removed handler that no longer resolves is marked so the view renders it
+  // non-clickable rather than a dead link. Empty for non-Data targets.
+  const typeOfId = (id) =>
+    ledgerById.get(id)?.type ??
+    (components.some((c) => c.id === id)
+      ? 'Component'
+      : boundaries.some((b) => b.id === id)
+        ? 'SecurityBoundary'
+        : dataNodes.some((d) => d.id === id)
+          ? 'Data'
+          : flows.some((f) => f.id === id)
+            ? 'DataFlow'
+            : '(unknown)')
+  let handledByElements = []
+  if (type === 'Data' && dataN && Array.isArray(dataN.handledBy)) {
+    const seen = new Set()
+    for (const hid of dataN.handledBy) {
+      if (!hid || seen.has(hid)) continue
+      seen.add(hid)
+      const p = postureOf(ledgerById.get(hid))
+      handledByElements.push({
+        id: hid,
+        name: nameById.get(hid) ?? '(not in snapshot)',
+        type: typeOfId(hid),
+        resolved: nameById.has(hid),
+        liveCount: p.liveCount,
+        worstBand: p.worstBand,
+        hasControl: p.hasControl,
+      })
+    }
+    handledByElements.sort(
+      (a, b) =>
+        String(a.type).localeCompare(String(b.type)) ||
+        String(a.name).localeCompare(String(b.name)),
+    )
+  }
+
   // 1-hop flow neighbours. For a Component: every flow with this element as an
   // endpoint → the OTHER endpoint, with direction + carried sensitivity. For a
   // DataFlow target: its two endpoints. Boundary / Data ⇒ none (flows connect
@@ -166,13 +218,8 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
   // resolved in the snapshot (a since-removed / non-component endpoint), in which
   // case it's marked unresolved so the view renders it as non-clickable rather
   // than a dead "(unknown)" link. Resolve across every element type, not just
-  // components, so a boundary/data endpoint isn't silently mislabeled.
-  const nameById = new Map([
-    ...components.map((c) => [c.id, c.name]),
-    ...boundaries.map((b) => [b.id, b.name]),
-    ...dataNodes.map((d) => [d.id, d.name]),
-    ...ledgerArr.map((e) => [e.id, e.name]),
-  ])
+  // components, so a boundary/data endpoint isn't silently mislabeled (uses the
+  // `nameById` map built above).
   const resolveNeighbour = (id) => ({
     id,
     name: nameById.get(id) ?? '(not in snapshot)',
@@ -229,13 +276,27 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
       String(a.neighbourName).localeCompare(String(b.neighbourName)),
   )
 
+  // Minimap highlight: a Component / SecurityBoundary / Data highlights itself; a
+  // DataFlow has no node of its own on the map, so — exactly like ③'s flow
+  // selection — it highlights its two endpoints (the edge between them reads as the
+  // flow). Falls back to the flow id if endpoints are missing.
+  const highlightIds =
+    type === 'DataFlow' && flow
+      ? [flow.sourceId, flow.targetId].filter(Boolean)
+      : [elementId]
+  // For a DataFlow, also highlight its own edge (the line), so the flow itself —
+  // not only its endpoints — is traceable on the minimap.
+  const highlightEdgeIds = type === 'DataFlow' && flow ? [elementId] : []
+
   return {
     element,
     boundaryContext,
     ownExposures,
     dataHandled,
+    handledByElements,
     controls: own.supportingControls,
     neighbours,
-    highlightIds: [elementId],
+    highlightIds,
+    highlightEdgeIds,
   }
 }

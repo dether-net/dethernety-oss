@@ -31,6 +31,10 @@
   const props = defineProps({
     modelGraph: { type: Object, default: null },
     highlightIds: { type: Array, default: () => [] },
+    // Flow ids of the edges ON the highlighted route, so the PATH (not just its
+    // nodes) is traceable on the map. Precise (a flow-id list), so a chord between
+    // two highlighted nodes that isn't on the route stays un-highlighted.
+    highlightEdgeIds: { type: Array, default: () => [] },
     crownJewelIds: { type: Array, default: () => [] },
     entryPointIds: { type: Array, default: () => [] },
     // ②'s mode-B "pick two" first-pick state — a dashed-stroke pending node.
@@ -50,6 +54,17 @@
   const onNodeClick = (component) => {
     if (props.selectable) emit('pick', component.id)
   }
+
+  // A route edge: highlighted (cyan) when its flow id is in highlightEdgeIds.
+  const isEdgeHighlighted = (edge) => props.highlightEdgeIds.includes(edge.id)
+  // Paint highlighted edges LAST so the route line is never hidden under a grey
+  // edge crossing it.
+  const orderedEdges = computed(() => {
+    const norm = []
+    const hi = []
+    for (const e of layout.value.edges) (isEdgeHighlighted(e) ? hi : norm).push(e)
+    return [...norm, ...hi]
+  })
 
   const SVG_PADDING = 20
 
@@ -376,6 +391,9 @@
         <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
           <polygon points="0 0, 6 2, 0 4" fill="#9E9E9E" />
         </marker>
+        <marker id="arrowhead-hl" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+          <polygon points="0 0, 6 2, 0 4" fill="#00B8D4" />
+        </marker>
       </defs>
 
       <!-- Boundaries (outer painted first; nested painted on top).
@@ -399,17 +417,17 @@
         </rect>
       </g>
 
-      <!-- Edges -->
+      <!-- Edges (route edges painted cyan + thicker, and last so they sit on top) -->
       <line
-        v-for="e in layout.edges"
+        v-for="e in orderedEdges"
         :key="'e-' + e.id"
         :x1="e.x1"
         :y1="e.y1"
         :x2="e.x2"
         :y2="e.y2"
-        stroke="#9E9E9E"
-        stroke-width="1"
-        marker-end="url(#arrowhead)"
+        :stroke="isEdgeHighlighted(e) ? '#00B8D4' : '#9E9E9E'"
+        :stroke-width="isEdgeHighlighted(e) ? 2.5 : 1"
+        :marker-end="isEdgeHighlighted(e) ? 'url(#arrowhead-hl)' : 'url(#arrowhead)'"
       >
         <title v-if="e.name">{{ e.name }}</title>
       </line>
@@ -546,6 +564,7 @@
             <ModelMinimap
               :model-graph="modelGraph"
               :highlight-ids="highlightIds"
+              :highlight-edge-ids="highlightEdgeIds"
               :crown-jewel-ids="crownJewelIds"
               :entry-point-ids="entryPointIds"
               :pending-ids="pendingIds"

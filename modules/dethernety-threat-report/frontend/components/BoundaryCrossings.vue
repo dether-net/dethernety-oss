@@ -36,6 +36,7 @@
           :model-graph="modelGraph"
           :crown-jewel-ids="crownJewelIds"
           :highlight-ids="highlightIds"
+          :highlight-edge-ids="highlightEdgeIds"
           variant="sidebar"
         />
         <p class="trd-minimap-hint">
@@ -92,7 +93,12 @@
           @keydown="onCardKey($event, g)"
         >
           <header class="trd-flow-head">
-            <span class="trd-flow-name">{{ g.flowName || '(unnamed flow)' }}</span>
+            <button
+              type="button"
+              class="trd-flow-name"
+              @click.stop="$emit('drill', g.flowId)"
+              :title="`Open ${g.flowName || 'flow'} profile`"
+            >{{ g.flowName || '(unnamed flow)' }}</button>
             <span class="trd-flow-endpoints">
               <button type="button" class="trd-drill-mini" @click.stop="$emit('drill', g.sourceId)" :title="`Open ${compName(g.sourceId)} profile`">{{ compName(g.sourceId) }}</button>
               <span class="trd-ep-arrow" aria-hidden="true">→</span>
@@ -138,7 +144,12 @@
             @keydown="onCardKey($event, g)"
           >
             <header class="trd-flow-head">
-              <span class="trd-flow-name">{{ g.flowName || '(unnamed flow)' }}</span>
+              <button
+              type="button"
+              class="trd-flow-name"
+              @click.stop="$emit('drill', g.flowId)"
+              :title="`Open ${g.flowName || 'flow'} profile`"
+            >{{ g.flowName || '(unnamed flow)' }}</button>
               <span class="trd-sens" :class="sensClass(g)">{{ sensChipLabel(g) }}</span>
             </header>
             <ul class="trd-membranes">
@@ -202,6 +213,12 @@
     const g = selectedFlow.value
     return g ? [g.sourceId, g.targetId].filter(Boolean) : []
   })
+  // The crossing's own flow edge — highlight the LINE too, not just its endpoints,
+  // so the pierced membrane crossing is traceable on the map.
+  const highlightEdgeIds = computed(() => {
+    const g = selectedFlow.value
+    return g ? [g.flowId] : []
+  })
   const toggleSelect = (g) => {
     selectedFlowId.value = selectedFlowId.value === g.flowId ? '' : g.flowId
   }
@@ -244,7 +261,17 @@
   .trd-flag--error { color: #a02020; background: rgba(192, 57, 43, 0.1); }
 
   .trd-cross-body { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
-  .trd-minimap-pane { flex: 0 0 280px; max-width: 320px; min-width: 220px; }
+  /* The minimap is the spatial home — keep it visible while the ledger scrolls.
+     The shell's .trd-view is the scroll container, so a sticky pane pins to its
+     top (align-self:flex-start so the flex item isn't stretched, which would
+     leave no room to stick). A surface background keeps it clean if a wide
+     membrane row ever underlaps during momentum scroll. */
+  .trd-minimap-pane {
+    flex: 0 0 280px; max-width: 320px; min-width: 220px;
+    position: sticky; top: 0; align-self: flex-start; z-index: 1;
+    background: rgb(var(--v-theme-surface, 33 33 33));
+    padding-bottom: 0.4rem;
+  }
   .trd-minimap-hint { font-size: 0.72rem; opacity: 0.65; margin: 0.3rem 0 0; }
   .trd-cross-main { flex: 1 1 360px; min-width: 320px; }
 
@@ -279,7 +306,19 @@
   .trd-flow--muted { opacity: 0.62; }
 
   .trd-flow-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  .trd-flow-name { font-weight: 600; }
+  /* The flow name drills into the flow's own ⑥ profile (its on-flow exposures +
+     endpoints). A dotted-underline link like the other drill affordances; @click.stop
+     keeps the card's map-highlight click intact. font-family/size inherit (not the
+     `font` shorthand) so the 600 weight survives. */
+  .trd-flow-name {
+    font-weight: 600;
+    background: none; border: none; padding: 0;
+    font-family: inherit; font-size: inherit; color: inherit;
+    cursor: pointer; text-align: left;
+    text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
+  }
+  .trd-flow-name:hover { text-decoration-style: solid; color: #00b8d4; }
+  .trd-flow-name:focus-visible { outline: 2px solid #00b8d4; outline-offset: 1px; }
   /* Posture markers are muted CONTEXT, not a red/green per-row verdict. */
   .trd-flow-expo { font-size: 0.74rem; color: #8a5a00; }
   .trd-flow-ctrl { font-size: 0.74rem; color: #4a6a55; }

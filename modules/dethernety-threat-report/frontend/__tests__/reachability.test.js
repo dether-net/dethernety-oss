@@ -183,6 +183,11 @@ describe('annotateRoute', () => {
     expect(a.hops[2].crossings).toEqual([]) // api→db (both App)
     expect(a.crossingCount).toBe(2)
 
+    // each hop carries its DataFlow id + name (the strip renders them as a
+    // drillable edge label → the flow's own ⑥ profile).
+    expect(a.hops.map((h) => h.flowId)).toEqual(['f1', 'f2', 'f3'])
+    expect(a.hops[1]).toHaveProperty('flowName')
+
     // carried sensitivity on api→db.
     expect(a.hops[2].maxSensitivity).toBe('RESTRICTED')
 

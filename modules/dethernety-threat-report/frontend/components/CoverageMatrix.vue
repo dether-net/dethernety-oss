@@ -25,13 +25,6 @@
 -->
 <template>
   <div class="trd-coverage">
-    <p class="trd-caveat">
-      Modeled / design-asserted coverage — <strong>not</strong> deployed telemetry. Counts are
-      <strong>tier-segregated</strong> (DIRECT / Mitigation / D3FEND) and function-classified; there is
-      <strong>no</strong> coverage percentage and no single “covered” total — the broad D3FEND tier is shown as a
-      distinct hatch, never blended into a headline.
-    </p>
-
     <!-- Coverage unavailable (module not deployed / not yet fetched): never a green grid. -->
     <p v-if="!view.available" class="trd-empty">
       Coverage facts are unavailable — the <code>dethernety-coverage-tools</code> module is not deployed for this
@@ -62,7 +55,25 @@
           @click="gapsOnly = !gapsOnly"
           title="Show only uncovered + detect-only techniques (the fund-a-control worklist)"
         >uncovered + detect-only</button>
+        <span class="trd-cov-ctl-sep" aria-hidden="true">·</span>
+        <!-- The persistent honesty caveat, condensed to a one-line toggle to reclaim
+             vertical space — the full disclaimer (modeled, not telemetry; no percentage)
+             expands on demand and still rides into the export footer. -->
+        <button
+          type="button"
+          class="trd-cov-ctl trd-cov-ctl--info"
+          :class="{ 'trd-cov-ctl--on': showCaveat }"
+          @click="showCaveat = !showCaveat"
+          title="Modeled / design-asserted coverage — not deployed telemetry. Click for the full caveat."
+        >ⓘ Modeled coverage</button>
       </div>
+
+      <p v-if="showCaveat" class="trd-caveat">
+        Modeled / design-asserted coverage — <strong>not</strong> deployed telemetry. Counts are
+        <strong>tier-segregated</strong> (DIRECT / Mitigation / D3FEND) and function-classified; there is
+        <strong>no</strong> coverage percentage and no single “covered” total — the broad D3FEND tier is shown as a
+        distinct hatch, never blended into a headline.
+      </p>
 
       <!-- The legend (collapsed by default; baked into the export footer too). -->
       <table v-if="showLegend" class="trd-legend" aria-label="Coverage encoding legend">
@@ -75,15 +86,52 @@
         </tbody>
       </table>
 
-      <!-- OFF-GRID banners (never cells) -->
+      <!-- OFF-GRID notes — the counts are an honesty signal (the design fights the
+           "false all-clear"), so the SUMMARY line with its counts is ALWAYS visible;
+           only the verbose prose collapses behind it. Never hide the counts. -->
+      <div v-if="offGridParts.length" class="trd-offgrid-summary">
+        <div class="trd-offgrid-sumhead" @click="showOffgrid = !showOffgrid" :title="showOffgrid ? 'Hide the off-grid details' : 'Show the off-grid details'">
+          <span class="trd-offgrid-caret" aria-hidden="true">{{ showOffgrid ? '▾' : '▸' }}</span>
+          <span class="cov-offgrid-mark" aria-hidden="true">⚠</span>
+          <span class="trd-offgrid-sumlabel">Off-grid:</span>
+          <template v-for="(p, i) in offGridParts" :key="p.key"
+            ><span class="trd-offgrid-stat">{{ p.label }}</span><span v-if="i < offGridParts.length - 1" class="trd-offgrid-statsep"> · </span
+          ></template>
+        </div>
+      </div>
+
+      <template v-if="showOffgrid">
       <p v-if="view.offGrid.softCount > 0" class="trd-offgrid">
         <span class="cov-offgrid-mark" aria-hidden="true">▦</span>
         {{ view.offGrid.softCount }} live exposure(s) have no ATT&CK mapping — coverage cannot be assessed (off-grid).
       </p>
-      <p v-if="view.offGrid.dataMappedCount > 0" class="trd-offgrid">
-        {{ view.offGrid.dataMappedCount }} Data exposure(s) map to ATT&CK; data-level coverage is not assessable —
-        see Residual Risk (controls are attributed to the handling element, never to Data).
-      </p>
+      <div v-if="view.offGrid.dataMappedCount > 0" class="trd-offgrid">
+        <div
+          class="trd-offgrid-head"
+          :class="{ 'trd-offgrid-head--toggle': dataMapped.length }"
+          :title="dataMapped.length ? (showData ? 'Hide the techniques these Data exposures map to' : 'Show the techniques these Data exposures map to') : null"
+          @click="dataMapped.length && (showData = !showData)"
+        >
+          <span v-if="dataMapped.length" class="trd-offgrid-caret" aria-hidden="true">{{ showData ? '▾' : '▸' }}</span>
+          {{ view.offGrid.dataMappedCount }} Data exposure(s) map to ATT&CK; data-level coverage is not assessable —
+          see Residual Risk (controls are attributed to the handling element, never to Data).
+        </div>
+        <!-- The mapping IS known (a fact about the exposure) even though coverage is
+             not assessable for Data — disclosed here OFF-GRID: no tier fill/glyph, so
+             a chip is identity + launcher, never a coverage claim. One row per Data
+             element (drill → its profile); chips open the shared technique dialog. -->
+        <div v-if="showData" class="trd-offgrid-list">
+          <div v-for="d in dataMapped" :key="d.elementId" class="trd-offgrid-row">
+            <button
+              type="button"
+              class="trd-el-link"
+              @click="$emit('drill', d.elementId)"
+              :title="`open ${d.elementName} profile`"
+            >{{ d.elementName }}</button>
+            <TechniqueChips :techniques="d.techniques" dense @show="infoTech = $event" />
+          </div>
+        </div>
+      </div>
       <p v-for="cls in view.structuralGaps" :key="cls" class="trd-offgrid trd-offgrid--structural">
         No control in this model supports any <strong>{{ classLabel(cls) }}</strong> — a structural / maturity gap
         (one completeness line, not a per-technique cell count).
@@ -92,6 +140,7 @@
         {{ view.offGrid.dispositionedExcluded }} dispositioned exposure(s) excluded from the live coverage grid
         (still listed in Residual Risk — never silently dropped).
       </p>
+      </template>
 
       <!-- Empty grid: no technique reached — suppress the grid, never a clean-green matrix. -->
       <p v-if="!rows.length" class="trd-empty">
@@ -109,7 +158,16 @@
           <thead>
             <tr>
               <th class="trd-matrix-corner" scope="col">Technique</th>
-              <th v-for="tac in tactics" :key="tac" scope="col" class="trd-matrix-col">{{ tac }}</th>
+              <th
+                v-for="tac in tactics"
+                :key="tac"
+                scope="col"
+                class="trd-matrix-col trd-matrix-col--btn"
+                :class="{ 'trd-matrix-col--active': tacticFilter === tac }"
+                :aria-pressed="tacticFilter === tac"
+                :title="tacticFilter === tac ? `showing only ${tac} techniques — click to clear` : `show only techniques in ${tac}`"
+                @click="toggleTactic(tac)"
+              >{{ tac }}<span v-if="tacticFilter === tac" class="trd-matrix-col-x" aria-hidden="true"> ✕</span></th>
               <th scope="col" class="trd-matrix-best">Best</th>
             </tr>
           </thead>
@@ -186,28 +244,17 @@
     </template>
 
     <!-- "What is this technique?" dialog — an attack_id is opaque on its own, so a
-         row's ⓘ opens the ATT&CK name + tactics + description here. -->
-    <div v-if="infoTech" class="trd-info-overlay" @click.self="closeInfo">
-      <div class="trd-info-panel" role="dialog" aria-modal="true" aria-labelledby="trd-info-title">
-        <div class="trd-info-head">
-          <h3 id="trd-info-title" class="trd-info-title">
-            <span class="trd-info-id">{{ infoTech.techniqueId }}</span><span v-if="infoTech.name"> · {{ infoTech.name }}</span>
-          </h3>
-          <button type="button" class="trd-info-close" @click="closeInfo" aria-label="Close">✕</button>
-        </div>
-        <p v-if="infoTech.tactics && infoTech.tactics.length" class="trd-info-tactics">
-          Tactics: {{ infoTech.tactics.join(' · ') }}
-        </p>
-        <p class="trd-info-desc">{{ infoDescription }}</p>
-        <p class="trd-info-foot">MITRE ATT&amp;CK technique · {{ infoTech.techniqueId }}</p>
-      </div>
-    </div>
+         row's ⓘ opens the ATT&CK name + tactics + description here. The SHARED
+         dialog (also used by ⑥ and ④), so the affordance is identical everywhere. -->
+    <TechniqueInfoDialog :technique="infoTech" @close="closeInfo" />
   </div>
 </template>
 
 <script setup>
-  import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+  import { computed, reactive, ref } from 'vue'
   import { buildCoverageView, filterByTier, TIER_LABEL } from '../lib/coverageMatrix.js'
+  import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
+  import TechniqueChips from './TechniqueChips.vue'
 
   const props = defineProps({
     // Parsed gradedCoverage (or null when coverage-tools isn't deployed).
@@ -222,6 +269,17 @@
   const showLegend = ref(false)
   const tierFilter = ref('all')
   const gapsOnly = ref(false)
+  // Click a tactic column header to filter the rows to techniques in that tactic
+  // (null = all tactics). A second click on the same header clears it.
+  const tacticFilter = ref(null)
+  const toggleTactic = (tac) => { tacticFilter.value = tacticFilter.value === tac ? null : tac }
+  // Expand state for the off-grid Data → ATT&CK disclosure (collapsed by default —
+  // a count line that opens to the per-element technique chips on demand).
+  const showData = ref(false)
+  // Header-weight reclaim: the full caveat + the verbose off-grid prose collapse
+  // behind compact toggles (the off-grid COUNTS stay visible — see offGridParts).
+  const showCaveat = ref(false)
+  const showOffgrid = ref(false)
 
   // Per-technique expand state for the impacted-element list (collapsed by default;
   // multi-element rows reveal their full list on demand).
@@ -234,25 +292,25 @@
   const infoTech = ref(null)
   const openInfo = (r) => { infoTech.value = r }
   const closeInfo = () => { infoTech.value = null }
-  // MITRE descriptions carry markdown noise — inline "(Citation: …)" markers,
-  // "[text](url)" links, and the odd HTML tag. Reduce to clean prose for reading.
-  const infoDescription = computed(() => {
-    const d = infoTech.value?.description
-    if (!d) return 'No description is available for this technique.'
-    return d
-      .replace(/\(Citation:[^)]*\)/g, '') // citation markers
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // markdown links → their text
-      .replace(/<\/?[^>]+>/g, '') // stray HTML tags
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  })
-  const onKeydown = (e) => { if (e.key === 'Escape' && infoTech.value) closeInfo() }
-  onMounted(() => window.addEventListener('keydown', onKeydown))
-  onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
   const view = computed(() => buildCoverageView(props.coverage, props.ledger))
   const tactics = computed(() => (view.value.available ? view.value.tactics : []))
+  // The off-grid Data exposures with their resolved ATT&CK techniques (per element).
+  const dataMapped = computed(() => (view.value.available ? view.value.offGrid?.dataMapped ?? [] : []))
+
+  // The always-visible off-grid COUNTS (the honesty signal). Each present category
+  // becomes a compact stat; the verbose prose lives behind the expand. Plural-aware.
+  const offGridParts = computed(() => {
+    if (!view.value.available) return []
+    const o = view.value.offGrid ?? {}
+    const sg = view.value.structuralGaps ?? []
+    const parts = []
+    if (o.softCount > 0) parts.push({ key: 'soft', label: `${o.softCount} unmapped` })
+    if (o.dataMappedCount > 0) parts.push({ key: 'data', label: `${o.dataMappedCount} Data-mapped` })
+    if (sg.length) parts.push({ key: 'struct', label: `${sg.length} structural gap${sg.length > 1 ? 's' : ''}` })
+    if (o.dispositionedExcluded > 0) parts.push({ key: 'disp', label: `${o.dispositionedExcluded} excluded` })
+    return parts
+  })
 
   // Rows after the local tier filter + the uncovered/detect-only preset.
   const rows = computed(() => {
@@ -261,6 +319,9 @@
     let out = filterByTier(view.value.rows, tierFilter.value)
     if (gapsOnly.value) {
       out = out.filter((r) => r.status === 'UNCOVERED' || r.status === 'DETECT_ONLY')
+    }
+    if (tacticFilter.value) {
+      out = out.filter((r) => r.tactics.includes(tacticFilter.value))
     }
     return out
   })
@@ -324,6 +385,32 @@
   .trd-offgrid--structural { border-left-color: #c77700; }
   .cov-offgrid-mark { font-family: monospace; opacity: 0.6; }
 
+  /* The compact off-grid SUMMARY — one line, counts always visible, the prose behind
+     a caret. Keeps the honesty signal at a glance while halving the header weight. */
+  .trd-offgrid-summary { margin: 0.4rem 0; }
+  .trd-offgrid-sumhead {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem;
+    font-size: 0.82rem; cursor: pointer; padding: 0.3rem 0.6rem;
+    background: rgba(127,127,127,0.08); border-left: 3px solid rgba(199,119,0,0.7); border-radius: 0 4px 4px 0;
+  }
+  .trd-offgrid-sumhead:hover { background: rgba(127,127,127,0.14); }
+  .trd-offgrid-sumlabel { font-weight: 600; opacity: 0.85; }
+  .trd-offgrid-stat { opacity: 0.9; }
+  .trd-offgrid-statsep { opacity: 0.4; }
+  /* The condensed caveat toggle reads as a muted info affordance, not a filter. */
+  .trd-cov-ctl--info { opacity: 0.7; }
+  .trd-cov-ctl--info:hover { opacity: 1; }
+
+  /* The Data → ATT&CK disclosure: a count line that expands to per-element chips.
+     The head is the toggle (caret) when there's something to reveal; the list sits
+     under it, indented to align past the caret. OFF-grid: no tier fill ever here. */
+  .trd-offgrid-head { display: flex; align-items: baseline; gap: 0.3rem; }
+  .trd-offgrid-head--toggle { cursor: pointer; }
+  .trd-offgrid-head--toggle:hover { opacity: 0.95; }
+  .trd-offgrid-caret { font-size: 0.65rem; opacity: 0.7; flex: 0 0 auto; }
+  .trd-offgrid-list { margin: 0.45rem 0 0.1rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .trd-offgrid-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+
   /* Fills the remaining column height (flex:1) and is the single scroll region —
      both axes scroll HERE (sticky headers pin to it), and because it sizes to the
      leftover space the page never needs a second scrollbar. */
@@ -335,6 +422,11 @@
     border-bottom: 1px solid rgba(127,127,127,0.3); white-space: nowrap;
   }
   .trd-matrix-col { writing-mode: horizontal-tb; max-width: 8rem; }
+  /* Clickable tactic header → filter rows to that tactic (toggle). */
+  .trd-matrix-col--btn { cursor: pointer; user-select: none; }
+  .trd-matrix-col--btn:hover { color: #00b8d4; }
+  .trd-matrix-col--active { color: #00b8d4; background: rgba(0,184,212,0.12) !important; }
+  .trd-matrix-col-x { font-size: 0.65rem; opacity: 0.8; }
   /* The technique-id column is sticky on BOTH axes' intersection (corner) and the
      row headers stay anchored on horizontal scroll, so a wide matrix never loses
      its row labels. */
@@ -383,29 +475,6 @@
   .trd-el-link:hover { color: #00b8d4; opacity: 1; }
   .trd-el-link--covered { opacity: 0.5; }
   .trd-el-link:focus-visible, .trd-tech-count:focus-visible, .trd-cov-ctl:focus-visible { outline: 2px solid #00b8d4; outline-offset: 1px; }
-
-  /* Technique info dialog */
-  .trd-info-overlay {
-    position: fixed; inset: 0; z-index: 1000; padding: 1rem;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .trd-info-panel {
-    background: rgb(var(--v-theme-surface, 33 33 33));
-    color: rgb(var(--v-theme-on-surface, 255 255 255));
-    border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 8px;
-    width: 100%; max-width: 640px; max-height: 80vh; overflow-y: auto;
-    padding: 1rem 1.2rem; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-  }
-  .trd-info-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-  .trd-info-title { margin: 0; font-size: 1.05rem; line-height: 1.3; }
-  .trd-info-id { font-family: ui-monospace, monospace; }
-  .trd-info-close { background: none; border: none; font: inherit; font-size: 1.1rem; color: inherit; opacity: 0.7; cursor: pointer; }
-  .trd-info-close:hover { opacity: 1; }
-  .trd-info-close:focus-visible { outline: 2px solid #00b8d4; outline-offset: 2px; }
-  .trd-info-tactics { font-size: 0.78rem; opacity: 0.7; margin: 0.35rem 0 0.7rem; }
-  .trd-info-desc { font-size: 0.85rem; line-height: 1.55; margin: 0; white-space: pre-wrap; }
-  .trd-info-foot { font-size: 0.7rem; opacity: 0.5; margin: 0.9rem 0 0; }
 
   /* The encoding — a MONOCHROME ramp (magnitude, not colour) + one hatch texture.
      Greyscale only: tier strength never shares a channel with severity (which owns

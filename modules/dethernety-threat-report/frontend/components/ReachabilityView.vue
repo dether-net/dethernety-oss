@@ -51,24 +51,51 @@
     </nav>
 
     <div class="trd-reach-body">
-      <!-- spatial home: the faithful minimap (expanded variant; clickable in B) -->
+      <!-- spatial home: the faithful minimap. A glanceable sidebar overview with
+           the built-in ENLARGE (⤢) button → a big modal (DFD shapes + readable
+           labels) that is the primary pick-two surface for busy models; selection
+           + pending + route highlight are forwarded into the modal. -->
       <div class="trd-reach-map">
         <ModelMinimap
           :model-graph="modelGraph"
           :crown-jewel-ids="jewelIds"
           :entry-point-ids="entryIds"
           :highlight-ids="mapHighlightIds"
+          :highlight-edge-ids="mapHighlightEdgeIds"
           :pending-ids="mapPendingIds"
           :selectable="subMode === 'B'"
-          variant="expanded"
+          variant="sidebar"
           @pick="onMapPick"
         />
         <p class="trd-reach-maphint">
-          <span v-if="subMode === 'B' && !mbTarget && mbOrigin">Pick the <strong>target</strong> node (on the map or below).</span>
-          <span v-else-if="subMode === 'B' && !mbOrigin">Pick the <strong>origin</strong> node (on the map or below).</span>
+          <span v-if="subMode === 'B' && !mbTarget && mbOrigin">Pick the <strong>target</strong> node — enlarge the map (⤢) to click it, or choose below.</span>
+          <span v-else-if="subMode === 'B' && !mbOrigin">Pick the <strong>origin</strong> node — enlarge the map (⤢) to click it, or choose below.</span>
           <span v-else-if="subMode === 'B'"><button type="button" class="trd-linkbtn" @click="resetPicks">reset selection</button></span>
           <span v-else>Crown jewels are <span class="trd-key-jewel">red</span>, external entry-points <span class="trd-key-entry">amber</span>. Highlight a route from the list.</span>
         </p>
+
+        <!-- Route legend — the strip vocabulary, so the glyphs aren't cryptic.
+             Reuses the strip's own glyph classes, so the colours match exactly. -->
+        <div v-if="subMode === 'B'" class="trd-reach-legend" aria-label="Route legend">
+          <span class="trd-leg-title">Route legend</span>
+          <span class="trd-leg-item">
+            <span class="trd-strip-glyph" aria-hidden="true">◉</span> component ·
+            <span class="trd-strip-glyph trd-strip-glyph--jewel" aria-hidden="true">⬢</span> crown jewel
+          </span>
+          <span class="trd-leg-item">
+            <em class="trd-leg-flow">flow name</em> — data flow on a hop (opens its profile)
+          </span>
+          <span class="trd-leg-item">
+            <span class="trd-cross--exit">◂ EXIT</span> / <span class="trd-cross--enter">▸ ENTER</span> — boundary crossing (opens the boundary)
+          </span>
+          <span class="trd-leg-item">
+            <span class="trd-leg-dots" aria-hidden="true"><span class="trd-dot trd-dot--critical">⬤</span><span class="trd-dot trd-dot--high">⬤</span><span class="trd-dot trd-dot--medium">⬤</span><span class="trd-dot trd-dot--low">⬤</span></span>
+            worst live threat (critical → low)
+          </span>
+          <span class="trd-leg-item">
+            <span class="trd-sens trd-sens--restricted">Restricted</span> data sensitivity (carried / handled)
+          </span>
+        </div>
       </div>
 
       <!-- ───────────────────── Mode A ───────────────────── -->
@@ -193,13 +220,21 @@
                     <span v-for="d in n.dataHandled" :key="d.id" class="trd-sens" :class="`trd-sens--${String(d.sensitivity || 'nodata').toLowerCase()}`" :title="`handles ${d.name}`">{{ d.sensitivityLabel }}</span>
                     <button type="button" class="trd-onward" @click="pivotTo(n.id)" title="trace onward from here">▸ onward</button>
                   </span>
-                  <!-- hop connector (between node ni and ni+1) -->
+                  <!-- hop connector (between node ni and ni+1) = the DataFlow itself,
+                       now NAMED + drillable into its own ⑥ profile. -->
                   <span v-if="ni < r.hops.length" class="trd-strip-hop">
-                    <span class="trd-strip-line" aria-hidden="true">───</span>
+                    <span class="trd-strip-line" aria-hidden="true">──</span>
+                    <button
+                      type="button"
+                      class="trd-drill-mini trd-strip-flow"
+                      @click="$emit('drill', r.hops[ni].flowId)"
+                      :title="`Open ${r.hops[ni].flowName || 'flow'} profile`"
+                    >{{ r.hops[ni].flowName || '(flow)' }}</button>
+                    <span class="trd-strip-line" aria-hidden="true">──</span>
                     <span class="trd-hop-marks">
                       <span v-if="r.hops[ni].maxSensitivity" class="trd-sens" :class="`trd-sens--${String(r.hops[ni].maxSensitivity).toLowerCase()}`" :title="`carries ${r.hops[ni].sensitivityLabel}`">{{ r.hops[ni].sensitivityLabel }}</span>
                       <span v-else-if="r.hops[ni].unclassifiedInMotion" class="trd-sens trd-sens--unclassified">unclassified</span>
-                      <span v-for="(c, ci) in r.hops[ni].crossings" :key="ci" class="trd-cross" :class="`trd-cross--${c.direction.toLowerCase()}`" :title="`${c.direction} ${c.boundaryName}`">{{ c.direction === 'EXIT' ? '◂' : '▸' }} {{ c.boundaryName }}</span>
+                      <button v-for="(c, ci) in r.hops[ni].crossings" :key="ci" type="button" class="trd-cross trd-cross-btn" :class="`trd-cross--${c.direction.toLowerCase()}`" @click="$emit('drill', c.boundaryId)" :title="`Open ${c.boundaryName} profile (${c.direction})`">{{ c.direction === 'EXIT' ? '◂' : '▸' }} {{ c.boundaryName }}</button>
                       <span v-if="r.hops[ni].worstBand" class="trd-dot" :class="`trd-dot--${r.hops[ni].worstBand}`" :title="`on-flow live: ${bandLabel(r.hops[ni].worstBand)}`" aria-hidden="true">⬤</span>
                     </span>
                   </span>
@@ -287,6 +322,17 @@
     if (r) return r.nodes.map((n) => n.id)
     return [mbOrigin.value, mbTarget.value].filter(Boolean)
   })
+  // The route EDGES (flow ids) to highlight, so the path is traceable — mode A = a
+  // chosen jewel's shortest route; mode B = the selected route's hops.
+  const mapHighlightEdgeIds = computed(() => {
+    if (subMode.value === 'A') {
+      if (!highlightedJewelId.value) return []
+      const j = modeA.value.jewels.find((x) => x.jewelId === highlightedJewelId.value)
+      return j?.shortestPath?.edges ?? []
+    }
+    const r = modeB.value?.routes?.[selectedRouteIdx.value]
+    return r ? r.hops.map((h) => h.flowId) : []
+  })
   const mapPendingIds = computed(() =>
     subMode.value === 'B' && mbOrigin.value && !mbTarget.value ? [mbOrigin.value] : [],
   )
@@ -349,8 +395,24 @@
 
   .trd-reach-body { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
   .trd-reach-map { flex: 0 0 340px; max-width: 420px; min-width: 260px; }
-  .trd-reach-map :deep(.minimap-container) { height: 300px; }
+  /* The sidebar variant sizes its own svg (≈180px) — no forced container height
+     (that was only needed by the full-height 'expanded' variant). The ⤢ button
+     opens the big modal where the real navigation/picking happens. */
   .trd-reach-maphint { font-size: 0.72rem; opacity: 0.65; margin: 0.3rem 0 0; }
+
+  /* Route legend — a compact key for the strip glyphs, below the minimap. */
+  .trd-reach-legend {
+    margin: 0.6rem 0 0; padding-top: 0.5rem;
+    border-top: 1px solid rgba(127, 127, 127, 0.2);
+    display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.7rem;
+  }
+  .trd-leg-title {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em;
+    opacity: 0.5; font-weight: 600;
+  }
+  .trd-leg-item { opacity: 0.85; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; line-height: 1.4; }
+  .trd-leg-flow { font-style: italic; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+  .trd-leg-dots { display: inline-flex; gap: 1px; }
   .trd-reach-main { flex: 1 1 420px; min-width: 320px; }
 
   .trd-key-jewel { color: #c62828; font-weight: 600; }
@@ -423,10 +485,20 @@
   .trd-onward:hover { opacity: 1; text-decoration: underline; }
   .trd-strip-hop { display: inline-flex; align-items: center; gap: 0.25rem; }
   .trd-strip-line { opacity: 0.4; }
+  /* The flow's name on the connector — the DataFlow made visible + drillable.
+     Smaller + italic so it reads as the EDGE label, distinct from the node names. */
+  .trd-strip-flow { font-size: 0.72rem; font-style: italic; opacity: 0.85; }
+  .trd-strip-flow:hover { opacity: 1; }
   .trd-hop-marks { display: inline-flex; align-items: center; gap: 0.25rem; }
   .trd-cross { font-size: 0.66rem; white-space: nowrap; }
   .trd-cross--exit { color: #b9651b; }
   .trd-cross--enter { color: #2c6fbb; }
+  /* The crossed boundary is drillable into its own ⑥ profile. Button reset only
+     (font-family/size, not the `font` shorthand) so the direction colour + 0.66rem
+     size survive; colour comes from the direction class above. */
+  .trd-cross-btn { background: none; border: none; padding: 0; font-family: inherit; cursor: pointer; }
+  .trd-cross-btn:hover { text-decoration: underline; }
+  .trd-cross-btn:focus-visible { outline: 2px solid #00b8d4; outline-offset: 1px; }
 
   /* sensitivity chip — outlined, low-saturation; a sort-aid, not a stoplight */
   .trd-sens { display: inline-block; border: 1px solid currentColor; border-radius: 10px; padding: 0 6px; font-size: 0.66rem; background: transparent; text-transform: capitalize; }

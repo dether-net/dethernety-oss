@@ -143,6 +143,12 @@ export function buildCoverageView(coverage, ledger) {
   let softCount = 0
   let dataMappedCount = 0
   let dispositionedExcluded = 0
+  // Data exposures are OFF the coverage grid (a control can't SUPPORTS Data, so
+  // coverage is not assessable) — but the ATT&CK mapping itself IS a known fact
+  // about the exposure. Collect it, grouped by the Data element, so ① can reveal
+  // (off-grid, no tier encoding) WHICH techniques each Data element maps to —
+  // never a coverage claim, just the mapping the banner used to only count.
+  const dataMappedByElement = new Map()
 
   for (const e of coverage.exposures) {
     const live = isLive(e.exposureId)
@@ -158,6 +164,21 @@ export function buildCoverageView(coverage, ledger) {
     if (e.elementKind === 'Data') {
       // off the grid (controls can't SUPPORTS Data); count toward §4.3 completeness
       dataMappedCount++
+      // …and retain the technique mapping (deduped, resolved) so ① can disclose it
+      // without ever charting Data as covered/uncovered. Grouped per Data element.
+      for (const t of e.techniques ?? []) {
+        if (!t || !t.techniqueId) continue
+        let d = dataMappedByElement.get(e.elementId)
+        if (!d) dataMappedByElement.set(e.elementId, (d = { seen: new Set(), techs: [] }))
+        if (d.seen.has(t.techniqueId)) continue
+        d.seen.add(t.techniqueId)
+        d.techs.push({
+          techniqueId: t.techniqueId,
+          name: techInfo[t.techniqueId]?.name ?? null,
+          tactics: Array.isArray(t.tactics) ? t.tactics : [],
+          description: techInfo[t.techniqueId]?.description ?? null,
+        })
+      }
       continue
     }
     const inGrid = GRID_KINDS.has(e.elementKind)
@@ -241,6 +262,16 @@ export function buildCoverageView(coverage, ledger) {
   rows.sort((a, b) => a.techniqueId.localeCompare(b.techniqueId))
   const tactics = [...tacticSet].sort(tacticSort)
 
+  // --- off-grid Data → ATT&CK disclosure: one drillable entry per Data element,
+  //     its techniques deduped + id-sorted (the chips the ① banner reveals) ---
+  const dataMapped = [...dataMappedByElement.entries()]
+    .map(([elementId, d]) => ({
+      elementId,
+      elementName: nameById.get(elementId) ?? elementId,
+      techniques: d.techs.sort((a, b) => a.techniqueId.localeCompare(b.techniqueId)),
+    }))
+    .sort((a, b) => a.elementName.localeCompare(b.elementName))
+
   // --- structural gaps: element CLASSES with zero supporting controls model-wide ---
   const classHasControl = {}
   const classHasElement = {}
@@ -271,7 +302,7 @@ export function buildCoverageView(coverage, ledger) {
     generatedAt: coverage.generatedAt ?? null,
     tactics,
     rows,
-    offGrid: { softCount, dataMappedCount, dispositionedExcluded },
+    offGrid: { softCount, dataMappedCount, dispositionedExcluded, dataMapped },
     structuralGaps,
     summary: {
       directPrevent: bucket.directPrevent.size,
@@ -285,6 +316,49 @@ export function buildCoverageView(coverage, ledger) {
     },
     mismatchByElement,
   }
+}
+
+/**
+ * Per-exposure ATT&CK technique index for the ⑥ profile + ④ ledger technique
+ * chips. The coverage payload is the ONLY source of exposure→technique mappings
+ * (the snapshot ledger carries none), so this resolves each exposure's techniques
+ * to the full { techniqueId, name, tactics, description } the shared
+ * TechniqueInfoDialog renders.
+ *
+ * Disposition-AGNOSTIC by design — a technique mapping is a fact about the
+ * exposure regardless of disposition — so it lights up live AND reviewed findings
+ * alike. Keyed by exposureId, which equals the ledger finding id (the same join
+ * buildCoverageView uses). Soft (unmapped) exposures yield no entry, so chips are
+ * purely additive: an exposure with no entry renders no chips — never a false
+ * "no techniques".
+ *
+ * @param {object|null} coverage parsed gradedCoverage (or null when unavailable)
+ * @returns {Object<string, Array<{techniqueId:string,name:?string,tactics:string[],description:?string}>>}
+ *   empty object when coverage is unavailable.
+ */
+export function buildExposureTechniqueIndex(coverage) {
+  const out = {}
+  if (!coverage || !Array.isArray(coverage.exposures)) return out
+  const techInfo = coverage.techniques ?? {}
+  for (const e of coverage.exposures) {
+    const techs = e.techniques ?? []
+    if (!techs.length) continue
+    const seen = new Set()
+    const list = []
+    for (const t of techs) {
+      if (!t || !t.techniqueId || seen.has(t.techniqueId)) continue
+      seen.add(t.techniqueId)
+      list.push({
+        techniqueId: t.techniqueId,
+        name: techInfo[t.techniqueId]?.name ?? null,
+        tactics: Array.isArray(t.tactics) ? t.tactics : [],
+        description: techInfo[t.techniqueId]?.description ?? null,
+      })
+    }
+    list.sort((a, b) => a.techniqueId.localeCompare(b.techniqueId))
+    if (list.length) out[e.exposureId] = list
+  }
+  return out
 }
 
 /**

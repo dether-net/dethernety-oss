@@ -64,83 +64,96 @@
           type="button"
           role="tab"
           class="trd-tab"
-          :class="{ 'trd-tab--active': nav.activeView === v && !nav.drill }"
-          :aria-selected="nav.activeView === v && !nav.drill"
+          :class="{ 'trd-tab--active': nav.activeView === v }"
+          :aria-selected="nav.activeView === v"
           @click="onSetView(v)"
         >{{ VIEW_LABELS[v] }}</button>
       </nav>
 
-      <!-- Breadcrumb: the drill trail or the active filter chips (removable). -->
-      <div v-if="nav.drill || nav.filters.length" class="trd-breadcrumb">
-        <template v-if="nav.drill">
-          <button type="button" class="trd-crumb-link" @click="onPopDrill">{{ VIEW_LABELS[nav.drill.fromView] }}</button>
+      <!-- Breadcrumb: the active filter chips (removable). The ⑥ drill is a
+           dialog overlay (below), so it no longer needs a breadcrumb trail —
+           the dialog carries its own title + close. -->
+      <div v-if="nav.filters.length" class="trd-breadcrumb">
+        <span class="trd-crumb-current">{{ VIEW_LABELS[nav.activeView] }}</span>
+        <template v-for="f in nav.filters" :key="f.key">
           <span class="trd-crumb-sep" aria-hidden="true">›</span>
-          <span class="trd-crumb-current">{{ drillName }}</span>
-          <button type="button" class="trd-crumb-x" @click="onPopDrill" title="Back">✕ back</button>
-        </template>
-        <template v-else>
-          <span class="trd-crumb-current">{{ VIEW_LABELS[nav.activeView] }}</span>
-          <template v-for="f in nav.filters" :key="f.key">
-            <span class="trd-crumb-sep" aria-hidden="true">›</span>
-            <span class="trd-chip">
-              {{ f.label }}
-              <button type="button" class="trd-chip-x" @click="onRemoveFilter(f.key)" title="Remove filter">✕</button>
-            </span>
-          </template>
+          <span class="trd-chip">
+            {{ f.label }}
+            <button type="button" class="trd-chip-x" @click="onRemoveFilter(f.key)" title="Remove filter">✕</button>
+          </span>
         </template>
       </div>
 
-      <!-- The active view, OR the ⑥ drill overlay. -->
+      <!-- The active view. ⑥ Component Profile is a drill TARGET shown as a
+           dialog OVERLAY (below) rather than replacing this region, so the view
+           underneath stays mounted — the modeler returns to exactly where they
+           were (scroll position, expanded rows, reachability selections). -->
       <div class="trd-view">
-        <ComponentProfile
-          v-if="nav.drill"
-          :element-id="nav.drill.elementId"
+        <PostureSummary
+          v-if="nav.activeView === 'posture'"
           :ledger="snapshot.ledger"
           :model-graph="snapshot.modelGraph"
-          :can-dispose="canDispose"
-          @drill="onDrill"
-          @dispose="handleDispose"
+          :coverage="coverageData"
+          :reachability="reachability"
+          @navigate="onNavigate"
         />
-        <template v-else>
-          <PostureSummary
-            v-if="nav.activeView === 'posture'"
-            :ledger="snapshot.ledger"
-            :model-graph="snapshot.modelGraph"
-            :coverage="coverageData"
-            :reachability="reachability"
-            @navigate="onNavigate"
-          />
-          <CoverageMatrix
-            v-else-if="nav.activeView === 'coverage'"
-            :coverage="coverageData"
-            :ledger="snapshot.ledger"
-            @drill="onDrill"
-          />
-          <ReachabilityView
-            v-else-if="nav.activeView === 'reachability'"
-            :model-graph="snapshot.modelGraph"
-            :ledger="snapshot.ledger"
-            @drill="onDrill"
-          />
-          <BoundaryCrossings
-            v-else-if="nav.activeView === 'boundary'"
-            :model-graph="snapshot.modelGraph"
-            :ledger="snapshot.ledger"
-            @drill="onDrill"
-          />
-          <FindingsLedger
-            v-else-if="nav.activeView === 'residual'"
-            :ledger="snapshot.ledger"
-            :filter="residualFilter"
-            :coverage="coverageData"
-            :reachability="reachability"
-            :can-dispose="canDispose"
-            @dispose="handleDispose"
-            @drill="onDrill"
-            @navigate="onNavigate"
-          />
-        </template>
+        <CoverageMatrix
+          v-else-if="nav.activeView === 'coverage'"
+          :coverage="coverageData"
+          :ledger="snapshot.ledger"
+          @drill="onDrill"
+        />
+        <ReachabilityView
+          v-else-if="nav.activeView === 'reachability'"
+          :model-graph="snapshot.modelGraph"
+          :ledger="snapshot.ledger"
+          @drill="onDrill"
+        />
+        <BoundaryCrossings
+          v-else-if="nav.activeView === 'boundary'"
+          :model-graph="snapshot.modelGraph"
+          :ledger="snapshot.ledger"
+          @drill="onDrill"
+        />
+        <FindingsLedger
+          v-else-if="nav.activeView === 'residual'"
+          :ledger="snapshot.ledger"
+          :filter="residualFilter"
+          :coverage="coverageData"
+          :reachability="reachability"
+          :technique-index="techniqueIndex"
+          :can-dispose="canDispose"
+          @dispose="handleDispose"
+          @drill="onDrill"
+          @navigate="onNavigate"
+        />
       </div>
+
+      <!-- ⑥ Component Profile drill overlay. A dialog (not a view swap) so the
+           view underneath keeps its state. v-model bridges nav.drill ↔ open, so
+           Esc / scrim-click closes through popDrill. A neighbour link inside the
+           profile re-targets the SAME dialog (onDrill swaps elementId). -->
+      <v-dialog v-model="drillOpen" width="80vw" max-width="1000" scrollable>
+        <v-card v-if="nav.drill">
+          <v-card-title class="d-flex align-center trd-dialog-head">
+            <span class="trd-dialog-eyebrow">Component Profile</span>
+            <span class="trd-dialog-title">{{ drillName }}</span>
+            <v-spacer />
+            <v-btn icon="mdi-close" size="small" variant="text" title="Close" @click="onPopDrill" />
+          </v-card-title>
+          <v-card-text>
+            <ComponentProfile
+              :element-id="nav.drill.elementId"
+              :ledger="snapshot.ledger"
+              :model-graph="snapshot.modelGraph"
+              :can-dispose="canDispose"
+              :technique-index="techniqueIndex"
+              @drill="onDrill"
+              @dispose="handleDispose"
+            />
+          </v-card-text>
+        </v-card>
+      </v-dialog>
     </div>
   </div>
 </template>
@@ -157,6 +170,7 @@
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint, fetchGradedCoverage } from '../composables/useThreatReportData.js'
   import { modeAReachability } from '../lib/reachability.js'
+  import { buildExposureTechniqueIndex } from '../lib/coverageMatrix.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
   import { computeCompletenessFlags } from '../lib/completenessFlags.js'
   import {
@@ -166,6 +180,8 @@
     drillTo,
     popDrill,
     removeFilter,
+    toggleFilter,
+    clearFilters,
     VIEWS,
     VIEW_LABELS,
   } from '../lib/reportNavigation.js'
@@ -226,6 +242,12 @@
     modeAReachability(snapshot.value.modelGraph, snapshot.value.ledger, { kind: 'external' }),
   )
 
+  // exposureId → resolved ATT&CK techniques, derived from the live coverage facts
+  // (the ONLY source of exposure→technique mappings). Feeds the clickable technique
+  // chips on each finding in ⑥ Component Profile and ④ Residual Risk. Empty {} when
+  // coverage-tools isn't deployed — the chips simply don't render.
+  const techniqueIndex = computed(() => buildExposureTechniqueIndex(coverageData.value))
+
   const lifecycle = computed(() =>
     deriveLifecycle({
       generated: snapshot.value.generated,
@@ -262,12 +284,22 @@
 
   const onSetView = (v) => apply(setView(nav, v))
   const onPopDrill = () => apply(popDrill(nav))
+  // ⑥ Component Profile is shown as a dialog OVERLAY (not a view swap), so the
+  // underlying view stays mounted and keeps its state. This computed bridges the
+  // nav.drill model to the v-dialog's v-model: opening is driven by drillTo;
+  // closing (Esc / scrim-click / the dialog ✕) routes back through popDrill.
+  const drillOpen = computed({
+    get: () => Boolean(nav.drill),
+    set: (open) => { if (!open) onPopDrill() },
+  })
   const onRemoveFilter = (key) => apply(removeFilter(nav, key))
   const onDrill = (elementId) => apply(drillTo(nav, elementId, nav.activeView))
   const onNavigate = (intent) => {
     if (!intent) return
     if (intent.type === 'view') apply(setView(nav, intent.view))
     else if (intent.type === 'filter') apply(gotoFilteredView(nav, intent.view, intent.filter))
+    else if (intent.type === 'toggle-filter') apply(toggleFilter(nav, intent.filter))
+    else if (intent.type === 'clear-filters') apply(clearFilters(nav))
     else if (intent.type === 'drill') apply(drillTo(nav, intent.elementId, nav.activeView))
   }
 
@@ -279,6 +311,8 @@
     for (const f of nav.filters) {
       if (f.type === 'band') out.band = f.value
       if (f.type === 'live') out.live = f.value
+      if (f.type === 'provenance') out.provenance = f.value
+      if (f.type === 'type') out.elementType = f.value
     }
     return Object.keys(out).length ? out : null
   })
@@ -558,6 +592,24 @@
     display: inline-flex; align-items: center;
     border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 12px;
     padding: 0.05rem 0.5rem; font-size: 0.78rem;
+  }
+
+  /* ⑥ drill dialog header — a muted eyebrow + the element name, so the dialog
+     is self-labelling without duplicating the profile's own rich header. */
+  .trd-dialog-head {
+    gap: 0.55rem;
+    flex-wrap: wrap;
+  }
+  .trd-dialog-eyebrow {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.55;
+    font-weight: 600;
+  }
+  .trd-dialog-title {
+    font-size: 1rem;
+    font-weight: 600;
   }
 
   .trd-empty {

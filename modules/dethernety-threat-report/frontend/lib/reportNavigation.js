@@ -93,3 +93,28 @@ export function removeFilter(state, key) {
   if (!state.filters.some((f) => f.key === key)) return state
   return { ...state, filters: state.filters.filter((f) => f.key !== key) }
 }
+
+/**
+ * Toggle a facet filter (the in-view ④ filter bar). Single-select PER KEY: a
+ * second click on the SAME key+value removes it (toggle off); a different value
+ * of the same key replaces it; different keys accumulate (AND-combined). Keeps the
+ * one filter model shared with the ⑤ deep-link + the removable breadcrumb chips.
+ * @param {object} filter { key, type, value, label }
+ */
+export function toggleFilter(state, filter) {
+  if (!filter || !filter.key) return state
+  const existing = state.filters.find((f) => f.key === filter.key)
+  if (existing && existing.value === filter.value) {
+    // same facet clicked again → toggle it off
+    return { ...state, filters: state.filters.filter((f) => f.key !== filter.key) }
+  }
+  // new value for this key (replace) or a brand-new key (add)
+  const others = state.filters.filter((f) => f.key !== filter.key)
+  return { ...state, filters: [...others, filter] }
+}
+
+/** Clear every filter chip (the in-view "clear" affordance), keeping the view. */
+export function clearFilters(state) {
+  if (!state.filters.length) return state
+  return { ...state, filters: [] }
+}
