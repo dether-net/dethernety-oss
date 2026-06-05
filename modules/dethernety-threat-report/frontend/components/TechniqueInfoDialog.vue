@@ -48,13 +48,26 @@
 
   // MITRE descriptions carry markdown noise — inline "(Citation: …)" markers,
   // "[text](url)" links, and the odd HTML tag. Reduce to clean prose for reading.
+  // Strip HTML tags repeatedly until the string stops changing, so a nested or
+  // malformed tag (e.g. "<scr<script>ipt>") can't reconstitute a tag after a
+  // single pass. The result is rendered as text (mustache-escaped), never as
+  // markup, so this is defense-in-depth — but a complete sanitiser regardless.
+  const stripTags = (s) => {
+    let prev
+    do {
+      prev = s
+      s = s.replace(/<\/?[^>]+>/g, '')
+    } while (s !== prev)
+    return s
+  }
+
   const cleanDescription = computed(() => {
     const d = props.technique?.description
     if (!d) return 'No description is available for this technique.'
-    return d
+    const noMarkdown = d
       .replace(/\(Citation:[^)]*\)/g, '') // citation markers
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // markdown links → their text
-      .replace(/<\/?[^>]+>/g, '') // stray HTML tags
+    return stripTags(noMarkdown) // stray HTML tags (iterated to completion)
       .replace(/[ \t]+/g, ' ')
       .replace(/\n{3,}/g, '\n\n')
       .trim()
