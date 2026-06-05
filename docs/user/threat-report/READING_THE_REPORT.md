@@ -1,0 +1,166 @@
+---
+title: 'Reading the Report'
+description: 'Navigating the report, the shared visual language, and the Posture and Boundary Crossings views'
+category: 'documentation'
+position: 3
+navigation: true
+tags: ['threat-report', 'reporting', 'navigation', 'posture', 'boundary-crossings']
+---
+
+# Reading the Report
+
+The Threat Report turns a generated snapshot of your model into a set of focused views you switch between in place — no page reloads, no navigating away. This guide shows you how the report is laid out, how to move around it, and the shared visual language (severity, data sensitivity, the model map, ATT&CK chips) that every view reuses. It then walks the two views you'll start in most often: **Posture** and **Boundary Crossings**. Coverage, Reachability, and the findings ledger each have their own guide, linked at the end.
+
+> **Prerequisite.** You need a generated snapshot. If the report greets you with *"No snapshot has been generated for this report yet,"* generate one first — see [Getting Started](./GETTING_STARTED.md).
+
+## The layout at a glance
+
+The report is a single screen titled **Threat Report**. From top to bottom:
+
+1. **The scope banner.** Pinned above everything else. It carries model-wide honesty flags — a stale snapshot, missing boundaries, under-analyzed high-value elements, unclassified data — and the **Generate** / **Recreate** action. You read the caveats here *before* you read any numbers.
+2. **The model summary line + export.** A small line reads `N components · M boundaries`, with **Export JSON** and **Export HTML** buttons on the right.
+3. **The tab strip** (a segmented control). One click switches the view below it. The tabs are:
+
+   | Tab | What it answers |
+   |-----|-----------------|
+   | **Posture** | What's my overall exposure right now? (the default landing view) |
+   | **Coverage & Gaps** | Which attack techniques do my controls actually address? |
+   | **Reachability** | Can an attacker reach my crown jewels from outside? |
+   | **Boundary Crossings** | Where does data leave or enter a security boundary? |
+   | **Residual Risk** | The full ledger of open and dispositioned findings. |
+
+4. **The breadcrumb / filter row.** Appears only when one or more filters are active. Each filter shows as a removable chip.
+5. **The active view.** The single scrolling region for the tab you're on.
+
+> **The Component Profile is not a tab.** It opens as an overlay dialog whenever you click an element link anywhere in the report (a finding's element, a flow, a boundary). Closing it returns you to exactly where you were. See [Moving around](#moving-around-the-report) below.
+
+### Exporting
+
+**Export JSON** downloads the snapshot as structured data; **Export HTML** downloads a self-contained page you can share or archive. Both export the snapshot you're currently viewing — generate or recreate first if the banner says it's stale.
+
+## Moving around the report
+
+### Switching views
+
+Click any tab in the strip. The view swaps in place; your scroll position in the new view starts at the top. A manual tab click is always an *unfiltered* view — switching tabs clears any active filter chips, so you never carry one view's filter into another by accident.
+
+### The Component Profile overlay
+
+Most things in the report are clickable: a finding's element name, a flow, a crossed boundary, a ranked residual risk. Clicking one opens the **Component Profile** as a dialog over the current view, labelled with a small `Component Profile` eyebrow and the element's name.
+
+- The view underneath stays mounted, so when you close the dialog you land back exactly where you were — same scroll position, same expanded rows, same selections.
+- Close it with the **✕** in the dialog header, by pressing **Esc**, or by clicking outside it.
+- A link to a neighbouring element *inside* the profile re-targets the same dialog rather than stacking a second one.
+
+For what the profile shows, see [Working with Findings](./WORKING_WITH_FINDINGS.md).
+
+### Filters and breadcrumb chips
+
+When a filter is active, it appears as a chip in the breadcrumb row beneath the tab strip, showing the current view's name and each chip (for example `band: High` or `open only`). Remove a filter by clicking the **✕** on its chip.
+
+Two rules govern how filters combine:
+
+- **Same kind is single-select.** Picking a second value of the same kind (for example a different severity band) replaces the first.
+- **Different kinds combine with AND.** A band filter and an "open only" filter together narrow to *open findings in that band*.
+
+### Deep-linking from Posture
+
+Every statistic on the **Posture** view is a link. Clicking one jumps you to the right detailed view *already filtered*. Click a **high** exposure tile, for example, and you land in **Residual Risk** filtered to the high band, with that filter shown as a removable chip. This is the fastest way to move from "something looks off" to "here are the exact findings."
+
+## The shared visual language
+
+These four building blocks mean the same thing in every view. Learn them once.
+
+### Severity bands
+
+Findings are sorted into five bands by their exposure score (a 0–10, CVSS-like number used purely for triage ordering — *not* a risk rating). Colour carries the band.
+
+| Band | Score | Reading |
+|------|-------|---------|
+| **critical** | 9–10 | Highest-priority exposures. |
+| **high** | 7–8.9 | |
+| **medium** | 4–6.9 | |
+| **low** | below 4 | |
+| **unknown** | no score | A finding with no score reads **unknown** — never "low". |
+
+> **Why "unknown" matters.** An unscored finding is not a safe one — it's an unmeasured one. The report never quietly files it under "low".
+
+### Data sensitivity
+
+Data carried by a flow is labelled with its classification. The report orders these by sensitivity but, like severity, never blends them into a single number.
+
+| Label | Reading |
+|-------|---------|
+| **Restricted** | Most sensitive. |
+| **Confidential** | |
+| **Internal** | |
+| **Public** | Least sensitive. |
+| **unclassified data** | Data is in motion but not classified — a **modeling gap**, surfaced as a flag, not a safe state. |
+| **no data** | The flow carries no data items. |
+
+> Unclassified data crossing a boundary reads **unknown / unclassified**, never "low". It's flagged so you classify it, not so you can ignore it.
+
+### The model minimap
+
+A small, faithful map of your model — it uses your real diagram layout, not an auto-layout — that appears as a building block inside several views (it is not a view of its own). On it:
+
+- **Shapes encode type.** Processes and most nodes render as dots/circles; external entities as rectangles; data stores in the two-line store convention.
+- **Highlights show focus.** The element(s) or route currently in focus are highlighted in cyan and drawn slightly larger; a highlighted route also lights up the connecting flow line. Crown jewels show in red, entry points in amber.
+- **It enlarges.** A compact map sits in a side pane with hover tooltips for labels; the **expand** button (top-left of the map) opens a larger **Model overview** dialog with full shapes and always-on labels.
+- **It can be interactive.** In some views, clicking a node on the map selects it.
+
+### ATT&CK technique chips
+
+Next to findings you'll see small monospace chips like `T1190`. Each is a MITRE ATT&CK technique identifier and a launcher — nothing more.
+
+- Click a chip to open the shared **technique dialog**, which shows the technique's id and **name**, its **Tactics**, and a cleaned-up **description**.
+- A chip is deliberately *not* shaded by coverage. It tells you *which* technique a finding maps to, never whether you're defended against it — that accounting lives only in **Coverage & Gaps**.
+
+## The Posture view
+
+**Posture** is the default landing view and the only one that aggregates. It rolls everything up at a glance — but it deliberately shows **no single risk score and no coverage percentage**. It segregates signals rather than blending them, so nothing flattering hides behind an average.
+
+What you'll see, top to bottom:
+
+- **A caveat line.** Stating that this is modeled / design-asserted posture as of generation — not live telemetry or a scan — and that findings are not rolled into one score.
+- **Live exposures** — outlined tiles, one per severity band that has open exposures, showing the count. Click a tile to open **Residual Risk** filtered to that band. If there are none, the view says so honestly (distinguishing "all findings dispositioned" from "nothing is modeled").
+- **Coverage** (when the coverage data is available) — tier-segregated lines (`DIRECT-prevent`, `DIRECT-detect`, `Mitigation`, `D3FEND (broad/inferred)`, `uncovered`, `soft/unmapped`). Never a percentage, never a "Covered: N". Each line links to the **Coverage & Gaps** matrix.
+- **Open / reviewed / boundary-crossing counts** — clickable stats (`N open`, `N reviewed`, `N boundary crossings carrying data or posture`) that deep-link into their views. Watch for warning markers such as stale dispositions or a *compensating-control claim with no control present*.
+- **Crown-jewel reachability** (when reachability is available) — for example *"2 of 5 crown jewels reachable from external entry."* Click to open **Reachability**. If no crown jewels or no external entry are modeled, it says so plainly rather than showing a flattering "0 reachable".
+- **Defense-in-depth** — a separate positive line counting controls present on elements with no live exposure. It is explicitly *not* folded into any coverage measure.
+- **Top residual risks** — the ranked open findings, each row showing its severity band, name, the element it sits on, and an `⛉ uncovered` flag where no supporting control is present. Click a row to open that element's Component Profile.
+
+Use Posture as a launchpad: scan the tiles and stats, then click straight through to the view that holds the detail.
+
+## The Boundary Crossings view
+
+**Boundary Crossings** lists every place a data flow crosses a security boundary. It is **structural**: a crossing is described as an **EXIT** (data leaves a boundary) or an **ENTER** (data enters one) — containment, not a trust comparison. The view deliberately does *not* rank crossings on a trust gradient.
+
+The view has two panes:
+
+- **A pinned minimap** on the left that stays visible while the list scrolls. Click any crossing in the list to highlight its flow's endpoints and route on the map; use **clear** to deselect.
+- **The crossing list** on the right.
+
+### Reading a crossing
+
+Each crossing is grouped by flow so its full containment story stays intact. For each one you'll see:
+
+- **The flow name and its endpoints** (`source → target`). All three are links that open the relevant Component Profile.
+- **A sensitivity chip** — the highest classification the flow carries (**Restricted** … **Public**), or **unclassified data**, or **no data**. Sensitivity orders the worklist; it is not a risk score.
+- **The membranes pierced** — one line per crossed boundary, tagged **EXIT** or **ENTER**, with the boundary name (also a link). Against each boundary, two muted context markers may appear:
+  - **⚠ live on boundary** — the crossed boundary has live exposures (a *weakening* signal: the crossing is easier).
+  - **✓ boundary control** — the crossed boundary has a covering control (a *hardening* signal: the crossing is costlier).
+- **On-flow posture** — `flow: N live` and `flow control present` where the flow itself carries exposures or a control.
+
+> These markers are context, never a red/green verdict and never coverage. They tell you what surrounds the crossing so you can judge it.
+
+### Honest empty and under-modeled states
+
+Boundary Crossings never shows a reassuring blank. If no boundaries or no flows are modeled, it says the analysis isn't applicable. Crossings with no classified data, no exposures, and no controls collapse into a muted **"under-modeled crossings"** section — present, never dropped, never counted as a clean result. A summary line at the top reads `N flows pierce membranes · N carry data or posture · N under-modeled`.
+
+## Where to go next
+
+- [Understanding Coverage](./UNDERSTANDING_COVERAGE.md) — read the **Coverage & Gaps** matrix and what each tier really claims.
+- [Reachability](./REACHABILITY.md) — trace flow routes from external entry to your crown jewels.
+- [Working with Findings](./WORKING_WITH_FINDINGS.md) — the **Residual Risk** ledger and the **Component Profile** in depth.
+- [Threat Report overview](./README.md) · [Getting Started](./GETTING_STARTED.md) — generating and refreshing the snapshot.
