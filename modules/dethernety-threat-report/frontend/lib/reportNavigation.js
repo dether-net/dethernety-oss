@@ -10,13 +10,15 @@
 // transition; same split as deriveLifecycle (pure) + useThreatReportState
 // (reactive holder).
 
-// The P1 view set. ① coverage + ② reachability are P2 — deliberately absent from
-// this list (no dead "coming soon" tabs, ux §5.⑤ phase note); 'profile' (⑥) is a
-// drill target, not a segmented-control view.
-export const VIEWS = ['posture', 'boundary', 'residual']
+// The view set. ① coverage (the MITRE Coverage & Gaps matrix) consumes the shared
+// coverage module. ② reachability is still pending — deliberately absent from this
+// list (no dead "coming soon" tabs); 'profile' (⑥) is a drill target, not a
+// segmented-control view.
+export const VIEWS = ['posture', 'coverage', 'boundary', 'residual']
 
 export const VIEW_LABELS = {
   posture: 'Posture',
+  coverage: 'Coverage & Gaps',
   boundary: 'Boundary Crossings',
   residual: 'Residual Risk',
   profile: 'Component Profile',

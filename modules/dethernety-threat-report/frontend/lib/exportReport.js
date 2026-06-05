@@ -9,6 +9,16 @@
 // tested. downloadBlob is the only DOM touch.
 
 import { aggregateLedger, dispositionKindLabel } from './aggregateLedger.js'
+import { buildCoverageView } from './coverageMatrix.js'
+
+// The ① coverage view for export, or null when coverage-tools wasn't deployed (the
+// matrix simply doesn't appear in the export). Built from the LIVE coverage facts
+// joined to the snapshot ledger — the same honesty layer the UI uses.
+function coverageForExport(doc, coverage) {
+  if (!coverage) return null
+  const v = buildCoverageView(coverage, doc?.ledger ?? [])
+  return v.available ? v : null
+}
 
 // Hex band colors (self-contained — no theme variables).
 const BAND_HEX = {
@@ -61,10 +71,44 @@ function provenanceFooter(doc, totals) {
   }
 }
 
-// JSON export: the raw snapshot doc + a provenance footer.
-export function buildJsonExport(doc) {
+// The coverage export payload — TIER-SEGREGATED, never a rolled-up "covered" and
+// never a percentage (the JSON is exactly where that conflation would leak back in,
+// ux §5.①). Carries the per-technique tier + function + bucket and the off-grid
+// caveat counts.
+function coverageExport(view) {
+  if (!view) return null
+  return {
+    generatedAt: view.generatedAt,
+    // tier-segregated, function-classified counts (NOT a single total, NOT a %)
+    bucketsByTier: view.summary,
+    tactics: view.tactics,
+    techniques: view.rows.map((r) => ({
+      techniqueId: r.techniqueId,
+      tactics: r.tactics,
+      bestTier: r.bestTier,
+      function: r.status, // PREVENT | DETECT_ONLY | UNCOVERED
+      elementsCovered: r.elementsCovered,
+      elementsTotal: r.elementsTotal,
+    })),
+    offGrid: view.offGrid,
+    structuralGaps: view.structuralGaps,
+    caveat:
+      'Tier-segregated coverage facts (DIRECT / Mitigation / D3FEND). D3FEND is artifact-bridged ' +
+      '(broad / low-specificity). No coverage percentage and no single "covered" total are implied; ' +
+      'Data and soft/unmapped exposures are off-grid (see offGrid).',
+  }
+}
+
+// JSON export: the raw snapshot doc + a provenance footer + the tier-segregated
+// coverage facts (when available).
+export function buildJsonExport(doc, coverage = null) {
   const { totals } = aggregateLedger(doc?.ledger ?? [])
-  return JSON.stringify({ snapshot: doc, provenance: provenanceFooter(doc, totals) }, null, 2)
+  const cov = coverageExport(coverageForExport(doc, coverage))
+  return JSON.stringify(
+    { snapshot: doc, coverage: cov, provenance: provenanceFooter(doc, totals) },
+    null,
+    2,
+  )
 }
 
 function findingRowHtml(f, muted) {
@@ -110,10 +154,47 @@ function groupHtml(g) {
   </section>`
 }
 
-// Self-contained printable HTML. Pure: doc → string.
-export function buildHtmlExport(doc) {
+// Coverage section HTML — tier-segregated counts + a per-technique table carrying
+// tier + function, plus the off-grid caveat. Never a % or a single "covered".
+function coverageHtml(view) {
+  if (!view) return ''
+  const s = view.summary
+  const rows = view.rows
+    .map(
+      (r) => `<tr>
+        <td>${esc(r.techniqueId)}</td>
+        <td>${esc(r.tactics.join(', '))}</td>
+        <td>${esc(r.bestTier ?? 'UNCOVERED')}</td>
+        <td>${esc(r.status)}</td>
+        <td class="score">${r.elementsCovered}/${r.elementsTotal}</td>
+      </tr>`,
+    )
+    .join('')
+  const offgrid = []
+  if (view.offGrid.softCount) offgrid.push(`${view.offGrid.softCount} soft/unmapped (no ATT&CK mapping)`)
+  if (view.offGrid.dataMappedCount) offgrid.push(`${view.offGrid.dataMappedCount} Data exposures (off-grid — not assessable)`)
+  if (view.offGrid.dispositionedExcluded) offgrid.push(`${view.offGrid.dispositionedExcluded} dispositioned (excluded from live grid)`)
+  for (const cls of view.structuralGaps) offgrid.push(`structural gap: no control supports any ${esc(cls)}`)
+  return `<h2>MITRE Coverage &amp; Gaps</h2>
+  <div class="summary">
+    <p>Tier-segregated (never a % or a single “covered”): <strong>${s.directPrevent}</strong> DIRECT-prevent ·
+      <strong>${s.directDetect}</strong> DIRECT-detect · <strong>${s.mitigation}</strong> Mitigation ·
+      <strong>${s.d3fend}</strong> D3FEND (broad/inferred) · <strong>${s.detectOnly}</strong> detect-only ·
+      <strong>${s.uncovered}</strong> uncovered · <strong>${s.soft}</strong> soft/unmapped</p>
+    ${offgrid.length ? `<p class="none">Off-grid: ${offgrid.map(esc).join(' · ')}</p>` : ''}
+  </div>
+  ${
+    rows
+      ? `<table><thead><tr><th>Technique</th><th>Tactics</th><th>Best tier</th><th>Function</th><th>Covered/Total</th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<p class="none">No live Component/DataFlow exposure maps to an ATT&amp;CK technique.</p>'
+  }`
+}
+
+// Self-contained printable HTML. Pure: (doc, coverage) → string.
+export function buildHtmlExport(doc, coverage = null) {
   const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
   const footer = provenanceFooter(doc, totals)
+  const covSection = coverageHtml(coverageForExport(doc, coverage))
   const bandSummary = ['critical', 'high', 'medium', 'low', 'unknown']
     .filter((b) => totals.byBand[b])
     .map(
@@ -152,6 +233,8 @@ export function buildHtmlExport(doc) {
     <p>${bandSummary || '<span class="none">No findings.</span>'}</p>
     <p class="prov">Provenance — USER: ${totals.byProvenance.USER} · SYSTEM: ${totals.byProvenance.SYSTEM}</p>
   </div>
+  ${covSection}
+  <h2>Residual-Risk Ledger</h2>
   ${groups.map(groupHtml).join('\n') || '<p class="none">No findings in this model.</p>'}
   <footer>
     <div>${esc(footer.artifact)}</div>
@@ -161,13 +244,14 @@ export function buildHtmlExport(doc) {
 </body></html>`
 }
 
-// Build + download helpers (the verbs the UI calls).
-export function exportJson(doc) {
+// Build + download helpers (the verbs the UI calls). `coverage` is the live
+// graded-coverage facts (or null) — included in both formats when available.
+export function exportJson(doc, coverage = null) {
   const stamp = (doc?.generatedAt ?? '').replace(/[:.]/g, '-') || 'snapshot'
-  downloadBlob(buildJsonExport(doc), `threat-report-${stamp}.json`, 'application/json')
+  downloadBlob(buildJsonExport(doc, coverage), `threat-report-${stamp}.json`, 'application/json')
 }
 
-export function exportHtml(doc) {
+export function exportHtml(doc, coverage = null) {
   const stamp = (doc?.generatedAt ?? '').replace(/[:.]/g, '-') || 'snapshot'
-  downloadBlob(buildHtmlExport(doc), `threat-report-${stamp}.html`, 'text/html')
+  downloadBlob(buildHtmlExport(doc, coverage), `threat-report-${stamp}.html`, 'text/html')
 }

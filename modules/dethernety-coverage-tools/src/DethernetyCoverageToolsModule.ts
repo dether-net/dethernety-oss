@@ -196,27 +196,59 @@ class DethernetyCoverageToolsModule implements DTModule {
     const D = DethernetyCoverageToolsModule.ELEMENT_DISCOVERY;
     const A = DethernetyCoverageToolsModule.SUPPORT_ANCHOR;
 
-    // 1) Base anchor: every (element, exposure) with its EXPLOITED_BY technique
-    //    set (empty ⇒ soft/unmapped). Drives the report's full bucketing universe.
+    // 1) Base anchor: one row per (element, exposure, exploited technique) carrying
+    //    the technique's ATT&CK tactic(s) — the matrix COLUMNS. An exposure with no
+    //    EXPLOITED_BY technique yields a single row with techniqueId = null (the
+    //    soft/unmapped marker). Tactic is resolved through SUBTECHNIQUE_OF*0..1: an
+    //    ATT&CK sub-technique (single-level, e.g. T1078.004 → T1078) belongs to its
+    //    parent's tactic(s), so a single TACTIC_INCLUDES_TECHNIQUE hop could drop a
+    //    sub-technique's column. `*0..1` unions the technique's own tactic edges with
+    //    its parent's — correct-by-derivation (here every sub-technique also carries
+    //    direct tactic edges, so it is robustness, not a live fix). NOTE: ATT&CK's
+    //    `SUBTECHNIQUE_OF` (no underscore between SUB and TECHNIQUE) is a DIFFERENT
+    //    relationship from D3FEND's `SUB_TECHNIQUE_OF` used in the d3fend tier below.
     const baseCypher = `${D}
       MATCH (element)-[:HAS_EXPOSURE]->(exp:Exposure)
       OPTIONAL MATCH (exp)-[:EXPLOITED_BY]->(t:MitreAttackTechnique)
+      OPTIONAL MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(tp:MitreAttackTechnique)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
+      WITH element, exp, t, [x IN collect(DISTINCT tac.name) WHERE x IS NOT NULL] AS tactics
       RETURN element.id AS elementId,
              [l IN labels(element) WHERE l IN ['Component','DataFlow','SecurityBoundary','Data']][0] AS elementKind,
              exp.id AS exposureId,
-             [x IN collect(DISTINCT t.attack_id) WHERE x IS NOT NULL] AS techniqueIds`;
+             t.attack_id AS techniqueId,
+             t.name AS techniqueName,
+             t.description AS techniqueDescription,
+             tactics`;
+
+    // Two refinements shared by all three tier hops:
+    //  - SUB-TECHNIQUE COVERAGE INHERITANCE: a covering edge lands on `ct`, the
+    //    exposed technique `t` OR its single parent, via `(t)-[:SUBTECHNIQUE_OF*0..1]->(ct)`.
+    //    Coverage flows DOWN the hierarchy — a mitigation on a parent technique
+    //    covers its sub-techniques — never UP (a single sub-technique's mitigation
+    //    does not cover the parent/siblings), so the walk is rooted at `t` and
+    //    directed at its ancestors only. The covering fact is attributed to `t`
+    //    (the exposure's own technique = the matrix row), not `ct`. Bounded
+    //    single-level (ATT&CK sub-techniques are one level), so anchor-first holds.
+    //  - controlId: the covering countermeasure's parent Control. HAS_COUNTERMEASURE
+    //    is 1 control per countermeasure (verified), so this is a single hop with no
+    //    fan-out; the report uses it for the ④ configured-mismatch signal + L3 provenance.
 
     // 2) DIRECT tier: a supporting countermeasure with an author-asserted edge to
-    //    the exposed technique. type(r) IN [...] is the most engine-portable form.
+    //    the exposed technique (or its parent). type(r) IN [...] is the most
+    //    engine-portable form.
     const directCypher = `${D}${A}
-      MATCH (cm)-[r]->(t)
+      MATCH (cm)-[r]->(ct:MitreAttackTechnique)
       WHERE type(r) IN ['COUNTERMEASURE_MITIGATES','COUNTERMEASURE_PROTECTS_AGAINST','COUNTERMEASURE_DETECTS','COUNTERMEASURE_ISOLATES']
-      RETURN DISTINCT exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId, type(r) AS relType`;
+      MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(ct)
+      MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm)
+      RETURN DISTINCT exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId, ctrl.id AS controlId, type(r) AS relType`;
 
     // 3) INDIRECT-Mitigation tier (catalogue mitigation ⇒ preventive).
     const mitigationCypher = `${D}${A}
-      MATCH (cm)-[:RESPONDS_WITH]->(:MitreAttackMitigation)-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->(t)
-      RETURN DISTINCT exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId`;
+      MATCH (cm)-[:RESPONDS_WITH]->(:MitreAttackMitigation)-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->(ct:MitreAttackTechnique)
+      MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(ct)
+      MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm)
+      RETURN DISTINCT exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId, ctrl.id AS controlId`;
 
     // 4) INDIRECT-D3FEND tier: the defend-technique reaches the exposed technique
     //    ONLY through a shared D3FEND artifact. The two artifact hops MUST stay in
@@ -233,10 +265,12 @@ class DethernetyCoverageToolsModule implements DTModule {
     //    preventive — this mirrors the platform's own D3FEND→tactic traversal.
     const d3fendCypher = `${D}${A}
       MATCH (cm)-[:RESPONDS_WITH]->(dt:MitreDefendTechnique)
-      MATCH (dt)--(art)--(t)
+      MATCH (dt)--(art)--(ct:MitreAttackTechnique)
       WHERE any(l IN labels(art) WHERE l STARTS WITH 'MitreDefend' AND l ENDS WITH 'Entity')
+      MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(ct)
+      MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm)
       OPTIONAL MATCH (dt)-[:SUB_TECHNIQUE_OF|ENABLES*0..]->(tac:MitreDefendTactic)
-      RETURN exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId,
+      RETURN exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId, ctrl.id AS controlId,
              [x IN collect(DISTINCT tac.name) WHERE x IS NOT NULL] AS tactics`;
 
     const [baseRecs, directRecs, mitRecs, d3fRecs] = await Promise.all([
@@ -250,23 +284,29 @@ class DethernetyCoverageToolsModule implements DTModule {
       elementId: r.get('elementId'),
       elementKind: r.get('elementKind') ?? null,
       exposureId: r.get('exposureId'),
-      techniqueIds: (r.get('techniqueIds') ?? []).filter((x: any) => x != null),
+      techniqueId: r.get('techniqueId') ?? null,
+      techniqueName: r.get('techniqueName') ?? null,
+      techniqueDescription: r.get('techniqueDescription') ?? null,
+      tactics: (r.get('tactics') ?? []).filter((x: any) => x != null),
     }));
     const directRows: DirectRow[] = directRecs.map((r) => ({
       exposureId: r.get('exposureId'),
       techniqueId: r.get('techniqueId'),
       cmId: r.get('cmId'),
+      controlId: r.get('controlId'),
       relType: r.get('relType'),
     }));
     const mitigationRows: MitigationRow[] = mitRecs.map((r) => ({
       exposureId: r.get('exposureId'),
       techniqueId: r.get('techniqueId'),
       cmId: r.get('cmId'),
+      controlId: r.get('controlId'),
     }));
     const d3fendRows: D3fendRow[] = d3fRecs.map((r) => ({
       exposureId: r.get('exposureId'),
       techniqueId: r.get('techniqueId'),
       cmId: r.get('cmId'),
+      controlId: r.get('controlId'),
       tactics: (r.get('tactics') ?? []).filter((x: any) => x != null),
     }));
 

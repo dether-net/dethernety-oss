@@ -53,6 +53,33 @@
         </p>
       </section>
 
+      <!-- COVERAGE — tier-segregated, function-classified; NEVER a % or "Covered: N".
+           The broad D3FEND tier carries (broad/inferred) + ░ inline so a screenshot
+           can't show a flattering aggregate. Absent when coverage-tools isn't
+           deployed (the matrix tab shows its own affordance). The crown-jewel
+           REACHABILITY tile stays absent — it needs the path/reachability engine. -->
+      <section v-if="coverageView.available" class="trd-block">
+        <h4 class="trd-block-head">
+          Coverage
+          <span class="trd-muted">(tier-segregated — never “Covered: N”, never %)</span>
+        </h4>
+        <div class="trd-cov-lines">
+          <button type="button" class="trd-stat" @click="emitView('coverage')" title="Open the Coverage &amp; Gaps matrix">
+            <strong>{{ coverageView.summary.directPrevent }}</strong> DIRECT-prevent <span class="cov-fill cov-DIRECT" aria-hidden="true"></span> ⛉
+            · <strong>{{ coverageView.summary.directDetect }}</strong> DIRECT-detect ◎
+            · <strong>{{ coverageView.summary.mitigation }}</strong> Mitigation <span class="cov-fill cov-MIT" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="trd-stat" @click="emitView('coverage')" title="Open the Coverage &amp; Gaps matrix">
+            <strong>{{ coverageView.summary.d3fend }}</strong> D3FEND (broad/inferred) <span class="cov-fill cov-D3F" aria-hidden="true"></span>
+            · <strong>{{ coverageView.summary.detectOnly }}</strong> detect-only ◎
+          </button>
+          <button type="button" class="trd-stat" @click="emitView('coverage')" title="Open the Coverage &amp; Gaps matrix">
+            <strong>{{ coverageView.summary.uncovered }}</strong> uncovered
+            · <strong>{{ coverageView.summary.soft }}</strong> soft/unmapped <span class="cov-offgrid" aria-hidden="true">▦</span>
+          </button>
+        </div>
+      </section>
+
       <!-- DISPOSITION + BOUNDARY CROSSINGS — clickable stats. -->
       <section class="trd-block trd-statline">
         <button type="button" class="trd-stat" @click="emitOpenOnly" title="Show open (live) findings in the Residual Risk ledger">
@@ -117,10 +144,14 @@
   import { computed } from 'vue'
   import { computeCrossings } from '../lib/boundaryCrossings.js'
   import { computePostureSummary } from '../lib/postureSummary.js'
+  import { buildCoverageView } from '../lib/coverageMatrix.js'
 
   const props = defineProps({
     ledger: { type: Array, default: () => [] },
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [], dataNodes: [] }) },
+    // Live graded-coverage facts (or null). When present, the ⑤ coverage block
+    // lights up; when absent, the block is simply not rendered (not a dead tile).
+    coverage: { type: Object, default: null },
   })
 
   // Emits a navigation intent for the shell to apply (no routes, no direct state).
@@ -135,6 +166,9 @@
   const crossings = computed(() => computeCrossings(props.modelGraph, props.ledger))
   const summary = computed(() => computePostureSummary(props.ledger, { crossings: crossings.value }))
   const presentLiveBands = computed(() => bandOrder.filter((b) => summary.value.liveBands[b] > 0))
+
+  // The ⑤ coverage block, from the same pure honesty layer the ① matrix uses.
+  const coverageView = computed(() => buildCoverageView(props.coverage, props.ledger))
 
   const emitView = (view) => emit('navigate', { type: 'view', view })
   const emitDrill = (elementId) => emit('navigate', { type: 'drill', elementId })
@@ -199,6 +233,18 @@
   .trd-hollow { color: #c77700; font-size: 0.85rem; }
 
   .trd-did { font-size: 0.82rem; color: #4a6a55; margin: 0 0 1.1rem; line-height: 1.45; }
+
+  /* Coverage block: tier-segregated lines, each a deep-link to the ① matrix. The
+     tiny fill swatches mirror the matrix encoding (monochrome ramp + D3FEND hatch)
+     so a screenshot can't read the broad tier as "a little covered". */
+  .trd-cov-lines { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+  /* Mirrors the ① matrix encoding (CoverageMatrix.vue .cov-* fills) — same ramp +
+     same coarse D3FEND hatch, so ⑤ and ① read as one legend. */
+  .cov-fill { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; vertical-align: middle; border: 1px solid rgba(var(--v-theme-on-surface, 255 255 255), 0.2); }
+  .cov-DIRECT { background: rgba(var(--v-theme-on-surface, 255 255 255), 0.88); }
+  .cov-MIT { background: rgba(var(--v-theme-on-surface, 255 255 255), 0.45); }
+  .cov-D3F { background-color: rgba(var(--v-theme-on-surface, 255 255 255), 0.10); background-image: repeating-linear-gradient(45deg, rgba(var(--v-theme-on-surface, 255 255 255), 0.65) 0, rgba(var(--v-theme-on-surface, 255 255 255), 0.65) 2px, transparent 2px, transparent 5px); }
+  .cov-offgrid { font-family: monospace; opacity: 0.6; }
 
   .trd-residuals { list-style: decimal; margin: 0; padding-left: 1.4rem; }
   .trd-residuals li { margin-bottom: 0.3rem; }

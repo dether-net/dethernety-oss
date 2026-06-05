@@ -57,6 +57,7 @@ export const {
   createBaseVNode,
   createTextVNode,
   createCommentVNode,
+  createStaticVNode,
   withCtx,
   withDirectives,
   withModifiers,

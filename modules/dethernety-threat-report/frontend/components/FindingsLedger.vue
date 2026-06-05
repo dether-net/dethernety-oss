@@ -70,7 +70,15 @@
 
       <p v-if="g.supportingControls.length" class="trd-controls">
         Controls present ({{ g.supportingControls.length }}):
-        {{ g.supportingControls.map(c => c.name).join(', ') }}
+        <template v-for="(c, i) in orderedControls(g)" :key="c.id || c.name">
+          <span :class="{ 'trd-ctl-mismatch': c.mismatched }" :title="c.mismatched ? 'Configured on this element but covers none of its modeled-threat techniques (configured-but-mismatched)' : 'Covers ≥1 of this element\'s modeled threats'">
+            {{ c.name }}<span v-if="c.mismatched" class="trd-ctl-flag"> ⚠ mismatched</span></span><span v-if="i < orderedControls(g).length - 1">, </span>
+        </template>
+      </p>
+      <p v-if="coverage && mismatchCount(g) > 0" class="trd-mismatch-note">
+        ⚠ {{ mismatchCount(g) }} control(s) here are <strong>configured-but-mismatched</strong> — present on this
+        element but pointed at threats it doesn’t model, while real gaps stay open. The full “other technique set”
+        view is a later sprint.
       </p>
       <p v-if="g.compensatingClaimNoControl" class="trd-inconsistent">
         ⚠ Compensating-control disposition on an element with no control present.
@@ -136,6 +144,7 @@
 <script setup>
   import { computed } from 'vue'
   import { aggregateLedger, dispositionKindLabel } from '../lib/aggregateLedger.js'
+  import { buildCoverageView } from '../lib/coverageMatrix.js'
 
   const props = defineProps({
     // The snapshot doc's `ledger` (LedgerElement[]).
@@ -147,6 +156,9 @@
     // not matching are hidden and emptied groups dropped; the totals row stays
     // whole-model (the breadcrumb chip in the shell conveys the active filter).
     filter: { type: Object, default: null },
+    // Live graded-coverage facts (or null) — drives the ④ configured-mismatch
+    // signal (a supporting control covering none of an element's modeled threats).
+    coverage: { type: Object, default: null },
   })
 
   defineEmits(['dispose', 'drill'])
@@ -164,6 +176,22 @@
   const totals = computed(() => aggregation.value.totals)
   const groups = computed(() => aggregation.value.groups)
   const presentBands = computed(() => bandOrder.filter((b) => totals.value.byBand[b]))
+
+  // ④ configured-mismatch: controls supporting an element but covering none of its
+  // modeled-threat gaps (from the live coverage facts). Absent coverage ⇒ no flags.
+  const mismatchByElement = computed(() => {
+    if (!props.coverage) return {}
+    return buildCoverageView(props.coverage, props.ledger).mismatchByElement ?? {}
+  })
+  const mismatchSet = (g) => new Set(mismatchByElement.value[g.id] ?? [])
+  const mismatchCount = (g) => mismatchSet(g).size
+  // Supporting controls with the mismatch flag, MISMATCHED sorted to the top.
+  const orderedControls = (g) => {
+    const m = mismatchSet(g)
+    return [...g.supportingControls]
+      .map((c) => ({ ...c, mismatched: m.has(c.id) }))
+      .sort((a, b) => (b.mismatched ? 1 : 0) - (a.mismatched ? 1 : 0))
+  }
 
   // Apply the optional ⑤ deep-link filter: band-match across both partitions, and
   // `live: true` hides the dispositioned partition. Drop groups left empty.
@@ -247,6 +275,9 @@
   }
   .trd-group-counts { font-size: 0.75rem; opacity: 0.6; margin-left: 0.5rem; font-weight: 400; }
   .trd-controls { font-size: 0.8rem; color: #2e8b57; margin: 0.2rem 0; }
+  .trd-ctl-mismatch { color: #c77700; }
+  .trd-ctl-flag { font-size: 0.7rem; font-weight: 600; }
+  .trd-mismatch-note { font-size: 0.78rem; color: #c77700; margin: 0.2rem 0 0.4rem; line-height: 1.4; }
   .trd-inconsistent { font-size: 0.8rem; color: #c77700; margin: 0.2rem 0; }
   .trd-table { border-collapse: collapse; width: 100%; }
   .trd-table th {

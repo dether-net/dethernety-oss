@@ -4,6 +4,6 @@
   "displayName": "Dethernety Threat Report",
   "description": "Query-based threat reporting with interactive dashboards.",
   "tags": ["reporting", "dashboard"],
-  "dependencies": [],
+  "dependencies": ["dethernety-coverage-tools"],
   "restarts": ["dethernety.service"]
 }

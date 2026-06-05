@@ -105,7 +105,14 @@
             v-if="nav.activeView === 'posture'"
             :ledger="snapshot.ledger"
             :model-graph="snapshot.modelGraph"
+            :coverage="coverageData"
             @navigate="onNavigate"
+          />
+          <CoverageMatrix
+            v-else-if="nav.activeView === 'coverage'"
+            :coverage="coverageData"
+            :ledger="snapshot.ledger"
+            @drill="onDrill"
           />
           <BoundaryCrossings
             v-else-if="nav.activeView === 'boundary'"
@@ -117,6 +124,7 @@
             v-else-if="nav.activeView === 'residual'"
             :ledger="snapshot.ledger"
             :filter="residualFilter"
+            :coverage="coverageData"
             :can-dispose="canDispose"
             @dispose="handleDispose"
             @drill="onDrill"
@@ -131,11 +139,12 @@
   import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
   import ScopeBanner from './ScopeBanner.vue'
   import PostureSummary from './PostureSummary.vue'
+  import CoverageMatrix from './CoverageMatrix.vue'
   import FindingsLedger from './FindingsLedger.vue'
   import BoundaryCrossings from './BoundaryCrossings.vue'
   import ComponentProfile from './ComponentProfile.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
-  import { fetchLiveFingerprint } from '../composables/useThreatReportData.js'
+  import { fetchLiveFingerprint, fetchGradedCoverage } from '../composables/useThreatReportData.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
   import { computeCompletenessFlags } from '../lib/completenessFlags.js'
   import {
@@ -172,6 +181,12 @@
 
   const { generating, liveFingerprint } = useThreatReportState()
   const errorMessage = ref('')
+  // The LIVE graded-coverage facts (① matrix + ⑤ block). Fetched through the
+  // merged schema from the sibling coverage-tools module; null when that module
+  // isn't deployed (the matrix renders its no-coverage affordance, the rest of the
+  // report is unaffected). Coverage is live graph facts, independent of the
+  // snapshot — drift vs the snapshot ledger is owned by the staleness banner.
+  const coverageData = ref(null)
 
   const snapshot = computed(() => {
     const doc = props.content?.threat_report_dashboard ?? {}
@@ -184,7 +199,7 @@
       modelId: doc.modelId ?? props.scopeId ?? '',
       ledger: doc.ledger ?? [],
       // Always present the four graph keys so the pure libs never see undefined;
-      // dataNodes (S4) may be absent on a pre-S4 snapshot — default it.
+      // dataNodes may be absent on an older snapshot — default it.
       modelGraph: { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) },
     }
   })
@@ -266,6 +281,12 @@
     liveFingerprint.value = await fetchLiveFingerprint(dtUtils, modelId.value)
   }
 
+  // Refresh the live coverage facts for the current model (degrades to null if the
+  // coverage-tools field is absent — never throws into the lifecycle path).
+  const refreshCoverage = async () => {
+    coverageData.value = await fetchGradedCoverage(dtUtils, modelId.value)
+  }
+
   // Monotonic run token + a fallback timer id, so a stale fallback from an
   // earlier run can never release a newer run's gate, and a pending timer is
   // cancelled on teardown.
@@ -333,6 +354,9 @@
     async () => {
       if (generating.value) {
         await refreshLiveFingerprint()
+        // The model changed; refresh coverage too so the ① matrix + ⑤ block
+        // reflect the just-generated snapshot (fire-and-forget — not gate-bearing).
+        refreshCoverage()
         releaseGate()
       }
     },
@@ -341,8 +365,8 @@
   // Export the current snapshot (JSON or self-contained HTML).
   const handleExport = (format) => {
     const doc = props.content?.threat_report_dashboard ?? {}
-    if (format === 'json') exportJson(doc)
-    else exportHtml(doc)
+    if (format === 'json') exportJson(doc, coverageData.value)
+    else exportHtml(doc, coverageData.value)
   }
 
   // Dispose a finding via the platform's REAL dialog (the reusable host opener).
@@ -369,6 +393,7 @@
     apply(defaultNavState())
     generating.value = false
     refreshLiveFingerprint()
+    refreshCoverage()
   })
 
   onUnmounted(() => {
@@ -381,11 +406,43 @@
 <style scoped>
   .threat-report-shell {
     padding: 1.5rem;
-    /* The host analysis-results content area is fixed-height + overflow:hidden,
-       so the report owns its own vertical scroll (the ledger can be long). */
+    /* The host analysis-results content area is fixed-height + overflow:hidden, so
+       the report owns its own scroll. App-shell layout: the chrome (title, banner,
+       tabs) is pinned and the active VIEW is the single vertical scroller — no
+       outer page-scroll stacking on top of an inner table-scroll (one scroll, not
+       two). */
     height: 100%;
-    overflow-y: auto;
+    overflow: hidden;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Snapshot region fills below the pinned title + banner; its own children
+     (actions, tabs, breadcrumb) stay fixed and the view flexes to fill. flex-basis
+     0 so the scroller takes exactly the leftover space and never inflates its
+     content height into shrink pressure on its siblings. */
+  .trd-snapshot {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Pinned chrome rows — never grow or shrink (their natural height). Explicit
+     because .trd-tabs has overflow:hidden, which would otherwise give it an
+     automatic flex min-size of 0 and let it be crushed when the view is long. */
+  .trd-actions,
+  .trd-tabs,
+  .trd-breadcrumb {
+    flex: 0 0 auto;
+  }
+  /* The ONE vertical scroller. A long view (posture, ledger, profile) scrolls
+     here; the coverage matrix instead fills this height and scrolls internally,
+     so neither stacks a second scrollbar on the page. basis 0 = take the leftover. */
+  .trd-view {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
   .trd-title {
     margin: 0 0 1rem;

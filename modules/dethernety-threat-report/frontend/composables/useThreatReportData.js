@@ -2,11 +2,11 @@
 //
 // The single place the report reads the graph, always through the host's
 // dtUtils (useHostContext().utils.dtUtils) — never a module-private Apollo
-// client and never a hand-rolled fetch. Sprint 1 needs only the live
-// fingerprint; the batched exposures/controls fan-out for the ledger lands here
-// in a later sprint, reusing the same dedup/cancel discipline.
+// client and never a hand-rolled fetch. Holds the live structural fingerprint
+// (for staleness) and the live graded-coverage fetch; both share the same
+// dedup/cancel discipline.
 
-import { THREAT_REPORT_FINGERPRINT } from '../graphql/queries.js'
+import { THREAT_REPORT_FINGERPRINT, GRADED_COVERAGE } from '../graphql/queries.js'
 
 /**
  * Fetch the live structural fingerprint for a model.
@@ -43,6 +43,60 @@ export async function fetchLiveFingerprint(dtUtils, modelId) {
     // A real failure: don't fabricate staleness — log and fall back to null
     // (deriveLifecycle treats null live as "assume fresh").
     console.error('[threat-report] live fingerprint fetch failed:', err)
+    return null
+  }
+}
+
+/**
+ * Fetch + parse the graded MITRE coverage facts for a model.
+ *
+ * Returns the parsed CoverageResult object (see dethernety-coverage-tools'
+ * aggregateCoverage), or null when coverage is UNAVAILABLE — which is a normal,
+ * non-error state, not a failure:
+ *   - the `gradedCoverage` field is absent (coverage-tools not deployed) → the
+ *     query errors and we degrade to null so the report ships without the ①
+ *     matrix (never a silent-green empty grid; the caller renders the
+ *     "coverage module not available" / never-generated affordance instead);
+ *   - the resolver returns null (no/empty modelId);
+ *   - a superseded call (CancelledError) — only the latest answer drives the UI.
+ * A parse failure is logged and also degrades to null (never a torn matrix).
+ *
+ * Same withCancellableLatest + performQuery(network-only) discipline as the
+ * fingerprint fetch.
+ *
+ * @param {object} dtUtils  host dtUtils (useHostContext().utils.dtUtils)
+ * @param {string} modelId  the model (analysis scope) id
+ * @returns {Promise<object|null>} the parsed coverage facts, or null if unavailable
+ */
+export async function fetchGradedCoverage(dtUtils, modelId) {
+  if (!dtUtils || !modelId) return null
+  let raw
+  try {
+    const data = await dtUtils.withCancellableLatest(
+      `threat-report-coverage:${modelId}`,
+      () =>
+        dtUtils.performQuery({
+          query: GRADED_COVERAGE,
+          variables: { modelId },
+          action: 'gradedCoverage',
+          fetchPolicy: 'network-only',
+        }),
+    )
+    raw = data?.gradedCoverage ?? null
+  } catch (err) {
+    if (err?.name === 'CancelledError' || err?.constructor?.name === 'CancelledError') {
+      return null
+    }
+    // Field-absent (coverage-tools not deployed) or a network failure: degrade
+    // to null — the report renders its no-coverage affordance, never a fake grid.
+    console.error('[threat-report] graded coverage fetch failed:', err)
+    return null
+  }
+  if (raw == null) return null
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    console.error('[threat-report] graded coverage parse failed:', err)
     return null
   }
 }

@@ -14,3 +14,16 @@ export const THREAT_REPORT_FINGERPRINT = gql`
     threatReportFingerprint(modelId: $modelId)
   }
 `
+
+// Graded, element-scoped, disposition-AGNOSTIC MITRE coverage facts, contributed
+// by the sibling `dethernety-coverage-tools` module (a manifest dependency) into
+// the merged schema and returned as a JSON-encoded string. The report parses it
+// and layers the disposition filter, tier-segregated bucketing, the detect-only
+// reduction, and the no-% honest presentation on top (the honesty layer stays in
+// the report). The field is ABSENT when coverage-tools isn't deployed — the
+// fetcher degrades to null and the report simply ships without the ① matrix.
+export const GRADED_COVERAGE = gql`
+  query GradedCoverage($modelId: ID!) {
+    gradedCoverage(modelId: $modelId)
+  }
+`
