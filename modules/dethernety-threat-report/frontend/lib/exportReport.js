@@ -10,6 +10,7 @@
 
 import { aggregateLedger, dispositionKindLabel } from './aggregateLedger.js'
 import { buildCoverageView } from './coverageMatrix.js'
+import { modeAReachability } from './reachability.js'
 
 // The ① coverage view for export, or null when coverage-tools wasn't deployed (the
 // matrix simply doesn't appear in the export). Built from the LIVE coverage facts
@@ -99,13 +100,47 @@ function coverageExport(view) {
   }
 }
 
+// The ② reachability export payload — the mode-A (external entry) crown-jewel
+// rollup, computed client-side from the snapshot's modelGraph + ledger. Routes
+// are serialised as `flowRoutes`, NEVER `attackPaths` (spec §5); an unreachable
+// jewel serialises as "no modeled flow route", never "segmented/safe".
+function reachabilityExport(doc) {
+  const mg = doc?.modelGraph
+  if (!mg || !Array.isArray(mg.components) || mg.components.length === 0) return null
+  const a = modeAReachability(mg, doc?.ledger ?? [], { kind: 'external' })
+  if (!a.hasCrownJewels) {
+    return { hasCrownJewels: false, note: 'No components marked as crown jewels — reachability not assessed.' }
+  }
+  return {
+    hasCrownJewels: true,
+    origin: a.originLabel, // "from external entry" (structural; trustLevel dormant)
+    hasExternalEntry: a.hasOrigin,
+    jewelCount: a.jewelCount,
+    reachableCount: a.reachableCount,
+    unreachableCount: a.unreachableCount,
+    flowRoutes: a.jewels.map((j) => ({
+      jewel: j.jewelName,
+      reachable: j.reachable,
+      route: j.reachable ? { minHops: j.minHops, crossings: j.crossingCount } : 'no modeled flow route',
+      worstOnRoute: j.reachable ? (j.worstOnRoute.band ?? null) : null,
+      riskAcceptedOnRoute: j.riskAccepted,
+      staleRiskAcceptedOnRoute: j.staleRiskAccepted,
+    })),
+    caveat:
+      'Flow routes and the threats on them — NOT attack paths. Topological (does not model credential reuse or ' +
+      'token theft). Unreachable = no modeled flow route (a modeling gap), never "segmented/safe". From external ' +
+      'entry-points (structural; trustLevel is dormant, never a trust comparison).',
+  }
+}
+
 // JSON export: the raw snapshot doc + a provenance footer + the tier-segregated
-// coverage facts (when available).
+// coverage facts + the ② reachability rollup (each when available).
 export function buildJsonExport(doc, coverage = null) {
   const { totals } = aggregateLedger(doc?.ledger ?? [])
   const cov = coverageExport(coverageForExport(doc, coverage))
+  const reach = reachabilityExport(doc)
   return JSON.stringify(
-    { snapshot: doc, coverage: cov, provenance: provenanceFooter(doc, totals) },
+    { snapshot: doc, coverage: cov, reachability: reach, provenance: provenanceFooter(doc, totals) },
     null,
     2,
   )
@@ -190,11 +225,40 @@ function coverageHtml(view) {
   }`
 }
 
+// Reachability section HTML — the mode-A crown-jewel rollup. Routes are "flow
+// routes", unreachable reads "no modeled flow route" (never "safe"); hex-only.
+function reachabilityHtml(doc) {
+  const r = reachabilityExport(doc)
+  if (!r) return ''
+  if (r.hasCrownJewels === false) {
+    return `<h2>Crown-Jewel Reachability</h2><p class="none">${esc(r.note)}</p>`
+  }
+  const rows = r.flowRoutes
+    .map(
+      (fr) => `<tr>
+        <td>${esc(fr.jewel)}</td>
+        <td>${fr.reachable ? 'reachable' : 'no modeled flow route'}</td>
+        <td class="score">${fr.reachable ? fr.route.minHops : '—'}</td>
+        <td class="score">${fr.reachable ? fr.route.crossings : '—'}</td>
+        <td>${fr.worstOnRoute ? esc(fr.worstOnRoute) : '—'}</td>
+        <td>${fr.riskAcceptedOnRoute ? esc(fr.riskAcceptedOnRoute) + (fr.staleRiskAcceptedOnRoute ? ' (stale)' : '') : '—'}</td>
+      </tr>`,
+    )
+    .join('')
+  return `<h2>Crown-Jewel Reachability</h2>
+  <div class="summary">
+    <p><strong>${r.reachableCount}</strong> of <strong>${r.jewelCount}</strong> crown jewels reachable ${esc(r.origin)}${r.unreachableCount ? ` · ${r.unreachableCount} with no modeled flow route` : ''}</p>
+    <p class="none">${esc(r.caveat)}</p>
+  </div>
+  <table><thead><tr><th>Crown jewel</th><th>Reachability</th><th>Min hops</th><th>Crossings</th><th>Worst on route</th><th>Risk-accepted on route</th></tr></thead><tbody>${rows}</tbody></table>`
+}
+
 // Self-contained printable HTML. Pure: (doc, coverage) → string.
 export function buildHtmlExport(doc, coverage = null) {
   const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
   const footer = provenanceFooter(doc, totals)
   const covSection = coverageHtml(coverageForExport(doc, coverage))
+  const reachSection = reachabilityHtml(doc)
   const bandSummary = ['critical', 'high', 'medium', 'low', 'unknown']
     .filter((b) => totals.byBand[b])
     .map(
@@ -234,6 +298,7 @@ export function buildHtmlExport(doc, coverage = null) {
     <p class="prov">Provenance — USER: ${totals.byProvenance.USER} · SYSTEM: ${totals.byProvenance.SYSTEM}</p>
   </div>
   ${covSection}
+  ${reachSection}
   <h2>Residual-Risk Ledger</h2>
   ${groups.map(groupHtml).join('\n') || '<p class="none">No findings in this model.</p>'}
   <footer>

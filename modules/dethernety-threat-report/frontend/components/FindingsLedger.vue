@@ -83,6 +83,18 @@
       <p v-if="g.compensatingClaimNoControl" class="trd-inconsistent">
         ⚠ Compensating-control disposition on an element with no control present.
       </p>
+      <!-- ④ killer ②-route cross-ref (group-level, visible before the reviewed
+           partition is expanded). Louder when a disposition here is stale. -->
+      <p
+        v-if="reachability && g.dispositionedCount > 0 && onRoute(g.id)"
+        class="trd-route-xref"
+        :class="{ 'trd-route-xref--stale': groupHasStaleDisposition(g) }"
+      >
+        ‼ {{ g.dispositionedCount }} reviewed finding{{ g.dispositionedCount === 1 ? '' : 's' }} here sit on a
+        crown-jewel route to <strong>{{ routeJewels(g.id).join(', ') }}</strong> —
+        <button type="button" class="trd-linkbtn" @click="openReachability">view in ② ↗</button>
+        <span v-if="groupHasStaleDisposition(g)" class="trd-muted"> · a stale disposition still guards a path to a high-value asset</span>
+      </p>
 
       <!-- Open (live) findings -->
       <table v-if="g.live.length" class="trd-table">
@@ -126,6 +138,13 @@
                     · {{ f.dispositionedBy || 'unknown' }}{{ f.dispositionedAt ? ' · ' + formatTs(f.dispositionedAt) : '' }}
                   </span>
                   <div v-if="f.dispositionReason" class="trd-reason">{{ f.dispositionReason }}</div>
+                  <div
+                    v-if="reachability && onRoute(g.id)"
+                    class="trd-route-xref-row"
+                    :class="{ 'trd-route-xref--stale': f.stale }"
+                  >
+                    ‼ ALSO on crown-jewel route to {{ routeJewels(g.id).join(', ') }} (②)<span v-if="f.stale"> — louder: this disposition is stale</span>
+                  </div>
                 </div>
               </td>
               <td class="trd-c-vector">{{ f.attackVector || '—' }}</td>
@@ -159,9 +178,13 @@
     // Live graded-coverage facts (or null) — drives the ④ configured-mismatch
     // signal (a supporting control covering none of an element's modeled threats).
     coverage: { type: Object, default: null },
+    // The ② mode-A (external entry) reachability rollup — drives the killer
+    // cross-ref: a dispositioned finding on an element that ALSO sits on a
+    // crown-jewel route. A visibility JOIN, not a score (no double-penalisation).
+    reachability: { type: Object, default: null },
   })
 
-  defineEmits(['dispose', 'drill'])
+  const emit = defineEmits(['dispose', 'drill', 'navigate'])
 
   const bandOrder = ['critical', 'high', 'medium', 'low', 'unknown']
   const kindLabel = dispositionKindLabel
@@ -192,6 +215,19 @@
       .map((c) => ({ ...c, mismatched: m.has(c.id) }))
       .sort((a, b) => (b.mismatched ? 1 : 0) - (a.mismatched ? 1 : 0))
   }
+
+  // ④ killer ②-route cross-ref: the jewel name(s) this element leads to on a
+  // reachable crown-jewel route (element-keyed join from mode-A). A visibility
+  // join — surfacing "you accepted this, and it still sits on a path to a high-
+  // value asset" — never a score. routeElementToJewels is an in-memory Map (Set).
+  const routeJewels = (id) => {
+    const m = props.reachability?.routeElementToJewels
+    if (!m || typeof m.get !== 'function') return []
+    return [...(m.get(id) ?? [])]
+  }
+  const onRoute = (id) => routeJewels(id).length > 0
+  const groupHasStaleDisposition = (g) => g.dispositioned.some((f) => f.stale)
+  const openReachability = () => emit('navigate', { type: 'view', view: 'reachability' })
 
   // Apply the optional ⑤ deep-link filter: band-match across both partitions, and
   // `live: true` hides the dispositioned partition. Drop groups left empty.
@@ -279,6 +315,16 @@
   .trd-ctl-flag { font-size: 0.7rem; font-weight: 600; }
   .trd-mismatch-note { font-size: 0.78rem; color: #c77700; margin: 0.2rem 0 0.4rem; line-height: 1.4; }
   .trd-inconsistent { font-size: 0.8rem; color: #c77700; margin: 0.2rem 0; }
+  /* ④ killer ②-route cross-ref — a visibility join, louder (saturated) only when
+     the disposition guarding the route is stale. */
+  .trd-route-xref { font-size: 0.8rem; color: #b9651b; margin: 0.2rem 0 0.4rem; line-height: 1.4; }
+  .trd-route-xref--stale { color: #c0392b; font-weight: 600; }
+  .trd-route-xref-row { font-size: 0.72rem; color: #b9651b; margin-top: 0.15rem; }
+  .trd-linkbtn {
+    background: none; border: none; padding: 0; font: inherit; color: inherit;
+    text-decoration: underline; cursor: pointer; opacity: 0.85;
+  }
+  .trd-linkbtn:hover { opacity: 1; }
   .trd-table { border-collapse: collapse; width: 100%; }
   .trd-table th {
     text-align: left;

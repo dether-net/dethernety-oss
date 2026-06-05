@@ -6,10 +6,13 @@
   relative positionX/Y walked through the boundary nesting chain), so it is a
   small faithful copy of the hand-laid diagram — not an auto-layout.
 
-  In the threat report it is ③'s visual home (and ②'s later): crossings/routes
-  are highlighted purely via the `highlightIds` prop — no new render logic. It is
-  presentational only (no click handlers); selection is driven by the parent
-  setting `highlightIds`.
+  In the threat report it is ③'s visual home AND ②'s: crossings/routes are
+  highlighted purely via the `highlightIds` prop — no new render logic. It is
+  presentational by default (selection driven by the parent setting
+  `highlightIds`), and OPTIONALLY interactive: when `selectable` is set it emits
+  `pick(componentId)` on a node click and renders a `pendingIds` node with a
+  dashed stroke (②'s mode-B "pick two" first-click state). Default off, so ③'s
+  usage is unchanged.
 
   Expects `modelGraph` = {
     boundaries: [{ id, name, positionX, positionY, width, height, parentBoundaryId }],
@@ -30,11 +33,23 @@
     highlightIds: { type: Array, default: () => [] },
     crownJewelIds: { type: Array, default: () => [] },
     entryPointIds: { type: Array, default: () => [] },
+    // ②'s mode-B "pick two" first-pick state — a dashed-stroke pending node.
+    pendingIds: { type: Array, default: () => [] },
+    // When true, node clicks emit `pick(componentId)` (②'s click-to-select). Off
+    // by default → ③'s presentational usage is unchanged.
+    selectable: { type: Boolean, default: false },
     completenessScore: { type: Number, default: null },
     // 'sidebar' (default, in-panel; dots-only, hover tooltips, expand button)
     // 'expanded' (modal; DFD shapes, always-on labels, no expand button)
     variant: { type: String, default: 'sidebar' },
   })
+
+  const emit = defineEmits(['pick'])
+
+  const isPending = (component) => props.pendingIds.includes(component.id)
+  const onNodeClick = (component) => {
+    if (props.selectable) emit('pick', component.id)
+  }
 
   const SVG_PADDING = 20
 
@@ -276,16 +291,22 @@
   }
 
   const getStroke = (component) => {
+    if (isPending(component)) return '#7C4DFF'                                         // violet — pending pick (distinct from cyan highlight / amber entry / red jewel)
     if (isHighlighted(component)) return '#00B8D4'                                     // darker cyan
     if (props.crownJewelIds.includes(component.id)) return '#C62828'
     if (props.entryPointIds.includes(component.id)) return '#F57F17'
     return 'none'
   }
 
-  // Highlighted nodes get an extra-thick stroke so the selection pops even on
-  // small sidebar dots that share a colour with categorisation states.
+  // Pending (first-pick) nodes render a DASHED stroke so the "selected one, pick
+  // the second" state is unmistakable vs a committed highlight.
+  const getDash = (component) => (isPending(component) ? '4,3' : null)
+
+  // Highlighted / pending nodes get an extra-thick stroke so the selection pops
+  // even on small sidebar dots that share a colour with categorisation states.
   const strokeWidth = (component) => {
     if (isHighlighted(component)) return 4
+    if (isPending(component)) return 3
     return getStroke(component) !== 'none' ? 2 : 0
   }
 
@@ -394,8 +415,14 @@
       </line>
 
       <!-- Component nodes (DFD shapes in expanded; dots in sidebar).
-           Sizes are scaled 1.4× when highlighted via nodeR/rectW/rectH/storeW/storeH. -->
-      <g v-for="c in layout.components" :key="'c-' + c.id">
+           Sizes are scaled 1.4× when highlighted via nodeR/rectW/rectH/storeW/storeH.
+           When `selectable`, the group is clickable (②'s mode-B pick-two). -->
+      <g
+        v-for="c in layout.components"
+        :key="'c-' + c.id"
+        :class="{ 'node-selectable': selectable }"
+        @click="onNodeClick(c)"
+      >
         <!-- Process: circle (always — sidebar dot is also a circle, just smaller) -->
         <circle
           v-if="c.type === 'process' || variant === 'sidebar'"
@@ -405,6 +432,7 @@
           :fill="getColor(c)"
           :stroke="getStroke(c)"
           :stroke-width="strokeWidth(c)"
+          :stroke-dasharray="getDash(c)"
         >
           <title>{{ c.name }}</title>
         </circle>
@@ -419,6 +447,7 @@
           :fill="getColor(c)"
           :stroke="getStroke(c)"
           :stroke-width="strokeWidth(c)"
+          :stroke-dasharray="getDash(c)"
         >
           <title>{{ c.name }}</title>
         </rect>
@@ -463,6 +492,7 @@
           :fill="getColor(c)"
           :stroke="getStroke(c)"
           :stroke-width="strokeWidth(c)"
+          :stroke-dasharray="getDash(c)"
         >
           <title>{{ c.name }}</title>
         </circle>
@@ -518,8 +548,11 @@
               :highlight-ids="highlightIds"
               :crown-jewel-ids="crownJewelIds"
               :entry-point-ids="entryPointIds"
+              :pending-ids="pendingIds"
+              :selectable="selectable"
               :completeness-score="completenessScore"
               variant="expanded"
+              @pick="emit('pick', $event)"
             />
           </div>
         </v-card-text>
@@ -564,6 +597,11 @@
 .minimap-svg {
   width: 100%;
   display: block;
+}
+
+/* When the map is in pick-two mode, nodes invite a click. */
+.node-selectable {
+  cursor: pointer;
 }
 
 /* Theme-aware label rendering — boundary labels paint after components,

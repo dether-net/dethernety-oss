@@ -17,7 +17,8 @@
   are views of ONE component reached by a segmented control (NO routes); ⑥
   Component Profile is a drill TARGET overlaid on the active view, with a
   removable breadcrumb so a drill never silently hides scope. ① coverage + ②
-  reachability are P2 — deliberately absent (no dead "coming soon" tabs).
+  reachability are the P2 graph-facts views (① via the coverage module; ②
+  computed client-side over the snapshot — the flow-route / crown-jewel engine).
   Navigation/filter state is module-local (lib/reportNavigation pure reducers,
   held in a reactive here). The banner is pinned ABOVE the switcher — a workflow
   requirement (ux §3): the modeler learns "stale" / "exclusions" before reading a
@@ -55,7 +56,7 @@
         </span>
       </div>
 
-      <!-- Segmented control across ⑤③④ (① ② are P2 — absent, not dead tabs). -->
+      <!-- Segmented control across ⑤①②③④ (the P2 graph-facts views now lit). -->
       <nav class="trd-tabs" role="tablist" aria-label="Report views">
         <button
           v-for="v in VIEWS"
@@ -106,11 +107,18 @@
             :ledger="snapshot.ledger"
             :model-graph="snapshot.modelGraph"
             :coverage="coverageData"
+            :reachability="reachability"
             @navigate="onNavigate"
           />
           <CoverageMatrix
             v-else-if="nav.activeView === 'coverage'"
             :coverage="coverageData"
+            :ledger="snapshot.ledger"
+            @drill="onDrill"
+          />
+          <ReachabilityView
+            v-else-if="nav.activeView === 'reachability'"
+            :model-graph="snapshot.modelGraph"
             :ledger="snapshot.ledger"
             @drill="onDrill"
           />
@@ -125,9 +133,11 @@
             :ledger="snapshot.ledger"
             :filter="residualFilter"
             :coverage="coverageData"
+            :reachability="reachability"
             :can-dispose="canDispose"
             @dispose="handleDispose"
             @drill="onDrill"
+            @navigate="onNavigate"
           />
         </template>
       </div>
@@ -140,11 +150,13 @@
   import ScopeBanner from './ScopeBanner.vue'
   import PostureSummary from './PostureSummary.vue'
   import CoverageMatrix from './CoverageMatrix.vue'
+  import ReachabilityView from './ReachabilityView.vue'
   import FindingsLedger from './FindingsLedger.vue'
   import BoundaryCrossings from './BoundaryCrossings.vue'
   import ComponentProfile from './ComponentProfile.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint, fetchGradedCoverage } from '../composables/useThreatReportData.js'
+  import { modeAReachability } from '../lib/reachability.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
   import { computeCompletenessFlags } from '../lib/completenessFlags.js'
   import {
@@ -203,6 +215,16 @@
       modelGraph: { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) },
     }
   })
+
+  // ② Reachability — the DEFAULT (external entry-point) mode-A rollup, computed
+  // synchronously over the snapshot (no fetch, no Cypher — the engine is pure-TS,
+  // simple-path/bounded). This external rollup is what ⑤ (crown-jewel tile) and ④
+  // (killer ②-route cross-ref) read; the ② view itself recomputes for a selectable
+  // assumed-breach origin internally. A `computed` so it re-derives when the
+  // snapshot changes and caches otherwise.
+  const reachability = computed(() =>
+    modeAReachability(snapshot.value.modelGraph, snapshot.value.ledger, { kind: 'external' }),
+  )
 
   const lifecycle = computed(() =>
     deriveLifecycle({

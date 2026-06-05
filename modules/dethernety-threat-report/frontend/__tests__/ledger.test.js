@@ -191,3 +191,52 @@ describe('buildHtmlExport', () => {
     expect(html).not.toMatch(/\b\d+%\s*cover/i)
   })
 })
+
+// --- ② reachability in export ---------------------------------------------
+const REACH_DOC = {
+  generated: true,
+  modelId: 'm',
+  generatedAt: '2026-06-05T00:00:00Z',
+  fingerprint: 'fp',
+  ledger: [],
+  modelGraph: {
+    boundaries: [],
+    components: [
+      { id: 'ext', name: 'Ext', type: 'external_entity', boundaryId: null, crownJewel: false },
+      { id: 'db', name: 'DB', type: 'store', boundaryId: null, crownJewel: true },
+      { id: 'vault', name: 'Vault', type: 'store', boundaryId: null, crownJewel: true },
+    ],
+    flows: [{ id: 'f1', name: 'e', sourceId: 'ext', targetId: 'db', sensitivities: [], dataItemCount: 0 }],
+    dataNodes: [],
+  },
+}
+
+describe('reachability export', () => {
+  it('JSON carries flowRoutes (never attackPaths); unreachable = "no modeled flow route"', () => {
+    const out = JSON.parse(buildJsonExport(REACH_DOC))
+    expect(out.reachability.hasCrownJewels).toBe(true)
+    expect(out.reachability.reachableCount).toBe(1)
+    expect(out.reachability.flowRoutes).toHaveLength(2)
+    expect(JSON.stringify(out.reachability)).not.toMatch(/attackPath/i)
+    const vault = out.reachability.flowRoutes.find((r) => r.jewel === 'Vault')
+    expect(vault.route).toBe('no modeled flow route')
+    const db = out.reachability.flowRoutes.find((r) => r.jewel === 'DB')
+    expect(db.route.minHops).toBe(1)
+  })
+
+  it('HTML renders the section honestly and stays theme-var-free', () => {
+    const html = buildHtmlExport(REACH_DOC)
+    expect(html).toContain('Crown-Jewel Reachability')
+    expect(html).toContain('no modeled flow route')
+    // The honesty caveat explicitly frames these as flow routes, NOT attack paths.
+    expect(html).toMatch(/flow routes/i)
+    expect(html).toMatch(/not attack paths/i)
+    expect(html).not.toContain('var(--v-theme')
+  })
+
+  it('omits the reachability section when there is no modelGraph', () => {
+    const out = JSON.parse(buildJsonExport(DOC))
+    expect(out.reachability).toBeNull()
+    expect(buildHtmlExport(DOC)).not.toContain('Crown-Jewel Reachability')
+  })
+})

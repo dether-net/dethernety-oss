@@ -18,8 +18,8 @@ describe('defaultNavState', () => {
   it('lands on ⑤ posture, no drill, no filters', () => {
     expect(defaultNavState()).toEqual({ activeView: 'posture', drill: null, filters: [] })
   })
-  it('⑤①③④ are segmented-control views (① coverage now lit; ② still absent)', () => {
-    expect(VIEWS).toEqual(['posture', 'coverage', 'boundary', 'residual'])
+  it('⑤①②③④ are segmented-control views (① coverage + ② reachability now lit)', () => {
+    expect(VIEWS).toEqual(['posture', 'coverage', 'reachability', 'boundary', 'residual'])
   })
 })
 
@@ -28,14 +28,15 @@ describe('setView', () => {
     const s = { activeView: 'posture', drill: { elementId: 'c1', fromView: 'posture' }, filters: [HIGH] }
     expect(setView(s, 'boundary')).toEqual({ activeView: 'boundary', drill: null, filters: [] })
   })
-  it('switches to the coverage view (① is now a tab)', () => {
+  it('switches to the coverage / reachability views (① ② are now tabs)', () => {
     const s = { activeView: 'posture', drill: { elementId: 'c1', fromView: 'posture' }, filters: [HIGH] }
     expect(setView(s, 'coverage')).toEqual({ activeView: 'coverage', drill: null, filters: [] })
+    expect(setView(s, 'reachability')).toEqual({ activeView: 'reachability', drill: null, filters: [] })
   })
-  it('is a no-op for an unknown / not-yet-built view (defensive)', () => {
+  it('is a no-op for an unknown view (defensive)', () => {
     const s = defaultNavState()
-    expect(setView(s, 'reachability')).toBe(s) // ② path engine — not yet built
     expect(setView(s, 'profile')).toBe(s) // ⑥ is a drill target, not a tab
+    expect(setView(s, 'bogus')).toBe(s)
   })
 })
 
@@ -53,7 +54,7 @@ describe('gotoFilteredView (⑤ deep-link)', () => {
   })
   it('unknown view ⇒ no-op', () => {
     const s = defaultNavState()
-    expect(gotoFilteredView(s, 'reachability', HIGH)).toBe(s)
+    expect(gotoFilteredView(s, 'profile', HIGH)).toBe(s) // ⑥ is a drill target, not a tab
   })
 })
 

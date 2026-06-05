@@ -11,9 +11,10 @@
   Honesty contracts (func §4, ux §8): the scope caveat rides ON the artifact
   (survives screenshotting); live-exposure bands are LIVE-only (null ⇒ unknown,
   never low); defense-in-depth is a SEPARATE positive line, never folded into
-  coverage; NO single risk score, NO coverage %, NO "Covered: N", no charts. In
-  P1 the COVERAGE block and the crown-jewel REACHABILITY tile are ABSENT (they
-  need the P2 coverage/path engines) — not rendered as dead "coming soon" tiles.
+  coverage; NO single risk score, NO coverage %, NO "Covered: N", no charts. The
+  P2 COVERAGE block (from the coverage module) and the crown-jewel REACHABILITY
+  tile (from the client-side ② engine) light when their inputs are present, and
+  degrade to a modeling-gap line — never a flattering green — when they are not.
 -->
 <template>
   <div class="trd-posture">
@@ -106,6 +107,27 @@
         </template>
       </section>
 
+      <!-- CROWN-JEWEL REACHABILITY (②) — rolled up from mode-A (external entry).
+           STRUCTURAL "from external entry" (never "from untrusted"); each count
+           deep-links to the ② view. Honest when no jewels / no entry are modeled
+           (a modeling state, never a flattering "0 reachable" green). -->
+      <section v-if="reachability" class="trd-block trd-statline">
+        <template v-if="reachability.hasCrownJewels && reachability.hasOrigin">
+          <button type="button" class="trd-stat" @click="emitView('reachability')" title="Open the Reachability view — flow routes to crown jewels">
+            <strong>{{ reachability.reachableCount }}</strong> of <strong>{{ reachability.jewelCount }}</strong> crown jewels reachable from external entry (②) ↗
+          </button>
+          <span v-if="reachability.unreachableCount > 0" class="trd-muted">· {{ reachability.unreachableCount }} with no modeled flow route</span>
+        </template>
+        <template v-else-if="reachability.hasCrownJewels && !reachability.hasOrigin">
+          <button type="button" class="trd-stat" @click="emitView('reachability')" title="Open the Reachability view">
+            <strong>{{ reachability.jewelCount }}</strong> crown jewel{{ reachability.jewelCount === 1 ? '' : 's' }} · no external entry-points modeled — assess in ② ↗
+          </button>
+        </template>
+        <span v-else class="trd-muted">
+          Crown-jewel reachability: no components marked as crown jewels — not assessed (a modeling state, not an all-clear).
+        </span>
+      </section>
+
       <!-- DEFENSE-IN-DEPTH — a SEPARATE positive-signal line, never coverage. -->
       <p v-if="summary.defenseInDepth.controlCount > 0" class="trd-did">
         Defense-in-depth: <strong>{{ summary.defenseInDepth.controlCount }}</strong> control(s) present on
@@ -152,6 +174,9 @@
     // Live graded-coverage facts (or null). When present, the ⑤ coverage block
     // lights up; when absent, the block is simply not rendered (not a dead tile).
     coverage: { type: Object, default: null },
+    // The ② mode-A (external entry) reachability rollup, computed client-side in
+    // the shell. Lights the crown-jewel reachability tile; null ⇒ tile absent.
+    reachability: { type: Object, default: null },
   })
 
   // Emits a navigation intent for the shell to apply (no routes, no direct state).

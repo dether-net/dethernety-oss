@@ -11,14 +11,15 @@
 // (reactive holder).
 
 // The view set. ① coverage (the MITRE Coverage & Gaps matrix) consumes the shared
-// coverage module. ② reachability is still pending — deliberately absent from this
-// list (no dead "coming soon" tabs); 'profile' (⑥) is a drill target, not a
-// segmented-control view.
-export const VIEWS = ['posture', 'coverage', 'boundary', 'residual']
+// coverage module. ② reachability (the flow-route / crown-jewel reachability
+// engine) is computed client-side over the snapshot — no separate fetch. 'profile'
+// (⑥) is a drill target, not a segmented-control view.
+export const VIEWS = ['posture', 'coverage', 'reachability', 'boundary', 'residual']
 
 export const VIEW_LABELS = {
   posture: 'Posture',
   coverage: 'Coverage & Gaps',
+  reachability: 'Reachability',
   boundary: 'Boundary Crossings',
   residual: 'Residual Risk',
   profile: 'Component Profile',
