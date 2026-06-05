@@ -38,26 +38,18 @@
       <p class="trd-hint">Generate a posture snapshot to get started.</p>
     </div>
 
-    <!-- fresh / stale / generating: show the snapshot body (muted while stale) -->
+    <!-- fresh / stale / generating: the residual-risk / disposition ledger -->
     <div v-else class="trd-snapshot" :class="{ 'trd-snapshot--stale': lifecycle === 'stale' }">
-      <dl class="trd-facts">
-        <div class="trd-fact">
-          <dt>Components</dt>
-          <dd>{{ snapshot.componentCount }}</dd>
-        </div>
-        <div class="trd-fact">
-          <dt>Boundaries</dt>
-          <dd>{{ snapshot.boundaryCount }}</dd>
-        </div>
-        <div class="trd-fact">
-          <dt>Fingerprint</dt>
-          <dd><code>{{ snapshot.fingerprint }}</code></dd>
-        </div>
-        <div class="trd-fact">
-          <dt>Model</dt>
-          <dd><code>{{ snapshot.modelId }}</code></dd>
-        </div>
-      </dl>
+      <div class="trd-actions">
+        <span class="trd-meta">
+          {{ snapshot.componentCount }} components · {{ snapshot.boundaryCount }} boundaries
+        </span>
+        <span class="trd-export">
+          <button type="button" class="trd-export-btn" @click="handleExport('json')">Export JSON</button>
+          <button type="button" class="trd-export-btn" @click="handleExport('html')">Export HTML</button>
+        </span>
+      </div>
+      <FindingsLedger :ledger="snapshot.ledger" :can-dispose="canDispose" @dispose="handleDispose" />
     </div>
   </div>
 </template>
@@ -65,8 +57,10 @@
 <script setup>
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
   import ScopeBanner from './ScopeBanner.vue'
+  import FindingsLedger from './FindingsLedger.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint } from '../composables/useThreatReportData.js'
+  import { exportJson, exportHtml } from '../lib/exportReport.js'
 
   const props = defineProps({
     analysisId: { type: String, default: null },
@@ -83,6 +77,11 @@
   const host = window.__HOST_DEPENDENCIES__?.useHostContext?.() ?? {}
   const analysisStore = host.stores?.analysisStore
   const dtUtils = host.utils?.dtUtils
+  // Reusable platform disposition opener (added to useHostContext for module use).
+  const openDispositionDialog = host.services?.openDispositionDialog
+  // Only offer the Review/Edit affordance when the host actually exposes the
+  // opener (older host builds won't) — avoids a silently-inert button.
+  const canDispose = Boolean(openDispositionDialog)
 
   const { generating, liveFingerprint } = useThreatReportState()
   const errorMessage = ref('')
@@ -96,6 +95,7 @@
       componentCount: doc.componentCount ?? 0,
       boundaryCount: doc.boundaryCount ?? 0,
       modelId: doc.modelId ?? props.scopeId ?? '',
+      ledger: doc.ledger ?? [],
     }
   })
 
@@ -200,6 +200,27 @@
     },
   )
 
+  // Export the current snapshot (JSON or self-contained HTML).
+  const handleExport = (format) => {
+    const doc = props.content?.threat_report_dashboard ?? {}
+    if (format === 'json') exportJson(doc)
+    else exportHtml(doc)
+  }
+
+  // Dispose a finding via the platform's REAL dialog (the reusable host opener).
+  // The module owns no write path; on a successful disposition the model has
+  // changed, so we re-check the live fingerprint — the ledger then reads Stale
+  // and the user Recreates to fold the disposition into a fresh snapshot.
+  const handleDispose = async (finding) => {
+    if (!openDispositionDialog || !finding) return
+    try {
+      const result = await openDispositionDialog({ finding, findingType: 'EXPOSURE' })
+      if (result && result.success) await refreshLiveFingerprint()
+    } catch (err) {
+      console.error('[threat-report] dispose failed:', err)
+    }
+  }
+
   onMounted(() => {
     // Fresh mount: clear any leftover singleton state, then establish freshness.
     generating.value = false
@@ -216,6 +237,11 @@
 <style scoped>
   .threat-report-dashboard {
     padding: 1.5rem;
+    /* The host analysis-results content area is fixed-height + overflow:hidden,
+       so the report owns its own vertical scroll (the ledger can be long). */
+    height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
   }
   .trd-title {
     margin: 0 0 1rem;
@@ -224,24 +250,36 @@
     color: #c0392b;
     margin: 0 0 1rem;
   }
-  .trd-facts {
-    display: grid;
-    gap: 0.5rem;
-    margin: 0;
-  }
   .trd-snapshot--stale {
-    opacity: 0.6;
+    opacity: 0.55;
   }
-  .trd-fact {
+  .trd-actions {
     display: flex;
-    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
   }
-  .trd-fact dt {
-    min-width: 8rem;
-    font-weight: 600;
+  .trd-meta {
+    font-size: 0.8rem;
+    opacity: 0.65;
   }
-  .trd-fact dd {
-    margin: 0;
+  .trd-export {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .trd-export-btn {
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0.3rem 0.8rem;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  .trd-export-btn:hover {
+    opacity: 1;
   }
   .trd-empty {
     opacity: 0.8;

@@ -56,6 +56,41 @@ const ANALYSIS_CLASS_ID = 'dethernety-threat-report-snapshot';
  */
 const REPORT_COMPONENT_KEY = 'threat_report_dashboard';
 
+/** One finding (Exposure) row in the ledger — the fields a residual-risk
+ *  reviewer needs. All values are JSON-safe (no graph-engine Integer/temporal
+ *  objects); see computeLedger's normalization. */
+interface LedgerFinding {
+  id: string;
+  name: string;
+  score: number | null;
+  attackVector: string | null;
+  createdBy: string | null; // 'USER' | 'SYSTEM'
+  authoredBy: string | null;
+  dispositionKind: string | null; // null = live (no disposition)
+  dispositionReason: string | null;
+  dispositionedBy: string | null;
+  dispositionedAt: string | null;
+  dispositionStale: boolean | null;
+}
+
+/** A control supporting an element — shown as muted "controls present" context,
+ *  never a coverage claim (coverage grading is a later, separate module). */
+interface LedgerControl {
+  id: string;
+  name: string;
+  type: string | null;
+  category: string | null;
+}
+
+/** One model element with its findings + supporting controls. */
+interface LedgerElement {
+  id: string;
+  name: string;
+  type: 'Component' | 'DataFlow' | 'SecurityBoundary' | 'Data';
+  findings: LedgerFinding[];
+  supportingControls: LedgerControl[];
+}
+
 interface SnapshotDoc {
   generated: boolean;
   modelId?: string;
@@ -63,6 +98,9 @@ interface SnapshotDoc {
   fingerprint?: string;
   componentCount?: number;
   boundaryCount?: number;
+  /** The residual-risk ledger: every element's findings + supporting controls,
+   *  gathered at generate time (the frontend aggregates/presents, pure-TS). */
+  ledger?: LedgerElement[];
 }
 
 class DethernetyThreatReportModule implements DTModule {
@@ -215,6 +253,88 @@ class DethernetyThreatReportModule implements DTModule {
   }
 
   /**
+   * Gather the full residual-risk ledger for a model in ONE query: every
+   * element (Component + DataFlow + SecurityBoundary + Data) with its findings
+   * (Exposures, full disposition + provenance fields) and its supporting
+   * controls. Heavier than computeStructure (which is the cheap fingerprint
+   * digest) — only run at generate time, never on the live staleness check.
+   *
+   * Element discovery mirrors the platform's own model→all-elements traversal
+   * (control-gaps-resolver) and the S1 fingerprint query. Maps are built with
+   * scalar fields only (no nodes-in-maps) + labels()-derived type, for
+   * Neo4j/Memgraph portability; toString() the timestamp; Integer score is
+   * normalized to a JS number below so the doc JSON-stringifies cleanly.
+   */
+  private async computeLedger(modelId: string): Promise<LedgerElement[]> {
+    const session = this.session();
+    try {
+      const result = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(b:SecurityBoundary)
+         WITH m, collect(DISTINCT b) AS bs
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(c:Component)
+         WITH m, bs, collect(DISTINCT c) AS cs
+         OPTIONAL MATCH (m)-[:CONTAINS]->(d:Data)
+         WITH m, bs, cs, collect(DISTINCT d) AS ds
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(:Component)-[:FLOWS]-(df:DataFlow)
+         WITH bs + cs + ds + collect(DISTINCT df) AS els
+         UNWIND (CASE WHEN size(els) = 0 THEN [null] ELSE els END) AS el
+         WITH el WHERE el IS NOT NULL
+         WITH el, [lbl IN labels(el) WHERE lbl IN ['Component', 'DataFlow', 'SecurityBoundary', 'Data']][0] AS elType
+         OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(ex:Exposure)
+         WITH el, elType, collect(DISTINCT CASE WHEN ex IS NULL THEN NULL ELSE {
+           id: ex.id, name: ex.name, score: ex.score, attackVector: ex.attackVector,
+           createdBy: ex.createdBy, authoredBy: ex.authoredBy,
+           dispositionKind: ex.dispositionKind, dispositionReason: ex.dispositionReason,
+           dispositionedBy: ex.dispositionedBy, dispositionedAt: toString(ex.dispositionedAt),
+           dispositionStale: ex.dispositionStale } END) AS findings
+         OPTIONAL MATCH (ctrl:Control)-[:SUPPORTS]->(el)
+         WITH el, elType, findings, collect(DISTINCT CASE WHEN ctrl IS NULL THEN NULL ELSE {
+           id: ctrl.id, name: ctrl.name, type: ctrl.type, category: ctrl.category } END) AS controls
+         RETURN collect({ id: el.id, name: el.name, type: elType, findings: findings, supportingControls: controls }) AS ledger`,
+        { modelId },
+      );
+
+      const toNum = (v: any): number | null =>
+        v == null
+          ? null
+          : typeof v === 'number'
+            ? v
+            : typeof v?.toNumber === 'function'
+              ? v.toNumber()
+              : Number(v);
+
+      const raw = (result.records[0]?.get('ledger') ?? []) as any[];
+      return raw.map((el) => ({
+        id: el.id,
+        name: el.name ?? '',
+        type: el.type,
+        findings: (el.findings ?? []).map((f: any) => ({
+          id: f.id,
+          name: f.name ?? '',
+          score: toNum(f.score),
+          attackVector: f.attackVector ?? null,
+          createdBy: f.createdBy ?? null,
+          authoredBy: f.authoredBy ?? null,
+          dispositionKind: f.dispositionKind ?? null,
+          dispositionReason: f.dispositionReason ?? null,
+          dispositionedBy: f.dispositionedBy ?? null,
+          dispositionedAt: f.dispositionedAt ?? null,
+          dispositionStale: f.dispositionStale ?? null,
+        })),
+        supportingControls: (el.supportingControls ?? []).map((c: any) => ({
+          id: c.id,
+          name: c.name ?? '',
+          type: c.type ?? null,
+          category: c.category ?? null,
+        })),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * "Generate snapshot." Positional args from the platform resolver are
    * (analysisId, analysisClassId, scope=elementId, pubSub, additionalParams).
    * For a model-scoped report, scope IS the model id. Computes the snapshot and
@@ -230,9 +350,11 @@ class DethernetyThreatReportModule implements DTModule {
   ): Promise<AnalysisSession> {
     const modelId = scope;
     // Compute BEFORE the write: a compute failure throws here, before any SET,
-    // so a prior snapshot is left intact (keep-prior-on-partial-failure).
+    // so a prior snapshot is left intact (keep-prior-on-partial-failure). Both
+    // the cheap digest and the full ledger are gathered up front.
     const { fingerprint, componentCount, boundaryCount } =
       await this.computeStructure(modelId);
+    const ledger = await this.computeLedger(modelId);
     const generatedAt = new Date().toISOString();
     const doc: SnapshotDoc = {
       generated: true,
@@ -241,6 +363,7 @@ class DethernetyThreatReportModule implements DTModule {
       fingerprint,
       componentCount,
       boundaryCount,
+      ledger,
     };
 
     const session = this.session();
