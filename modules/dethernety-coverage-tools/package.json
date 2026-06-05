@@ -1,0 +1,25 @@
+{
+  "name": "dethernety-coverage-tools",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "dist/dethernety/dethernety-coverage-tools/DethernetyCoverageToolsModule.js",
+  "types": "dist/dethernety/dethernety-coverage-tools/DethernetyCoverageToolsModule.d.ts",
+  "scripts": {
+    "build": "pnpm build:ts && pnpm build:package",
+    "build:ts": "tsc",
+    "build:package": "node ../../scripts/package-module.js",
+    "dev": "tsc -w",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dethernety/dt-core": "workspace:*",
+    "@dethernety/dt-module": "workspace:*",
+    "@nestjs/common": "^11.1.18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6"
+  }
+}
