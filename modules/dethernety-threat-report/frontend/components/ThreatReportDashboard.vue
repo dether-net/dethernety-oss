@@ -49,7 +49,17 @@
           <button type="button" class="trd-export-btn" @click="handleExport('html')">Export HTML</button>
         </span>
       </div>
-      <FindingsLedger :ledger="snapshot.ledger" :can-dispose="canDispose" @dispose="handleDispose" />
+      <!-- ③ Boundary-Crossing ledger + the faithful minimap (structural). -->
+      <section class="trd-section">
+        <h3 class="trd-section-head">Boundary Crossings</h3>
+        <BoundaryCrossings :model-graph="snapshot.modelGraph" :ledger="snapshot.ledger" />
+      </section>
+
+      <!-- ④ Residual-Risk / Disposition ledger. -->
+      <section class="trd-section">
+        <h3 class="trd-section-head">Residual Risk</h3>
+        <FindingsLedger :ledger="snapshot.ledger" :can-dispose="canDispose" @dispose="handleDispose" />
+      </section>
     </div>
   </div>
 </template>
@@ -58,6 +68,7 @@
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
   import ScopeBanner from './ScopeBanner.vue'
   import FindingsLedger from './FindingsLedger.vue'
+  import BoundaryCrossings from './BoundaryCrossings.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint } from '../composables/useThreatReportData.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
@@ -96,6 +107,7 @@
       boundaryCount: doc.boundaryCount ?? 0,
       modelId: doc.modelId ?? props.scopeId ?? '',
       ledger: doc.ledger ?? [],
+      modelGraph: doc.modelGraph ?? { boundaries: [], components: [], flows: [] },
     }
   })
 
@@ -280,6 +292,18 @@
   }
   .trd-export-btn:hover {
     opacity: 1;
+  }
+  .trd-section {
+    margin-top: 1.5rem;
+  }
+  .trd-section:first-of-type {
+    margin-top: 0.5rem;
+  }
+  .trd-section-head {
+    margin: 0 0 0.6rem;
+    font-size: 1.05rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.2);
   }
   .trd-empty {
     opacity: 0.8;

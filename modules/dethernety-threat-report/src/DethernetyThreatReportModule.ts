@@ -91,6 +91,56 @@ interface LedgerElement {
   supportingControls: LedgerControl[];
 }
 
+/** A security boundary with its canvas geometry + nesting parent. The geometry
+ *  (parent-relative positionX/Y + width/height) lets the minimap reproduce the
+ *  hand-laid layout; parentBoundaryId drives both the minimap's nesting and the
+ *  ③ crossing engine's ancestor-stack walk. */
+interface ModelGraphBoundary {
+  id: string;
+  name: string;
+  positionX: number | null;
+  positionY: number | null;
+  width: number | null;
+  height: number | null;
+  parentBoundaryId: string | null; // null ⇒ top-level
+}
+
+/** A component with its canvas geometry, DFD type (lower-cased for the minimap),
+ *  parent boundary, and crown-jewel flag. */
+interface ModelGraphComponent {
+  id: string;
+  name: string;
+  type: string | null; // 'process' | 'store' | 'external_entity' | … (lower-cased)
+  positionX: number | null;
+  positionY: number | null;
+  width: number | null;
+  height: number | null;
+  boundaryId: string | null; // null ⇒ orphan (no BELONGS_TO parent)
+  crownJewel: boolean;
+}
+
+/** A flow as a component-to-component edge, with the data sensitivities it
+ *  carries. `sensitivities` excludes nulls; `dataItemCount` is the total carried
+ *  data count — so the engine distinguishes "no data" (count 0) from
+ *  "data-in-motion but unclassified" (count > 0, sensitivities empty). */
+interface ModelGraphFlow {
+  id: string;
+  name: string;
+  sourceId: string | null;
+  targetId: string | null;
+  sensitivities: string[]; // SensitivityLevel values, nulls dropped
+  dataItemCount: number;
+}
+
+/** The positional model graph — the minimap's `modelGraph` contract and the ③
+ *  crossing engine's structural input. Gathered at generate time so the report
+ *  is snapshot-faithful (same as-of-generation model as the ledger). */
+interface ModelGraph {
+  boundaries: ModelGraphBoundary[];
+  components: ModelGraphComponent[];
+  flows: ModelGraphFlow[];
+}
+
 interface SnapshotDoc {
   generated: boolean;
   modelId?: string;
@@ -101,6 +151,12 @@ interface SnapshotDoc {
   /** The residual-risk ledger: every element's findings + supporting controls,
    *  gathered at generate time (the frontend aggregates/presents, pure-TS). */
   ledger?: LedgerElement[];
+  /** The positional model graph (boundaries/components/flows with canvas
+   *  geometry + nesting + per-flow carried sensitivity). Feeds the faithful
+   *  minimap and the ③ boundary-crossing engine; both pure-TS over this + the
+   *  raw `ledger` (which carries each element's exposures + supporting controls,
+   *  reused for crossed-boundary / on-flow posture — no separate posture query). */
+  modelGraph?: ModelGraph;
 }
 
 class DethernetyThreatReportModule implements DTModule {
@@ -335,6 +391,141 @@ class DethernetyThreatReportModule implements DTModule {
   }
 
   /**
+   * Gather the positional model graph (boundaries/components/flows with canvas
+   * geometry + nesting + per-flow carried data sensitivity) for a model. Feeds
+   * the faithful minimap and the ③ boundary-crossing engine — both pure-TS over
+   * this graph joined with the raw `ledger` (which already carries every
+   * element's exposures + supporting controls, reused for crossed-boundary /
+   * on-flow posture, so ③ needs no separate posture query).
+   *
+   * Three small, independently-portable passes (boundaries, components, flows),
+   * each in the same OPTIONAL MATCH + collect style as computeLedger — no
+   * pattern comprehensions, no nodes-in-maps, scalar fields only — so they run
+   * on both Neo4j and Memgraph. Element discovery mirrors computeStructure /
+   * computeLedger (same boundary-forest traversal), so the modelGraph element
+   * set matches the ledger's exactly. Canvas geometry uses the schema's
+   * dimensionsWidth/Height (aliased to width/height for the minimap); the
+   * component DFD type is lower-cased to match the minimap's shape vocabulary.
+   */
+  private async computeModelGraph(modelId: string): Promise<ModelGraph> {
+    const session = this.session();
+    try {
+      const boundariesRes = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(b:SecurityBoundary)
+         WITH collect(DISTINCT b) AS bs
+         UNWIND (CASE WHEN size(bs) = 0 THEN [null] ELSE bs END) AS b
+         WITH b WHERE b IS NOT NULL
+         OPTIONAL MATCH (b)-[:BELONGS_TO]->(pb:SecurityBoundary)
+         RETURN collect({
+           id: b.id, name: b.name,
+           positionX: b.positionX, positionY: b.positionY,
+           width: b.dimensionsWidth, height: b.dimensionsHeight,
+           parentBoundaryId: pb.id
+         }) AS boundaries`,
+        { modelId },
+      );
+
+      const componentsRes = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(c:Component)
+         WITH collect(DISTINCT c) AS cs
+         UNWIND (CASE WHEN size(cs) = 0 THEN [null] ELSE cs END) AS c
+         WITH c WHERE c IS NOT NULL
+         OPTIONAL MATCH (c)-[:BELONGS_TO]->(cb:SecurityBoundary)
+         RETURN collect({
+           id: c.id, name: c.name, type: toLower(c.type),
+           positionX: c.positionX, positionY: c.positionY,
+           width: c.dimensionsWidth, height: c.dimensionsHeight,
+           boundaryId: cb.id, crownJewel: c.crownJewel
+         }) AS components`,
+        { modelId },
+      );
+
+      const flowsRes = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(:Component)-[:FLOWS]-(df:DataFlow)
+         WITH collect(DISTINCT df) AS fs
+         UNWIND (CASE WHEN size(fs) = 0 THEN [null] ELSE fs END) AS df
+         WITH df WHERE df IS NOT NULL
+         // Resolve endpoints by collecting + head() rather than two OPTIONAL
+         // MATCHes that multiply rows: the schema types source/target as lists,
+         // so a malformed multi-endpoint DataFlow would otherwise fan out into
+         // duplicate flow-id rows with conflicting endpoints. One row per df.
+         OPTIONAL MATCH (src:Component)-[:FLOWS]->(df)
+         WITH df, collect(DISTINCT src.id) AS srcIds
+         OPTIONAL MATCH (df)-[:FLOWS]->(dst:Component)
+         WITH df, srcIds, collect(DISTINCT dst.id) AS dstIds
+         OPTIONAL MATCH (df)-[:HANDLES]->(d:Data)
+         WITH df, srcIds, dstIds,
+              collect(DISTINCT d.sensitivity) AS sensRaw,
+              collect(DISTINCT d.id) AS dataIds
+         RETURN collect({
+           id: df.id, name: df.name,
+           sourceId: head(srcIds), targetId: head(dstIds),
+           sensitivities: [s IN sensRaw WHERE s IS NOT NULL],
+           dataItemCount: size(dataIds)
+         }) AS flows`,
+        { modelId },
+      );
+
+      const toNum = (v: any): number | null =>
+        v == null
+          ? null
+          : typeof v === 'number'
+            ? v
+            : typeof v?.toNumber === 'function'
+              ? v.toNumber()
+              : Number(v);
+
+      const rawB = (boundariesRes.records[0]?.get('boundaries') ?? []) as any[];
+      const rawC = (componentsRes.records[0]?.get('components') ?? []) as any[];
+      const rawF = (flowsRes.records[0]?.get('flows') ?? []) as any[];
+
+      return {
+        boundaries: rawB
+          .filter((b) => b && b.id)
+          .map((b) => ({
+            id: b.id,
+            name: b.name ?? '',
+            positionX: toNum(b.positionX),
+            positionY: toNum(b.positionY),
+            width: toNum(b.width),
+            height: toNum(b.height),
+            parentBoundaryId: b.parentBoundaryId ?? null,
+          })),
+        components: rawC
+          .filter((c) => c && c.id)
+          .map((c) => ({
+            id: c.id,
+            name: c.name ?? '',
+            type: c.type ?? null,
+            positionX: toNum(c.positionX),
+            positionY: toNum(c.positionY),
+            width: toNum(c.width),
+            height: toNum(c.height),
+            boundaryId: c.boundaryId ?? null,
+            crownJewel: c.crownJewel === true,
+          })),
+        flows: rawF
+          .filter((f) => f && f.id)
+          .map((f) => ({
+            id: f.id,
+            name: f.name ?? '',
+            sourceId: f.sourceId ?? null,
+            targetId: f.targetId ?? null,
+            sensitivities: Array.isArray(f.sensitivities)
+              ? f.sensitivities.filter((s: any) => s != null)
+              : [],
+            dataItemCount: toNum(f.dataItemCount) ?? 0,
+          })),
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * "Generate snapshot." Positional args from the platform resolver are
    * (analysisId, analysisClassId, scope=elementId, pubSub, additionalParams).
    * For a model-scoped report, scope IS the model id. Computes the snapshot and
@@ -355,6 +546,7 @@ class DethernetyThreatReportModule implements DTModule {
     const { fingerprint, componentCount, boundaryCount } =
       await this.computeStructure(modelId);
     const ledger = await this.computeLedger(modelId);
+    const modelGraph = await this.computeModelGraph(modelId);
     const generatedAt = new Date().toISOString();
     const doc: SnapshotDoc = {
       generated: true,
@@ -364,6 +556,7 @@ class DethernetyThreatReportModule implements DTModule {
       componentCount,
       boundaryCount,
       ledger,
+      modelGraph,
     };
 
     const session = this.session();
