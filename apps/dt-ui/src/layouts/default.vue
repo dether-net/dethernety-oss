@@ -3,6 +3,8 @@
   import { useAnalysisStore } from '@/stores/analysisStore'
   import { useIssueStore } from '@/stores/issueStore'
   import { useAuthStore } from '@/stores/authStore'
+  import { useDispositionDialogStore } from '@/stores/dispositionDialogStore'
+  import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
   import { getConfig, getConfigSync, FrontendConfig } from '@/config/environment'
 
   const drawer = ref(true)
@@ -13,6 +15,10 @@
   const analysisStore = useAnalysisStore()
   const issueStore = useIssueStore()
   const authStore = useAuthStore()
+  // App-level home for the shared disposition dialog so module-loaded analysis
+  // components (which can't reach flowStore / dt-ui components) can open it via
+  // useHostContext().services.openDispositionDialog.
+  const dispositionDialogStore = useDispositionDialogStore()
   const config = ref<FrontendConfig | null>(getConfigSync())
   const configLoading = ref(true)
   const configError = ref<string | null>(null)
@@ -126,6 +132,24 @@
     </v-main>
 
     <!-- Vignette Overlay -->
+
+    <!-- App-level shared disposition dialog (openable from anywhere, incl.
+         module-loaded analysis/report components — see dispositionDialogStore). -->
+    <DispositionDialog
+      :show-dialog="dispositionDialogStore.state.show"
+      :finding-id="dispositionDialogStore.state.findingId"
+      :finding-name="dispositionDialogStore.state.findingName"
+      :finding-type="dispositionDialogStore.findingType"
+      :initial-kind="dispositionDialogStore.state.initialKind"
+      :initial-reason="dispositionDialogStore.state.initialReason"
+      :is-stale="dispositionDialogStore.state.isStale"
+      :lock-kind="dispositionDialogStore.state.lockKind"
+      :initial-dispositioned-by="dispositionDialogStore.state.initialDispositionedBy"
+      :initial-dispositioned-at="dispositionDialogStore.state.initialDispositionedAt"
+      @saved="dispositionDialogStore.onSaved"
+      @cleared="dispositionDialogStore.onCleared"
+      @close="dispositionDialogStore.onClose"
+    />
   </v-app>
 </template>
 

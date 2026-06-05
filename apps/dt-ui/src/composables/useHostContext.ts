@@ -2,6 +2,7 @@
 import { useRouter, useRoute } from 'vue-router'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useIssueStore } from '@/stores/issueStore'
+import { useDispositionDialogStore, type OpenDispositionArgs } from '@/stores/dispositionDialogStore'
 import { componentRegistry } from '@/services/ComponentRegistry'
 import { getPageDisplayName } from '@/utils/dataFlowUtils'
 import { DtUtils } from '@dethernety/dt-core'
@@ -27,7 +28,8 @@ export function useHostContext() {
   
   const analysisStore = useAnalysisStore()
   const issueStore = useIssueStore()
-  
+  const dispositionDialogStore = useDispositionDialogStore()
+
   const safeResolveComponent = (name: string) => {
     try {
       return resolveComponent(name)
@@ -45,7 +47,10 @@ export function useHostContext() {
       issueStore
     },
     services: {
-      componentRegistry
+      componentRegistry,
+      // Open the platform's real disposition dialog from anywhere (incl. module
+      // bundles). Resolves with the mutation result on save/clear, null on cancel.
+      openDispositionDialog: (args: OpenDispositionArgs) => dispositionDialogStore.open(args)
     },
     vue: {
       ref,

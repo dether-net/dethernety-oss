@@ -35,6 +35,19 @@ For platform overview, installation, and architecture, see the [main README](../
 |-------|-------------|
 | [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, filtering, merging, and external integration |
 
+## Reporting — Threat Report
+
+A read-only, point-in-time report over a model. See the [Threat Report guide](threat-report/README.md):
+
+| Guide | Description |
+|-------|-------------|
+| [Threat Report Overview](threat-report/README.md) | What the report is, what it does and does not tell you, and where to start |
+| [Getting Started](threat-report/GETTING_STARTED.md) | Generate, open, refresh, and export a report |
+| [Reading the Report](threat-report/READING_THE_REPORT.md) | Navigation, the shared visual language, the Posture and Boundary Crossings views |
+| [Understanding Coverage and Gaps](threat-report/UNDERSTANDING_COVERAGE.md) | The MITRE ATT&CK coverage matrix: tiers, gaps, and honest interpretation |
+| [Reachability and Flow Routes](threat-report/REACHABILITY.md) | Flow routes to crown-jewel assets and between any two elements |
+| [Working with Findings](threat-report/WORKING_WITH_FINDINGS.md) | The Residual Risk ledger, triage, filtering, and the Component Profile |
+
 ## AI and Automation — Dethereal (Claude Code Plugin)
 
 For comprehensive documentation on the Dethereal threat modeling plugin, see the [Dethereal documentation](dethereal/README.md):
@@ -55,7 +68,7 @@ For comprehensive documentation on the Dethereal threat modeling plugin, see the
 
 ## Suggested reading order
 
-**Platform (GUI):** [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) -- then [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) to run and interpret analysis.
+**Platform (GUI):** [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) -- then [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) to run and interpret analysis -- then the [Threat Report](threat-report/README.md) to read, filter, and export your residual risk.
 
 **Dethereal (Claude Code plugin):**
 1. [Getting Started](dethereal/GETTING_STARTED.md) -- install and create your first model

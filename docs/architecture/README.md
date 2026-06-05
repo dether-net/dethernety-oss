@@ -679,9 +679,22 @@ docs/architecture/
 │   ├── DEVELOPMENT_GUIDE.md           # Development guide
 │   └── MODULE_PACKAGE_DESIGN.md       # Module packaging and deployment
 │
-└── dethereal/                         # MCP Server (AI integration)
-    ├── README.md                      # Quick reference
-    └── ARCHITECTURE.md                # Complete technical reference
+├── dethereal/                         # MCP Server (AI integration)
+│   ├── README.md                      # Quick reference
+│   └── ARCHITECTURE.md                # Complete technical reference
+│
+├── dethernety-threat-report/          # Threat Report module (reporting)
+│   ├── README.md                      # Module overview + doc index
+│   ├── architecture.md                # System overview + snapshot lifecycle
+│   ├── backend.md                     # Snapshot generation & persistence
+│   ├── frontend.md                    # Report application & surfaces
+│   ├── data-model.md                  # Snapshot + coverage data contracts
+│   └── design-principles.md           # Accuracy & honesty contracts
+│
+└── dethernety-coverage-tools/         # Coverage Tools module (MITRE coverage primitive)
+    ├── README.md                      # Module overview + doc index
+    ├── architecture.md                # Graded-bridge design & query mechanics
+    └── coverage-facts.md              # Output contract (gradedCoverage)
 ```
 
 ### Quick Reference Links
@@ -693,6 +706,8 @@ docs/architecture/
 | **dt-core Package** | [dt-core/](./dt-core/) |
 | **Module System** | [modules/](./modules/) |
 | **MCP Server (Dethereal)** | [dethereal/ARCHITECTURE.md](./dethereal/ARCHITECTURE.md) |
+| **Threat Report Module** | [dethernety-threat-report/](./dethernety-threat-report/README.md) |
+| **Coverage Tools Module** | [dethernety-coverage-tools/](./dethernety-coverage-tools/README.md) |
 
 ---
 
