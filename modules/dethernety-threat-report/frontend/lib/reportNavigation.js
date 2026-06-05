@@ -23,7 +23,6 @@ export const VIEW_LABELS = {
   reachability: 'Reachability',
   boundary: 'Boundary Crossings',
   residual: 'Residual Risk',
-  profile: 'Component Profile',
 }
 
 const isView = (v) => VIEWS.includes(v)

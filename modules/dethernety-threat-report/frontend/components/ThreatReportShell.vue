@@ -93,12 +93,14 @@
           :ledger="snapshot.ledger"
           :model-graph="snapshot.modelGraph"
           :coverage="coverageData"
+          :coverage-view="coverageView"
           :reachability="reachability"
           @navigate="onNavigate"
         />
         <CoverageMatrix
           v-else-if="nav.activeView === 'coverage'"
           :coverage="coverageData"
+          :coverage-view="coverageView"
           :ledger="snapshot.ledger"
           @drill="onDrill"
         />
@@ -119,6 +121,7 @@
           :ledger="snapshot.ledger"
           :filter="residualFilter"
           :coverage="coverageData"
+          :coverage-view="coverageView"
           :reachability="reachability"
           :technique-index="techniqueIndex"
           :can-dispose="canDispose"
@@ -169,7 +172,7 @@
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint, fetchGradedCoverage } from '../composables/useThreatReportData.js'
   import { modeAReachability } from '../lib/reachability.js'
-  import { buildExposureTechniqueIndex } from '../lib/coverageMatrix.js'
+  import { buildExposureTechniqueIndex, buildCoverageView } from '../lib/coverageMatrix.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
   import { computeCompletenessFlags } from '../lib/completenessFlags.js'
   import {
@@ -247,6 +250,13 @@
   // chips on each finding in Component Profile and Residual Risk. Empty {} when
   // coverage-tools isn't deployed — the chips simply don't render.
   const techniqueIndex = computed(() => buildExposureTechniqueIndex(coverageData.value))
+
+  // The pure coverage honesty view, built ONCE here and shared with every child
+  // that needs it (the coverage matrix, the posture coverage block, and the
+  // findings-ledger mismatch signal) so the same derivation isn't recomputed in
+  // each. Children still accept :coverage/:ledger and fall back to building it
+  // themselves when this prop is absent, so they keep working standalone.
+  const coverageView = computed(() => buildCoverageView(coverageData.value, snapshot.value.ledger))
 
   const lifecycle = computed(() =>
     deriveLifecycle({
@@ -576,18 +586,13 @@
     margin-bottom: 0.8rem;
     font-size: 0.82rem;
   }
-  .trd-crumb-link {
-    background: none; border: none; padding: 0; font: inherit; color: inherit;
-    cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
-  }
-  .trd-crumb-link:hover { text-decoration-style: solid; }
   .trd-crumb-sep { opacity: 0.5; }
   .trd-crumb-current { font-weight: 600; }
-  .trd-crumb-x, .trd-chip-x {
+  .trd-chip-x {
     background: none; border: none; padding: 0 0 0 0.3rem; font: inherit;
     color: inherit; cursor: pointer; opacity: 0.7;
   }
-  .trd-crumb-x:hover, .trd-chip-x:hover { opacity: 1; }
+  .trd-chip-x:hover { opacity: 1; }
   .trd-chip {
     display: inline-flex; align-items: center;
     border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 12px;

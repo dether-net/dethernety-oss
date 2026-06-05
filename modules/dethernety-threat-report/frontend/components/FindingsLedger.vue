@@ -229,6 +229,9 @@
     // Live graded-coverage facts (or null) — drives the configured-mismatch
     // signal (a supporting control covering none of an element's modeled threats).
     coverage: { type: Object, default: null },
+    // The pre-built coverage view from the shell (built once, shared). When
+    // absent (standalone use) this component builds it from coverage + ledger.
+    coverageView: { type: Object, default: null },
     // The mode-A (external entry) reachability rollup — drives the killer
     // cross-ref: a dispositioned finding on an element that ALSO sits on a
     // crown-jewel route. A visibility JOIN, not a score (no double-penalisation).
@@ -282,11 +285,15 @@
     emit('navigate', { type: 'toggle-filter', filter: { key: 'type', type: 'type', value: t, label: `type: ${typeLabel(t)}` } })
   const clearAll = () => emit('navigate', { type: 'clear-filters' })
 
+  // The coverage honesty view — the shell's shared build when provided, otherwise
+  // built once here. Read by the mismatch derivation below (built at most once).
+  const view = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger))
+
   // Configured-mismatch: controls supporting an element but covering none of its
   // modeled-threat gaps (from the live coverage facts). Absent coverage ⇒ no flags.
   const mismatchByElement = computed(() => {
     if (!props.coverage) return {}
-    return buildCoverageView(props.coverage, props.ledger).mismatchByElement ?? {}
+    return view.value.mismatchByElement ?? {}
   })
   const mismatchSet = (g) => new Set(mismatchByElement.value[g.id] ?? [])
   const mismatchCount = (g) => mismatchSet(g).size

@@ -1,7 +1,7 @@
 <!--
   ScopeBanner.vue — the report's scope + freshness header.
 
-  Presentational only: the parent (ThreatReportDashboard) owns lifecycle state,
+  Presentational only: the parent (ThreatReportShell) owns lifecycle state,
   the live-fingerprint fetch, and the single-flight Generate/Recreate action.
   This component renders the freshness line + the Generate/Recreate button and
   emits `generate`; it also renders the completeness-flag scaffold.

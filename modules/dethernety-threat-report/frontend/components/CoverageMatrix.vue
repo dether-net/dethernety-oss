@@ -90,7 +90,16 @@
            "false all-clear"), so the SUMMARY line with its counts is ALWAYS visible;
            only the verbose prose collapses behind it. Never hide the counts. -->
       <div v-if="offGridParts.length" class="trd-offgrid-summary">
-        <div class="trd-offgrid-sumhead" @click="showOffgrid = !showOffgrid" :title="showOffgrid ? 'Hide the off-grid details' : 'Show the off-grid details'">
+        <div
+          class="trd-offgrid-sumhead"
+          tabindex="0"
+          role="button"
+          :aria-pressed="showOffgrid"
+          @click="showOffgrid = !showOffgrid"
+          @keydown.enter.prevent="showOffgrid = !showOffgrid"
+          @keydown.space.prevent="showOffgrid = !showOffgrid"
+          :title="showOffgrid ? 'Hide the off-grid details' : 'Show the off-grid details'"
+        >
           <span class="trd-offgrid-caret" aria-hidden="true">{{ showOffgrid ? '▾' : '▸' }}</span>
           <span class="cov-offgrid-mark" aria-hidden="true">⚠</span>
           <span class="trd-offgrid-sumlabel">Off-grid:</span>
@@ -109,8 +118,13 @@
         <div
           class="trd-offgrid-head"
           :class="{ 'trd-offgrid-head--toggle': dataMapped.length }"
+          :tabindex="dataMapped.length ? 0 : null"
+          :role="dataMapped.length ? 'button' : null"
+          :aria-pressed="dataMapped.length ? showData : null"
           :title="dataMapped.length ? (showData ? 'Hide the techniques these Data exposures map to' : 'Show the techniques these Data exposures map to') : null"
           @click="dataMapped.length && (showData = !showData)"
+          @keydown.enter.prevent="dataMapped.length && (showData = !showData)"
+          @keydown.space.prevent="dataMapped.length && (showData = !showData)"
         >
           <span v-if="dataMapped.length" class="trd-offgrid-caret" aria-hidden="true">{{ showData ? '▾' : '▸' }}</span>
           {{ view.offGrid.dataMappedCount }} Data exposure(s) map to ATT&CK; data-level coverage is not assessable —
@@ -162,11 +176,15 @@
                 v-for="tac in tactics"
                 :key="tac"
                 scope="col"
+                tabindex="0"
+                role="button"
                 class="trd-matrix-col trd-matrix-col--btn"
                 :class="{ 'trd-matrix-col--active': tacticFilter === tac }"
                 :aria-pressed="tacticFilter === tac"
                 :title="tacticFilter === tac ? `showing only ${tac} techniques — click to clear` : `show only techniques in ${tac}`"
                 @click="toggleTactic(tac)"
+                @keydown.enter.prevent="toggleTactic(tac)"
+                @keydown.space.prevent="toggleTactic(tac)"
               >{{ tac }}<span v-if="tacticFilter === tac" class="trd-matrix-col-x" aria-hidden="true"> ✕</span></th>
               <th scope="col" class="trd-matrix-best">Best</th>
             </tr>
@@ -261,6 +279,9 @@
     coverage: { type: Object, default: null },
     // The snapshot ledger (for the disposition join + supporting controls).
     ledger: { type: Array, default: () => [] },
+    // The pre-built coverage view from the shell (built once, shared). When
+    // absent (standalone use) this component builds it from coverage + ledger.
+    coverageView: { type: Object, default: null },
   })
 
   // Drill to the Component Profile for an element (the shell turns this into a profile overlay).
@@ -293,7 +314,7 @@
   const openInfo = (r) => { infoTech.value = r }
   const closeInfo = () => { infoTech.value = null }
 
-  const view = computed(() => buildCoverageView(props.coverage, props.ledger))
+  const view = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger))
   const tactics = computed(() => (view.value.available ? view.value.tactics : []))
   // The off-grid Data exposures with their resolved ATT&CK techniques (per element).
   const dataMapped = computed(() => (view.value.available ? view.value.offGrid?.dataMapped ?? [] : []))

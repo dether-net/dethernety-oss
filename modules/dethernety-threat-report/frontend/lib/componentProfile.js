@@ -154,7 +154,7 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
       const g = singleGroup(ledgerById.get(d.id))
       return {
         id: d.id,
-        name: d.name,
+        name: d.name ?? '(unnamed)',
         sensitivity: d.sensitivity ?? null,
         sensitivityLabel: sensitivityLabel(d.sensitivity ?? null),
         live: g.live,

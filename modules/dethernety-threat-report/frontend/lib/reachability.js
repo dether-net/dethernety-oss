@@ -22,7 +22,6 @@
 // walk generalises the Component Profile's 1-hop loop to a bounded multi-hop DFS
 // over the identical `sourceId`/`targetId` edges.
 
-import { isLive, scoreBand } from './aggregateLedger.js'
 import {
   makeStackResolver,
   postureOf,

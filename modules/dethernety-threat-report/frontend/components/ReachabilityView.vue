@@ -185,8 +185,8 @@
           enumerate the flow routes between them.
         </p>
         <p v-else-if="modeB && modeB.routes.length === 0" class="trd-empty">
-          No modeled flow route connects <strong>{{ nameOf(mbOrigin) }}</strong> →
-          <strong>{{ nameOf(mbTarget) }}</strong> (within {{ DEFAULT_MAX_HOPS }} hops, respecting flow direction).
+          No routes within {{ DEFAULT_MAX_HOPS }} hops connect <strong>{{ nameOf(mbOrigin) }}</strong> →
+          <strong>{{ nameOf(mbTarget) }}</strong> (respecting flow direction) — longer routes are not enumerated.
           This reflects the modeled topology, not a segmentation assessment.
         </p>
 

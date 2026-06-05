@@ -22,9 +22,7 @@
   (the snapshot doc's `modelGraph`, gathered backend-side at generate time).
 -->
 <script setup>
-  const { useHostContext } = window.__HOST_DEPENDENCIES__
-  const { vue } = useHostContext()
-  const { computed, ref } = vue
+  import { computed, ref } from 'vue'
 
   defineOptions({ name: 'ModelMinimap' })
 
@@ -42,7 +40,6 @@
     // When true, node clicks emit `pick(componentId)` (click-to-select). Off
     // by default → the presentational usage is unchanged.
     selectable: { type: Boolean, default: false },
-    completenessScore: { type: Number, default: null },
     // 'sidebar' (default, in-panel; dots-only, hover tooltips, expand button)
     // 'expanded' (modal; DFD shapes, always-on labels, no expand button)
     variant: { type: String, default: 'sidebar' },
@@ -344,10 +341,6 @@
   }
   const storeStrokeWidth = (component) => (getStroke(component) !== 'none' ? 2 : 1)
 
-  const completenessPercent = computed(() =>
-    props.completenessScore != null ? Math.round(props.completenessScore * 100) : null
-  )
-
   const truncate = (name, max) => {
     if (!name) return ''
     return name.length > max ? name.slice(0, max) + '...' : name
@@ -361,16 +354,6 @@
 
 <template>
   <div class="minimap-container" :class="`variant-${variant}`">
-    <div v-if="completenessPercent != null" class="completeness-badge">
-      <v-chip
-        size="x-small"
-        :color="completenessPercent >= 60 ? 'success' : completenessPercent >= 40 ? 'warning' : 'error'"
-        variant="tonal"
-      >
-        {{ completenessPercent }}%
-      </v-chip>
-    </div>
-
     <v-btn
       v-if="variant === 'sidebar'"
       class="expand-btn"
@@ -569,7 +552,6 @@
               :entry-point-ids="entryPointIds"
               :pending-ids="pendingIds"
               :selectable="selectable"
-              :completeness-score="completenessScore"
               variant="expanded"
               @pick="emit('pick', $event)"
             />
@@ -593,13 +575,6 @@
   border: none;
   border-radius: 0;
   background: transparent;
-}
-
-.completeness-badge {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 1;
 }
 
 .expand-btn {

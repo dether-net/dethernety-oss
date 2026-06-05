@@ -173,6 +173,9 @@
     // Live graded-coverage facts (or null). When present, the coverage block
     // lights up; when absent, the block is simply not rendered (not a dead tile).
     coverage: { type: Object, default: null },
+    // The pre-built coverage view from the shell (built once, shared). When
+    // absent (standalone use) this component builds it from coverage + ledger.
+    coverageView: { type: Object, default: null },
     // The external-entry reachability rollup, computed client-side in the shell.
     // Lights the crown-jewel reachability tile; null ⇒ tile absent.
     reachability: { type: Object, default: null },
@@ -192,7 +195,7 @@
   const presentLiveBands = computed(() => bandOrder.filter((b) => summary.value.liveBands[b] > 0))
 
   // The coverage block, from the same pure honesty layer the Coverage & Gaps matrix uses.
-  const coverageView = computed(() => buildCoverageView(props.coverage, props.ledger))
+  const coverageView = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger))
 
   const emitView = (view) => emit('navigate', { type: 'view', view })
   const emitDrill = (elementId) => emit('navigate', { type: 'drill', elementId })

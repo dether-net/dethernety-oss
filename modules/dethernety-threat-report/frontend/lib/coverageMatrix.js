@@ -185,6 +185,7 @@ export function buildCoverageView(coverage, ledger) {
     }
     const inGrid = GRID_KINDS.has(e.elementKind)
     for (const t of e.techniques ?? []) {
+      if (!t || !t.techniqueId) continue
       const tiers = t.tiers ?? []
       const red = reduceTiers(tiers)
       const pairKey = `${e.exposureId}|${t.techniqueId}`

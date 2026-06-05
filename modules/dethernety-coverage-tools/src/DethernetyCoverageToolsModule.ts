@@ -108,8 +108,16 @@ class DethernetyCoverageToolsModule implements DTModule {
         gradedCoverage: async (_parent: any, args: any) => {
           const modelId = String(args?.modelId ?? '');
           if (!modelId) return null;
-          const result = await this.computeGradedCoverage(modelId);
-          return JSON.stringify(result);
+          try {
+            const result = await this.computeGradedCoverage(modelId);
+            return JSON.stringify(result);
+          } catch (err) {
+            this.logger.error(
+              `coverage-tools: gradedCoverage compute failed for model '${modelId}'`,
+              err instanceof Error ? err.stack : String(err),
+            );
+            throw err;
+          }
         },
       },
     };
@@ -268,7 +276,10 @@ class DethernetyCoverageToolsModule implements DTModule {
       WHERE any(l IN labels(art) WHERE l STARTS WITH 'MitreDefend' AND l ENDS WITH 'Entity')
       MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(ct)
       MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm)
-      OPTIONAL MATCH (dt)-[:SUB_TECHNIQUE_OF|ENABLES*0..]->(tac:MitreDefendTactic)
+      // Defensive finite ceiling (*0..5) well above any realistic D3FEND
+      // ontology chain depth, replacing an unbounded walk to remove the
+      // traversal portability/cost risk.
+      OPTIONAL MATCH (dt)-[:SUB_TECHNIQUE_OF|ENABLES*0..5]->(tac:MitreDefendTactic)
       RETURN exp.id AS exposureId, t.attack_id AS techniqueId, cm.id AS cmId, ctrl.id AS controlId,
              [x IN collect(DISTINCT tac.name) WHERE x IS NOT NULL] AS tactics`;
 

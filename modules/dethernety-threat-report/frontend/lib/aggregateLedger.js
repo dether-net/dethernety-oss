@@ -33,7 +33,7 @@ export function scoreBand(score) {
   return 'low'
 }
 
-const BAND_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 }
+export const BAND_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 }
 
 export function isLive(finding) {
   return finding?.dispositionKind == null
@@ -55,7 +55,7 @@ function annotate(finding) {
 }
 
 // Sort live findings by band severity (desc) then score (desc) then name.
-function bySeverity(a, b) {
+export function bySeverity(a, b) {
   const r = (BAND_RANK[b.band] ?? 0) - (BAND_RANK[a.band] ?? 0)
   if (r !== 0) return r
   const s = (b.score ?? -1) - (a.score ?? -1)

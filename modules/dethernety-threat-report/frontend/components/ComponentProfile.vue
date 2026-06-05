@@ -155,7 +155,7 @@
         <section v-if="profile.neighbours.length" class="trd-prof-section">
           <h4 class="trd-prof-sec-head">Connected components <span class="trd-muted">(1-hop)</span></h4>
           <ul class="trd-neighbours">
-            <li v-for="n in profile.neighbours" :key="n.flowId + n.neighbourId" class="trd-neighbour">
+            <li v-for="n in profile.neighbours" :key="n.flowId + ':' + n.neighbourId" class="trd-neighbour">
               <span class="trd-dir" :class="`trd-dir--${n.direction}`">{{ dirLabel(n.direction) }}</span>
               <button v-if="n.neighbourResolved" type="button" class="trd-drill-mini" @click="$emit('drill', n.neighbourId)" :title="`Open ${n.neighbourName} profile`">{{ n.neighbourName }}</button>
               <span v-else class="trd-unresolved" title="endpoint not present in this snapshot">{{ n.neighbourName }}</span>

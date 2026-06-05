@@ -14,9 +14,8 @@
 // crossing counts, defense-in-depth, and top residuals; it does not emit a
 // coverage block or a crown-jewel reachability tile.
 
-import { aggregateLedger, scoreBand, isLive } from './aggregateLedger.js'
+import { aggregateLedger, isLive, BAND_RANK } from './aggregateLedger.js'
 
-const BAND_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 }
 const TOP_RESIDUALS_LIMIT = 6
 
 function emptyBands() {

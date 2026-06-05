@@ -10,6 +10,21 @@ import {
 import { AnalysisSession, AnalysisStatus } from '@dethernety/dt-core';
 
 /**
+ * Normalize a graph-engine numeric value to a plain JS number (or null).
+ * Handles native numbers, graph-engine Integer wrappers (toNumber()), and
+ * string-encoded numerics, so the snapshot doc JSON-stringifies cleanly.
+ */
+function toNum(v: any): number | null {
+  return v == null
+    ? null
+    : typeof v === 'number'
+      ? v
+      : typeof v?.toNumber === 'function'
+        ? v.toNumber()
+        : Number(v);
+}
+
+/**
  * Dethernety Threat Report — a read-only, query-based threat-report surface
  * over an existing threat model.
  *
@@ -121,7 +136,7 @@ interface ModelGraphComponent {
   positionY: number | null;
   width: number | null;
   height: number | null;
-  boundaryId: string | null; // null ⇒ orphan (no BELONGS_TO parent)
+  boundaryId: string | null; // the resolved parent boundary; in practice every discovered component belongs to the boundary tree, so this is null only if the parent did not resolve
   crownJewel: boolean;
 }
 
@@ -314,6 +329,7 @@ class DethernetyThreatReportModule implements DTModule {
               [x IN fs | x.id] AS dataFlowIds,
               bs + cs + ds + fs AS allEls
          UNWIND (CASE WHEN size(allEls) = 0 THEN [null] ELSE allEls END) AS el
+         WITH boundaryIds, componentIds, dataIds, dataSigs, dataFlowIds, el WHERE el IS NOT NULL
          OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(ex:Exposure)
          OPTIONAL MATCH (el)-[:HANDLES]->(hd:Data)
          WITH boundaryIds, componentIds, dataIds, dataSigs, dataFlowIds,
@@ -401,15 +417,6 @@ class DethernetyThreatReportModule implements DTModule {
         { modelId },
       );
 
-      const toNum = (v: any): number | null =>
-        v == null
-          ? null
-          : typeof v === 'number'
-            ? v
-            : typeof v?.toNumber === 'function'
-              ? v.toNumber()
-              : Number(v);
-
       const raw = (result.records[0]?.get('ledger') ?? []) as any[];
       return raw.map((el) => ({
         id: el.id,
@@ -468,6 +475,7 @@ class DethernetyThreatReportModule implements DTModule {
          WITH b WHERE b IS NOT NULL
          OPTIONAL MATCH (b)-[:BELONGS_TO]->(pb:SecurityBoundary)
          OPTIONAL MATCH (b)-[:IS_INSTANCE_OF]->(bcls)
+         // head() assumes a single class per element (the platform assigns one), so it is deterministic in practice.
          WITH b, head(collect(DISTINCT pb)) AS pb, head(collect(DISTINCT bcls)) AS cls
          RETURN collect({
            id: b.id, name: b.name, description: b.description,
@@ -479,6 +487,9 @@ class DethernetyThreatReportModule implements DTModule {
         { modelId },
       );
 
+      // The boundary-forest traversal intentionally mirrors the platform's
+      // canonical model->elements enumeration, so an element outside the model's
+      // boundary tree is out of scope by the same definition the platform uses.
       const componentsRes = await session.run(
         `MATCH (m:Model {id: $modelId})
          OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(c:Component)
@@ -487,6 +498,7 @@ class DethernetyThreatReportModule implements DTModule {
          WITH c WHERE c IS NOT NULL
          OPTIONAL MATCH (c)-[:BELONGS_TO]->(cb:SecurityBoundary)
          OPTIONAL MATCH (c)-[:IS_INSTANCE_OF]->(ccls)
+         // head() assumes a single class per element (the platform assigns one), so it is deterministic in practice.
          WITH c, head(collect(DISTINCT cb)) AS cb, head(collect(DISTINCT ccls)) AS cls
          RETURN collect({
            id: c.id, name: c.name, description: c.description, type: toLower(c.type),
@@ -517,6 +529,7 @@ class DethernetyThreatReportModule implements DTModule {
               collect(DISTINCT d.sensitivity) AS sensRaw,
               collect(DISTINCT d.id) AS dataIds
          OPTIONAL MATCH (df)-[:IS_INSTANCE_OF]->(fcls)
+         // head() assumes a single class per element (the platform assigns one), so it is deterministic in practice.
          WITH df, srcIds, dstIds, sensRaw, dataIds, head(collect(DISTINCT fcls)) AS cls
          RETURN collect({
            id: df.id, name: df.name, description: df.description,
@@ -545,6 +558,7 @@ class DethernetyThreatReportModule implements DTModule {
          WHERE el:Component OR el:DataFlow OR el:SecurityBoundary
          WITH d, collect(DISTINCT el.id) AS handledBy
          OPTIONAL MATCH (d)-[:IS_INSTANCE_OF]->(dcls)
+         // head() assumes a single class per element (the platform assigns one), so it is deterministic in practice.
          WITH d, handledBy, head(collect(DISTINCT dcls)) AS cls
          RETURN collect({
            id: d.id, name: d.name, description: d.description,
@@ -554,15 +568,6 @@ class DethernetyThreatReportModule implements DTModule {
          }) AS dataNodes`,
         { modelId },
       );
-
-      const toNum = (v: any): number | null =>
-        v == null
-          ? null
-          : typeof v === 'number'
-            ? v
-            : typeof v?.toNumber === 'function'
-              ? v.toNumber()
-              : Number(v);
 
       const rawB = (boundariesRes.records[0]?.get('boundaries') ?? []) as any[];
       const rawC = (componentsRes.records[0]?.get('components') ?? []) as any[];
@@ -687,9 +692,9 @@ class DethernetyThreatReportModule implements DTModule {
         },
       );
       if (result.records.length === 0) {
-        throw new Error(
-          `threat-report: cannot generate snapshot — Analysis node '${analysisId}' not found`,
-        );
+        const message = `threat-report: cannot generate snapshot — Analysis node '${analysisId}' not found`;
+        this.logger.error(message);
+        throw new Error(message);
       }
     } finally {
       await session.close();
@@ -745,6 +750,9 @@ class DethernetyThreatReportModule implements DTModule {
       try {
         parsed = JSON.parse(raw) as SnapshotDoc;
       } catch {
+        this.logger.warn(
+          `threat-report: snapshot document for Analysis '${analysisId}' failed to parse; returning empty state`,
+        );
         parsed = { generated: false };
       }
       return { [REPORT_COMPONENT_KEY]: parsed };
