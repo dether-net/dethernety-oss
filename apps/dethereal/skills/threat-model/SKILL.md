@@ -334,24 +334,22 @@ State: no transition — already at ENRICHING from Step 5.
 
 ## Step 7: Data Item Classification
 
-Model each sensitive data type once, then associate it with **every element that handles it** across its lifecycle — its origin (`EXTERNAL_ENTITY` / `PROCESS`), the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
+Classify data items for boundary-crossing flows that carry sensitive data.
 
-1. Identify the elements that handle sensitive data without classified data items — origins, cross-boundary flows, processing/storing components, and containing boundaries
-2. For each data item, propose its classification and handling elements:
+1. Identify cross-boundary flows without classified data items
+2. For each sensitive flow, propose data items:
    - Use `compliance_drivers` from scope.json for regulatory mapping
    - Apply sensitivity tiers: Tier 1 (regulated PII, credentials), Tier 2 (internal business data), Tier 3 (public/declared data)
 3. Present proposals:
    ```
-   Data item associations:
-   | Element (type) | Data Item | Sensitivity | Compliance | Confirm? |
-   |----------------|-----------|-------------|------------|----------|
-   | User (external entity) | User credentials | Tier 1 | SOC2, GDPR | Y |
-   | User Login → Auth (flow) | User credentials | Tier 1 | SOC2, GDPR | Y |
-   | payment-db (store) | Customer records | Tier 1 | GDPR | Y |
-   | API → DB (flow) | Customer records | Tier 1 | GDPR | Y |
-   | Cache (process) | Session tokens | Tier 2 | SOC2 | Y |
+   Data items for sensitive flows:
+   | Flow | Data Item | Sensitivity | Compliance | Confirm? |
+   |------|-----------|-------------|------------|----------|
+   | User Login → Auth | User credentials | Tier 1 | SOC2, GDPR | Y |
+   | API → DB | Customer records | Tier 1 | GDPR | Y |
+   | API → Cache | Session tokens | Tier 2 | SOC2 | Y |
    ```
-4. Write confirmed data items to `data-items.json` and link them via `dataItemIds` on each handling element
+4. Write confirmed data items to `data-items.json`
 
 State: no transition — already at ENRICHING.
 

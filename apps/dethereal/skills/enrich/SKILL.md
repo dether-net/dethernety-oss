@@ -167,17 +167,9 @@ If `.dethereal/discovery.json` shows K8s sources were scanned, check for shared 
 
 ### 6. Data Item Classification
 
-A data item is a *type* of data (PII, credentials, card data, session tokens …), not a per-location copy. Model each one **once** in `data-items.json`, then link it via `dataItemIds` to **every element that handles it across its lifecycle** — not just the flows that carry it:
+For each boundary-crossing flow without classified data items:
 
-- **Origin / sink** — the `EXTERNAL_ENTITY` (or `PROCESS`) where the data enters or leaves the system (e.g. user-originated PII on the `User` external entity).
-- **In transit** — the `DATA_FLOW`s that carry it across boundaries.
-- **In use** — the `PROCESS` components that read, transform, or cache it.
-- **At rest** — the `STORE` components that persist it (databases, caches, object stores, queues).
-- **In scope** — the `SECURITY_BOUNDARY`s that contain or handle it (e.g. an OS host or namespace processing the data).
-
-For each sensitive data type not yet classified and fully linked:
-
-1. Identify the elements that handle it across the lifecycle above. Prompt: "Which elements originate, carry, process, store, or contain [data type]? (PII, credentials, financial, health, session, none)"
+1. Prompt: "What data types flow across [flow name]? (PII, credentials, financial, health, session, none)"
 2. Apply the canonical regulatory flag → sensitivity-floor mapping. Emit the flags **exactly as written** — the platform's `dataInRegulatoryScope` query matches case-sensitively, and the canonical set is maintained in `THREAT_MODELING_WORKFLOW.md`:
    - `PCI cardholder` → `restricted`
    - `PHI` → `restricted`
@@ -186,16 +178,15 @@ For each sensitive data type not yet classified and fully linked:
    - `SOX financial` → `confidential`
    - `CCPA personal` → `confidential`
 3. Create data items in `data-items.json` with `sensitivity` and `regulatory_flags` fields
-4. Link each data item via `dataItemIds` on **every** handling element — its origin external entity/process, the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
+4. Link to flows via `dataItemIds`
 
-**Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; and every data origin (the external entity or process where sensitive data enters the system) must reference its data item.
+**Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item. Crown jewel data stores must have classified data items.
 
 If the quality gate fails:
 ```
-Data item gap: N boundary-crossing flows, M crown jewel stores, and P data origins lack classified data items.
+Data item gap: N boundary-crossing flows and M crown jewel stores lack classified data items.
   - Flow: "API Server → Database" (crosses Internal → Data Tier boundary)
   - Store: "payment-db" (crown jewel, no data items)
-  - Origin: "User" (external entity, originates PII — no data items)
 Classify now or skip? (classify / skip)
 ```
 If the user skips, proceed with a warning but do not block.

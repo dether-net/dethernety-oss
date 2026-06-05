@@ -90,7 +90,7 @@ Each boundary's `boundaries` and `components` arrays hold the full objects, not 
 | `parentBoundary` | `{ id: ID }` | No | Reference to containing boundary |
 | `classData` | ClassReference | No | |
 | `controls` | `{ id, name? }[]` | No | |
-| `dataItemIds` | ID[] | No | Data items this component originates, processes, or stores (data at rest / in use). Valid for all component types — `STORE`, `PROCESS`, and `EXTERNAL_ENTITY` (e.g. user-originated data) |
+| `dataItemIds` | ID[] | No | |
 
 ## dataflows.json
 

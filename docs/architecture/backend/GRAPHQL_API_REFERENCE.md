@@ -478,7 +478,7 @@ Implements: `Element`
 | `description` | `String` | Free-text description |
 | `type` | `String` | Exposure type |
 | `category` | `String` | Exposure category |
-| `score` | `Float` | Risk score |
+| `score` | `Int` | Risk score |
 | `references` | `String` | External references (URLs, CVE IDs) |
 | `mitigationSuggestions` | `[String!]` | Suggested mitigations |
 | `detectionMethods` | `[String!]` | Detection methods |
@@ -513,7 +513,7 @@ Implements: `Element`
 | `description` | `String` | Free-text description |
 | `type` | `String` | Countermeasure type |
 | `category` | `String` | Countermeasure category |
-| `score` | `Float` | Effectiveness score |
+| `score` | `Int` | Effectiveness score |
 | `references` | `String` | External references |
 | `addressedExposures` | `[String!]` | Exposure names this countermeasure addresses |
 | `tags` | `[String!]` | Tags for filtering and grouping |

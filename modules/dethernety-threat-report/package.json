@@ -1,0 +1,27 @@
+{
+  "name": "dethernety-threat-report",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "dist/dethernety/dethernety-threat-report/DethernetyThreatReportModule.js",
+  "types": "dist/dethernety/dethernety-threat-report/DethernetyThreatReportModule.d.ts",
+  "scripts": {
+    "build": "pnpm build:ts && pnpm build:frontend && pnpm build:package",
+    "build:ts": "tsc",
+    "build:frontend": "cd frontend && vite build && cp dist/bundle.js bundle.js",
+    "build:package": "node ../../scripts/package-module.js",
+    "dev": "tsc -w",
+    "clean": "rm -rf dist frontend/dist"
+  },
+  "dependencies": {
+    "@dethernety/dt-core": "workspace:*",
+    "@dethernety/dt-module": "workspace:*",
+    "@nestjs/common": "^11.1.18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.12",
+    "vite-plugin-css-injected-by-js": "^5.0.1"
+  }
+}

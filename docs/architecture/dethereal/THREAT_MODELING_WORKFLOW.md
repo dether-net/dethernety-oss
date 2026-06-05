@@ -301,7 +301,7 @@ Without these attributes, the Analysis Engine's lateral movement analysis degene
 - Code: JWT payloads, session data, cached values
 - Regulatory requirements: HIPAA -> PHI flows, PCI-DSS -> cardholder data
 
-**Assignment:** A data item is a *type* of data, modelled once and linked via `dataItemIds` to **every element that handles it across its lifecycle** — its origin (the `EXTERNAL_ENTITY` or `PROCESS` where it enters/leaves), the `DATA_FLOW`s that carry it in transit, the `PROCESS` components that use it, the `STORE` components that persist it at rest, and the `SECURITY_BOUNDARY`s that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
+**Assignment:** Data items link to flows and components via `dataItemIds`. Each item can span multiple flows, representing the data lifecycle through the system.
 
 #### Canonical sensitivity and regulatory-flag vocabulary
 
@@ -324,7 +324,7 @@ The recommended regulatory-flag table below is also mirrored in code by the `REC
 
 A data item may carry multiple flags; its sensitivity is the **maximum** of the floors of all flags it carries. For example, a patient billing record with `regulatory_flags: ["PHI", "PCI cardholder"]` is `restricted`. Unknown/free-text flags outside this set are tolerated by the analysis layer but are not matched by the recommended-set tooling. The compliance-driven control checklist (OPERATIONAL_REQUIREMENTS.md Section 5) evaluates each flag independently.
 
-**Quality gate:** Every flow carrying sensitive data that crosses a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; and every data origin (the external entity or process where sensitive data enters the system) must reference its data item.
+**Quality gate:** Every flow carrying sensitive data that crosses a trust boundary must have at least one classified data item. Crown jewel data stores must have classified data items.
 
 ---
 
