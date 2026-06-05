@@ -32,20 +32,20 @@
     "CLAUDE.md"
   ],
   "dependencies": {
-    "@apollo/client": "^4.1.9",
+    "@apollo/client": "^4.2.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cross-fetch": "^4.1.0",
-    "graphql": "^16.14.0",
+    "graphql": "^16.14.1",
     "graphql-tag": "^2.12.6",
     "open": "^11.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@types/node": "^25.7.0",
+    "@types/node": "^25.9.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.8"
   },
   "license": "AGPL-3.0-only",
   "engines": {

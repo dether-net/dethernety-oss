@@ -16,16 +16,16 @@
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
     "@dethernety/dt-module": "workspace:*",
-    "@nestjs/common": "^11.1.18",
+    "@nestjs/common": "^11.1.24",
     "graphql-tag": "^2.12.6"
   },
   "devDependencies": {
-    "@types/node": "^25.5.2",
-    "@vitejs/plugin-vue": "^6.0.6",
+    "@types/node": "^25.9.1",
+    "@vitejs/plugin-vue": "^6.0.7",
     "typescript": "^5.9.3",
-    "vite": "^8.0.12",
+    "vite": "^8.0.16",
     "vite-plugin-css-injected-by-js": "^5.0.1",
-    "vitest": "^4.1.6",
-    "vue": "^3.5.34"
+    "vitest": "^4.1.8",
+    "vue": "^3.5.35"
   }
 }
