@@ -86,11 +86,19 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
   const name =
     comp?.name ?? bound?.name ?? dataN?.name ?? flow?.name ?? ledgerEl?.name ?? '(unknown element)'
 
+  // The element's own free-text description and the class it instantiates (name +
+  // description), gathered into the modelGraph node at generate time. Any may be
+  // absent (no description authored, or no class assigned) — the profile renders
+  // these only when present, never an empty "Class · —" line.
+  const mgNode = comp ?? bound ?? dataN ?? flow ?? null
   const element = {
     id: elementId,
     name,
     type,
     crownJewel: comp?.crownJewel === true,
+    description: mgNode?.description ?? null,
+    className: mgNode?.className ?? null,
+    classDescription: mgNode?.classDescription ?? null,
     sensitivity: dataN ? (dataN.sensitivity ?? null) : null,
     sensitivityLabel: dataN ? sensitivityLabel(dataN.sensitivity ?? null) : null,
     found,

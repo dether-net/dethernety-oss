@@ -98,6 +98,9 @@ interface LedgerElement {
 interface ModelGraphBoundary {
   id: string;
   name: string;
+  description: string | null; // the element's own free-text description
+  className: string | null; // name of the class this element instantiates
+  classDescription: string | null; // that class's description
   positionX: number | null;
   positionY: number | null;
   width: number | null;
@@ -110,6 +113,9 @@ interface ModelGraphBoundary {
 interface ModelGraphComponent {
   id: string;
   name: string;
+  description: string | null; // the element's own free-text description
+  className: string | null; // name of the class this element instantiates
+  classDescription: string | null; // that class's description
   type: string | null; // 'process' | 'store' | 'external_entity' | … (lower-cased)
   positionX: number | null;
   positionY: number | null;
@@ -126,6 +132,9 @@ interface ModelGraphComponent {
 interface ModelGraphFlow {
   id: string;
   name: string;
+  description: string | null; // the element's own free-text description
+  className: string | null; // name of the class this element instantiates
+  classDescription: string | null; // that class's description
   sourceId: string | null;
   targetId: string | null;
   sensitivities: string[]; // SensitivityLevel values, nulls dropped
@@ -143,6 +152,9 @@ interface ModelGraphFlow {
 interface ModelGraphDataNode {
   id: string;
   name: string;
+  description: string | null; // the element's own free-text description
+  className: string | null; // name of the class this element instantiates
+  classDescription: string | null; // that class's description
   sensitivity: string | null; // SensitivityLevel value, null ⇒ unclassified
   handledBy: string[]; // element ids with (el)-[:HANDLES]->(this Data)
 }
@@ -455,11 +467,14 @@ class DethernetyThreatReportModule implements DTModule {
          UNWIND (CASE WHEN size(bs) = 0 THEN [null] ELSE bs END) AS b
          WITH b WHERE b IS NOT NULL
          OPTIONAL MATCH (b)-[:BELONGS_TO]->(pb:SecurityBoundary)
+         OPTIONAL MATCH (b)-[:IS_INSTANCE_OF]->(bcls)
+         WITH b, head(collect(DISTINCT pb)) AS pb, head(collect(DISTINCT bcls)) AS cls
          RETURN collect({
-           id: b.id, name: b.name,
+           id: b.id, name: b.name, description: b.description,
            positionX: b.positionX, positionY: b.positionY,
            width: b.dimensionsWidth, height: b.dimensionsHeight,
-           parentBoundaryId: pb.id
+           parentBoundaryId: pb.id,
+           className: cls.name, classDescription: cls.description
          }) AS boundaries`,
         { modelId },
       );
@@ -471,11 +486,14 @@ class DethernetyThreatReportModule implements DTModule {
          UNWIND (CASE WHEN size(cs) = 0 THEN [null] ELSE cs END) AS c
          WITH c WHERE c IS NOT NULL
          OPTIONAL MATCH (c)-[:BELONGS_TO]->(cb:SecurityBoundary)
+         OPTIONAL MATCH (c)-[:IS_INSTANCE_OF]->(ccls)
+         WITH c, head(collect(DISTINCT cb)) AS cb, head(collect(DISTINCT ccls)) AS cls
          RETURN collect({
-           id: c.id, name: c.name, type: toLower(c.type),
+           id: c.id, name: c.name, description: c.description, type: toLower(c.type),
            positionX: c.positionX, positionY: c.positionY,
            width: c.dimensionsWidth, height: c.dimensionsHeight,
-           boundaryId: cb.id, crownJewel: c.crownJewel
+           boundaryId: cb.id, crownJewel: c.crownJewel,
+           className: cls.name, classDescription: cls.description
          }) AS components`,
         { modelId },
       );
@@ -498,11 +516,14 @@ class DethernetyThreatReportModule implements DTModule {
          WITH df, srcIds, dstIds,
               collect(DISTINCT d.sensitivity) AS sensRaw,
               collect(DISTINCT d.id) AS dataIds
+         OPTIONAL MATCH (df)-[:IS_INSTANCE_OF]->(fcls)
+         WITH df, srcIds, dstIds, sensRaw, dataIds, head(collect(DISTINCT fcls)) AS cls
          RETURN collect({
-           id: df.id, name: df.name,
+           id: df.id, name: df.name, description: df.description,
            sourceId: head(srcIds), targetId: head(dstIds),
            sensitivities: [s IN sensRaw WHERE s IS NOT NULL],
-           dataItemCount: size(dataIds)
+           dataItemCount: size(dataIds),
+           className: cls.name, classDescription: cls.description
          }) AS flows`,
         { modelId },
       );
@@ -523,10 +544,13 @@ class DethernetyThreatReportModule implements DTModule {
          OPTIONAL MATCH (el)-[:HANDLES]->(d)
          WHERE el:Component OR el:DataFlow OR el:SecurityBoundary
          WITH d, collect(DISTINCT el.id) AS handledBy
+         OPTIONAL MATCH (d)-[:IS_INSTANCE_OF]->(dcls)
+         WITH d, handledBy, head(collect(DISTINCT dcls)) AS cls
          RETURN collect({
-           id: d.id, name: d.name,
+           id: d.id, name: d.name, description: d.description,
            sensitivity: d.sensitivity,
-           handledBy: handledBy
+           handledBy: handledBy,
+           className: cls.name, classDescription: cls.description
          }) AS dataNodes`,
         { modelId },
       );
@@ -551,6 +575,9 @@ class DethernetyThreatReportModule implements DTModule {
           .map((b) => ({
             id: b.id,
             name: b.name ?? '',
+            description: b.description ?? null,
+            className: b.className ?? null,
+            classDescription: b.classDescription ?? null,
             positionX: toNum(b.positionX),
             positionY: toNum(b.positionY),
             width: toNum(b.width),
@@ -562,6 +589,9 @@ class DethernetyThreatReportModule implements DTModule {
           .map((c) => ({
             id: c.id,
             name: c.name ?? '',
+            description: c.description ?? null,
+            className: c.className ?? null,
+            classDescription: c.classDescription ?? null,
             type: c.type ?? null,
             positionX: toNum(c.positionX),
             positionY: toNum(c.positionY),
@@ -575,6 +605,9 @@ class DethernetyThreatReportModule implements DTModule {
           .map((f) => ({
             id: f.id,
             name: f.name ?? '',
+            description: f.description ?? null,
+            className: f.className ?? null,
+            classDescription: f.classDescription ?? null,
             sourceId: f.sourceId ?? null,
             targetId: f.targetId ?? null,
             sensitivities: Array.isArray(f.sensitivities)
@@ -587,6 +620,9 @@ class DethernetyThreatReportModule implements DTModule {
           .map((d) => ({
             id: d.id,
             name: d.name ?? '',
+            description: d.description ?? null,
+            className: d.className ?? null,
+            classDescription: d.classDescription ?? null,
             sensitivity: d.sensitivity ?? null,
             handledBy: Array.isArray(d.handledBy)
               ? d.handledBy.filter((x: any) => x != null)

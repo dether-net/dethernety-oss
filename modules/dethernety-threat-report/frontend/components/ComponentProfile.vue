@@ -176,6 +176,20 @@
           variant="sidebar"
         />
         <p class="trd-map-hint">{{ profile.element.type === 'DataFlow' ? "This flow's endpoints highlighted on the model." : 'This element highlighted on the model.' }}</p>
+
+        <!-- Element identity: its class + its own description, and the class
+             description on demand. Shown only when authored — never an empty line. -->
+        <section v-if="hasAbout" class="trd-prof-about">
+          <div v-if="profile.element.className" class="trd-about-class">
+            <span class="trd-about-label">Class</span>
+            <span class="trd-about-classname">{{ profile.element.className }}</span>
+          </div>
+          <p v-if="profile.element.description" class="trd-about-desc">{{ profile.element.description }}</p>
+          <details v-if="profile.element.classDescription" class="trd-about-classdesc">
+            <summary>About this class</summary>
+            <p>{{ profile.element.classDescription }}</p>
+          </details>
+        </section>
       </aside>
     </div>
 
@@ -215,6 +229,13 @@
     (props.modelGraph?.components ?? []).filter((c) => c.crownJewel).map((c) => c.id),
   )
 
+  // The "about" block under the minimap renders only when there is something to
+  // show — an authored description, a class name, or a class description.
+  const hasAbout = computed(() => {
+    const e = profile.value.element
+    return Boolean(e.className || e.description || e.classDescription)
+  })
+
   const kindLabel = dispositionKindLabel
   const sensKey = (level) => (level == null ? 'unknown' : String(level).toLowerCase())
   const dirLabel = (d) => ({ inbound: '← in', outbound: 'out →', source: 'source', target: 'target' })[d] ?? d
@@ -238,6 +259,26 @@
   .trd-prof-main { flex: 1 1 380px; min-width: 320px; }
   .trd-prof-map { flex: 0 0 260px; max-width: 300px; min-width: 200px; }
   .trd-map-hint { font-size: 0.72rem; opacity: 0.6; margin: 0.3rem 0 0; }
+
+  /* Identity block under the minimap: class line, the element's own description,
+     and the class description folded into a disclosure so long text never crowds
+     the narrow aside. */
+  .trd-prof-about {
+    margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid rgba(127, 127, 127, 0.2);
+    font-size: 0.8rem; line-height: 1.45;
+  }
+  .trd-about-class { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; margin-bottom: 0.35rem; }
+  .trd-about-label {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em;
+    opacity: 0.55; font-weight: 600;
+  }
+  .trd-about-classname { font-weight: 600; }
+  .trd-about-desc { margin: 0 0 0.4rem; opacity: 0.85; overflow-wrap: anywhere; }
+  .trd-about-classdesc summary {
+    cursor: pointer; font-size: 0.74rem; opacity: 0.7; user-select: none;
+  }
+  .trd-about-classdesc summary:hover { opacity: 1; color: #00b8d4; }
+  .trd-about-classdesc p { margin: 0.3rem 0 0; font-size: 0.76rem; opacity: 0.75; overflow-wrap: anywhere; }
 
   .trd-prof-section { margin-bottom: 1.1rem; }
   .trd-prof-sec-head {

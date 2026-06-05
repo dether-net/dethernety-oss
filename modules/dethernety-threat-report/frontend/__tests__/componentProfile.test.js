@@ -11,7 +11,7 @@ const MODEL_GRAPH = {
     { id: 'dmz', name: 'DMZ', parentBoundaryId: 'outer' },
   ],
   components: [
-    { id: 'c1', name: 'API', type: 'process', boundaryId: 'dmz', crownJewel: true },
+    { id: 'c1', name: 'API', type: 'process', boundaryId: 'dmz', crownJewel: true, description: 'Public API gateway', className: 'API Gateway', classDescription: 'A public-facing reverse proxy.' },
     { id: 'c2', name: 'DB', type: 'store', boundaryId: 'outer', crownJewel: false },
     { id: 'c3', name: 'Ext', type: 'external_entity', boundaryId: null, crownJewel: false },
   ],
@@ -39,6 +39,17 @@ describe('computeComponentProfile — Component target', () => {
   const p = computeComponentProfile('c1', doc)
   it('resolves identity incl. crown-jewel', () => {
     expect(p.element).toMatchObject({ id: 'c1', name: 'API', type: 'Component', crownJewel: true, found: true })
+  })
+  it('surfaces the element description + class name/description from the model graph node', () => {
+    expect(p.element).toMatchObject({
+      description: 'Public API gateway',
+      className: 'API Gateway',
+      classDescription: 'A public-facing reverse proxy.',
+    })
+  })
+  it('leaves description/class null when the model graph node has none', () => {
+    const p2 = computeComponentProfile('c2', doc)
+    expect(p2.element).toMatchObject({ description: null, className: null, classDescription: null })
   })
   it('reuses the Boundary Crossings ancestor stack (innermost-first, ROOT dropped) with per-boundary posture', () => {
     expect(p.boundaryContext.map((b) => b.id)).toEqual(['dmz', 'outer'])
