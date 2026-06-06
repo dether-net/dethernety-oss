@@ -115,6 +115,12 @@ describe('computeComponentProfile — Data target', () => {
     // posture carried per handler (c1 has live e1 @ score 8 → high band, no control)
     expect(p.handledByElements.find((h) => h.id === 'c1')).toMatchObject({ liveCount: 1, worstBand: 'high', hasControl: false })
   })
+  it('highlights its HANDLERS on the minimap, each on its matching channel (Data has no shape of its own)', () => {
+    // d1.handledBy = ['c1' (Component), 'f1' (DataFlow)] → component→node, flow→edge, no boundary
+    expect(p.highlightIds).toEqual(['c1']) // component handler → node
+    expect(p.highlightEdgeIds).toEqual(['f1']) // data-flow handler → edge
+    expect(p.highlightBoundaryIds).toEqual([]) // no boundary handler
+  })
   it('non-Data targets carry an empty handledByElements', () => {
     expect(computeComponentProfile('c1', doc).handledByElements).toEqual([])
     expect(computeComponentProfile('f1', doc).handledByElements).toEqual([])
