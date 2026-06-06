@@ -217,7 +217,7 @@
                     <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': n.crownJewel }" aria-hidden="true">{{ n.crownJewel ? '⬢' : '◉' }}</span>
                     <button type="button" class="trd-drill-mini trd-strip-name" @click="$emit('drill', n.id)" :title="`Open ${n.name} profile`">{{ n.name }}</button>
                     <span v-if="n.worstBand" class="trd-dot" :class="`trd-dot--${n.worstBand}`" :title="`worst live: ${bandLabel(n.worstBand)}`" aria-hidden="true">⬤</span>
-                    <span v-for="d in n.dataHandled" :key="d.id" class="trd-sens" :class="`trd-sens--${String(d.sensitivity || 'nodata').toLowerCase()}`" :title="`handles ${d.name}`">{{ d.sensitivityLabel }}</span>
+                    <span v-for="d in n.dataHandled" :key="d.id" class="trd-sens" :class="`trd-sens--${dataSens(d.sensitivity).key}`" :title="`handles ${d.name}`">{{ dataSens(d.sensitivity).label }}</span>
                     <button type="button" class="trd-onward" @click="pivotTo(n.id)" title="trace onward from here">▸ onward</button>
                   </span>
                   <!-- hop connector (between node ni and ni+1) = the DataFlow itself,
@@ -259,6 +259,10 @@
     bandLabel,
     DEFAULT_MAX_HOPS,
   } from '../lib/reachability.js'
+  import { dataItemSensitivity } from '../lib/boundaryCrossings.js'
+
+  // A handled Data item's sensitivity chip: null ⇒ "unclassified" gap, not "unknown".
+  const dataSens = (level) => dataItemSensitivity(level)
 
   const props = defineProps({
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [], dataNodes: [] }) },

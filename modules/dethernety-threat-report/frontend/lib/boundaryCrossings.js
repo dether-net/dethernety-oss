@@ -368,3 +368,19 @@ export function sensitivityLabel(level) {
   if (level == null) return 'unknown'
   return SENSITIVITY_LABELS[level] ?? level
 }
+
+/**
+ * Sensitivity chip for a DATA ITEM that exists (a named Data node, or the data a
+ * flow/element handles). Because the item is definitely present, a null/absent
+ * level is an UNCLASSIFIED modeling gap — surfaced as the amber "unclassified"
+ * chip, NOT the neutral grey "unknown" (which means "no information"). This mirrors
+ * the Boundary Crossings "unclassified data in motion" treatment so every per-item
+ * sensitivity chip reads consistently across the report.
+ *
+ * @param {?string} level a SensitivityLevel value, or null/undefined
+ * @returns {{ label: string, key: string }} key feeds the `.trd-sens--<key>` class
+ */
+export function dataItemSensitivity(level) {
+  if (level == null) return { label: 'unclassified', key: 'unclassified' }
+  return { label: sensitivityLabel(level), key: String(level).toLowerCase() }
+}

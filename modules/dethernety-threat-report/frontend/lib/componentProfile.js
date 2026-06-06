@@ -294,10 +294,15 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
   const highlightIds =
     type === 'DataFlow' && flow
       ? [flow.sourceId, flow.targetId].filter(Boolean)
-      : [elementId]
+      : type === 'SecurityBoundary'
+        ? [] // a boundary is a rectangle, not a node — highlight its rect instead
+        : [elementId]
   // For a DataFlow, also highlight its own edge (the line), so the flow itself —
   // not only its endpoints — is traceable on the minimap.
   const highlightEdgeIds = type === 'DataFlow' && flow ? [elementId] : []
+  // A SecurityBoundary target highlights its rectangle on the minimap (boundaries
+  // are drawn as rects, not nodes, so they need their own highlight channel).
+  const highlightBoundaryIds = type === 'SecurityBoundary' ? [elementId] : []
 
   return {
     element,
@@ -309,5 +314,6 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
     neighbours,
     highlightIds,
     highlightEdgeIds,
+    highlightBoundaryIds,
   }
 }

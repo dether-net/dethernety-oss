@@ -77,6 +77,7 @@ describe('computeComponentProfile — Component target', () => {
   it('highlights itself on the minimap (no edge highlight for a node element)', () => {
     expect(p.highlightIds).toEqual(['c1'])
     expect(p.highlightEdgeIds).toEqual([])
+    expect(p.highlightBoundaryIds).toEqual([])
   })
 })
 
@@ -89,6 +90,11 @@ describe('computeComponentProfile — SecurityBoundary target', () => {
   it('surfaces its own exposures, no flow neighbours', () => {
     expect(p.ownExposures.live.map((f) => f.id)).toEqual(['eb'])
     expect(p.neighbours).toEqual([])
+  })
+  it('highlights its rectangle on the minimap (boundary channel), not a node', () => {
+    expect(p.highlightBoundaryIds).toEqual(['dmz'])
+    expect(p.highlightIds).toEqual([]) // a boundary is a rect, not a node
+    expect(p.highlightEdgeIds).toEqual([])
   })
 })
 
@@ -141,6 +147,7 @@ describe('computeComponentProfile — DataFlow target', () => {
   it('highlights its ENDPOINTS as nodes + its OWN edge (flow id) so the line is traceable', () => {
     expect(p.highlightIds).toEqual(['c1', 'c2'])
     expect(p.highlightEdgeIds).toEqual(['f1'])
+    expect(p.highlightBoundaryIds).toEqual([])
   })
   it('has no boundary stack (flows are not boundary members)', () => {
     expect(p.boundaryContext).toEqual([])
