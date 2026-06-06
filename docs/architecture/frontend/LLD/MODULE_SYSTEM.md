@@ -401,7 +401,8 @@ export function useHostContext() {
 
     // Services
     services: {
-      componentRegistry
+      componentRegistry,
+      openDispositionDialog
     },
 
     // Vue Composition API primitives
@@ -427,6 +428,28 @@ export function useHostContext() {
   }
 }
 ```
+
+### Exposed Services
+
+The `services` object gives a module bundle controlled access to host capabilities it cannot construct on its own:
+
+| Service | Signature | Purpose |
+|---------|-----------|---------|
+| `componentRegistry` | `register(key, component, moduleId)` / `getComponent(key)` | Register a module's Vue components by key so the host can resolve and render them (e.g. an analysis-results page resolving a module's document component). |
+| `openDispositionDialog` | `(args: OpenDispositionArgs) => Promise<DispositionMutationResult \| null>` | Open the platform's shared finding-disposition dialog from anywhere — including module bundles and host pages that have no access to `flowStore` or dt-ui components. |
+
+**`openDispositionDialog` — finding triage from a module.** A single `<DispositionDialog>` is mounted once in `layouts/default.vue` and bound to a small `dispositionDialogStore`. A caller invokes `openDispositionDialog(args)` and awaits the returned promise, which resolves with the mutation result on **save/clear** or `null` on **cancel/close**. A new call supersedes any pending one (resolving the prior as cancelled).
+
+```typescript
+interface OpenDispositionArgs {
+  finding: DispositionableFinding
+  findingType?: FindingType // defaults to 'EXPOSURE'
+}
+```
+
+The dialog itself owns the write path (`flowStore.disposeExposure` / `controlsStore.disposeCountermeasure`); this service only marshals open/close state and the pending promise. It **does not widen scope** — disposal remains bounded by the platform's session-scoped, authenticated mutation. This lets a module (such as the Threat Report's Residual Risk ledger) route a finding's "Review →" action through the platform's real triage flow rather than reimplementing it.
+
+> Note: the window-level `HostDependencies.services` (exposed via `ModuleLoader.exposeHostDependencies`) carries only `componentRegistry`; `openDispositionDialog` is provided through the `useHostContext()` composable, which is the surface modules call.
 
 ### Exposed Vue Primitives
 
