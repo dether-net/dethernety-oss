@@ -249,6 +249,11 @@
     const t = profile.value.element.type
     if (t === 'DataFlow') return "This flow's endpoints highlighted on the model."
     if (t === 'SecurityBoundary') return 'This boundary highlighted on the model.'
+    if (t === 'Data') {
+      return profile.value.handledByElements.length
+        ? 'The elements that handle this data are highlighted on the model.'
+        : 'This data is not attached to any element on the model.'
+    }
     return 'This element highlighted on the model.'
   })
 </script>
