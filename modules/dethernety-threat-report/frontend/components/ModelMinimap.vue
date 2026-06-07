@@ -33,9 +33,6 @@
     // nodes) is traceable on the map. Precise (a flow-id list), so a chord between
     // two highlighted nodes that isn't on the route stays un-highlighted.
     highlightEdgeIds: { type: Array, default: () => [] },
-    // Boundary ids to highlight as rectangles (a SecurityBoundary has no node of
-    // its own — its profile drill highlights its rect, not a dot).
-    highlightBoundaryIds: { type: Array, default: () => [] },
     crownJewelIds: { type: Array, default: () => [] },
     entryPointIds: { type: Array, default: () => [] },
     // The "pick two" first-pick state — a dashed-stroke pending node.
@@ -57,8 +54,6 @@
 
   // A route edge: highlighted (cyan) when its flow id is in highlightEdgeIds.
   const isEdgeHighlighted = (edge) => props.highlightEdgeIds.includes(edge.id)
-  // A boundary rect: highlighted (cyan) when its id is in highlightBoundaryIds.
-  const isBoundaryHighlighted = (b) => props.highlightBoundaryIds.includes(b.id)
   // Paint highlighted edges LAST so the route line is never hidden under a grey
   // edge crossing it.
   const orderedEdges = computed(() => {
@@ -396,9 +391,9 @@
           :width="b.w"
           :height="b.h"
           rx="4"
-          :fill="isBoundaryHighlighted(b) ? 'rgba(0,229,255,0.10)' : 'rgba(0,0,0,0.015)'"
-          :stroke="isBoundaryHighlighted(b) ? '#00B8D4' : '#BDBDBD'"
-          :stroke-width="isBoundaryHighlighted(b) ? 2 : 1"
+          fill="rgba(0,0,0,0.015)"
+          stroke="#BDBDBD"
+          stroke-width="1"
           stroke-dasharray="4,2"
         >
           <title>{{ b.name }}</title>
@@ -553,7 +548,6 @@
               :model-graph="modelGraph"
               :highlight-ids="highlightIds"
               :highlight-edge-ids="highlightEdgeIds"
-              :highlight-boundary-ids="highlightBoundaryIds"
               :crown-jewel-ids="crownJewelIds"
               :entry-point-ids="entryPointIds"
               :pending-ids="pendingIds"

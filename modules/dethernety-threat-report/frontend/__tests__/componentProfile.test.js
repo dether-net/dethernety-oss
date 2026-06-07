@@ -77,7 +77,6 @@ describe('computeComponentProfile — Component target', () => {
   it('highlights itself on the minimap (no edge highlight for a node element)', () => {
     expect(p.highlightIds).toEqual(['c1'])
     expect(p.highlightEdgeIds).toEqual([])
-    expect(p.highlightBoundaryIds).toEqual([])
   })
 })
 
@@ -90,11 +89,6 @@ describe('computeComponentProfile — SecurityBoundary target', () => {
   it('surfaces its own exposures, no flow neighbours', () => {
     expect(p.ownExposures.live.map((f) => f.id)).toEqual(['eb'])
     expect(p.neighbours).toEqual([])
-  })
-  it('highlights its rectangle on the minimap (boundary channel), not a node', () => {
-    expect(p.highlightBoundaryIds).toEqual(['dmz'])
-    expect(p.highlightIds).toEqual([]) // a boundary is a rect, not a node
-    expect(p.highlightEdgeIds).toEqual([])
   })
 })
 
@@ -114,12 +108,6 @@ describe('computeComponentProfile — Data target', () => {
     ])
     // posture carried per handler (c1 has live e1 @ score 8 → high band, no control)
     expect(p.handledByElements.find((h) => h.id === 'c1')).toMatchObject({ liveCount: 1, worstBand: 'high', hasControl: false })
-  })
-  it('highlights its HANDLERS on the minimap, each on its matching channel (Data has no shape of its own)', () => {
-    // d1.handledBy = ['c1' (Component), 'f1' (DataFlow)] → component→node, flow→edge, no boundary
-    expect(p.highlightIds).toEqual(['c1']) // component handler → node
-    expect(p.highlightEdgeIds).toEqual(['f1']) // data-flow handler → edge
-    expect(p.highlightBoundaryIds).toEqual([]) // no boundary handler
   })
   it('non-Data targets carry an empty handledByElements', () => {
     expect(computeComponentProfile('c1', doc).handledByElements).toEqual([])
@@ -153,7 +141,6 @@ describe('computeComponentProfile — DataFlow target', () => {
   it('highlights its ENDPOINTS as nodes + its OWN edge (flow id) so the line is traceable', () => {
     expect(p.highlightIds).toEqual(['c1', 'c2'])
     expect(p.highlightEdgeIds).toEqual(['f1'])
-    expect(p.highlightBoundaryIds).toEqual([])
   })
   it('has no boundary stack (flows are not boundary members)', () => {
     expect(p.boundaryContext).toEqual([])

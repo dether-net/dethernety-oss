@@ -9,7 +9,9 @@
  * dt-ws integration tests.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { DtFileOpaModule } from '../dt-file-opa-module';
 
@@ -22,6 +24,7 @@ vi.mock('fs', async (importOriginal) => {
     ...actual,
     existsSync: vi.fn(() => true),
     readFileSync: vi.fn(() => 'package test.pkg\n'),
+    readdirSync: vi.fn(() => []),
   };
 });
 
@@ -100,6 +103,99 @@ describe('DtFileOpaModule.getCountermeasures — per-verb projection', () => {
 
     expect(cm.protectsAgainst).toEqual([techRef('T1190', 'hardens')]);
     expect(cm.respondsTo).toEqual([techRef('T1486', 'responds')]);
+  });
+});
+
+describe('DtFileOpaModule.getMetadata — issue classes', () => {
+  // Layout simulated on disk:
+  //   /fake/dir/test-module/module.json
+  //   /fake/dir/test-module/issue/sql-injection/class.json
+  //   /fake/dir/test-module/issue/sql-injection/policies.rego  (stray — must be ignored)
+  const MODULE_JSON = JSON.stringify({ name: 'test-module', description: 'd', version: '1.0.0' });
+  const ISSUE_CLASS_JSON = JSON.stringify({
+    name: 'SQL Injection',
+    type: 'vulnerability', // free-form; must NOT be uppercased/forced
+    category: 'Injection',
+    description: 'An injection flaw.',
+  });
+
+  const makeDirent = (name: string) => ({ name, isDirectory: () => true } as any);
+
+  // Restore the file-wide defaults the other suites rely on, regardless of test order.
+  afterEach(() => {
+    vi.mocked(fs.existsSync).mockImplementation(() => true);
+    vi.mocked(fs.readFileSync).mockImplementation((() => 'package test.pkg\n') as any);
+    vi.mocked(fs.readdirSync).mockImplementation((() => []) as any);
+  });
+
+  beforeEach(() => {
+    // Drop call history accumulated by earlier suites so per-test call assertions
+    // (e.g. "policies.rego was never read") only see this test's I/O.
+    vi.mocked(fs.existsSync).mockReset();
+    vi.mocked(fs.readFileSync).mockReset();
+    vi.mocked(fs.readdirSync).mockReset();
+    vi.mocked(fs.existsSync).mockImplementation((p: any) => {
+      const s = String(p);
+      if (s.endsWith('module.json')) return true;
+      if (s.endsWith(`issue${path.sep}sql-injection${path.sep}class.json`)) return true;
+      if (s.endsWith(`issue${path.sep}sql-injection${path.sep}policies.rego`)) return true;
+      if (s.endsWith(`test-module${path.sep}issue`)) return true; // the issue classType dir
+      return false; // every other classType dir is absent → skipped
+    });
+    vi.mocked(fs.readFileSync).mockImplementation(((p: any) => {
+      const s = String(p);
+      if (s.endsWith('module.json')) return MODULE_JSON;
+      if (s.endsWith('class.json')) return ISSUE_CLASS_JSON;
+      return ''; // policies.rego must never be read for issue classes
+    }) as any);
+    vi.mocked(fs.readdirSync).mockImplementation(((p: any) => {
+      const s = String(p);
+      if (s.endsWith(`test-module${path.sep}issue`)) return [makeDirent('sql-injection')];
+      return [];
+    }) as any);
+  });
+
+  function buildIssueModule() {
+    const mod = new DtFileOpaModule('/fake/dir', 'test-module', {} as any, stubLogger as any);
+    (mod as any).opaOps = {
+      deletePolicyByPrefix: vi.fn().mockResolvedValue(undefined),
+      installPolicies: vi.fn().mockResolvedValue(undefined),
+    };
+    return mod;
+  }
+
+  it('loads issue classes from the issue/ folder into metadata.issueClasses', async () => {
+    const mod = buildIssueModule();
+    const metadata = await mod.getMetadata();
+
+    expect(metadata.issueClasses).toHaveLength(1);
+    const [issue] = metadata.issueClasses as any[];
+    expect(issue.name).toBe('SQL Injection');
+    expect(issue.category).toBe('Injection');
+    // path is relative to moduleDataDir and points at the on-disk class folder.
+    expect(issue.path).toBe(`test-module${path.sep}issue${path.sep}sql-injection`);
+  });
+
+  it('passes the free-form issue type through verbatim (not forced/uppercased)', async () => {
+    const mod = buildIssueModule();
+    const metadata = await mod.getMetadata();
+
+    const [issue] = metadata.issueClasses as any[];
+    expect(issue.type).toBe('vulnerability');
+  });
+
+  it('installs no policy for an issue class even when a stray policies.rego exists', async () => {
+    const mod = buildIssueModule();
+    await mod.getMetadata();
+
+    // resetPolicies runs fire-and-forget; wait for the background install to land.
+    await vi.waitFor(() => {
+      expect((mod as any).opaOps.installPolicies).toHaveBeenCalledTimes(1);
+    });
+    expect((mod as any).opaOps.installPolicies).toHaveBeenCalledWith([]);
+    // The stray issue policies.rego was never read.
+    const readPaths = vi.mocked(fs.readFileSync).mock.calls.map((c) => String(c[0]));
+    expect(readPaths.some((p) => p.endsWith('policies.rego'))).toBe(false);
   });
 });
 

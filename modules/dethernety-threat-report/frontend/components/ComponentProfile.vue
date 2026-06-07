@@ -24,8 +24,8 @@
       <h3 class="trd-prof-name">{{ profile.element.name }}</h3>
       <span class="trd-etype">{{ profile.element.type }}</span>
       <span v-if="profile.element.crownJewel" class="trd-crown" title="Author-flagged crown jewel (high-value asset)">★ crown jewel</span>
-      <span v-if="profile.element.type === 'Data'" class="trd-sens" :class="`trd-sens--${dataSens(profile.element.sensitivity).key}`">
-        {{ dataSens(profile.element.sensitivity).label }}
+      <span v-if="profile.element.type === 'Data'" class="trd-sens" :class="`trd-sens--${sensKey(profile.element.sensitivity)}`">
+        {{ profile.element.sensitivityLabel }}
       </span>
     </header>
 
@@ -117,7 +117,7 @@
           <ul class="trd-data">
             <li v-for="d in profile.dataHandled" :key="d.id" class="trd-data-item">
               <button type="button" class="trd-drill-mini" @click="$emit('drill', d.id)" :title="`Open ${d.name} profile`">{{ d.name }}</button>
-              <span class="trd-sens" :class="`trd-sens--${dataSens(d.sensitivity).key}`">{{ dataSens(d.sensitivity).label }}</span>
+              <span class="trd-sens" :class="`trd-sens--${sensKey(d.sensitivity)}`">{{ d.sensitivityLabel }}</span>
               <span v-if="d.liveCount > 0" class="trd-weaken">{{ d.liveCount }} open exposure(s)</span>
               <span v-if="d.dispositionedCount > 0" class="trd-muted">· {{ d.dispositionedCount }} reviewed</span>
               <span v-if="d.liveCount === 0 && d.dispositionedCount === 0" class="trd-muted">· no exposures</span>
@@ -172,11 +172,10 @@
           :model-graph="modelGraph"
           :highlight-ids="profile.highlightIds"
           :highlight-edge-ids="profile.highlightEdgeIds"
-          :highlight-boundary-ids="profile.highlightBoundaryIds"
           :crown-jewel-ids="crownJewelIds"
           variant="sidebar"
         />
-        <p class="trd-map-hint">{{ mapHint }}</p>
+        <p class="trd-map-hint">{{ profile.element.type === 'DataFlow' ? "This flow's endpoints highlighted on the model." : 'This element highlighted on the model.' }}</p>
 
         <!-- Element identity: its class + its own description, and the class
              description on demand. Shown only when authored — never an empty line. -->
@@ -206,7 +205,6 @@
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
   import { computeComponentProfile } from '../lib/componentProfile.js'
   import { dispositionKindLabel } from '../lib/aggregateLedger.js'
-  import { dataItemSensitivity } from '../lib/boundaryCrossings.js'
 
   const props = defineProps({
     elementId: { type: String, default: '' },
@@ -240,22 +238,7 @@
 
   const kindLabel = dispositionKindLabel
   const sensKey = (level) => (level == null ? 'unknown' : String(level).toLowerCase())
-  // A Data item's own sensitivity chip: null ⇒ "unclassified" gap, not "unknown".
-  const dataSens = (level) => dataItemSensitivity(level)
   const dirLabel = (d) => ({ inbound: '← in', outbound: 'out →', source: 'source', target: 'target' })[d] ?? d
-
-  // Minimap caption, tailored to what's highlighted for this element type.
-  const mapHint = computed(() => {
-    const t = profile.value.element.type
-    if (t === 'DataFlow') return "This flow's endpoints highlighted on the model."
-    if (t === 'SecurityBoundary') return 'This boundary highlighted on the model.'
-    if (t === 'Data') {
-      return profile.value.handledByElements.length
-        ? 'The elements that handle this data are highlighted on the model.'
-        : 'This data is not attached to any element on the model.'
-    }
-    return 'This element highlighted on the model.'
-  })
 </script>
 
 <style scoped>
@@ -345,7 +328,6 @@
   .trd-sens--confidential { color: #b9651b; }
   .trd-sens--internal { color: #8a7400; }
   .trd-sens--public { color: #5f6a6a; }
-  .trd-sens--unclassified { color: #c77700; }
   .trd-sens--unknown { color: #95a5a6; }
 
   .trd-table { border-collapse: collapse; width: 100%; }

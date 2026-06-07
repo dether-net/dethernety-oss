@@ -3,19 +3,7 @@ import {
   computeCrossings,
   maxSensitivity,
   sensitivityLabel,
-  dataItemSensitivity,
 } from '../lib/boundaryCrossings.js'
-
-describe('dataItemSensitivity — per-item chip (existing item ⇒ unclassified, not unknown)', () => {
-  it('null/undefined ⇒ unclassified gap (amber), never "unknown"', () => {
-    expect(dataItemSensitivity(null)).toEqual({ label: 'unclassified', key: 'unclassified' })
-    expect(dataItemSensitivity(undefined)).toEqual({ label: 'unclassified', key: 'unclassified' })
-  })
-  it('a known level ⇒ its label + lowercased key', () => {
-    expect(dataItemSensitivity('RESTRICTED')).toEqual({ label: 'Restricted', key: 'restricted' })
-    expect(dataItemSensitivity('PUBLIC')).toEqual({ label: 'Public', key: 'public' })
-  })
-})
 
 // --- fixtures -------------------------------------------------------------
 // Nesting:  Outer ⊃ DMZ ⊃ Inner ; Outer ⊃ Left ; Outer ⊃ Right ; Cyc1 ⇄ Cyc2.

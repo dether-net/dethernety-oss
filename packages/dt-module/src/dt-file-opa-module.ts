@@ -15,6 +15,7 @@ const CLASS_TYPES = [
   { key: 'securityBoundaryClasses', dir: 'securityBoundary' },
   { key: 'controlClasses', dir: 'control' },
   { key: 'dataClasses', dir: 'data' },
+  { key: 'issueClasses', dir: 'issue' },
 ] as const;
 
 /** Valid ComponentType values from the GraphQL schema for component classes. */
@@ -311,16 +312,21 @@ export class DtFileOpaModule implements DTModule {
 
         classDataList.push(classMetadata);
 
-        // Collect policy for batch installation
-        const policiesPath = path.join(classDir, 'policies.rego');
-        this.validateModulePath(policiesPath);
-        if (fs.existsSync(policiesPath)) {
-          const raw = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf8').trim());
-          if (raw) {
-            const policyId = `${this.moduleName}.${classType.dir}.${className}`
-              .replaceAll(' ', '_')
-              .replaceAll(/[^A-Za-z0-9._-]/g, '');
-            policies.push({ id: policyId, raw });
+        // Issue classes carry no exposures/countermeasures — mirror the neo4j
+        // loader, which loads no Rego for DTIssueClass. Skip policy collection so a
+        // stray policies.rego under an issue class is never installed.
+        if (classType.dir !== 'issue') {
+          // Collect policy for batch installation
+          const policiesPath = path.join(classDir, 'policies.rego');
+          this.validateModulePath(policiesPath);
+          if (fs.existsSync(policiesPath)) {
+            const raw = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf8').trim());
+            if (raw) {
+              const policyId = `${this.moduleName}.${classType.dir}.${className}`
+                .replaceAll(' ', '_')
+                .replaceAll(/[^A-Za-z0-9._-]/g, '');
+              policies.push({ id: policyId, raw });
+            }
           }
         }
       }
@@ -346,6 +352,7 @@ export class DtFileOpaModule implements DTModule {
       securityBoundaryClasses: metadata.securityBoundaryClasses?.length || 0,
       controlClasses: metadata.controlClasses?.length || 0,
       dataClasses: metadata.dataClasses?.length || 0,
+      issueClasses: metadata.issueClasses?.length || 0,
     });
 
     return metadata;
