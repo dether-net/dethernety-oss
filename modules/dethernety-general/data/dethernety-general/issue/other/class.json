@@ -1,0 +1,9 @@
+{
+  "id": "21e27749-78fe-4d90-8619-14be5ff3b7f4",
+  "name": "Other",
+  "classType": "issue",
+  "type": "Issue",
+  "description": "Issues that cannot be classified into other categories.",
+  "category": "Other",
+  "status": "draft"
+}

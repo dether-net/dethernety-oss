@@ -1,0 +1,9 @@
+{
+  "id": "be634246-cadb-46b0-9db3-d4912c9bee36",
+  "name": "Architecture anti-pattern",
+  "classType": "issue",
+  "type": "Issue",
+  "description": "An architecture anti-pattern is a common but ineffective solution to a recurring design problem in software development, often leading to poor system structure and maintainability. Examples include \"Big Ball of Mud,\" where a system lacks a clear architecture, and \"Blind Pattern Following,\" where developers adopt practices without understanding their purpose.",
+  "category": "Architecture",
+  "status": "draft"
+}

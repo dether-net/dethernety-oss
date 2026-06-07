@@ -1,0 +1,165 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "severity": {
+        "type": "string",
+        "title": "Severity",
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "default": "medium",
+        "description": "Threat vector severity level"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": [
+          "identified",
+          "analyzing",
+          "mitigating",
+          "monitored",
+          "resolved",
+          "accepted"
+        ],
+        "default": "identified"
+      },
+      "strideCategory": {
+        "type": "string",
+        "title": "STRIDE Category",
+        "enum": [
+          "spoofing",
+          "tampering",
+          "repudiation",
+          "information-disclosure",
+          "denial-of-service",
+          "elevation-of-privilege"
+        ],
+        "description": "STRIDE threat model classification"
+      },
+      "likelihood": {
+        "type": "string",
+        "title": "Likelihood",
+        "enum": [
+          "very-low",
+          "low",
+          "medium",
+          "high",
+          "very-high"
+        ],
+        "default": "medium",
+        "description": "Probability of threat exploitation"
+      },
+      "threatActorType": {
+        "type": "string",
+        "title": "Threat Actor Type",
+        "enum": [
+          "insider",
+          "cybercriminal",
+          "nation-state",
+          "hacktivist",
+          "script-kiddie",
+          "competitor",
+          "unknown"
+        ],
+        "description": "Type of potential threat actor"
+      },
+      "assetAtRisk": {
+        "type": "string",
+        "title": "Asset at Risk",
+        "description": "System component, data, or resource that could be compromised"
+      },
+      "attackScenario": {
+        "type": "string",
+        "title": "Attack Scenario",
+        "description": "Detailed description of how the attack could be executed"
+      },
+      "mitigationStrategy": {
+        "type": "string",
+        "title": "Mitigation Strategy",
+        "description": "Proposed approach to mitigate or prevent this threat vector"
+      }
+    },
+    "required": [
+      "severity",
+      "status",
+      "strideCategory",
+      "likelihood"
+    ]
+  },
+  "uischema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Assessment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/severity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/strideCategory"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/likelihood"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/threatActorType"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/assetAtRisk"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Details & Mitigation",
+        "elements": [
+          {
+            "type": "Control",
+            "scope": "#/properties/attackScenario",
+            "options": {
+              "multi": true,
+              "rows": 3
+            }
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/mitigationStrategy",
+            "options": {
+              "multi": true,
+              "rows": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

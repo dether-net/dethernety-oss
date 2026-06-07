@@ -1,0 +1,122 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "severity": {
+        "type": "string",
+        "title": "Severity",
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "default": "medium",
+        "description": "Issue severity level"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": [
+          "new",
+          "investigating",
+          "in-progress",
+          "on-hold",
+          "resolved",
+          "closed"
+        ],
+        "default": "new"
+      },
+      "subCategory": {
+        "type": "string",
+        "title": "Sub-Category",
+        "description": "Specific categorization for this issue"
+      },
+      "priority": {
+        "type": "string",
+        "title": "Priority",
+        "enum": [
+          "urgent",
+          "high",
+          "normal",
+          "low"
+        ],
+        "default": "normal",
+        "description": "Issue priority level"
+      },
+      "impactDescription": {
+        "type": "string",
+        "title": "Impact Description",
+        "description": "Description of how this issue affects the system or users"
+      },
+      "proposedSolution": {
+        "type": "string",
+        "title": "Proposed Solution",
+        "description": "Suggested approach to resolve this issue"
+      }
+    },
+    "required": [
+      "severity",
+      "status"
+    ]
+  },
+  "uischema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Assessment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/severity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/subCategory"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/priority"
+              }
+            ]
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/impactDescription",
+            "options": {
+              "multi": true,
+              "rows": 3
+            }
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Resolution",
+        "elements": [
+          {
+            "type": "Control",
+            "scope": "#/properties/proposedSolution",
+            "options": {
+              "multi": true,
+              "rows": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
