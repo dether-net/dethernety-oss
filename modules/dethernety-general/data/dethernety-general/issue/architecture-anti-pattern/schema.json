@@ -1,0 +1,143 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "severity": {
+        "type": "string",
+        "title": "Severity",
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "default": "medium",
+        "description": "Anti-pattern severity level"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": [
+          "identified",
+          "analyzed",
+          "planning",
+          "refactoring",
+          "testing",
+          "resolved"
+        ],
+        "default": "identified"
+      },
+      "antiPatternType": {
+        "type": "string",
+        "title": "Anti-Pattern Type",
+        "enum": [
+          "big-ball-of-mud",
+          "god-object",
+          "spaghetti-code",
+          "copy-paste-programming",
+          "golden-hammer",
+          "premature-optimization",
+          "vendor-lock-in",
+          "other"
+        ],
+        "description": "Type of architecture anti-pattern identified"
+      },
+      "technicalDebtLevel": {
+        "type": "string",
+        "title": "Technical Debt Level",
+        "enum": [
+          "minimal",
+          "moderate",
+          "significant",
+          "severe"
+        ],
+        "default": "moderate",
+        "description": "Level of technical debt introduced"
+      },
+      "impactAreas": {
+        "type": "string",
+        "title": "Impact Areas",
+        "description": "System components or areas affected by this anti-pattern"
+      },
+      "businessImpact": {
+        "type": "string",
+        "title": "Business Impact",
+        "description": "How this anti-pattern affects business operations and goals"
+      },
+      "recommendedSolution": {
+        "type": "string",
+        "title": "Recommended Solution",
+        "description": "Proposed approach to resolve the anti-pattern"
+      }
+    },
+    "required": [
+      "severity",
+      "status",
+      "antiPatternType",
+      "technicalDebtLevel"
+    ]
+  },
+  "uischema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Assessment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/severity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/antiPatternType"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/technicalDebtLevel"
+              }
+            ]
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/impactAreas"
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Resolution",
+        "elements": [
+          {
+            "type": "Control",
+            "scope": "#/properties/businessImpact",
+            "options": {
+              "multi": true,
+              "rows": 3
+            }
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/recommendedSolution",
+            "options": {
+              "multi": true,
+              "rows": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

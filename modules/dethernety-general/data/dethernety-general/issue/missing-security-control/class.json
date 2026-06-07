@@ -1,0 +1,9 @@
+{
+  "id": "e28f6cde-e517-4229-9a6c-dce19195bf3e",
+  "name": "Missing Security Control",
+  "classType": "issue",
+  "type": "Issue",
+  "description": "An absent or insufficient security control that should be implemented to mitigate identified threats and reduce system risk.",
+  "category": "Security Control",
+  "status": "draft"
+}

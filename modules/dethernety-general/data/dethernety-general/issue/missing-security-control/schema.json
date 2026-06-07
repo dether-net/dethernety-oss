@@ -1,0 +1,171 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "severity": {
+        "type": "string",
+        "title": "Severity",
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "default": "medium",
+        "description": "Missing control severity level"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": [
+          "identified",
+          "planned",
+          "in-progress",
+          "implemented",
+          "testing",
+          "deployed"
+        ],
+        "default": "identified"
+      },
+      "controlType": {
+        "type": "string",
+        "title": "Control Type",
+        "enum": [
+          "preventive",
+          "detective",
+          "corrective",
+          "deterrent",
+          "compensating"
+        ],
+        "description": "Type of security control needed"
+      },
+      "securityDomain": {
+        "type": "string",
+        "title": "Security Domain",
+        "enum": [
+          "authentication",
+          "authorization",
+          "encryption",
+          "audit-logging",
+          "input-validation",
+          "session-management",
+          "data-protection",
+          "network-security"
+        ],
+        "description": "Security area that needs the control"
+      },
+      "implementationComplexity": {
+        "type": "string",
+        "title": "Implementation Complexity",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "very-high"
+        ],
+        "default": "medium",
+        "description": "Complexity level for implementing this control"
+      },
+      "riskReductionLevel": {
+        "type": "string",
+        "title": "Risk Reduction Level",
+        "enum": [
+          "minimal",
+          "moderate",
+          "significant",
+          "major"
+        ],
+        "default": "moderate",
+        "description": "Expected risk reduction after implementation"
+      },
+      "controlDescription": {
+        "type": "string",
+        "title": "Control Description",
+        "description": "Detailed description of the missing security control"
+      },
+      "implementationPlan": {
+        "type": "string",
+        "title": "Implementation Plan",
+        "description": "Proposed approach and steps to implement this control"
+      }
+    },
+    "required": [
+      "severity",
+      "status",
+      "controlType",
+      "securityDomain"
+    ]
+  },
+  "uischema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Assessment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/severity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/controlType"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/securityDomain"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/implementationComplexity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/riskReductionLevel"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Implementation",
+        "elements": [
+          {
+            "type": "Control",
+            "scope": "#/properties/controlDescription",
+            "options": {
+              "multi": true,
+              "rows": 3
+            }
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/implementationPlan",
+            "options": {
+              "multi": true,
+              "rows": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "3ebf7315-4733-4c00-8c3e-a6a628e5ba16",
+  "name": "Configuration Error",
+  "classType": "issue",
+  "type": "Error",
+  "description": "A software configuration error is a mistake in the system settings that can lead to incorrect operations or system failures. Common causes include human error, system malfunctions, and issues during data integration.",
+  "category": "Configuration",
+  "status": "draft"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "4121f1ce-37e2-4adc-acda-123a78605fd6",
+  "name": "Threat Vector",
+  "classType": "issue",
+  "type": "Issue",
+  "description": "A potential attack path or method that could be used by threat actors to compromise system security, identified through threat modeling analysis.",
+  "category": "Threat Vector",
+  "status": "draft"
+}

@@ -1,0 +1,146 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "severity": {
+        "type": "string",
+        "title": "Severity",
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "default": "medium",
+        "description": "Configuration error severity level"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": [
+          "new",
+          "investigating",
+          "in-progress",
+          "resolved",
+          "verified",
+          "closed"
+        ],
+        "default": "new"
+      },
+      "configType": {
+        "type": "string",
+        "title": "Config Type",
+        "enum": [
+          "database",
+          "network",
+          "application",
+          "security",
+          "infrastructure",
+          "deployment"
+        ],
+        "description": "Type of configuration that has the error"
+      },
+      "environment": {
+        "type": "string",
+        "title": "Environment",
+        "enum": [
+          "development",
+          "staging",
+          "production",
+          "testing"
+        ],
+        "description": "Environment where the error occurred"
+      },
+      "impactLevel": {
+        "type": "string",
+        "title": "Impact Level",
+        "enum": [
+          "system-down",
+          "degraded-performance",
+          "feature-unavailable",
+          "minor-issue"
+        ],
+        "description": "Level of impact on system operations"
+      },
+      "rootCause": {
+        "type": "string",
+        "title": "Root Cause",
+        "description": "Identified root cause of the configuration error"
+      },
+      "resolutionSteps": {
+        "type": "string",
+        "title": "Resolution Steps",
+        "description": "Steps taken or required to resolve the configuration error"
+      }
+    },
+    "required": [
+      "severity",
+      "status",
+      "configType",
+      "environment"
+    ]
+  },
+  "uischema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Assessment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/severity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/configType"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/environment"
+              }
+            ]
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/impactLevel"
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Resolution",
+        "elements": [
+          {
+            "type": "Control",
+            "scope": "#/properties/rootCause",
+            "options": {
+              "multi": true,
+              "rows": 3
+            }
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/resolutionSteps",
+            "options": {
+              "multi": true,
+              "rows": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
