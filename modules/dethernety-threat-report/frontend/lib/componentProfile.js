@@ -286,18 +286,31 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
       String(a.neighbourName).localeCompare(String(b.neighbourName)),
   )
 
-  // Minimap highlight: a Component / SecurityBoundary / Data highlights itself; a
-  // DataFlow has no node of its own on the map, so — exactly like the Boundary
-  // Crossings flow selection — it highlights its two endpoints (the edge between
-  // them reads as the
-  // flow). Falls back to the flow id if endpoints are missing.
-  const highlightIds =
-    type === 'DataFlow' && flow
-      ? [flow.sourceId, flow.targetId].filter(Boolean)
-      : [elementId]
-  // For a DataFlow, also highlight its own edge (the line), so the flow itself —
-  // not only its endpoints — is traceable on the minimap.
-  const highlightEdgeIds = type === 'DataFlow' && flow ? [elementId] : []
+  // Minimap highlight, routed to the channel that matches what's actually drawn:
+  //   - Component         → its node (highlightIds)
+  //   - DataFlow          → its two endpoints (nodes) + its own edge (the line)
+  //   - SecurityBoundary  → its rectangle (boundaries are rects, not nodes)
+  //   - Data              → it has no shape of its own, so highlight the elements
+  //                         that HANDLE it, each on its matching channel
+  //                         (components→nodes, flows→edges, boundaries→rects).
+  let highlightIds, highlightEdgeIds, highlightBoundaryIds
+  if (type === 'DataFlow' && flow) {
+    highlightIds = [flow.sourceId, flow.targetId].filter(Boolean)
+    highlightEdgeIds = [elementId]
+    highlightBoundaryIds = []
+  } else if (type === 'SecurityBoundary') {
+    highlightIds = []
+    highlightEdgeIds = []
+    highlightBoundaryIds = [elementId]
+  } else if (type === 'Data') {
+    highlightIds = handledByElements.filter((h) => h.type === 'Component').map((h) => h.id)
+    highlightEdgeIds = handledByElements.filter((h) => h.type === 'DataFlow').map((h) => h.id)
+    highlightBoundaryIds = handledByElements.filter((h) => h.type === 'SecurityBoundary').map((h) => h.id)
+  } else {
+    highlightIds = [elementId]
+    highlightEdgeIds = []
+    highlightBoundaryIds = []
+  }
 
   return {
     element,
@@ -309,5 +322,6 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
     neighbours,
     highlightIds,
     highlightEdgeIds,
+    highlightBoundaryIds,
   }
 }
