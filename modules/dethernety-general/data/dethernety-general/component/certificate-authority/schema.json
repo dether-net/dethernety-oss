@@ -1,0 +1,496 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "enrollee_supplies_subject_disabled": {
+        "type": "boolean",
+        "title": "Enrollee-Supplied Subject Disabled",
+        "description": "Interpreted-secure boolean: true when the CA builds the certificate Subject/SAN from a trusted directory/identity source and a low-privileged requester CANNOT dictate identity (CT_FLAG_SUBJECT_REQUIRE_DIRECTORY_PATH set; AD CS CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT clear; EJBCA 'Allow Subject DN Override by CSR' disabled). False (insecure) when the requester may supply an arbitrary Subject/SAN/UPN — the ESC1 root cause.",
+        "default": false
+      },
+      "template_grants_authentication_eku": {
+        "type": "boolean",
+        "title": "Enrollee Template Grants Authentication EKU",
+        "description": "Interpreted boolean: true when an enrollee-reachable template grants an authentication-capable EKU (Client Authentication 1.3.6.1.5.5.7.3.2, PKINIT Client Auth 1.3.6.1.5.2.3.4, or Smart Card Logon 1.3.6.1.4.1.311.20.2.2). Modeled as an interpreted boolean (not has_element on an EKU OID array) to stay polarity-safe. Combined with requester-supplied subject and no approval this turns a SAN into domain authentication (ESC1).",
+        "default": false
+      },
+      "enrollee_supplied_san_requires_approval": {
+        "type": "boolean",
+        "title": "Enrollee-Supplied SAN Requires Manager Approval",
+        "description": "Interpreted boolean: true when issuance for any template allowing requester-supplied subject/SAN (or carrying an auth/SubCA/enrollment-agent EKU) is held pending a Certificate Manager approval or required RA signature (AD CS CT_FLAG_PEND_ALL_REQUESTS / msPKI-RA-Signature). False (insecure) when such requests auto-issue with no manager approval — the compensating control that neutralises ESC1 is absent.",
+        "default": false
+      },
+      "any_purpose_or_subca_eku_enrollable": {
+        "type": "boolean",
+        "title": "Any-Purpose / Sub-CA EKU Enrollable",
+        "description": "Interpreted boolean: true when a low-privilege-enrollable template grants the Any Purpose EKU (2.5.29.37.0) or carries no EKU at all (subordinate-CA capable), yielding a certificate usable for any purpose including authentication or sub-CA creation (ESC2). Modeled as an interpreted boolean so the all-secure baseline (scoped purpose-specific EKUs) does not fire.",
+        "default": false
+      },
+      "ca_wide_san_attribute_flag_disabled": {
+        "type": "boolean",
+        "title": "CA-Wide SAN Attribute Flag Disabled",
+        "description": "Interpreted-secure boolean: TRUE when the CA-wide 'allow user-defined SAN in request attribute' policy flag is DISABLED (AD CS: EDITF_ATTRIBUTESUBJECTALTNAME2 absent from policy\\EditFlags; generic CA: no global 'allow SAN/Subject override via request attribute'). FALSE (ESC6) means any request may carry an attacker-supplied SAN, globally re-enabling ESC1-style impersonation across every template regardless of per-template hardening.",
+        "default": false
+      },
+      "manage_ca_rights_restricted": {
+        "type": "boolean",
+        "title": "ManageCA Rights Restricted to Tier-0",
+        "description": "Interpreted-secure boolean: TRUE when CA-management rights (ManageCA / 'CA administrator' role) are restricted to dedicated Tier-0 admin accounts and withheld from broad or unprivileged principals (Authenticated Users, Domain Users), so the CA-wide SAN policy flag cannot be silently re-flipped by the subject it governs. FALSE (ESC7) means a broad/low-priv holder can flip EDITF_ATTRIBUTESUBJECTALTNAME2 at will, voiding every per-template control.",
+        "default": false
+      },
+      "name_constraints_enforced": {
+        "type": "boolean",
+        "title": "Name Constraints Enforced on Issuing CA",
+        "description": "Interpreted-secure boolean: true when the issuing/subordinate CA certificate carries an X.509 NameConstraints extension (permitted/excluded DNS, IP, email, directory subtrees) scoping which identities it may ever sign, bound to the org's owned namespaces. False = no NameConstraints, so the CA (or a stolen subordinate key) can mint certificates for ANY name, including domains it does not own.",
+        "default": false
+      },
+      "path_length_constraint_set": {
+        "type": "boolean",
+        "title": "Path-Length Constraint Set",
+        "description": "Interpreted-secure boolean: true when the issuing CA certificate's BasicConstraints pathLenConstraint is set to bound how many further intermediate CAs may chain below it (pathLen=0 on a leaf issuing CA = no further sub-CAs). False = pathLen unset or over-large, letting the CA spawn rogue subordinate CAs. EJBCA does NOT validate path length at issuance, so this must be set deliberately.",
+        "default": false
+      },
+      "offline_root_ca": {
+        "type": "boolean",
+        "title": "Offline Root CA Hierarchy",
+        "description": "Interpreted-secure boolean: true when the trust-anchor root (and policy CA) is kept OFFLINE and separated from online issuing/subordinate CAs. False = single online root issuing leaf certs (flat hierarchy) or issuing CA co-located with a domain controller / other Tier-0 roles, so a single compromise forges unlimited trust across namespaces. Secondary trigger amplifying the unconstrained-CA blast radius."
+      },
+      "key_storage": {
+        "type": "string",
+        "enum": [
+          "hsm_fips_l3",
+          "hsm_fips_l2",
+          "software_non_exportable",
+          "software_exportable"
+        ],
+        "title": "CA Signing Key Custody Tier",
+        "description": "The custody tier of the CA signing key. Secure tiers are the HSM/KMS-backed values (hsm_fips_l3, hsm_fips_l2) where key theft from a disk image is worthless. Insecure tiers are 'software_exportable' (on-disk PEM / DPAPI exportable — any local admin exports it) and 'software_non_exportable' (still recoverable from a disk image, no FIPS hardware boundary). Subsumes the boolean 'signing_key_hsm_backed' as its finer-grained form. Maps to dossier config key 'ca_private_key_storage'."
+      },
+      "ca_key_bundled_in_routine_backup": {
+        "type": "boolean",
+        "title": "CA Key Bundled in Routine Backup",
+        "description": "Interpreted boolean: true when routine backups bundle an exportable CA signing-key PFX onto general backup infrastructure (full system-state / certutil -backup) rather than DB-only backups with the key PFX isolated under chain-of-custody. True means the key is reachable from shared backup systems and a brute-forceable PFX hands an attacker the whole PKI; this widens the no-HSM key-theft exposure. Secure value: false; fires on true."
+      },
+      "http_enrollment_endpoint_exposed": {
+        "type": "boolean",
+        "title": "HTTP Enrollment Endpoint Exposed",
+        "description": "Interpreted boolean: true when an HTTP-based enrollment endpoint (AD CS Web Enrollment /certsrv, CES/CEP, or NDES /CertSrv/mscep) is reachable on this CA. The relay attack surface exists only when such an HTTP endpoint is present; if web enrollment is removed entirely the ESC8 vector is closed. Fires is_true; secure value is false (endpoint removed/absent).",
+        "default": false
+      },
+      "web_enrollment_https_enforced": {
+        "type": "boolean",
+        "title": "Web Enrollment HTTPS-Only Enforced",
+        "description": "Interpreted boolean: true when the web-enrollment / CES-CEP / NDES endpoints are served HTTPS-only (plain HTTP bindings removed). When HTTP is accepted, coerced NTLM authentication can be relayed over an unprotected channel to obtain an authentication-capable certificate for the victim machine (AD CS ESC8). Fires is_false; secure value is true (HTTPS-only).",
+        "default": false
+      },
+      "extended_protection_for_authentication_enabled": {
+        "type": "boolean",
+        "title": "Extended Protection for Authentication Required",
+        "description": "Interpreted boolean: true when IIS Extended Protection for Authentication (EPA / channel binding) is set to Required on the Windows Authentication of the enrollment endpoints. EPA binds the authentication to the TLS channel, defeating cross-protocol NTLM relay to the enrollment endpoint (ESC8). Fires is_false; secure value is true (EPA Required).",
+        "default": false
+      },
+      "ntlm_authentication_disabled_on_enrollment": {
+        "type": "boolean",
+        "title": "NTLM Disabled on Enrollment Endpoint",
+        "description": "Interpreted boolean: true when NTLM is disabled on the HTTP enrollment endpoints (Kerberos/negotiate-only), so coerced NTLM auth cannot be relayed there at all. Disabling NTLM removes the relayed credential the ESC8 chain depends on. Fires is_false; secure value is true (NTLM disabled)."
+      },
+      "manage_certificates_rights_restricted": {
+        "type": "boolean",
+        "title": "ManageCertificates Rights Restricted",
+        "description": "Interpreted-secure boolean: true when the ManageCertificates (Certificate Manager) issuance/approval permission is restricted to dedicated, vetted certificate-officer accounts and is not held by broad or unprivileged principals. False when granted broadly — a holder can approve their own pending request, bypassing manager approval (ESC7).",
+        "default": false
+      },
+      "ca_admin_mfa_enforced": {
+        "type": "boolean",
+        "title": "MFA Enforced for CA Admin Access",
+        "description": "Interpreted-secure boolean: true when MFA / smart-card is enforced for interactive CA management access and CA admins use dedicated alternate (not daily-driver) accounts. False when CA console access is password-only with no MFA, easing credential abuse on ManageCA/ManageCertificates holders.",
+        "default": false
+      },
+      "role_separation_enabled": {
+        "type": "boolean",
+        "title": "Common-Criteria Role Separation Enabled",
+        "description": "Interpreted-secure boolean: true when Common-Criteria role separation is enforced so no single identity holds both ManageCA and ManageCertificates (admin vs issuer vs auditor vs backup duties split) and the setting is change-monitored. False when role separation is off/unset — one account both weakens policy and approves issuance.",
+        "default": false
+      },
+      "template_acls_hardened": {
+        "type": "boolean",
+        "title": "Certificate-Template ACLs Hardened",
+        "description": "Interpreted-secure boolean: true when ACLs on certificate-template AD objects limit Write/WriteDacl/WriteProperty/FullControl to Domain Admins / dedicated PKI-admin groups, with no such rights for unprivileged principals. False when a non-Tier-0 principal holds WriteDacl/WriteProperty/FullControl on a template — they can reconfigure a benign template into an ESC1 template (ESC4).",
+        "default": false
+      },
+      "pki_object_acls_hardened": {
+        "type": "boolean",
+        "title": "PKI Infrastructure-Object ACLs Hardened",
+        "description": "Interpreted-secure boolean: true when ACLs on PKI infrastructure objects (CA computer object, NTAuthCertificates, CN=Public Key Services PKI containers) are Tier-0-protected with no Write/FullControl for unprivileged principals. False when dangerous ACLs on PKI objects/NTAuth are granted to non-Tier-0 principals — enabling RBCD or NTAuth poisoning to compromise the CA/forest (ESC5).",
+        "default": false
+      },
+      "crl_or_ocsp_configured": {
+        "type": "boolean",
+        "title": "CRL or OCSP Revocation Configured",
+        "description": "Interpreted-secure boolean: true when the CA publishes a working revocation method — a CRL and/or OCSP responder — with CDP/AIA URLs embedded in issued certificates. Fires when no revocation mechanism is configured at all, so a compromised or mis-issued certificate stays trusted until natural expiry with no kill-switch.",
+        "default": false
+      },
+      "crl_distribution_point_reachable": {
+        "type": "boolean",
+        "title": "CRL/AIA Distribution Point Reachable",
+        "description": "Interpreted-secure boolean: true when the CDP/AIA URLs embedded in issued certificates are actually reachable by relying parties so CRL/OCSP fetches succeed. Fires when the distribution point is unreachable (dead URL, network-isolated, DNS failure) — relying parties silently fall open and revocation is unenforced even though a method is nominally configured.",
+        "default": false
+      },
+      "crl_response_fresh": {
+        "type": "boolean",
+        "title": "CRL / OCSP Response Fresh",
+        "description": "Interpreted-secure boolean: true when the published CRL's nextUpdate is in the future (not expired) and OCSP responses carry a short next-update — i.e. revocation data is current. Fires when the CRL is stale/expired, in which case relying parties may treat it as invalid and fall open, leaving revoked certificates trusted.",
+        "default": false
+      },
+      "max_leaf_validity_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "title": "Maximum Leaf Certificate Validity (Days)",
+        "description": "The maximum validity period (in days) the CA grants to leaf certificates. HIGH_IS_INSECURE: an over-long lifetime widens the window a compromised or mis-issued certificate stays usable before its only backstop (natural expiry) kicks in — most damaging precisely when revocation is missing or stale. Fires when greater than 397 days (the CA/Browser Forum public-TLS leaf ceiling); secure is a short bounded value."
+      },
+      "requester_validity_override_disabled": {
+        "type": "boolean",
+        "title": "Requester Validity Override Disabled",
+        "description": "Interpreted-secure boolean: true when the requester CANNOT dictate certificate lifetime (EJBCA 'Allow Validity Override' disabled, or the AD CS template not honouring a requester-supplied notAfter). Fires when validity override is enabled, letting an enrollee demand an arbitrary (over-long) lifetime, widening the trusted window for a compromised cert beyond the CA's intended bound."
+      },
+      "signing_hash_algorithm": {
+        "type": "string",
+        "enum": [
+          "sha256",
+          "sha384",
+          "sha512",
+          "sha1",
+          "md5"
+        ],
+        "title": "CA Signing Hash Algorithm",
+        "description": "Hash algorithm the CA uses in its certificate signatures. SHA-256+ is the modern floor; sha1/md5 are deprecated and produce forgeable signatures, undermining the integrity of every certificate the CA signs. Fires on in[sha1, md5]."
+      },
+      "ca_key_algorithm_strength": {
+        "type": "string",
+        "enum": [
+          "rsa_2048",
+          "rsa_3072",
+          "rsa_4096",
+          "ecdsa_p256",
+          "ecdsa_p384",
+          "rsa_1024",
+          "rsa_512"
+        ],
+        "title": "CA Signing Key Algorithm Strength",
+        "description": "The CA signing key's algorithm and strength. Floors are RSA >= 2048 (3072+ for long-lived roots) or P-256/P-384 ECDSA. rsa_1024 (or smaller) is below the current floor and a brute-forcible/forgeable signing key undermines the entire chain. Fires on in[rsa_1024, rsa_512]."
+      },
+      "issuance_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Issuance Audit Logging Enabled",
+        "description": "Interpreted-secure boolean: true when the CA records every certificate issuance, revocation, and template change to an audit log across all event categories (AD CS: certutil -getreg CA\\AuditFilter = 127 AND the OS 'Audit object access' policy enabled Success/Failure). Fires when false/partial — rogue-certificate minting, the goal of every AD CS ESC primitive, becomes invisible.",
+        "default": false
+      },
+      "audit_logs_forwarded_to_siem": {
+        "type": "boolean",
+        "title": "Audit Logs Forwarded to SIEM",
+        "description": "Interpreted-secure boolean: true when CA issuance/revocation/admin audit events are centrally retained by forwarding to a SIEM rather than left only in the local host event log (where they can be cleared or lost on host compromise). Fires when false — locally-only logs are non-attributable and unavailable for PKI-abuse detection across the estate.",
+        "default": false
+      },
+      "admin_action_logging_enabled": {
+        "type": "boolean",
+        "title": "Admin Action Logging Enabled",
+        "description": "Interpreted-secure boolean: true when CA administrative actions — template changes, CA security/ACL edits, policy-flag changes (e.g. EDITF_ATTRIBUTESUBJECTALTNAME2), role-separation toggles — are audited and attributable to individual operators. Fires when false: a config-weakening admin action that enables an ESC primitive leaves no attributable trace."
+      },
+      "audit_logs_tamper_protected": {
+        "type": "boolean",
+        "title": "Audit Logs Tamper-Protected",
+        "description": "Interpreted-secure boolean: true when CA audit logs are tamper-resistant — write-once / off-host retained so a local administrator (or attacker who minted a rogue cert) cannot delete or edit the issuance record to cover the abuse. Fires when false: even enabled logs are unreliable evidence because they can be cleared by the very subject they would incriminate."
+      }
+    },
+    "required": [
+      "enrollee_supplies_subject_disabled",
+      "template_grants_authentication_eku",
+      "enrollee_supplied_san_requires_approval",
+      "any_purpose_or_subca_eku_enrollable",
+      "ca_wide_san_attribute_flag_disabled",
+      "manage_ca_rights_restricted",
+      "name_constraints_enforced",
+      "path_length_constraint_set",
+      "offline_root_ca",
+      "key_storage",
+      "ca_key_bundled_in_routine_backup",
+      "http_enrollment_endpoint_exposed",
+      "web_enrollment_https_enforced",
+      "extended_protection_for_authentication_enabled",
+      "ntlm_authentication_disabled_on_enrollment",
+      "manage_certificates_rights_restricted",
+      "ca_admin_mfa_enforced",
+      "role_separation_enabled",
+      "template_acls_hardened",
+      "pki_object_acls_hardened",
+      "crl_or_ocsp_configured",
+      "crl_distribution_point_reachable",
+      "crl_response_fresh",
+      "max_leaf_validity_days",
+      "requester_validity_override_disabled",
+      "signing_hash_algorithm",
+      "ca_key_algorithm_strength",
+      "issuance_audit_logging_enabled",
+      "audit_logs_forwarded_to_siem",
+      "admin_action_logging_enabled",
+      "audit_logs_tamper_protected"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ca_admin_mfa_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/extended_protection_for_authentication_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ntlm_authentication_disabled_on_enrollment"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/any_purpose_or_subca_eku_enrollable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ca_wide_san_attribute_flag_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollee_supplied_san_requires_approval"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollee_supplies_subject_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/manage_ca_rights_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/manage_certificates_rights_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pki_object_acls_hardened"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_separation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/template_acls_hardened"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/template_grants_authentication_eku"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ca_key_algorithm_strength"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/crl_distribution_point_reachable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crl_or_ocsp_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/crl_response_fresh"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signing_hash_algorithm"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/web_enrollment_https_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/max_leaf_validity_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/requester_validity_override_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_storage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ca_key_bundled_in_routine_backup"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/http_enrollment_endpoint_exposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/name_constraints_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/path_length_constraint_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/offline_root_ca"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logs_forwarded_to_siem"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/issuance_audit_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_action_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logs_tamper_protected"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

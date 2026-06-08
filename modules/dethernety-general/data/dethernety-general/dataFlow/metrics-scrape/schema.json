@@ -1,0 +1,247 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "exporter_endpoint_authenticated": {
+        "type": "boolean",
+        "title": "Exporter /metrics Endpoint Authenticated",
+        "description": "Attests that the scrape target's /metrics endpoint requires authentication. node_exporter and most exporters serve /metrics with NO auth by default; the exporter-toolkit --web.config.file adds basic_auth_users (bcrypt) and/or tls_server_config so the endpoint is not anonymously readable. Secure value is true (auth enforced); the unauthenticated-exposure condition fires when the endpoint is open (false), and an open endpoint that is also network-reachable is the full anonymous-exposure condition.",
+        "default": false
+      },
+      "exporter_endpoint_network_restricted": {
+        "type": "boolean",
+        "title": "Exporter /metrics Endpoint Network-Restricted",
+        "description": "Attests the target /metrics endpoint is reachable only from the Prometheus monitoring segment (firewall/security-group/network-policy limits ingress on the exporter port, e.g. 9100, to the monitoring server's source). The Prometheus security model warns /metrics of instrumented binaries must not be exposed to public networks; network restriction is the primary mitigation for the open-endpoint information exposure when endpoint auth is absent. Secure value is true (restricted); the exposure fires when false (0.0.0.0 bind with no ingress filtering, internet-reachable).",
+        "default": false
+      },
+      "metric_labels_free_of_sensitive_data": {
+        "type": "boolean",
+        "title": "Metric Labels Free of Sensitive Data",
+        "description": "Attests the metric label values emitted on this scrape flow carry no secrets, credentials, internal hostnames/IPs, build/version, process/environment data, or accidentally-labelled tokens. Interpreted boolean (the assessor curl-greps /metrics for token/secret/password/key=/internal/private-IP patterns per the Prometheus security model, which assumes endpoint readers are untrusted). Secure value is true; the exposure fires when false, i.e. sensitive data IS present in labels on a reachable /metrics endpoint -- a direct confidentiality breach independent of cardinality. Also frames the severity of an open-endpoint leak.",
+        "default": false
+      },
+      "sensitive_data_masking_enabled": {
+        "type": "boolean",
+        "title": "Sensitive Data Masking Enabled",
+        "description": "Whether a label-scrubbing / masking control (e.g. metric_relabel_configs label drops, exporter-side redaction, or instrumentation that excludes secret/host fields from label sets) is applied on this flow so sensitive values cannot reach exported labels. Secure value is true; the exposure fires when false (no scrubbing in place, so sensitive label values flow to readers). Secondary trigger reinforcing the primary leak condition. Reuses the shared workspace masking concept."
+      },
+      "data_minimization_enforced": {
+        "type": "boolean",
+        "title": "Data Minimization Enforced",
+        "description": "Whether data-minimization is enforced for what this flow exports -- only operationally necessary metrics/labels are emitted, reducing the surface for accidental sensitive-value inclusion. Supporting context (shared workspace concept); not itself a trigger."
+      },
+      "scrape_sample_and_label_limits_set": {
+        "type": "boolean",
+        "title": "Scrape Sample and Label Limits Set",
+        "description": "Attests that the scrape config bounds per-target ingest volume against an untrusted/compromised target: sample_limit, label_limit, label_name_length_limit, label_value_length_limit, and target_limit are all set to finite non-zero values (e.g. sample_limit 10000, label_limit 100, label_value_length_limit 2048). These all default to 0/unset in scrape_config, meaning Prometheus trusts whatever cardinality and label volume the target returns. False fires the cardinality-bomb exposure: a malicious target ships millions of high-cardinality series or oversized labels and exhausts/OOMs the TSDB. Secure value is true (limits present).",
+        "default": false
+      },
+      "scrape_body_size_limit_set": {
+        "type": "boolean",
+        "title": "Scrape Body Size Limit Set",
+        "description": "Attests that scrape_config.body_size_limit is set to a finite non-zero value capping the size of the response body Prometheus will read from a scrape target. It defaults to 0 (no limit), so a malicious target can return an arbitrarily large /metrics body and exhaust scraper memory before any per-sample limit applies. False fires the exposure (unbounded body accepted from an untrusted target); secure value is true.",
+        "default": false
+      },
+      "scrape_config_edit_restricted": {
+        "type": "boolean",
+        "title": "Scrape Config Edit-Restricted",
+        "description": "Attests that write access to scrape_config (prometheus.yml), file_sd target files, and relabel_configs that build target addresses is limited to trusted operators, and SD-derived targets are validated/allowlisted. When false, any party able to edit scrape config or relabel rules can point Prometheus at arbitrary internal URLs (SSRF). Fires on the insecure (unrestricted) state.",
+        "default": false
+      },
+      "service_discovery_source_trusted": {
+        "type": "boolean",
+        "title": "Service-Discovery Source Trusted",
+        "description": "Attests that the service-discovery backends feeding scrape targets (http_sd endpoint, file_sd files, Consul/etc.) are trusted and write-restricted so untrusted parties cannot inject arbitrary target addresses. When false, an attacker who can mutate SD data controls what Prometheus fetches (SSRF surface). Fires on the insecure (untrusted SD) state.",
+        "default": false
+      },
+      "proxying_exporter_target_allowlisted": {
+        "type": "boolean",
+        "title": "Proxying Exporter Target Allowlisted",
+        "description": "Attests that proxying exporters (Blackbox/SNMP) restrict the targets they will probe to a validated allowlist, so they cannot be coerced into requesting arbitrary internal endpoints and leaking client-side basic_auth secrets. When false, the proxying exporter is an open SSRF relay. Fires on the insecure (no allowlist) state.",
+        "default": false
+      },
+      "scrape_scheme_https": {
+        "type": "boolean",
+        "title": "Scrape Scheme is HTTPS",
+        "description": "Attests the Prometheus scrape_config.scheme is https for this metrics-scrape flow. scheme defaults to 'http' (plaintext); scraping over http exposes the often sensitive-labelled metrics and any basic_auth credential the scraper presents on the wire. Interpreted boolean over prometheus.yml scrape_configs[].scheme (true when https, false when http/absent). Fires (is_false) when the scrape runs over plaintext http.",
+        "default": false
+      },
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Encryption in Transit Enabled",
+        "description": "Shared workspace attestation that this flow's transport is encrypted end to end. For the metrics-scrape flow this means both the client-side scheme (https) and the exporter serving /metrics under tls_server_config -- neither plaintext push nor plaintext exporter response. Fires (is_false) when any leg of the scrape is carried in cleartext, exposing metrics and presented basic_auth credentials to an adjacent sniffer.",
+        "default": false
+      },
+      "tls_min_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Canonical workspace TLS floor for this flow. Mirrors the exporter-toolkit tls_server_config.min_version on the server side and the scrape tls_config on the client side. Secure floor is TLS1.2 or TLS1.3; a negotiated floor in {SSLv3, TLS1.0, TLS1.1} permits downgrade/weak-cipher transport even when TLS is nominally present, leaving the scrape sniffable. Fires when the floor is in the insecure set."
+      },
+      "scrape_target_tls_certificate_verified": {
+        "type": "boolean",
+        "title": "Scrape Target TLS Certificate Verified",
+        "description": "Whether Prometheus validates the scrape target's server certificate on the HTTPS scrape flow. Secure when scrape_config.tls_config.insecure_skip_verify is false (its default) with a ca_file pinning the trusted CA. When false (insecure_skip_verify: true / no trust anchor), target-certificate validation is disabled and a man-in-the-middle can impersonate the scrape target over a secure-looking HTTPS scrape -- serving poisoned metrics or capturing any presented basic_auth/bearer credentials. Interpreted from scrape_config.tls_config.insecure_skip_verify and ca_file in prometheus.yml.",
+        "default": false
+      }
+    },
+    "required": [
+      "exporter_endpoint_authenticated",
+      "exporter_endpoint_network_restricted",
+      "metric_labels_free_of_sensitive_data",
+      "sensitive_data_masking_enabled",
+      "scrape_sample_and_label_limits_set",
+      "scrape_body_size_limit_set",
+      "scrape_config_edit_restricted",
+      "service_discovery_source_trusted",
+      "proxying_exporter_target_allowlisted",
+      "scrape_scheme_https",
+      "encryption_in_transit_enabled",
+      "tls_min_version",
+      "scrape_target_tls_certificate_verified"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/exporter_endpoint_authenticated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scrape_config_edit_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_discovery_source_trusted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/scrape_scheme_https"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scrape_target_tls_certificate_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_min_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/metric_labels_free_of_sensitive_data"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_masking_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_minimization_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/exporter_endpoint_network_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxying_exporter_target_allowlisted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scrape_body_size_limit_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/scrape_sample_and_label_limits_set"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

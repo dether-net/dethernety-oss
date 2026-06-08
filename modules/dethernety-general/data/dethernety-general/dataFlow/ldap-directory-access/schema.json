@@ -1,0 +1,342 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "anonymous_bind_disabled": {
+        "type": "boolean",
+        "title": "Anonymous Bind Disabled",
+        "description": "Attests that the directory server rejects anonymous bind requests (no DN, no credentials). Secure when true (OpenLDAP 'disallow bind_anon' / olcDisallows: bind_anon; ldapwhoami -x returns inappropriateAuthentication). When false the server accepts anonymous binds, letting an unauthenticated client connect and enumerate the DIT for reconnaissance.",
+        "default": false
+      },
+      "directory_access_requires_authentication": {
+        "type": "boolean",
+        "title": "Directory Operations Require Authentication",
+        "description": "Attests that all directory operations require an authenticated identity ('require authc' / olcRequires: authc). Secure when true. Disabling anonymous BIND does not stop anonymous directory READS — when this is false the server still answers anonymous searches, exposing the whole tree to an unauthenticated client. This is the bypass path for anonymous_bind_disabled.",
+        "default": false
+      },
+      "unauthenticated_empty_password_bind_rejected": {
+        "type": "boolean",
+        "title": "Empty-Password (Unauthenticated) Bind Rejected",
+        "description": "Attests that a simple bind with a non-empty DN and a ZERO-length password (RFC 4513 §5.1.2 unauthenticated authentication mechanism) is rejected with unwillingToPerform/invalidCredentials. Secure when true (OpenLDAP olcAllows lacks bind_anon_cred). When false a lax server silently authenticates the client as the named DN with an empty password — an authentication bypass.",
+        "default": false
+      },
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Directory Channel Encrypted In Transit",
+        "description": "Whether the LDAP/directory access flow is encrypted in transit (ldaps://636 or a successfully negotiated StartTLS on 389). When false, simple bind sends the bind DN and password in cleartext over ldap://389, exposing the credential to network sniffing. Shared workspace transit-encryption attestation reused across flows.",
+        "default": false
+      },
+      "ldap_tls_required": {
+        "type": "boolean",
+        "title": "Minimum Confidentiality (TLS) Enforced on Bind",
+        "description": "Whether the directory server enforces a minimum confidentiality strength on the flow so that plaintext binds are refused (OpenLDAP olcSecurity ssf/minssf >= 128, or equivalent — e.g. AD LDAP signing/channel-binding requirement). When false, the server accepts cleartext ldap://389 binds even if TLS is available, so confidentiality depends on optional client behaviour. Interpreted from olcSecurity (ssf=0 / unset = insecure).",
+        "default": false
+      },
+      "starttls_downgrade_prevented": {
+        "type": "boolean",
+        "title": "StartTLS Downgrade Prevented",
+        "description": "Whether StartTLS on the flow cannot be stripped or downgraded by an active network attacker — i.e. TLS is mandatory (ldaps://636 enforced or StartTLS required and bind refused without it) rather than opportunistic. When false, a MITM can suppress the StartTLS upgrade and force the bind to proceed in cleartext. Interpreted attestation of the flow's resistance to transport downgrade.",
+        "default": false
+      },
+      "tls_min_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum TLS Version on Directory Channel",
+        "description": "Minimum TLS protocol version the directory channel negotiates (olcTLSProtocolMin / nmap ssl-enum on ldaps://636 or StartTLS). The encrypted bind channel is breakable when the floor is a legacy version; SSLv3/TLS1.0/TLS1.1 fire the exposure while the recommended TLS1.2/TLS1.3 do not. Canonical workspace TLS-version enum shared across flows and the gateway."
+      },
+      "weak_tls_ciphers_disabled": {
+        "type": "boolean",
+        "title": "Weak TLS Cipher Suites Disabled",
+        "description": "Interpreted attestation that the directory channel's cipher list excludes weak/legacy suites (NULL/aNULL/eNULL, RC4, DES/3DES, EXPORT, MD5). The assessor reads olcTLSCipherSuite (e.g. a HIGH:!aNULL:!eNULL:!MD5:!RC4 form is secure) or nmap ssl-enum output; true when only strong ciphers are offered, false when any weak/export cipher remains negotiable. Modeled as an interpreted boolean rather than a raw cipher-string match because the secure form mentions the weak tokens (as !-exclusions) and would false-fire a substring rule. Fires on false (weak ciphers still allowed).",
+        "default": false
+      },
+      "ldap_search_filter_input_escaped": {
+        "type": "boolean",
+        "title": "Search-Filter Input Escaped (RFC 4515)",
+        "description": "Attestation: all user-supplied input concatenated into LDAP search filters on this flow is escaped per RFC 4515 (the four metacharacters * ( ) \\ and NUL) or bound via a filter encoder. When false, raw user input reaches the filter string unescaped, enabling injection of filter metachars (uid=*, )(uid=*) for authentication bypass or full-tree disclosure. Interpreted boolean (the raw filter directive is not pattern-matched), so the trigger is polarity-safe; secure value is true.",
+        "default": false
+      },
+      "parameterized_filter_templates_used": {
+        "type": "boolean",
+        "title": "Parameterized Filter Templates Used",
+        "description": "Attestation: search filters on this flow are built from parameterized templates (e.g. '(&(uid={0})(objectClass=person))' with input bound separately as data) or a dedicated filter/DN encoder API (LdapFilterEncode / LdapDistinguishedNameEncode), rather than by string concatenation of raw user input. When false, filters are assembled by concatenation — the root cause of LDAP injection. Secure value is true.",
+        "default": false
+      },
+      "dn_input_escaped": {
+        "type": "boolean",
+        "title": "DN Input Escaped (RFC 4514)",
+        "description": "Attestation: user-supplied input placed into Distinguished Names on this flow is escaped per the broader RFC 4514 metacharacter set (or allow-listed). When false, an attacker can inject DN metachars to alter the target DN of a bind or modify operation. Distinct from filter escaping because RFC 4514 covers a wider character set than RFC 4515. Secure value is true.",
+        "default": false
+      },
+      "directory_acl_least_privilege": {
+        "type": "boolean",
+        "title": "Directory ACLs Least-Privilege",
+        "description": "Attested true when the directory's olcAccess/access ACLs scope read to only the principals that require it and every rule chain terminates in 'by * none' — no catch-all 'access to * by * read'. False (the firing/insecure state) means an over-permissive or catch-all read ACL exposes the whole DIT to anonymous/low-privilege clients for reconnaissance.",
+        "default": false
+      },
+      "userpassword_attribute_read_restricted": {
+        "type": "boolean",
+        "title": "userPassword Attribute Read-Restricted",
+        "description": "Attested true when a dedicated ACL gates the userPassword attribute (and other secrets) to 'by self =xw by anonymous auth by * none', preceding the generic read rule. False (the firing/insecure state) means userPassword falls through to a generic read clause and password hashes are readable by anonymous or low-privilege clients for offline cracking.",
+        "default": false
+      },
+      "whole_tree_anonymous_read_disabled": {
+        "type": "boolean",
+        "title": "Whole-Tree Anonymous Read Disabled",
+        "description": "Attested true when anonymous clients cannot read the full directory tree — i.e. anonymous read of the DIT is denied (no anonymous 'by * read' on '*'). False (the firing/insecure state) means an anonymous client can enumerate the entire tree, the precondition that turns an over-broad ACL into full-DIT disclosure."
+      },
+      "bind_dn_credentials_stored_plaintext_in_config": {
+        "type": "boolean",
+        "title": "Bind-DN Credential Stored Plaintext in Config",
+        "description": "Attestation: the service bind-DN password is stored in plaintext in application config or environment files (e.g. a literal bindpw/ldap.password value rather than a runtime reference). Fires when true: a plaintext bind credential in config is a high-value secret whose leak grants the app's directory privileges (T1552.001 Credentials In Files). Secure (false) state: the credential is never written as cleartext in config/env. Verified by config/code audit (e.g. grep for bind.?(dn|pw|password)|ldap.*pass over the config dir).",
+        "default": false
+      },
+      "bind_dn_credentials_externalized": {
+        "type": "boolean",
+        "title": "Bind-DN Credential Externalized to Secret Manager",
+        "description": "Attestation: the LDAP bind-DN credential is resolved at runtime from a secret manager (or a SASL EXTERNAL / GSSAPI / certificate bind is used) rather than held as a static value in the application's own configuration. Fires when false: a non-externalized, in-config bind credential is the leakable secret behind this dataFlow's directory access. Secure (true) state: credential held in a secret store, injected at runtime, and rotatable. Application-side attestation of the flow, not a slapd config key.",
+        "default": false
+      },
+      "bind_account_least_privilege_readonly": {
+        "type": "boolean",
+        "title": "Service Bind Account Least-Privilege (Read-Only)",
+        "description": "Attestation: the directory account used for the service bind has a least-privilege, read-only ACL scoped to only the entries/attributes the application needs, rather than a broad or directory-admin-equivalent grant. Fires when false: an over-privileged bind account widens the blast radius of a leaked credential to the whole DIT (often write). Secure (true) state: the bind DN's olcAccess grants only the minimal read it requires and terminates in 'by * none'.",
+        "default": false
+      },
+      "userpassword_hash_scheme": {
+        "type": "string",
+        "enum": [
+          "argon2",
+          "bcrypt",
+          "ssha",
+          "sha",
+          "crypt",
+          "cleartext"
+        ],
+        "title": "userPassword Storage Hash Scheme",
+        "description": "Storage scheme used for the userPassword attribute on this directory flow, as set by slapd olcPasswordHash (or the equivalent on FreeIPA/AD). Salted strong schemes (argon2, bcrypt, ssha/{SSHA}) resist offline cracking if the hash leaks; unsalted {SHA}, weak/unsalted {CRYPT}, and {CLEARTEXT} mean any disclosure of the attribute yields trivially-recovered passwords. The exposure fires when the scheme is one of the weak values (sha, crypt, cleartext)."
+      },
+      "account_lockout_policy_enabled": {
+        "type": "boolean",
+        "title": "Account-Lockout Policy Enabled",
+        "description": "Attests that the directory bind endpoint enforces an account-lockout policy (OpenLDAP ppolicy overlay loaded with pwdLockout: TRUE and a bounded pwdMaxFailure/pwdLockoutDuration; equivalent lockout on AD/FreeIPA). Secure value is true. When false, the bind endpoint accepts unlimited authentication attempts, exposing every account to credential brute-force and password-spray over the network.",
+        "default": false
+      },
+      "search_size_and_time_limits_bounded": {
+        "type": "boolean",
+        "title": "Search Size and Time Limits Bounded",
+        "description": "Attests that directory search operations are bounded by enforced size and time limits (OpenLDAP olcSizeLimit/olcTimeLimit set, paged-result size.prtotal bounded, and tighter per-initiator olcLimits for anonymous/unprivileged clients). Secure value is true. When false, a single client can run unbounded searches to exhaust server resources or mass-exfiltrate the entire DIT in one query.",
+        "default": false
+      }
+    },
+    "required": [
+      "anonymous_bind_disabled",
+      "directory_access_requires_authentication",
+      "unauthenticated_empty_password_bind_rejected",
+      "encryption_in_transit_enabled",
+      "ldap_tls_required",
+      "starttls_downgrade_prevented",
+      "tls_min_version",
+      "weak_tls_ciphers_disabled",
+      "ldap_search_filter_input_escaped",
+      "parameterized_filter_templates_used",
+      "dn_input_escaped",
+      "directory_acl_least_privilege",
+      "userpassword_attribute_read_restricted",
+      "whole_tree_anonymous_read_disabled",
+      "bind_dn_credentials_stored_plaintext_in_config",
+      "bind_dn_credentials_externalized",
+      "bind_account_least_privilege_readonly",
+      "userpassword_hash_scheme",
+      "account_lockout_policy_enabled",
+      "search_size_and_time_limits_bounded"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/account_lockout_policy_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_bind_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/directory_access_requires_authentication"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthenticated_empty_password_bind_rejected"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bind_account_least_privilege_readonly"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/directory_acl_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/whole_tree_anonymous_read_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ldap_tls_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/starttls_downgrade_prevented"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_min_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_tls_ciphers_disabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bind_dn_credentials_externalized"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bind_dn_credentials_stored_plaintext_in_config"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/userpassword_attribute_read_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/userpassword_hash_scheme"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dn_input_escaped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ldap_search_filter_input_escaped"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/parameterized_filter_templates_used"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/search_size_and_time_limits_bounded"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "b4dd8726-c73e-4571-86e6-bb7a29bc76ae",
+  "name": "Certificate Enrollment",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Certificate enrollment and issuance — also called cert issuance, PKI enrollment, ACME, CSR signing, or SCEP / EST enrollment — the flow where a client, host, or workload requests and obtains an X.509 (or SSH) certificate from a certificate authority: ACME (the Let's Encrypt protocol) against step-ca, CSR submission and signing, and SCEP / EST device enrollment against step-ca or FreeIPA's Dogtag CA. The PKI trust-issuance path, distinct from the secrets-fetch flow (Secret Retrieval) and the authentication handshake (Authentication Exchange). The place to look for certificate enrollment, ACME, CSR signing, PKI issuance, or how a workload gets its TLS / identity certificate. Its threat surface: weak or spoofable ACME domain-control / challenge validation, a CA that signs CSRs without constraining Subject / SAN or key usage, unbounded certificate validity or missing name constraints, exposure of the issued private key in transit or at rest, and provisioner / enrollment-token compromise that lets an attacker mint trusted certificates.",
+  "category": "Identity & Access",
+  "status": "draft"
+}

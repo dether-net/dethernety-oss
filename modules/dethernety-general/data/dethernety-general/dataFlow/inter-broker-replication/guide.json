@@ -1,0 +1,572 @@
+[
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Whether the inter-broker / replication (east-west) channel carries traffic over TLS rather than cleartext (Kafka security.inter.broker.protocol=SSL/SASL_SSL; MSK EncryptionInTransit.InCluster=true; Pulsar replicationTlsEnabled+brokerClientTlsEnabled; RabbitMQ -proto_dist inet_tls; NATS cluster/gateway tls{}; Redis tls-replication/tls-cluster).",
+    "security_impact": "One of the OR-triggers of \"Cleartext inter-broker / replication channel\" — fires (is_false) when the replication listener speaks PLAINTEXT / InCluster=false / inet_tcp default / no route TLS, exposing replicated payloads and SASL credentials to on-path sniffing (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Kafka inter-broker protocol and listener-to-protocol mapping.",
+        "command": "grep -E 'security.inter.broker.protocol|inter.broker.listener.name|listener.security.protocol.map' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "security.inter.broker.protocol=SSL or SASL_SSL (secure); the listener named by inter.broker.listener.name must map to SSL/SASL_SSL in listener.security.protocol.map. PLAINTEXT (or default) = insecure cleartext inter-broker.",
+        "source": "Confluent mTLS+RBAC inter-broker config"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Pulsar geo-replication TLS flags.",
+        "command": "grep -E 'replicationTlsEnabled|brokerClientTlsEnabled' broker.conf",
+        "file_path": "broker.conf",
+        "navigation": null,
+        "expected_output": "replicationTlsEnabled=true and brokerClientTlsEnabled=true (Pulsar geo-replication encrypted). Absent/false = replicator traffic in cleartext.",
+        "source": "Apache Pulsar #824 (replicationTlsEnabled) + geo-replication docs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the inter-broker port for a live TLS handshake on the wire.",
+        "command": "openssl s_client -connect <broker-host>:<inter-broker-port> -tls1_2 </dev/null 2>&1 | grep -E 'Protocol|Cipher'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A completed TLS handshake (Protocol TLSv1.2/1.3, a real cipher) on the inter-broker port = encrypted. Connection refused-as-plaintext / no handshake = cleartext replication listener.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "mutual_tls_client_auth_enabled",
+    "option_description": "Whether the inter-broker / replication join path enforces mutual TLS, requiring each peer to present a CA-signed broker identity before joining replication (Kafka ssl.client.auth=required on the inter-broker listener; RabbitMQ inter_node_tls verify_peer+fail_if_no_peer_cert; NATS cluster/gateway tls verify_and_map).",
+    "security_impact": "One of the OR-triggers of \"Rogue broker / unauthenticated cluster join\" — fires (is_false) when peer certs are not enforced (none/requested/verify_none), letting a rogue node join as a peer and read/forge replicated partitions (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm Kafka enforces client-cert auth on the inter-broker listener and the inter-broker principal is a super.user.",
+        "command": "grep -E 'ssl.client.auth|inter.broker.listener.name|super.users' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "ssl.client.auth=required; the inter-broker principal (cert CN) listed in super.users. none/requested = inter-broker peers not cryptographically authenticated.",
+        "source": "Confluent mTLS+RBAC inter-broker config"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm RabbitMQ inter-node TLS verifies peer certs.",
+        "command": "grep -E 'verify_peer|fail_if_no_peer_cert|secure_renegotiate' /etc/rabbitmq/inter_node_tls.config",
+        "file_path": "/etc/rabbitmq/inter_node_tls.config",
+        "navigation": null,
+        "expected_output": "server section: {verify, verify_peer} and {fail_if_no_peer_cert, true} = mTLS between nodes. verify_none / fail_if_no_peer_cert false = peers not authenticated.",
+        "source": "RabbitMQ Clustering (Inter-node) TLS docs"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm NATS cluster routes require a verified mapped peer cert.",
+        "command": "sed -n '/cluster *{/,/}/p' nats-server.conf",
+        "file_path": "nats-server.conf",
+        "navigation": null,
+        "expected_output": "cluster{} contains a tls{} map with cert_file/ca_file and verify (or verify_and_map). No tls{} under cluster{} = unencrypted/unauthenticated routes.",
+        "source": "NATS Clustering Configuration docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unauthenticated_cluster_join_allowed",
+    "option_description": "Whether the cluster permits anonymous/unauthenticated peers to join or act (MSK ClientAuthentication.Unauthenticated.Enabled=true, or allow.everyone.if.no.acl.found=true; any broker accepting cluster membership without proving identity).",
+    "security_impact": "One of the OR-triggers of \"Rogue broker / unauthenticated cluster join\" — fires (is_true) when an unauthenticated node can become a cluster peer / replication participant (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the MSK cluster's client-authentication posture.",
+        "command": "aws kafka describe-cluster-v2 --cluster-arn <arn> --query 'ClusterInfo.Provisioned.ClientAuthentication'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sasl/Tls enabled and Unauthenticated.Enabled=false. Unauthenticated true = anonymous access permitted.",
+        "source": "MSK describe-cluster-v2 (corpus reuse)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Kafka broker does not allow everyone when no ACL is found.",
+        "command": "grep -E 'allow.everyone.if.no.acl.found|authorizer.class.name' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "allow.everyone.if.no.acl.found=false with an authorizer configured. true = anonymous/unauthorized peers effectively permitted.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "cluster_route_authorization_enforced",
+    "option_description": "Whether server-to-server cluster routes / gateway connections require route-level authorization (credential or mapped identity) before joining the mesh, independent of transport encryption (NATS cluster{authorization{}} and gateway{authorization{}}; Pulsar/Kafka inter-broker principal in super.users/ACLs).",
+    "security_impact": "One of the OR-triggers of \"Rogue broker / unauthenticated cluster join\" — fires (is_false) when discovered routes accept unauthorized peers, allowing an attacker server to route into the cluster (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm NATS cluster routes require user/password authorization.",
+        "command": "sed -n '/cluster *{/,/}/p' nats-server.conf | grep -A3 authorization",
+        "file_path": "nats-server.conf",
+        "navigation": null,
+        "expected_output": "authorization{} with user/password present under cluster{}. Absent = routes accept unauthenticated peers.",
+        "source": "NATS Clustering Configuration docs"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the Kafka inter-broker principal is explicitly authorized (super.users / ACLs).",
+        "command": "grep -E 'super.users|ssl.client.auth' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "The inter-broker cert CN appears in super.users (or has explicit ClusterAction ACLs). Missing = routes/peers not authorized at the cluster layer.",
+        "source": "Confluent mTLS+RBAC inter-broker config"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "replication_broker_auth_plugin_enabled",
+    "option_description": "Whether geo-replication / cross-cluster brokers authenticate to remote peers using a broker-client auth plugin (Pulsar brokerClientTlsEnabled + brokerClientAuthenticationPlugin=AuthenticationTls with brokerClientTrustCertsFilePath; Kafka MM2 per-cluster SSL keystore identity).",
+    "security_impact": "One of the OR-triggers of \"Rogue broker / unauthenticated cluster join\" — fires (is_false) when replication connects to peer clusters anonymously, letting an unverified/spoofed broker participate in replication (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm Pulsar broker-client auth plugin is set for replication.",
+        "command": "grep -E 'brokerClientTlsEnabled|brokerClientAuthenticationPlugin|brokerClientTrustCertsFilePath' broker.conf",
+        "file_path": "broker.conf",
+        "navigation": null,
+        "expected_output": "brokerClientTlsEnabled=true with a non-empty brokerClientAuthenticationPlugin and trust certs path. Empty plugin = unauthenticated broker-to-broker replication.",
+        "source": "Apache Pulsar geo-replication / TLS authentication docs"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the registered remote cluster uses TLS-secure service URLs and an auth plugin.",
+        "command": "pulsar-admin clusters get <remote-cluster> | grep -E 'brokerServiceUrlTls|serviceUrlTls|authentication'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote cluster registered with the TLS (secure) service URLs (--broker-url-secure / --url-secure) and an auth plugin, not the plaintext URLs.",
+        "source": "Apache Pulsar geo-replication docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "erlang_cookie_value_non_default",
+    "option_description": "Whether the shared secret gating RabbitMQ cluster membership (the Erlang cookie / .erlang.cookie) is a long, high-entropy, randomly-generated value distributed out-of-band — not a default, predictable, or weak value. Any process presenting the same cookie can join the Erlang distribution and run rabbitmqctl.",
+    "security_impact": "One of the OR-triggers of \"Weak/default Erlang cookie enabling rogue RabbitMQ node\" (and also referenced by \"Replication credential / Erlang-cookie exposure at rest\") — fires (is_false) when the cookie is default/predictable/weak so a rogue node can join (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the .erlang.cookie file permissions, owner, and value entropy.",
+        "command": "ls -l /var/lib/rabbitmq/.erlang.cookie && stat -c '%a' /var/lib/rabbitmq/.erlang.cookie",
+        "file_path": "/var/lib/rabbitmq/.erlang.cookie",
+        "navigation": null,
+        "expected_output": "Permissions 400 (or 600) owned by rabbitmq; file content high-entropy. World/group-readable or default value = rogue-node cluster-join risk.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the cookie was generated randomly and distributed out-of-band rather than shipped with the package or copied from documentation/examples.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Operator confirms the cookie is a per-cluster random secret from a generator/secret store, not a default, hostname-derived, or reused/example value.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "erlang_cookie_file_permissions_restricted",
+    "option_description": "Whether the on-disk cluster-membership secret file (.erlang.cookie) is protected with restrictive ownership and permissions — mode 0400 (or 0600) owned by the rabbitmq service user, not world- or group-readable.",
+    "security_impact": "One of the OR-triggers of \"Weak/default Erlang cookie enabling rogue RabbitMQ node\" (and also \"Replication credential / Erlang-cookie exposure at rest\") — fires (is_false) when world/group-readable, letting any local process read the standing credential and take over the cluster (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the mode and owner of the .erlang.cookie file.",
+        "command": "ls -l /var/lib/rabbitmq/.erlang.cookie && stat -c '%a' /var/lib/rabbitmq/.erlang.cookie",
+        "file_path": "/var/lib/rabbitmq/.erlang.cookie",
+        "navigation": null,
+        "expected_output": "Permissions 400 (or 600) owned by rabbitmq; file content high-entropy. World/group-readable or default value = rogue-node cluster-join risk.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "replication_principal_least_privilege",
+    "option_description": "Whether the replication/mirror principal (Kafka MirrorMaker/MM2 user, RabbitMQ federation/shovel user, NATS account, Pulsar broker-client identity) is scoped to only the operations replication needs — source READ + target WRITE/ClusterAction/IdempotentWrite on the specific mirrored resources — with no cluster-wide ALL/admin grant.",
+    "security_impact": "One of the OR-triggers of \"Over-broad replication / mirror credentials\" — fires (is_false) when the mirror principal holds broad Allow ALL / Topic:* / cluster admin, so a compromised mirror process can read/write arbitrary topics/queues across both clusters (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List the Kafka ACLs bound to the mirror principal.",
+        "command": "kafka-acls --bootstrap-server <b> --list --principal User:<mirror-principal>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only the narrow ACLs replication needs (Read on source topics, Write/ClusterAction/IdempotentWrite on target). Allow ALL / Topic:* / cluster admin = over-broad replication creds.",
+        "source": "Kafka geo-replication (MirrorMaker) docs"
+      },
+      {
+        "type": "command",
+        "instruction": "List the RabbitMQ federation/shovel user's permissions.",
+        "command": "rabbitmqctl list_user_permissions <federation-user>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Federation/shovel user limited to the specific vhost + resources it mirrors; '.*' configure/write/read on all vhosts = over-broad.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "replication_credentials_dedicated_not_shared",
+    "option_description": "Whether the replication/mirror credential is a dedicated identity used solely for the replication path, not shared with application/client principals.",
+    "security_impact": "One of the OR-triggers of \"Over-broad replication / mirror credentials\" — fires (is_false) when replication reuses an application or shared-admin principal, collapsing the blast radius so a compromise grants both application access and cross-cluster replication read/write (T1078).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the principal used by the mirror/federation path and confirm it is distinct from app/client principals (compare its CN/username against application ACL subjects).",
+        "command": "kafka-acls --bootstrap-server <b> --list --principal User:<mirror-principal>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The replication principal is a distinct identity not also used by application clients. Same principal appearing on application ACLs = shared credential reuse.",
+        "source": "Kafka geo-replication (MirrorMaker) docs"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with operators that the federation/shovel/MM2 credential is provisioned exclusively for replication and not reused as an app or admin login.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dedicated replication identity is documented; no application or shared-admin credential is reused for the replication path.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "federation_peers_explicitly_allowlisted",
+    "option_description": "Whether the set of remote clusters permitted to participate in federation/geo-replication is explicitly enumerated (Kafka MM2 source/target list, Pulsar clusters list, NATS gateways[], RabbitMQ federation upstreams) and matches the intended topology.",
+    "security_impact": "One of the OR-triggers of \"Untrusted / spoofed federation or geo-replication peer\" — fires (is_false) on wildcard / unbounded peer acceptance, letting an untrusted or attacker-impersonated cluster cross the trust boundary and inject/exfiltrate replicated messages (T1199).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate the registered Pulsar peer clusters and inspect each.",
+        "command": "pulsar-admin clusters list && for c in $(pulsar-admin clusters list); do pulsar-admin clusters get $c; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only intended peer clusters are registered, each with TLS-secure URLs. Unexpected cluster entries = untrusted federation peer.",
+        "source": "Apache Pulsar geo-replication docs"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Architecture review of the registered peer set against the intended federation topology.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture review: the set of registered remote clusters (Kafka MM2 source/target list, Pulsar clusters list, NATS gateways[], RabbitMQ federation upstreams) matches the intended federation topology; truststore/CA scope does not trust beyond the federation.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "federation_ca_trust_scoped",
+    "option_description": "Whether the trust store backing inter-cluster federation/geo-replication is limited to the federation CA(s) only, not a public/wide CA bundle.",
+    "security_impact": "One of the OR-triggers of \"Untrusted / spoofed federation or geo-replication peer\" — fires (is_false) on over-broad CA trust, where any cluster bearing a certificate from the broadly-trusted CA can impersonate a legitimate federation peer (T1199).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the federation truststore / CA scope against the federation boundary.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture review: truststore/CA scope does not trust beyond the federation — it contains only the federation CA(s), not a public/wide CA bundle.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Pulsar broker-client trust certs path used for replication and confirm it points at the federation CA bundle, not the system/public trust store.",
+        "command": "grep -E 'brokerClientTrustCertsFilePath|tlsTrustCertsFilePath' broker.conf",
+        "file_path": "broker.conf",
+        "navigation": null,
+        "expected_output": "brokerClientTrustCertsFilePath references a dedicated federation CA file. A public/system CA bundle here = over-broad CA trust.",
+        "source": "Apache Pulsar geo-replication / TLS authentication docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "remote_peer_endpoint_verified",
+    "option_description": "Whether each registered remote federation/replication endpoint is verified (TLS-secure service URLs, peer identity bound to the expected named cluster) rather than accepted unverified.",
+    "security_impact": "One of the OR-triggers of \"Untrusted / spoofed federation or geo-replication peer\" — fires (is_false) on unverified remote cluster endpoints, where a spoofed endpoint can substitute for a legitimate peer (T1199).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm each registered remote cluster uses TLS-secure URLs and is bound to the expected named cluster.",
+        "command": "pulsar-admin clusters get <remote-cluster> | grep -E 'brokerServiceUrlTls|serviceUrlTls|authentication'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote cluster registered with the TLS (secure) service URLs (--broker-url-secure / --url-secure) and an auth plugin, not the plaintext URLs.",
+        "source": "Apache Pulsar geo-replication docs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Handshake against the registered remote endpoint and verify the served cert CN/SAN matches the expected named peer cluster.",
+        "command": "openssl s_client -connect <remote-peer-host>:<port> </dev/null 2>&1 | openssl x509 -noout -subject -issuer",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Served certificate subject/issuer matches the expected named peer cluster and federation CA. Mismatch / self-signed / unexpected CN = unverified or spoofed endpoint.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "replication_credentials_embedded_in_uri",
+    "option_description": "Whether replication/federation endpoint credentials are embedded inline in connection URIs at rest (e.g. RabbitMQ federation/shovel amqps://user:pass@host URIs).",
+    "security_impact": "One of the OR-triggers of \"Replication credential / Erlang-cookie exposure at rest\" — fires (is_true) when standing creds sit in plaintext config and can be read to impersonate the replication path (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect RabbitMQ federation/shovel/upstream definitions for inline user:pass@host credentials in the URIs.",
+        "command": "rabbitmqctl list_parameters | grep -E 'federation-upstream|shovel'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Upstream/shovel URIs reference credentials indirectly or via a vault; an amqps://user:pass@host with a literal password = credentials embedded in URI at rest.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep on-disk federation/shovel definition files for embedded credentials in amqp(s) URIs.",
+        "command": "grep -REn 'amqps?://[^@ ]+:[^@ ]+@' /etc/rabbitmq/",
+        "file_path": "/etc/rabbitmq/",
+        "navigation": null,
+        "expected_output": "No matches = creds not inlined. Any amqps://user:pass@host hit = replication credentials embedded in URI at rest.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "replication_credentials_externalized_from_config",
+    "option_description": "Whether replication credentials (MirrorMaker keystore/truststore passwords, federation/shovel passwords, broker-client auth parameters) are externalized out of plaintext config files rather than written literally into them.",
+    "security_impact": "One of the OR-triggers of \"Replication credential / Erlang-cookie exposure at rest\" — fires (is_false) when creds sit in cleartext config at rest, readable to impersonate the replication path (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect MirrorMaker/Connect and broker config for literal keystore/truststore passwords vs indirect references.",
+        "command": "grep -E 'ssl.keystore.password|ssl.truststore.password|sasl.jaas.config|brokerClientAuthenticationParameters' server.properties connect-mirror-maker.properties broker.conf",
+        "file_path": "server.properties / connect-mirror-maker.properties / broker.conf",
+        "navigation": null,
+        "expected_output": "Passwords resolved via ${env}/secret refs or a config provider, not literal cleartext values. A literal password string = credentials in cleartext config at rest.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm replication credentials are injected at runtime (env/secret ref/config provider) rather than committed to the config file.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Operators confirm an indirection mechanism (Kafka ConfigProvider, env interpolation, secret mount) supplies the credential; nothing literal in the checked-in config.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_secret_manager",
+    "option_description": "Whether replication credentials and keystore passwords are sourced from a managed secret store / secret manager rather than committed to disk in cleartext.",
+    "security_impact": "One of the OR-triggers of \"Replication credential / Erlang-cookie exposure at rest\" — fires (is_false) when secrets are stored on disk rather than resolved from a managed store at runtime (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm replication credentials/keystore passwords are resolved from a managed secret store (Vault, AWS/GCP secret manager, K8s secrets via CSI) at runtime.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A managed secret store is the source of record for replication creds; values are injected at start/runtime rather than written to disk in cleartext.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check that config references secret-manager paths/refs rather than literal secret values.",
+        "command": "grep -REn 'vault:|secretmanager|aws:secretsmanager|\\$\\{.*\\}' server.properties broker.conf connect-mirror-maker.properties",
+        "file_path": "server.properties / broker.conf / connect-mirror-maker.properties",
+        "navigation": null,
+        "expected_output": "Config carries secret-store references/placeholders, not inline secret material. Literal secrets on disk = not resolved via a secret manager.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "config_file_permissions_hardened",
+    "option_description": "Whether the on-disk replication config files holding credentials (broker.conf, server.properties, MirrorMaker/connect properties, federation definitions) have restrictive ownership/permissions and are not world/group-readable.",
+    "security_impact": "One of the OR-triggers of \"Replication credential / Erlang-cookie exposure at rest\" — fires (is_false) when the config files are world/group-readable, exposing any embedded replication credentials (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the mode and owner of the replication config files that may hold credentials.",
+        "command": "stat -c '%a %U %n' server.properties broker.conf connect-mirror-maker.properties /etc/rabbitmq/rabbitmq.conf 2>/dev/null",
+        "file_path": "server.properties / broker.conf / connect-mirror-maker.properties / /etc/rabbitmq/rabbitmq.conf",
+        "navigation": null,
+        "expected_output": "Mode 0600/0640 owned by the broker service user, not world/group-readable (no trailing rwx for other). World/group-readable = config secrets exposed at rest.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "inter_broker_listener_network_isolated",
+    "option_description": "Whether the inter-broker/replication listener is bound to a private/internal interface and firewalled so it is reachable only from peer cluster nodes (a dedicated INTERNAL listener on a private interface; the inter-broker port filtered/closed from the client/public network).",
+    "security_impact": "One of the OR-triggers of \"Inter-broker listener not network-isolated\" — fires (is_false) when the replication port is bound broadly (0.0.0.0) or reachable from client/public networks, exposing the east-west channel to rogue-join and on-path sniffing even with TLS on (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm Kafka uses a distinct internal listener bound to a private interface for inter-broker traffic.",
+        "command": "grep -E '^listeners|^advertised.listeners|inter.broker.listener.name' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "A distinct INTERNAL listener bound to the private interface is used for inter.broker.listener.name, separate from the client listener. Single 0.0.0.0 listener shared with clients = no isolation.",
+        "source": "Confluent Kafka security tutorial (corpus reuse)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Scan the inter-broker port from a client/public network position.",
+        "command": "nmap -p <inter-broker-port> <broker-host-from-client-network>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inter-broker port filtered/closed from client/public networks; open from anywhere = exposed replication listener.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "replication_listener_internet_reachable",
+    "option_description": "Whether the inter-broker/replication port is reachable from a public/internet-facing or client network position (advertised/bound on 0.0.0.0, no firewall/security-group restriction to the peer subnet).",
+    "security_impact": "One of the OR-triggers of \"Inter-broker listener not network-isolated\" — fires (is_true) when the replication port is reachable from outside the cluster trust zone, inviting rogue broker join and traffic capture (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the replication port from outside the cluster trust zone (public/internet position).",
+        "command": "nmap -p <inter-broker-port> <broker-host-from-client-network>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inter-broker port filtered/closed from client/public networks; open from anywhere = exposed replication listener.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the firewall/security-group rules guarding the replication port.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security-group/firewall scopes the inter-broker port to the peer subnet only. A 0.0.0.0/0 or client-network allow rule = internet/client-reachable replication listener.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "inter_broker_listener_separate_from_client",
+    "option_description": "Whether the inter-broker/replication channel uses a distinct listener/interface dedicated to peer-node traffic, separate from the client-facing listener (e.g. inter.broker.listener.name points at a distinct INTERNAL listener, not the shared client listener).",
+    "security_impact": "One of the OR-triggers of \"Inter-broker listener not network-isolated\" — fires (is_false) when a single shared listener serves both clients and replication, removing the segmentation that would let the replication port be firewalled independently to peers only (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm inter.broker.listener.name points at a dedicated INTERNAL listener distinct from the client listener.",
+        "command": "grep -E '^listeners|^advertised.listeners|inter.broker.listener.name' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "A distinct INTERNAL listener bound to the private interface is used for inter.broker.listener.name, separate from the client listener. Single 0.0.0.0 listener shared with clients = no isolation.",
+        "source": "Confluent Kafka security tutorial (corpus reuse)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify the inter-broker port differs from / is reachable separately to the client port.",
+        "command": "nmap -p <inter-broker-port>,<client-port> <broker-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct ports/interfaces for replication vs clients, allowing independent firewalling. Same single port serving both = shared listener, no segmentation.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

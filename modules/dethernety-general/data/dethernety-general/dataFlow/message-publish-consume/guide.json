@@ -1,0 +1,737 @@
+[
+  {
+    "option_name": "broker_client_authentication_required",
+    "option_description": "Attests that every produce/consume listener authenticates the producer/consumer before accepting traffic (Kafka SASL_SSL/mTLS, RabbitMQ user/X.509, NATS account/nkey/JWT, MQTT password/cert, Pulsar authenticationEnabled), with no anonymous/PLAINTEXT listener accepting unauthenticated clients.",
+    "security_impact": "Primary OR-trigger of \"Anonymous / unauthenticated broker access\" — fires when broker_client_authentication_required is false: any client can connect and publish/consume without proving identity, enabling injection, replay and tampering.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the Kafka broker listener/SASL config and confirm listeners use SASL_SSL/SSL with a SASL mechanism set and no PLAINTEXT listener.",
+        "command": "grep -E 'listeners|sasl.enabled.mechanisms|security.inter.broker.protocol' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "listeners use SASL_SSL/SSL (e.g. SASL_SSL://:9094); sasl.enabled.mechanisms set to SCRAM/GSSAPI/OAUTHBEARER (PLAINTEXT listener absent = secure)",
+        "source": "Confluent Security Tutorial (SASL_SSL listeners)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to produce to a topic without supplying any credentials and observe whether the broker rejects the unauthenticated client.",
+        "command": "kafka-console-producer --bootstrap-server BROKER:9092 --topic t   # without credentials",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection rejected / SASL authentication required (secure); accepted and message produced (insecure anonymous listener)",
+        "source": "Confluent Security Tutorial (SASL_SSL listeners)"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate RabbitMQ users and attempt a guest login over a non-loopback connection to confirm unauthenticated access is refused.",
+        "command": "rabbitmqctl list_users   # then attempt guest login on a non-loopback connection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "guest absent or loopback-only; non-loopback anonymous login refused (secure)",
+        "source": "RabbitMQ Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "anonymous_broker_access_disabled",
+    "option_description": "Attests that anonymous and default-credential access is explicitly disabled (Mosquitto allow_anonymous false; RabbitMQ guest deleted or loopback-only and ANONYMOUS mechanism removed; NATS no anonymous user).",
+    "security_impact": "OR-trigger of \"Anonymous / unauthenticated broker access\" — fires when anonymous_broker_access_disabled is false: allow_anonymous true or a remotely reachable default guest/guest lets any client connect without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the Mosquitto allow_anonymous directive to confirm anonymous MQTT clients are refused.",
+        "command": "grep -E '^allow_anonymous' /etc/mosquitto/mosquitto.conf",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "allow_anonymous false (secure); true or absent-with-no-listener-default (insecure)",
+        "source": "Mosquitto mosquitto.conf manual"
+      },
+      {
+        "type": "command",
+        "instruction": "List RabbitMQ users and check rabbitmq.conf for anonymous_login_user / auth_mechanisms to confirm guest is removed/loopback-only and ANONYMOUS is disabled.",
+        "command": "rabbitmqctl list_users   # and check rabbitmq.conf for anonymous_login_user / auth_mechanisms",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "guest deleted or restricted to loopback_users; ANONYMOUS not in enabled auth mechanisms (secure)",
+        "source": "RabbitMQ Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "topic_authorization_enforced",
+    "option_description": "Attests that an authorizer is active and denies-by-default so an authenticated client cannot read/write topics/queues/subjects it has no explicit grant for (Kafka authorizer.class.name set; RabbitMQ per-vhost perms; NATS permissions{}; Mosquitto acl_file present; Pulsar authorizationEnabled).",
+    "security_impact": "Primary OR-trigger of \"Wildcard / missing topic authorization\" — fires when topic_authorization_enforced is false: no authorizer governs the flow so any authenticated client gains full read/write.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the Kafka authorizer config and confirm an authorizer class is set and the no-match fallback is default-deny.",
+        "command": "grep -E 'authorizer.class.name|allow.everyone.if.no.acl.found' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "authorizer.class.name set (e.g. StandardAuthorizer/AclAuthorizer) and allow.everyone.if.no.acl.found=false (secure); key absent or =true (insecure default-allow)",
+        "source": "Confluent Kafka Authorization (ACLs)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm Mosquitto has an acl_file pointing at per-topic ACL rules (absence means all authenticated clients see all topics).",
+        "command": "grep -E '^acl_file' /etc/mosquitto/mosquitto.conf",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "acl_file present pointing at topic ACL rules (secure); absent = all authenticated clients see all topics (insecure)",
+        "source": "Mosquitto mosquitto.conf manual"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "List the broker's grant set to confirm explicit per-principal grants exist scoped to needed resources rather than an empty default-allow ruleset.",
+        "command": "kafka-acls --list   # / rabbitmqctl list_permissions -p VHOST   # / inspect NATS user permissions{}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "explicit per-principal grants exist scoped to needed topics/queues/subjects (secure); empty ruleset with default-allow (insecure)",
+        "source": "Confluent Kafka Authorization (ACLs)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_allow_authorizer",
+    "option_description": "Attests whether the authorizer falls back to ALLOW when no matching ACL is found (Kafka allow.everyone.if.no.acl.found=true; Mosquitto with no acl_file). Interpreted boolean — secure value is false (default-deny).",
+    "security_impact": "OR-trigger of \"Wildcard / missing topic authorization\" — fires when default_allow_authorizer is true: any authenticated client gains full read/write absent an explicit deny.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read Kafka's no-match fallback flag and confirm it is false (default-deny).",
+        "command": "grep -E 'authorizer.class.name|allow.everyone.if.no.acl.found' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "allow.everyone.if.no.acl.found=false (secure default-deny); key absent or =true (insecure default-allow)",
+        "source": "Confluent Kafka Authorization (ACLs)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm Mosquitto has an acl_file present — absence means default-allow (all authenticated clients see all topics).",
+        "command": "grep -E '^acl_file' /etc/mosquitto/mosquitto.conf",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "acl_file present (secure default-deny); absent = all authenticated clients see all topics (insecure default-allow)",
+        "source": "Mosquitto mosquitto.conf manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "wildcard_topic_acl_present",
+    "option_description": "Attests whether a universal/wildcard authorization grant exists (Kafka User:* / Topic:* LITERAL:* ALLOW; RabbitMQ '.*'/'.*'/'.*' configure/write/read regex; NATS bare '>' publish or subscribe). Interpreted boolean — secure value is false (scoped per-topic grants only).",
+    "security_impact": "OR-trigger of \"Wildcard / missing topic authorization\" — fires when wildcard_topic_acl_present is true: a universal grant defeats least-privilege, giving any authenticated client full read/write across all topics.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "List Kafka ACLs and grep for universal principal/resource grants.",
+        "command": "kafka-acls --list | grep -E 'User:\\*|Topic:\\*|:LITERAL:\\*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no ALLOW entries with principal User:* or resource Topic:* (secure); a universal wildcard grant present (insecure)",
+        "source": "Confluent Kafka Authorization (ACLs)"
+      },
+      {
+        "type": "command",
+        "instruction": "List RabbitMQ per-vhost permissions and check whether all three configure/write/read regexes are the universal '.*'.",
+        "command": "rabbitmqctl list_permissions -p VHOST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "configure/write/read regexes are specific; '.*'  '.*'  '.*' on all three = full-access wildcard (insecure)",
+        "source": "RabbitMQ Access Control"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect NATS user publish/subscribe permissions for a bare '>' subject wildcard.",
+        "command": "inspect NATS authorization users[].permissions.publish/subscribe for '>'",
+        "file_path": "nats-server.conf",
+        "navigation": null,
+        "expected_output": "subjects are namespaced (e.g. 'orders.>'); a bare '>' publish or subscribe grants all subjects (insecure)",
+        "source": "NATS Authorization"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Attests the flow runs over TLS end-to-end on every listener carrying traffic (Kafka SSL/SASL_SSL, AMQPS, MQTTS 8883, NATS tls, Pulsar TLS), with no plaintext broker listener (9092/5672/1883/4222) serving produce/consume traffic.",
+    "security_impact": "Primary OR-trigger of \"Plaintext transport sniffing / unverified-TLS MITM\" — fires when encryption_in_transit_enabled is false: a reachable plaintext listener exposes credentials and message PII to passive sniffing on the wire.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Open a TLS connection to the broker's secure port and enumerate ciphers to confirm a valid TLS handshake (plaintext port answering = insecure).",
+        "command": "openssl s_client -connect BROKER:9093 -tls1_2   # ; nmap --script ssl-enum-ciphers -p 9093 BROKER",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake completes with valid cert and modern ciphers (secure); plaintext port answers / TLS fails (insecure)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the Mosquitto listener lines to confirm an 8883 listener with certfile/keyfile and no bare plaintext 1883 listener.",
+        "command": "grep -E '^listener' /etc/mosquitto/mosquitto.conf",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "listener 8883 with certfile/keyfile (secure MQTTS); a bare 'listener 1883' with no TLS = plaintext (insecure)",
+        "source": "Mosquitto mosquitto.conf manual"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm Kafka broker and client listeners/security.protocol use SSL or SASL_SSL with no PLAINTEXT:// entry.",
+        "command": "grep -E 'listeners|security.inter.broker.protocol|security.protocol' server.properties client.properties",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "listeners/security.protocol use SSL or SASL_SSL, no PLAINTEXT:// entry (secure)",
+        "source": "Confluent Security Tutorial (SASL_SSL listeners)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "broker_tls_certificate_verified",
+    "option_description": "Attests the client validates the broker's server certificate against the expected CA (and, under mTLS, the broker validates the client cert), so the encrypted channel is authenticated against MITM rather than merely encrypted.",
+    "security_impact": "OR-trigger of \"Plaintext transport sniffing / unverified-TLS MITM\" — fires when broker_tls_certificate_verified is false: ssl.client.auth=requested/none, missing truststore, or accepted self-signed cert lets an active attacker present a substituted certificate and transparently MITM the flow.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the Kafka ssl.client.auth setting to confirm client-cert verification is required (not requested/none).",
+        "command": "grep -E 'ssl.client.auth' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "ssl.client.auth=required (secure); 'requested' lets misconfigured clients still connect, 'none' = no client-cert auth (insecure)",
+        "source": "Confluent Kafka mTLS (ssl.client.auth)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm Mosquitto require_certificate is true with a cafile set for mTLS client validation.",
+        "command": "grep -E '^require_certificate|^cafile' /etc/mosquitto/mosquitto.conf",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "require_certificate true with cafile set (secure mTLS); require_certificate false = server-only/no verification (weaker)",
+        "source": "Mosquitto mosquitto.conf manual"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify on the wire that the broker certificate validates against the expected CA with verify return code 0.",
+        "command": "openssl s_client -connect BROKER:9093 -verify_return_error -CAfile ca.crt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify return code: 0 (ok) against the expected CA (secure); verify failure ignored by client config = unverified TLS (insecure)",
+        "source": "OpenStack Messaging Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_min_version",
+    "option_description": "The minimum TLS protocol version the broker negotiates on the produce/consume flow. Obsolete floors (SSLv3, TLS1.0, TLS1.1) permit downgrade and known protocol-level attacks that weaken the encrypted channel.",
+    "security_impact": "OR-trigger of \"Plaintext transport sniffing / unverified-TLS MITM\" — fires when tls_min_version is in {SSLv3, TLS1.0, TLS1.1}: an obsolete floor permits downgrade attacks that recover or weaken the encrypted channel even when TLS is nominally enabled.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the broker's negotiated TLS versions to read the lowest version it will accept.",
+        "command": "nmap --script ssl-enum-ciphers -p 9093 BROKER   # ; openssl s_client -connect BROKER:9093 -tls1_1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "lowest negotiable protocol is TLS1.2 or TLS1.3 (secure); SSLv3/TLS1.0/TLS1.1 accepted (insecure floor)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the broker TLS version floor from config (Mosquitto tls_version / Kafka ssl.enabled.protocols).",
+        "command": "grep -E '^tls_version' /etc/mosquitto/mosquitto.conf   # ; grep ssl.enabled.protocols server.properties",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "tls_version tlsv1.2+ / ssl.enabled.protocols restricted to TLSv1.2,TLSv1.3 (secure)",
+        "source": "Mosquitto mosquitto.conf manual"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3"
+    ]
+  },
+  {
+    "option_name": "shared_static_broker_credential_in_use",
+    "option_description": "Attests whether a single shared static broker credential (SASL user/password, NATS nkey, or token) is reused across all producer/consumer services on this flow. Interpreted boolean — secure value is false (each service has its own principal).",
+    "security_impact": "OR-trigger of \"Shared static broker credential theft\" — fires when shared_static_broker_credential_in_use is true: one credential authenticates every client, so a leak grants any holder the full access of every service with no per-service scoping.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate distinct broker principals and compare against the number of services; one credential used by every client is the insecure state.",
+        "command": "kafka-configs --describe --entity-type users   # / rabbitmqctl list_users   # enumerate distinct principals",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "distinct per-service principals, each with scoped ACLs (secure); one credential used by every client (insecure)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep deploy manifests for a single hardcoded SASL/nkey/token secret shared across services.",
+        "command": "grep -RiE 'sasl.jaas.config|password|nkey|token' deploy/  # check for hardcoded shared secret",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "credentials injected from secret store/env per service, rotated (secure); same literal secret committed and shared (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "per_service_broker_credentials_used",
+    "option_description": "Attests each producer/consumer service authenticates with its own per-service principal (distinct SASL user / X.509 cert / nkey / token), so grants are scoped per service and a compromised credential can be revoked without affecting other services.",
+    "security_impact": "OR-trigger of both \"Shared static broker credential theft\" and \"Mass unauthorized consumption\" — fires when per_service_broker_credentials_used is false: no per-service scoping means a compromised credential cannot be revoked in isolation and any principal can read broadly.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm distinct per-service principals each with scoped ACLs, one per producer/consumer service.",
+        "command": "kafka-configs --describe --entity-type users   # / rabbitmqctl list_users   # enumerate distinct principals",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "distinct per-service principals, each with scoped ACLs (secure); one credential used by every client (insecure)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep deploy manifests to confirm credentials are injected per service from a secret store rather than a single shared literal.",
+        "command": "grep -RiE 'sasl.jaas.config|password|nkey|token' deploy/  # check for hardcoded shared secret",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "credentials injected from secret store/env per service, rotated (secure); same literal secret committed and shared (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "broker_credentials_externalized",
+    "option_description": "Attests broker credentials are injected from a secret store / environment per service and rotated, rather than hardcoded/embedded in source, deploy manifests, or container images.",
+    "security_impact": "OR-trigger of \"Shared static broker credential theft\" — fires when broker_credentials_externalized is false: credentials embedded in code/images are the leak path that makes a shared static credential trivially stealable.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep deploy/ and container images for literal broker secrets versus runtime injection from a secret manager.",
+        "command": "grep -RiE 'sasl.jaas.config|password|nkey|token' deploy/  # check for hardcoded shared secret",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "credentials injected from secret store/env per service, rotated (secure); same literal secret committed and shared (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the deploy pipeline owners that broker credentials are sourced from a secret manager and rotated, not baked into images.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "credentials resolved at runtime from a secret manager with a rotation policy (secure); literal credentials in image layers or manifests (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "consumer_group_read_authorization_enforced",
+    "option_description": "Attests READ access and consumer-group membership are explicitly authorized and scoped per consumer under default-deny (Kafka READ on Topic + READ on Group resource, RabbitMQ per-vhost read regex, NATS subscribe permissions, MQTT acl read topics).",
+    "security_impact": "Primary OR-trigger of \"Mass unauthorized consumption\" — fires when consumer_group_read_authorization_enforced is false: any authenticated client may join any consumer group and consume any topic, enabling exfiltration of the event stream.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "List Kafka group/read ACLs per consumer principal to confirm explicit READ grants on specific Topic and Group resources rather than default-allow.",
+        "command": "kafka-acls --list --group '*'   # and per consumer principal",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "READ grants on specific Topic and Group resources per principal (secure); no group ACLs under default-allow (insecure mass-consumption)",
+        "source": "Confluent Kafka Authorization (ACLs)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect NATS subscribe permissions / RabbitMQ read regex / MQTT acl 'read' topics to confirm read access is scoped per consumer.",
+        "command": "inspect NATS subscribe permissions / RabbitMQ read regex / MQTT acl 'read' topics",
+        "file_path": "nats-server.conf",
+        "navigation": null,
+        "expected_output": "subscribe/read scoped to required subjects/topics only (secure)",
+        "source": "NATS Authorization"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "subscribe_scope_least_privilege",
+    "option_description": "Attests subscribe/read grants are namespaced to required subjects/topics, not a broad wildcard that drains everything (no NATS bare '>' subscribe, no Kafka Topic:* READ for User:*, no RabbitMQ '.*' read regex). Interpreted boolean — secure value is true.",
+    "security_impact": "OR-trigger of \"Mass unauthorized consumption\" — fires when subscribe_scope_least_privilege is false: an authenticated-but-unscoped client subscribes broadly and reads topics it should never see.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the subscribe permission set for NATS/RabbitMQ/MQTT to confirm read grants are namespaced to required subjects with no broad wildcard.",
+        "command": "inspect NATS subscribe permissions / RabbitMQ read regex / MQTT acl 'read' topics",
+        "file_path": "nats-server.conf",
+        "navigation": null,
+        "expected_output": "subscribe/read scoped to required subjects/topics only (secure); a bare '>' / '.*' read grant (insecure broad subscribe)",
+        "source": "NATS Authorization"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "List Kafka READ ACLs and confirm no Topic:* READ grant for User:* exists.",
+        "command": "kafka-acls --list | grep -E 'User:\\*|Topic:\\*|:LITERAL:\\*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no universal READ wildcard; read grants scoped per topic (secure)",
+        "source": "Confluent Kafka Authorization (ACLs)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "safe_deserialization_enforced",
+    "option_description": "Attests consumed message bodies are deserialized only via a safe path that cannot instantiate arbitrary attacker-chosen types — no Java ObjectInputStream/readObject on untrusted bytes, no Jackson default typing, no jsonpickle/pickle on broker payloads.",
+    "security_impact": "Primary OR-trigger of \"Unsafe message deserialization -> RCE\" — fires when safe_deserialization_enforced is false: the consumer is left open to CWE-502 gadget-chain RCE (CVE-2024-53247-class).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep consumer source for gadget-prone deserialization APIs applied to broker message bodies.",
+        "command": "grep -RnE 'ObjectInputStream|enableDefaultTyping|jsonpickle.decode|pickle.loads|readObject' consumer-src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no unsafe deserialization of broker message bodies; payloads validated against a registered schema before use (secure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify a schema is enforced on produce and consume so payloads are not deserialized as free-form bytes.",
+        "command": "verify a Schema Registry / Avro-JSON-Protobuf schema is enforced on produce and consume",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "schema validation rejects malformed/poisoned payloads (secure); free-form bytes deserialized into objects (insecure, CVE-2024-53247-class RCE)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unsafe_polymorphic_deserialization_used",
+    "option_description": "Attests whether the consumer reflectively/polymorphically deserializes untrusted message bodies into arbitrary runtime types (Java ObjectInputStream, Jackson enableDefaultTyping, jsonpickle.decode, pickle.loads). Interpreted boolean — secure value is false.",
+    "security_impact": "OR-trigger of \"Unsafe message deserialization -> RCE\" — fires when unsafe_polymorphic_deserialization_used is true: a gadget-prone deserializer on broker payloads is the direct CWE-502 -> RCE trigger (CVE-2024-53247).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Grep consumer source for unsafe deserialization APIs applied to broker payloads; any hit on untrusted bodies is the insecure state.",
+        "command": "grep -RnE 'ObjectInputStream|enableDefaultTyping|jsonpickle.decode|pickle.loads|readObject' consumer-src/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no gadget-prone deserializer applied to broker bodies (secure, value false); a hit on untrusted message bytes (insecure, value true)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Code-review the consumer's deserialization path to confirm no default/polymorphic typing is enabled on broker input.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "deserializer bound to fixed expected types, no default typing on untrusted input (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "message_schema_validation_enabled",
+    "option_description": "Attests consumed payloads are validated against a registered schema (Schema Registry / Avro / JSON Schema / Protobuf) before being deserialized into application objects, so malformed or poisoned bodies are rejected at the boundary.",
+    "security_impact": "OR-trigger of \"Unsafe message deserialization -> RCE\" — fires when message_schema_validation_enabled is false: removing schema validation drops the guard that would reject a gadget-carrying payload before it reaches a reflective deserializer.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify a Schema Registry / Avro / JSON Schema / Protobuf schema is enforced on produce and consume so non-conforming payloads are rejected.",
+        "command": "verify a Schema Registry / Avro-JSON-Protobuf schema is enforced on produce and consume",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "schema validation rejects malformed/poisoned payloads (secure); free-form bytes deserialized into objects (insecure, CVE-2024-53247-class RCE)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the consumer rejects payloads that fail schema validation before deserialization rather than best-effort parsing them.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "schema-invalid payloads dropped/dead-lettered (secure); validation absent or non-blocking (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "sensitive_data_in_payload_minimized_or_encrypted",
+    "option_description": "Attests PII/secrets are not carried in cleartext message payloads on this flow: sensitive fields are minimized or end-to-end encrypted/tokenized within the payload, so a party with broker/queue access cannot read them in the clear.",
+    "security_impact": "Primary OR-trigger of \"PII / secrets in messages and broker logs\" — fires when sensitive_data_in_payload_minimized_or_encrypted is false: cleartext PII/credentials in message bodies are readable by anyone with broker/queue access, a data-exposure path independent of transport encryption.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample representative payloads and broker/consumer logs for PII/secret patterns to confirm sensitive values are not present in the clear.",
+        "command": "sample broker/consumer logs and a few payloads for PII/secret patterns (emails, tokens, card numbers)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no sensitive values in payloads or logs; payloads encrypted/redacted (secure)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review producer code and the message schema to confirm sensitive fields are minimized or end-to-end encrypted/tokenized within the payload.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PII/secret fields minimized or encrypted/tokenized so a broker/queue holder cannot read them (secure)",
+        "source": "OpenStack Messaging Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "sensitive_data_masking_enabled",
+    "option_description": "Attests sensitive values are masked/redacted before being echoed into broker and consumer logs (no verbose payload logging that writes emails, tokens, or card numbers into log files readable by anyone with log access).",
+    "security_impact": "OR-trigger of \"PII / secrets in messages and broker logs\" — fires when sensitive_data_masking_enabled is false: verbose payload logging writes sensitive values into log files readable by anyone with log access.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample broker/consumer logs for cleartext PII/secret patterns to confirm sensitive values are masked/redacted before logging.",
+        "command": "sample broker/consumer logs and a few payloads for PII/secret patterns (emails, tokens, card numbers)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no sensitive values written to logs; values masked/redacted (secure); raw emails/tokens/card numbers in logs (insecure)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review broker and consumer log levels/config for payload echoing and confirm a masking/redaction policy is applied.",
+        "command": "review topic/queue retention (Kafka retention.ms / log.retention.hours) and log levels for payload echoing",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "payloads not logged or masked (secure); verbose payload logging (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "message_log_retention_bounded",
+    "option_description": "Attests topic/queue and broker/audit log retention is bounded to business need (e.g. Kafka retention.ms / log.retention.hours set, not unbounded), so sensitive message data and echoed log lines do not accumulate indefinitely.",
+    "security_impact": "OR-trigger of \"PII / secrets in messages and broker logs\" — fires when message_log_retention_bounded is false: long/unbounded retention lets sensitive message data accumulate in a place readable by broker/log access.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review topic/queue and broker/audit log retention to confirm it is bounded to business need rather than unbounded.",
+        "command": "review topic/queue retention (Kafka retention.ms / log.retention.hours) and log levels for payload echoing",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "retention bounded to business need, payloads not logged (secure); verbose payload logging + unbounded retention (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read Kafka retention settings to confirm a bounded retention.ms / log.retention.hours is configured.",
+        "command": "grep -E 'retention.ms|log.retention.hours' server.properties",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "a finite retention.ms / log.retention.hours set (secure); -1 / unset = unbounded (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "data_minimization_enforced",
+    "option_description": "Supporting context: the flow only carries the minimum sensitive fields required for its business purpose (data minimization principle), corroborating the payload-protection attestation. Not itself a trigger for any rule.",
+    "security_impact": "Contextual evidence for \"PII / secrets in messages and broker logs\" — not a direct OR-trigger of any _def; it corroborates sensitive_data_in_payload_minimized_or_encrypted by confirming the payload carries only the minimum sensitive fields.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the message schema/contract to confirm the flow only carries the minimum sensitive fields required for its business purpose.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "schema carries only business-required fields; no incidental PII/secret fields (secure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample representative payloads to confirm no superfluous sensitive fields beyond the documented contract are present.",
+        "command": "sample broker/consumer logs and a few payloads for PII/secret patterns (emails, tokens, card numbers)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "payloads contain only the minimal documented fields (secure); extra sensitive fields beyond purpose (insecure)",
+        "source": "OpenStack Messaging Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "broker_listener_network_restricted",
+    "option_description": "Attests the broker listener (Kafka 9092/9093, AMQP 5672/5671, MQTT 1883/8883, NATS 4222, Pulsar 6650) is bound to a private/internal interface or security-group restricted and is NOT reachable from the public internet.",
+    "security_impact": "OR-trigger of both \"Publicly reachable broker listener\" and \"Anonymous / unauthenticated broker access\" — fires when broker_listener_network_restricted is false: a publicly reachable listener makes anonymous access, default creds, and oversized payloads remotely exploitable.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the broker ports from an untrusted network to confirm they are filtered/closed from the public internet.",
+        "command": "nmap -Pn -p 9092,9093,5672,5671,1883,8883,4222,6650 PUBLIC_BROKER_IP",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "broker ports filtered/closed from untrusted networks (secure); open from the public internet (insecure exposure)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the broker listener/bind_address config to confirm it binds to a private/internal interface, not 0.0.0.0 with a public route.",
+        "command": "grep -E '^listener|bind_address' broker config   # confirm bind to private interface not 0.0.0.0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "listener bound to a private/internal address (secure); bound 0.0.0.0 with public route (insecure)",
+        "source": "Mosquitto mosquitto.conf manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "broker_listener_internet_reachable",
+    "option_description": "Interpreted boolean: the broker port is open to 0.0.0.0 and routable from the internet (the positive-insecure framing of network exposure). Secure value is false.",
+    "security_impact": "Primary OR-trigger of \"Publicly reachable broker listener\" — fires when broker_listener_internet_reachable is true: an internet-routable broker port turns every other weakness into a remotely exploitable one and invites resource-exhaustion DoS.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the public broker IP for open broker ports; any open broker port confirms internet-reachability.",
+        "command": "nmap -Pn -p 9092,9093,5672,5671,1883,8883,4222,6650 PUBLIC_BROKER_IP",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "broker ports filtered/closed from untrusted networks (secure, value false); open from the public internet (insecure, value true)",
+        "source": "OpenStack Messaging Security"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the broker bind config to confirm it is not bound to 0.0.0.0 with a public route.",
+        "command": "grep -E '^listener|bind_address' broker config   # confirm bind to private interface not 0.0.0.0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "bound to a private/internal address (secure, value false); bound 0.0.0.0 with public route (insecure, value true)",
+        "source": "Mosquitto mosquitto.conf manual"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "message_size_limit_bounded",
+    "option_description": "Attests an explicit non-zero maximum message/packet size is enforced (Mosquitto message_size_limit / max_packet_size non-zero, Kafka message.max.bytes / max.message.bytes bounded) so a single oversized payload cannot exhaust broker memory/disk.",
+    "security_impact": "Secondary OR-trigger of \"Publicly reachable broker listener\" — fires when message_size_limit_bounded is false: unbounded payloads accepted (e.g. Mosquitto message_size_limit 0 = unlimited) combined with a reachable listener turn resource-exhaustion DoS into a remotely exploitable availability risk.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the Mosquitto message_size_limit / max_packet_size directives to confirm a non-zero bound is set.",
+        "command": "grep -E '^message_size_limit|^max_packet_size' /etc/mosquitto/mosquitto.conf",
+        "file_path": "/etc/mosquitto/mosquitto.conf",
+        "navigation": null,
+        "expected_output": "message_size_limit non-zero and max_packet_size set to a sane bound (secure); message_size_limit 0 = unlimited (insecure)",
+        "source": "Mosquitto mosquitto.conf manual"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the Kafka broker/topic max message size cap to confirm a bounded value is configured.",
+        "command": "grep -E 'message.max.bytes|max.message.bytes' server.properties   # Kafka broker/topic cap",
+        "file_path": "server.properties",
+        "navigation": null,
+        "expected_output": "a bounded max message size configured (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

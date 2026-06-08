@@ -3,7 +3,7 @@
   "name": "Database Query",
   "classType": "dataFlow",
   "type": "dataFlow",
-  "description": "A database query — also called SQL traffic, a query/result-set exchange, ORM call, or DB read/write — traffic between application processes and persistent stores carrying queries and the data they return. The path for data retrieval and the channel for injection and bulk egress. The place to look for database traffic, SQL queries, ORM/DB calls, or the read/write flow between the app and its data store.",
+  "description": "A datastore query or command — SQL traffic, but also NoSQL/document queries, key-value and cache commands (Redis RESP GET/SET), wide-column CQL, search query-DSL, and graph Cypher/Bolt — i.e. the read/write command-and-result exchange between application processes and any persistent or in-memory data store, relational or not, carrying the request and the data it returns. The path for data retrieval and the channel for injection and bulk egress. The place to look for database or datastore traffic, SQL/NoSQL/CQL/Cypher queries, RESP cache commands, ORM/driver calls, or the read/write flow between an app and its data store.",
   "category": "Data Traffic",
   "status": "draft"
 }

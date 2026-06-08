@@ -1,0 +1,270 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "snmp_version_and_security_level": {
+        "type": "string",
+        "enum": [
+          "v3_authpriv",
+          "v3_authnopriv",
+          "v3_noauth",
+          "v2c",
+          "v1",
+          "disabled"
+        ],
+        "title": "SNMP Version / Security Level",
+        "description": "SNMP protocol version and (for v3) USM security level governing this monitoring flow. v1/v2c transmit the community string and all polled MIB data in cleartext with no message authentication or encryption; only v3_authpriv both authenticates (HMAC) and encrypts the payload. The cleartext values v1/v2c fire the cleartext-on-the-wire exposure, and the weak v3 levels v3_authnopriv/v3_noauth fire the weak-USM exposure; v3_authpriv and disabled are the secure non-firing states. Reuses the shared workspace enum so the gateway/component and this dataFlow name the same concept."
+      },
+      "snmp_default_community_string_in_use": {
+        "type": "boolean",
+        "title": "Default SNMP Community String In Use",
+        "description": "Attestation that a vendor-default community string is accepted on the SNMP monitoring flow ('public' read / 'private' read-write, or another well-known default). net-snmp surfaces this as a 'rocommunity public' / 'rwcommunity private' (or com2sec) line, and on the wire as a successful 'snmpwalk -v2c -c public'. Modeled as an interpreted boolean so the trigger is polarity-safe. Fires (is_true) on the insecure flow; secure value is false (no default community accepted, ideally v3-only). Reuses the workspace name established by the monitoring-agent component.",
+        "default": false
+      },
+      "snmp_community_string_strong_unique": {
+        "type": "boolean",
+        "title": "SNMP Community String Strong and Unique",
+        "description": "Attestation that any community string still in use on the flow is strong and unique - not a vendor default and not a guessable dictionary word (the secondary half of the default-community weakness: a non-'public' but trivially guessable community is exploited the same way a scanner sprays 'public'/'private'). Secure value is true (every community is high-entropy and unique, or - best - no community at all because the flow is SNMPv3-only); the exposure fires (is_false) when a weak/guessable community is accepted. Interpreted boolean, polarity-safe by construction."
+      },
+      "snmpv3_uses_sha_and_aes_not_md5_des": {
+        "type": "boolean",
+        "title": "SNMPv3 Uses SHA/AES, Not MD5/DES",
+        "description": "Interpreted attestation that, where v3 priv is configured, the USM user is backed by SHA/SHA-2 authentication AND AES privacy rather than the deprecated MD5 auth / DES privacy primitives (createUser <user> SHA ... AES ...). Modeled as an interpreted boolean rather than a raw-string match so legacy primitive names cannot false-fire on a hardened config; fires (is_false) when MD5/DES legacy crypto is in use. Secure value is true.",
+        "default": false
+      },
+      "known_vulnerabilities_patched": {
+        "type": "boolean",
+        "title": "SNMP Agent Patched Against Known SNMP CVEs",
+        "description": "Interpreted attestation that the SNMP agent stack is patched current against known, exploitable SNMP defects - covering both the USM HMAC-length authentication bypass (CVE-2008-0960, where a client-supplied 1-byte HMAC length defeats authPriv/auth verification so a 'v3-secured' config is still authentication-bypassable: net-snmp 5.2/5.3/5.4 pre-fix and many vendor stacks) and known SNMP DoS defects (e.g. CVE-2025-20170 Cisco IOS/IOS XE improper error handling that lets an authenticated remote attacker reload the device, all SNMP versions). Fires (is_false) on an unpatched agent; secure value is true. A single shared patch-currency attribute that makes the cited CVEs assessable for both the weak-USM and amplification/DoS vectors. Aligns to the workspace patch-currency name.",
+        "default": false
+      },
+      "snmp_write_community_disabled_or_acl_bound": {
+        "type": "boolean",
+        "title": "SNMP Write Access Eliminated or ACL-Bound",
+        "description": "Attestation that the SNMP monitoring flow grants no write (SET) access: no rwcommunity and no rwuser line is present, so only read access is granted. Monitoring must be read-only; a value of false (rwcommunity/rwuser present) turns the flow into a device-control channel where an attacker can change interface/route/ACL state or trigger a TFTP config download/upload - an authorization escalation. Secure value is true; the exposure fires when false. Aligns to the workspace SNMP write-access name.",
+        "default": false
+      },
+      "snmp_mib_view_restricted_to_subtree": {
+        "type": "boolean",
+        "title": "SNMP MIB View Restricted to Subtree",
+        "description": "Attestation that VACM restricts the polling user/community READ access to a needed OID subtree (net-snmp 'view'/'access' lines scoping READ to e.g. .1.3.6.1.2.1.1) rather than mapping it to the full MIB. True = scoped read view in place (secure). False = user/community mapped to the full '.1'/'.1.3'/'all' tree or a rouser with no -V view, so any authenticated poller or default-community holder reads the complete device inventory (interfaces, ARP/route tables, processes, installed software, sometimes config) - this insecure (false) state fires the exposure.",
+        "default": false
+      },
+      "snmp_access_acl_restricted": {
+        "type": "boolean",
+        "title": "SNMP Access ACL-Restricted",
+        "description": "Whether every SNMP access line restricts polling by source IP to the NMS (net-snmp SOURCE field on rocommunity/rwcommunity/com2sec, e.g. 'rocommunity secret 10.20.0.0/24', or rouser via VACM). Secure = true (every line names a specific NMS IP/subnet). Source ACL is also the primary control that defeats spoofed-source amplification because a spoofed victim source will not match the allow-list. Fires when false: a 'default'/blank SOURCE accepts any host that reaches the agent and holds the credential, and enables spoofed-source amplification. Shared canonical attribute referenced by both the network-exposure and amplification vectors; aligns to the workspace SNMP-ACL name.",
+        "default": false
+      },
+      "snmp_agent_bound_to_management_interface": {
+        "type": "boolean",
+        "title": "SNMP Agent Bound to Management Interface",
+        "description": "Whether 'agentaddress' pins UDP 161 to the management IP rather than binding all interfaces. Secure = true (agentaddress udp:<mgmt-ip>:161). Fires when false: the net-snmp default binds 161 on all IPv4 interfaces (absent directive or bare 'udp:161'), widening the reachable attack surface for the monitoring flow.",
+        "default": false
+      },
+      "snmp_agent_internet_reachable": {
+        "type": "boolean",
+        "title": "SNMP Agent Internet-Reachable",
+        "description": "Whether UDP 161 of the SNMP agent is reachable from untrusted/internet networks (no firewall/host ACL confining it to management networks). Secure = false (port 161 filtered/closed from untrusted vantage points). Fires when true: an internet-reachable agent is both a device-takeover target and a reflection/amplification source. Shared canonical attribute referenced by both the network-exposure and amplification vectors (merged from the per-vector internet-reachable / internet-exposed phrasings).",
+        "default": false
+      },
+      "snmp_agent_open_reflector": {
+        "type": "boolean",
+        "title": "SNMP Agent Usable as Open Reflector",
+        "description": "Whether the agent answers GETBULK from arbitrary sources with a default/guessable community, making it usable as a spoofed-source UDP reflection/amplification vector (BAF ~6.3:1, higher on large tables; BITAG/Imperva). Secure = false (source ACL + non-exposure + no default community remove the open-reflector condition). Fires when true."
+      },
+      "snmp_amplification_exposure_mitigated": {
+        "type": "boolean",
+        "title": "SNMP Amplification Exposure Mitigated",
+        "description": "Attestation that the SNMP monitoring agent cannot be abused as a spoofed-source UDP reflection/amplification vector. Secure (true) when no anonymous/default-community GETBULK access is answerable from arbitrary sources (source-IP ACL + no default/public community + no untrusted-network exposure combine so a spoofed-source GETBULK with high max-repetitions cannot reflect an amplified response, BAF ~6.3:1 and higher on large tables, at a victim). Fires on false: the agent answers GETBULK from any source and is usable as an open amplifier. Kept distinct from the open-reflector attribute because this is the polarity-inverse (mitigated, fires is_false) trigger of the amplification vector and cannot be merged without breaking its condition.",
+        "default": false
+      },
+      "response_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Response Rate Limiting Enabled",
+        "description": "Attestation that the agent (or fronting firewall/host ACL) rate-limits SNMP responses so a burst of GETBULK queries cannot sustain a high-volume reflected stream at a victim. Secure (true) when response rate limiting is in place; fires on false when no rate limiting caps the reflected/amplified traffic, leaving the agent able to sustain an amplification flood. Secondary structural mitigation per BITAG (rate-limit alongside source ACL and non-exposure). Aligns to the workspace response-rate-limiting name."
+      },
+      "unauthenticated_v1_v2c_traps_accepted": {
+        "type": "boolean",
+        "title": "Unauthenticated v1/v2c Traps Accepted",
+        "description": "Interpreted attestation: the NMS accepts SNMPv1/v2c traps (UDP 162) on this flow, configured via trapsink/trap2sink or informsink with a bare community. v1/v2c traps carry only a cleartext community and no message-origin authentication, so any host that can reach the NMS can forge a trap - masking genuine events, raising false alarms, or triggering automated (mis)remediation. Fires (true = insecure) when unauthenticated traps are accepted; secure value is false (no trapsink/trap2sink/community-only informsink).",
+        "default": false
+      },
+      "snmp_traps_authenticated_v3_informs": {
+        "type": "boolean",
+        "title": "Trap/Notification Channel Uses Authenticated v3 Informs",
+        "description": "Interpreted attestation: asynchronous notifications on this flow use authenticated, encrypted SNMPv3 informs (trapsess -v 3 ... -l authPriv; informs preferred because they are acknowledged) rather than unauthenticated v1/v2c traps. authPriv informs provide the data-origin authentication and integrity that v1/v2c traps lack, so a forged trap cannot be injected into the NMS. Secure value is true; the exposure fires when this is false (no v3 authPriv notification channel).",
+        "default": false
+      }
+    },
+    "required": [
+      "snmp_version_and_security_level",
+      "snmp_default_community_string_in_use",
+      "snmp_community_string_strong_unique",
+      "snmpv3_uses_sha_and_aes_not_md5_des",
+      "known_vulnerabilities_patched",
+      "snmp_write_community_disabled_or_acl_bound",
+      "snmp_mib_view_restricted_to_subtree",
+      "snmp_access_acl_restricted",
+      "snmp_agent_bound_to_management_interface",
+      "snmp_agent_internet_reachable",
+      "snmp_agent_open_reflector",
+      "snmp_amplification_exposure_mitigated",
+      "response_rate_limiting_enabled",
+      "unauthenticated_v1_v2c_traps_accepted",
+      "snmp_traps_authenticated_v3_informs"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_traps_authenticated_v3_informs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthenticated_v1_v2c_traps_accepted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_mib_view_restricted_to_subtree"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_write_community_disabled_or_acl_bound"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_version_and_security_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmpv3_uses_sha_and_aes_not_md5_des"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_default_community_string_in_use"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_community_string_strong_unique"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_access_acl_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_agent_bound_to_management_interface"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_agent_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/known_vulnerabilities_patched"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_amplification_exposure_mitigated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/response_rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_agent_open_reflector"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

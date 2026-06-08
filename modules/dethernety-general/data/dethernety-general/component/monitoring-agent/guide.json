@@ -1,0 +1,674 @@
+[
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Whether the agent encrypts its egress telemetry channel (logs/metrics/syslog) to the backend with TLS, rather than forwarding over plaintext TCP/UDP.",
+    "security_impact": "References \"Cleartext telemetry forwarding (sniffing / MITM)\" — one of its OR-conditions, firing when this is false (cleartext forward). Plaintext forwarding exposes the telemetry payload and any embedded backend credentials to passive sniffing and active MITM/injection on the path.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Fluentd forward output for a TLS transport block",
+        "command": "grep -RniE 'transport[[:space:]]+tls|@type forward' /etc/fluent*/ /etc/td-agent/",
+        "file_path": "/etc/fluent/fluentd.conf (or /etc/td-agent/td-agent.conf)",
+        "navigation": null,
+        "expected_output": "A <transport tls> block with cert_path/private_key_path inside the <source>/<match> forward block (secure), or a forward source/match with NO transport tls (insecure cleartext).",
+        "source": "Fluentd forward input plugin (security & transport tls)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Filebeat output for https:// hosts and an ssl block",
+        "command": "grep -nE 'hosts:|protocol:|ssl' /etc/filebeat/filebeat.yml",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "output.elasticsearch.hosts use https:// and ssl.* keys present (secure); http:// hosts or no ssl block (insecure).",
+        "source": "Filebeat Configure SSL / Elasticsearch output"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the agent validates the backend server's TLS certificate rather than accepting any certificate (verification_mode: none / Fluentd insecure true).",
+    "security_impact": "References \"Cleartext telemetry forwarding (sniffing / MITM)\" — one of its OR-conditions, firing when this is false. Disabling certificate validation accepts any cert, re-enabling MITM despite 'TLS on' — a control bypass of encryption_in_transit_enabled.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Filebeat ssl.verification_mode and any Fluentd insecure flag",
+        "command": "grep -nE 'ssl.verification_mode|verification_mode|insecure' /etc/filebeat/filebeat.yml /etc/fluent*/ -r",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "ssl.verification_mode: full or key absent (default full = secure); ssl.verification_mode: none (insecure). Default is full.",
+        "source": "Filebeat Configure SSL / Elasticsearch output"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_min_version",
+    "option_description": "Minimum negotiated TLS version on the agent's egress/endpoints (Filebeat ssl.supported_protocols, Fluentd transport tls, exporter-toolkit tls_server_config.min_version).",
+    "security_impact": "References \"Cleartext telemetry forwarding (sniffing / MITM)\" — one of its OR-conditions, firing when the floor is in [TLS1.0, TLS1.1, SSLv3]. A downgraded floor exposes telemetry to known protocol-downgrade weaknesses even when encryption is nominally on; NIST SP 800-52r2 floor is TLS 1.2.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the configured minimum TLS version on the exporter/agent endpoints",
+        "command": "grep -niE 'min_version|max_version|version' /etc/node_exporter/web-config.yml /etc/fluent*/ -r",
+        "file_path": "exporter web-config.yml tls_server_config.min_version",
+        "navigation": null,
+        "expected_output": "min_version: TLS12 or TLS13 (secure); TLS10/TLS11 (insecure). Exporter-toolkit default baseline is TLS 1.2+.",
+        "source": "Prometheus exporter-toolkit web configuration (TLS, basic auth, client_auth_type)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3",
+      "TLS1.0"
+    ]
+  },
+  {
+    "option_name": "listening_endpoint_authenticated",
+    "option_description": "Whether the agent's HTTP scrape/forward listening endpoint requires authentication. node_exporter serves /metrics with NO auth unless --web.config.file sets basic_auth_users/client cert; Fluentd in_forward without <security> is open.",
+    "security_impact": "References \"Unauthenticated agent listening endpoint exposure\" — one of its OR-conditions, firing when this is false. An unauthenticated scrape/forward listener leaks host inventory, mount points, and process/network stats to any reaching peer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether node_exporter was started with a web.config.file and whether /metrics answers without auth",
+        "command": "ps -ef | grep node_exporter | grep -oE 'web.config(.file)?=[^ ]+'; curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9100/metrics",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "web.config.file flag present pointing at a YAML with basic_auth_users/tls_server_config (secure); flag absent and curl returns 200 with no auth (insecure).",
+        "source": "Prometheus exporter-toolkit web configuration (TLS, basic auth, client_auth_type)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the exporter web-config defines basic auth users or required client cert",
+        "command": "grep -nE 'basic_auth_users|client_auth_type|client_ca_file' /etc/node_exporter/web-config.yml",
+        "file_path": "exporter web-config.yml",
+        "navigation": null,
+        "expected_output": "basic_auth_users populated and/or client_auth_type: RequireAndVerifyClientCert with client_ca_file (secure mTLS). Other client_auth_type values are documented as insecure.",
+        "source": "Prometheus exporter-toolkit web configuration (TLS, basic auth, client_auth_type)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "agent_endpoint_bound_loopback_or_internal",
+    "option_description": "Whether the agent's listening endpoint is bound to loopback (127.0.0.1) or a restricted internal interface behind a TLS proxy/firewall, rather than 0.0.0.0 / :: (all interfaces).",
+    "security_impact": "References \"Unauthenticated agent listening endpoint exposure\" — one of its OR-conditions, firing when this is false (world/network-reachable bind). A non-loopback bind on an unauthenticated endpoint exposes the scrape/forward surface to the network.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the listen address from the running agent and confirm the bound interface with ss",
+        "command": "ps -ef | grep -E 'node_exporter|fluent|vector|promtail' | grep -oE 'web.listen-address[=[:space:]][^ ]+'; ss -ltnp | grep -E ':9100|:24224|:24220'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Listen address 127.0.0.1 (secure) vs 0.0.0.0 / :: (insecure). ss shows whether the metrics/forward port is bound to a public interface.",
+        "source": "Prometheus exporter-toolkit web configuration (TLS, basic auth, client_auth_type)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "metrics_endpoint_internet_reachable",
+    "option_description": "Whether the agent's scrape/metrics/forward endpoint is reachable from the public internet (public IP bind with no firewall/security-group restriction), not merely on all local interfaces.",
+    "security_impact": "References \"Unauthenticated agent listening endpoint exposure\" — one of its OR-conditions, firing when this is true. A world-reachable unauthenticated /metrics leaks host inventory and presents attack surface such as an exposed embedded HTTP server.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From an external network position, attempt to reach the metrics/forward port to determine public reachability",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://<public-ip>:9100/metrics --max-time 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused/timeout from the internet (secure, not internet-reachable); HTTP 200 metrics body returned from outside (insecure, internet-reachable).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the host's firewall / cloud security-group rules for the metrics/forward port against the public IP bind",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port restricted to a private CIDR / management subnet (secure); open 0.0.0.0/0 ingress on a public IP (internet-reachable).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "agent_to_backend_authentication_enabled",
+    "option_description": "Whether the agent proves its own identity to the SIEM/log backend on egress (Fluentd <security> shared_key + user_auth; Filebeat api_key, username/password, or PKI client cert).",
+    "security_impact": "References \"Weak / missing agent-to-backend authentication\" — one of its OR-conditions, firing when this is false. Server-only TLS authenticates the backend but not the agent, so a rogue forwarder can inject telemetry and a stolen channel can be replayed.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Fluentd forward config for a <security> block with shared_key/user_auth",
+        "command": "grep -niE 'security|shared_key|user_auth' /etc/fluent*/ /etc/td-agent/ -r",
+        "file_path": "/etc/fluent/fluentd.conf",
+        "navigation": null,
+        "expected_output": "<security> block with self_hostname and shared_key (secure). Absence of <security>, or allow_anonymous_source true, means unauthenticated forwarding (insecure).",
+        "source": "Fluentd forward input plugin (security & transport tls)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Filebeat output for a backend credential",
+        "command": "grep -nE 'api_key|username|password|ssl.certificate:' /etc/filebeat/filebeat.yml",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "An api_key, username/password, or ssl.certificate (PKI) under output.* (secure); none present (insecure).",
+        "source": "Filebeat Configure SSL / Elasticsearch output"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "anonymous_forwarder_source_allowed",
+    "option_description": "Whether the agent's forward receiver accepts telemetry from unauthenticated/anonymous sources (Fluentd allow_anonymous_source, which DEFAULTS true when no <security> block is present).",
+    "security_impact": "References \"Weak / missing agent-to-backend authentication\" — one of its OR-conditions, firing when this is true. Any network peer can then push records into the pipeline with no client identity.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Fluentd in_forward receiver for allow_anonymous_source and a <security> block",
+        "command": "grep -niE 'allow_anonymous_source|security|shared_key' /etc/fluent*/ /etc/td-agent/ -r",
+        "file_path": "/etc/fluent/fluentd.conf",
+        "navigation": null,
+        "expected_output": "<security> block present with shared_key and allow_anonymous_source false (secure); no <security> block / allow_anonymous_source true (default — anonymous sources accepted, insecure).",
+        "source": "Fluentd forward input plugin (security & transport tls)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "mutual_tls_client_auth_enabled",
+    "option_description": "Whether mutual TLS is in effect so the agent presents a client certificate the backend verifies against a truststore (Fluentd client_cert_auth + ca_path; Filebeat ssl.certificate + ssl.key).",
+    "security_impact": "References \"Weak / missing agent-to-backend authentication\" — one of its OR-conditions, firing when this is false (server-side TLS only, no client-cert auth). mTLS authenticates the agent by certificate rather than only a shared secret.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for client-certificate auth on the egress channel (Fluentd client_cert_auth/ca_path, Filebeat ssl.certificate/ssl.key)",
+        "command": "grep -niE 'client_cert_auth|ca_path|ssl.certificate:|ssl.key:' /etc/fluent*/ /etc/filebeat/filebeat.yml -r",
+        "file_path": "/etc/fluent/fluentd.conf, /etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "client_cert_auth true + ca_path (Fluentd) or ssl.certificate/ssl.key (Filebeat) present = mTLS (secure); absent = no client-cert auth.",
+        "source": "Fluentd forward input plugin (security & transport tls)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backend_credential_storage_secure",
+    "option_description": "Supporting context: whether the backend shared_key/api_key/password the agent presents is a keystore/env (${VAR}) reference on a 0600 root-owned config rather than inline plaintext in a world-readable config.",
+    "security_impact": "Supporting context for \"Weak / missing agent-to-backend authentication\" — not itself the trigger. A credential that authenticates the agent but is trivially readable locally weakens the authentication guarantee.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check config permissions/ownership and whether the backend credential is a literal or a ${VAR}/keystore reference",
+        "command": "stat -c '%a %U:%G' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf 2>/dev/null; grep -nE 'api_key|password|shared_key' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mode 600/640 owned by root (secure); 644+ or other-readable with inline cleartext secret (insecure). Values referencing ${ENV} or keystore rather than literals are secure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_version_and_security_level",
+    "option_description": "Effective SNMP version and SNMPv3 security level the agent's snmpd exposes (net-snmp /etc/snmp/snmpd.conf): v1/v2c cleartext community vs SNMPv3 noauth/authnopriv/authpriv.",
+    "security_impact": "References \"SNMP cleartext community-string read/write (v1/v2c)\" — one of its OR-conditions, firing when this is in {v1, v2c, v3_noauth, v3_authnopriv}. v1/v2c authenticate with a cleartext community string trivially sniffed on an adjacent segment; v3 below authPriv leaves the polled MIB payload unencrypted in transit. Only v3_authpriv or disabled is secure.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the community and v3 user lines from snmpd.conf to derive version/security level",
+        "command": "grep -nE '^(ro|rw)community|^createUser|^(ro|rw)user' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "Only createUser + rouser/rwuser ... priv lines (secure SNMPv3 authPriv); any rocommunity/rwcommunity line = cleartext v1/v2c community (insecure). Default-named 'public'/'private' communities are an immediate finding.",
+        "source": "net-snmp snmpd.conf man page (rocommunity/rwcommunity, createUser, rouser/rwuser)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For SNMPv3, confirm the per-user security level is priv (authPriv)",
+        "command": "grep -nE '^(ro|rw)user' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "rouser <user> priv (secure); rouser <user> noauth / auth (insecure). net-snmp requires OpenSSL support for SHA auth and AES privacy.",
+        "source": "net-snmp snmpd.conf man page (rocommunity/rwcommunity, createUser, rouser/rwuser)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "v2c",
+      "v3_authpriv",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "snmp_default_community_string_in_use",
+    "option_description": "Whether any rocommunity/rwcommunity line uses a well-known default community string (public/private) — an immediate guess-without-sniffing finding.",
+    "security_impact": "References \"SNMP cleartext community-string read/write (v1/v2c)\" — one of its OR-conditions, firing when this is true. A default community is guessable without even sniffing, granting MIB read (rocommunity) or device write (rwcommunity).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the rocommunity/rwcommunity tokens and check for default values",
+        "command": "grep -nE '^(ro|rw)community' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "No community lines / non-default token (secure); 'public' or 'private' token present (default community in use — insecure, immediate finding).",
+        "source": "net-snmp snmpd.conf man page (rocommunity/rwcommunity, createUser, rouser/rwuser)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "backend_credentials_stored_inline_plaintext",
+    "option_description": "Whether backend authentication secrets (Fluentd shared_key, Filebeat api_key/password, Promtail/Loki bearer tokens) are written as inline plaintext literals in the agent config rather than referenced via keystore or ${ENV}.",
+    "security_impact": "References \"Plaintext backend credentials in agent config\" — one of its OR-conditions, firing when this is true. Any local reader of the config obtains credentials to write to or impersonate the SIEM/log backend.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep the agent config for secret keys and inspect whether values are literals or ${VAR}/keystore references; also read perms",
+        "command": "stat -c '%a %U:%G' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf 2>/dev/null; grep -nE 'api_key|password|shared_key' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mode 600/640 owned by root (secure); 644+ or other-readable with inline cleartext secret (insecure). Values referencing ${ENV} or keystore rather than literals are secure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_secret_manager",
+    "option_description": "Whether the agent resolves backend secrets through an external secret store (Filebeat keystore, ${VAR} env indirection, or an injected-at-runtime mechanism) rather than embedding them in config.",
+    "security_impact": "References \"Plaintext backend credentials in agent config\" — one of its OR-conditions, firing when this is false. When secrets are not externalized (combined with unhardened config permissions), inline secrets are exposed to any local reader.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm secrets resolve via keystore/env rather than appearing as literals in config",
+        "command": "filebeat keystore list 2>/dev/null; grep -nE 'api_key|password|shared_key' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret keys appear as ${VAR}/keystore references and keystore list shows the keys (externalized — secure); raw literal token/password values inline (not externalized — insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "config_file_permissions_hardened",
+    "option_description": "Whether the agent config file (and any readable spooled buffer/registry that may carry secrets) is root-owned with restrictive mode (0600/0640) and not world/group-readable.",
+    "security_impact": "References \"Plaintext backend credentials in agent config\" — one of its OR-conditions, firing when this is false. A world-readable config (0644/0666) exposes any inline credentials to local readers.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run stat on the agent config and any secret-bearing spool/registry",
+        "command": "stat -c '%a %U:%G' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf 2>/dev/null; ls -ld /var/log/fluentd-buffers /var/lib/filebeat/registry 2>/dev/null; stat -c '%a %U' /var/lib/filebeat/registry 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mode 600/640 owned by root, and buffer/registry dirs 700/600 owned by the agent user (secure); 644+ or world/group-readable (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "agent_runs_as_non_root_least_privilege",
+    "option_description": "Whether the agent process runs as a dedicated unprivileged user with need-based scoping (adm group, file ACLs, or Linux capabilities for log read) rather than root (uid 0).",
+    "security_impact": "References \"Agent-root host privilege escalation\" — one of its OR-conditions, firing when this is false (agent runs as root). A root-context agent turns any agent RCE/parser bug or host local-privesc into full host compromise; least privilege shrinks blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the effective process user for the running agent",
+        "command": "ps -o user= -C node_exporter,fluentd,filebeat,vector,promtail 2>/dev/null; systemctl show fluentd filebeat -p User 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dedicated non-root user (secure); 'root' / empty (defaults to root) for the agent process (insecure — broadens blast radius of any agent CVE).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "host_security_patches_current",
+    "option_description": "Whether the host and agent are current on security patches for known local-privesc and agent CVEs — notably sudo > 1.9.5p1 (CVE-2021-3156 Baron Samedit) and a patched agent build (e.g. Fluent Bit >= 3.0.4 / 2.2.3 for CVE-2024-4323).",
+    "security_impact": "References \"Agent-root host privilege escalation\" — one of its OR-conditions, firing when this is false. An unpatched local-root primitive (e.g. sudo Baron Samedit) is amplified by a root-context agent into full host compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check sudo and agent versions against their CVE fix lines",
+        "command": "fluent-bit --version 2>/dev/null; td-agent --version 2>/dev/null; fluentd --version 2>/dev/null; sudo --version | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Fluent Bit >= 3.0.4 / 2.2.3 (patched for CVE-2024-4323); sudo > 1.9.5p1 (patched for CVE-2021-3156). Lower versions = exposed.",
+        "source": "Fluent Bit CVE-2024-4323 advisory / NVD CVE-2021-3156"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "agent_process_user",
+    "option_description": "Raw effective OS user the agent process runs under (e.g. 'root', 'fluent', 'filebeat'); context for deriving the least-privilege boolean.",
+    "security_impact": "Derivation input for \"Agent-root host privilege escalation\" — feeds agent_runs_as_non_root_least_privilege rather than triggering directly. 'root' or empty (systemd default) indicates uid 0.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the effective process user for the agent",
+        "command": "ps -o user= -C node_exporter,fluentd,filebeat,vector,promtail 2>/dev/null; systemctl show fluentd filebeat -p User 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The username string under which the agent runs (e.g. 'fluent', 'filebeat', or 'root'/empty indicating uid 0).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "root",
+      "fluent",
+      "filebeat"
+    ]
+  },
+  {
+    "option_name": "known_vulnerabilities_patched",
+    "option_description": "Whether the agent build is patched against publicly-known critical CVEs in its parsers / embedded HTTP server — the triggering case is CVE-2024-4323 (Fluent Bit 2.0.7-3.0.3, CVSS 9.8) in the /api/v1/traces parser.",
+    "security_impact": "References \"Agent parser / embedded-HTTP RCE (patch currency)\" — one of its OR-conditions, firing when this is false (unpatched exploitable build). The memory-corruption enables DoS, info disclosure, and potentially RCE; fixed in Fluent Bit 3.0.4 / 2.2.3.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare the agent version against the vendor CVE fix floor",
+        "command": "fluent-bit --version 2>/dev/null; td-agent --version 2>/dev/null; fluentd --version 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Fluent Bit >= 3.0.4 (or backported 2.2.3) = patched for CVE-2024-4323 (secure); 2.0.7-3.0.3 = unpatched exploitable build (insecure).",
+        "source": "Fluent Bit CVE-2024-4323 advisory / NVD CVE-2021-3156"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "software_version_supported",
+    "option_description": "Whether the running agent version is a vendor-supported (non-EOL) release that still receives security backports.",
+    "security_impact": "Supporting context for \"Agent parser / embedded-HTTP RCE (patch currency)\" — not itself a trigger. An EOL build cannot receive the CVE-2024-4323 fix and compounds patch-currency exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the running agent version, then compare against the vendor supported-release/EOL matrix",
+        "command": "fluent-bit --version 2>/dev/null; td-agent --version 2>/dev/null; filebeat version 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version string maps to a vendor-supported (non-EOL) release receiving security backports (secure); a release past EOL on the vendor matrix (insecure).",
+        "source": "Fluent Bit CVE-2024-4323 advisory / NVD CVE-2021-3156"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "embedded_http_server_disabled_or_loopback",
+    "option_description": "Whether the agent's embedded HTTP / monitoring server (the attack surface for CVE-2024-4323's /api/v1/traces parser) is disabled or bound only to loopback rather than network-reachable.",
+    "security_impact": "References \"Agent parser / embedded-HTTP RCE (patch currency)\" — one of its OR-conditions, firing when this is false (HTTP server enabled and bound to a non-loopback/world-reachable address). Disabling it or loopback-binding keeps the vulnerable parser unreachable by a network peer.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Fluent Bit embedded HTTP server config and confirm the listen interface",
+        "command": "grep -niE 'HTTP_Server|Listen' /etc/fluent-bit/fluent-bit.conf",
+        "file_path": "/etc/fluent-bit/fluent-bit.conf",
+        "navigation": null,
+        "expected_output": "HTTP_Server Off or bound to loopback (reduces CVE-2024-4323 exposure); HTTP_Server On listening on 0.0.0.0 with a vulnerable version = exploitable.",
+        "source": "Fluent Bit CVE-2024-4323 advisory"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the embedded HTTP port's bound interface on the wire",
+        "command": "ss -ltnp | grep -E ':2020|:24220'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No listener, or listener bound to 127.0.0.1 (secure); bound to 0.0.0.0/:: (network-reachable, insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "embedded_http_endpoint_authenticated",
+    "option_description": "Whether the agent's reachable embedded HTTP / monitoring endpoint requires authentication (or sits behind an authenticating reverse proxy / network ACL) before the parser processes a request.",
+    "security_impact": "References \"Agent parser / embedded-HTTP RCE (patch currency)\" — one of its conditions (AND-combined with embedded_http_server_disabled_or_loopback being insecure), firing when this is false. An unauthenticated reachable endpoint makes the CVE-2024-4323 parser directly exploitable by any network peer.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe the embedded HTTP endpoint to see whether it answers without credentials",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:2020/ ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401/403 or no response (authenticated / behind ACL — secure); 200 returned with no credential challenge (unauthenticated — insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm whether an authenticating reverse proxy or network ACL fronts the embedded HTTP endpoint",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An auth proxy / restrictive firewall ACL is documented in front of the endpoint (secure); the endpoint is reachable directly with no auth layer (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "sensitive_data_masking_enabled",
+    "option_description": "Whether the agent masks/scrubs sensitive data (credentials, tokens, PII/PHI) before forwarding telemetry (Fluentd record_modifier/grep/scrub/gsub, Vector remap/redact, Filebeat processors drop_fields).",
+    "security_impact": "References \"Sensitive-data / PII over-collection (no masking)\" — one of its OR-conditions, firing when this is false. Forwarding raw telemetry verbatim over-collects secrets and personal data into the monitoring tier (NIST SP 800-122 data minimization).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the agent pipeline for masking/scrub/drop stages",
+        "command": "grep -niE 'scrub|mask|redact|drop_fields|@type grep|record_modifier|gsub' /etc/fluent*/ /etc/filebeat/filebeat.yml /etc/vector/ -r",
+        "file_path": "agent pipeline config",
+        "navigation": null,
+        "expected_output": "Presence of a masking/redaction/drop filter in the pipeline (secure data minimization); none = raw forwarding of potentially sensitive payloads (insecure).",
+        "source": "NIST SP 800-122 Protecting PII Confidentiality"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pii_redaction_filters_configured",
+    "option_description": "Whether explicit scrub/redact/drop_fields filters are configured in the agent pipeline to remove PII/PHI and secret patterns prior to egress.",
+    "security_impact": "References \"Sensitive-data / PII over-collection (no masking)\" — one of its OR-conditions, firing when this is false. With no redaction filter, credentials and personal data reach the backend in full, creating data-residency/retention liabilities for anyone with SIEM access.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm explicit scrub/redact/drop_fields filters targeting sensitive patterns exist in the pipeline",
+        "command": "grep -niE 'scrub|mask|redact|drop_fields|@type grep|record_modifier|gsub' /etc/fluent*/ /etc/filebeat/filebeat.yml /etc/vector/ -r",
+        "file_path": "agent pipeline config",
+        "navigation": null,
+        "expected_output": "One or more redaction/drop filters targeting PII/secret fields present (secure); no such filter (insecure).",
+        "source": "NIST SP 800-122 Protecting PII Confidentiality"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "data_minimization_enforced",
+    "option_description": "Contextual evidence: whether a data-minimization posture (collect/forward only what is operationally required) is enforced for the agent's telemetry per NIST SP 800-122.",
+    "security_impact": "Supporting context for \"Sensitive-data / PII over-collection (no masking)\" — supports interpretation of the masking/redaction triggers but is not itself a firing condition.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented/enforced collect-only-what-is-needed posture for the agent's telemetry per NIST SP 800-122",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented data-minimization policy with a scoped input/field selection enforced in the pipeline (secure); broad raw collection with no minimization rationale (weak context).",
+        "source": "NIST SP 800-122 Protecting PII Confidentiality"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "agent_config_write_restricted_to_admin",
+    "option_description": "Whether the agent config files AND their containing directories are writable only by root/admin (owned root, not group/other-writable; files <=0644, dirs 0755 root).",
+    "security_impact": "References \"Agent config tamper / SIEM blinding\" — one of its OR-conditions, firing when this is false (config writable by non-admin). A non-admin attacker could disable forwarding (blind the SIEM), redirect telemetry to an attacker sink, or inject an exec/parser stage that runs as the agent's (often root) user.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "stat the agent config files and parent dirs, and find any non-admin-writable agent config",
+        "command": "stat -c '%a %U:%G' /etc/fluent/fluentd.conf /etc/filebeat/filebeat.yml /etc/snmp/snmpd.conf 2>/dev/null; find /etc/fluent /etc/filebeat -perm -o+w -o -perm -g+w 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Config owned root:root and NOT other/group-writable (secure); any agent config writable by non-admin = tamper risk (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "config_reload_endpoint_authenticated",
+    "option_description": "Whether any remote/local config-reload or admin/monitoring HTTP endpoint exposed by the agent requires authentication.",
+    "security_impact": "References \"Agent config tamper / SIEM blinding\" — one of its OR-conditions, firing when this is false. An unauthenticated reload/admin endpoint lets an attacker hot-swap pipeline config or trigger a reload of attacker-planted config without credentials — the same SIEM-blinding/telemetry-redirect tamper without filesystem write.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the agent for an embedded HTTP/admin/reload endpoint and whether it is auth-gated",
+        "command": "grep -niE 'HTTP_Server|Listen|reload' /etc/fluent-bit/fluent-bit.conf /etc/fluent*/ -r 2>/dev/null",
+        "file_path": "/etc/fluent-bit/fluent-bit.conf (or agent pipeline config)",
+        "navigation": null,
+        "expected_output": "No reload/admin endpoint exposed, or one fronted by auth/ACL (secure); an enabled HTTP admin/reload endpoint with no auth (insecure).",
+        "source": "Fluent Bit CVE-2024-4323 advisory"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the reload/admin endpoint for an unauthenticated response",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:2020/ ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401/403/connection refused (authenticated or absent — secure); 200 without a credential challenge (unauthenticated reload/admin surface — insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "forwarding_tamper_monitored",
+    "option_description": "Whether changes to the agent config or a stop/disable of telemetry forwarding are detected (FIM/config-integrity monitoring on the agent config, heartbeat or dead-man's-switch alerting on forwarding cessation at the SIEM).",
+    "security_impact": "References \"Agent config tamper / SIEM blinding\" — one of its OR-conditions (secondary), firing when this is false. With no tamper/cessation monitoring, an attacker who edits the config or kills forwarding blinds the SIEM silently during the intrusion window.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm FIM/config-integrity monitoring on the agent config and SIEM-side heartbeat/dead-man's-switch alerting on forwarding cessation",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A FIM rule covers the agent config path and the SIEM alerts on missing heartbeats from the agent (secure); neither tamper nor cessation is detected (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify the SIEM raised an alert during a controlled forwarding-stop test (stop the agent and confirm a cessation alert fires)",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dead-man's-switch / missing-heartbeat alert is recorded when forwarding stops (monitored — secure); no alert generated (unmonitored — insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

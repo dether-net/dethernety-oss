@@ -3,7 +3,7 @@
   "name": "Monitoring & SIEM Service",
   "classType": "component",
   "type": "PROCESS",
-  "description": "Aggregates telemetry and security events, correlates them, and raises alerts. The backbone of detection and a target adversaries seek to blind.",
+  "description": "A monitoring and SIEM service — also called the observability/logging platform, Splunk/Elastic/Datadog, log aggregator, or security analytics tier — that ingests telemetry and security events, correlates them, and raises alerts. The backbone of detection and incident response. The place to look for monitoring, the SIEM, log aggregation/observability, alerting, or where telemetry and security events are collected and analyzed.",
   "category": "Operational Monitoring",
   "status": "draft"
 }

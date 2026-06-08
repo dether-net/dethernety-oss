@@ -3,7 +3,7 @@
   "name": "Mobile Device",
   "classType": "component",
   "type": "EXTERNAL_ENTITY",
-  "description": "An untrusted, unmanaged consumer mobile device running the system's app or accessing it via browser. Carries local token/credential storage, jailbreak/root and device-theft risk, and operates entirely outside organizational management.",
+  "description": "A mobile device — also called a smartphone, tablet, iOS/Android device, BYOD handset, or the consumer's phone — an untrusted, unmanaged endpoint running the system's app or accessing it via browser. Holds tokens and credentials locally and operates fully outside organizational management. The place to look for the mobile device, phone/tablet, iOS/Android client, or the user's personal handheld accessing the system.",
   "category": "Client Devices",
   "status": "draft"
 }

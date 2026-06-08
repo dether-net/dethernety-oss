@@ -1,0 +1,735 @@
+[
+  {
+    "option_name": "enrollee_supplies_subject_disabled",
+    "option_description": "Whether the CA builds the certificate Subject/SAN from a trusted directory/identity source so a low-privileged requester cannot dictate identity (true = secure: CT_FLAG_SUBJECT_REQUIRE_DIRECTORY_PATH set / EJBCA 'Allow Subject DN Override by CSR' disabled).",
+    "security_impact": "One of the OR-triggers for \"Weak issuance authorization (enrollee-supplied identity)\" — fires when false (CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT set on a template carrying an auth EKU with low-priv enrollment and no approval), the ESC1 root cause that lets any enrollee mint a cert with a domain admin's UPN in the SAN.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AD CS: enumerate templates and the mspki-certificate-name-flag, cross-checking with Certify.exe or PSPKIAudit for vulnerable subject handling.",
+        "command": "certutil -v -template | findstr /i \"ENROLLEE_SUPPLIES_SUBJECT\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: CT_FLAG_SUBJECT_REQUIRE_DIRECTORY_PATH (subject built from directory). Insecure: CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT set on a template with an auth EKU + low-priv enroll + no manager approval (ESC1).",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "EJBCA: inspect the Certificate Profile field 'Allow Subject DN Override by CSR' and 'Allow Extension Override' in the admin GUI / profile export.",
+        "command": null,
+        "file_path": "EJBCA certificate profile",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Allow Subject DN Override by CSR / Allow Extension Override",
+        "expected_output": "Secure: 'Allow Subject DN Override by CSR' = disabled, 'Allow Extension Override' = disabled (or restrictive allowlist). Insecure: enabled, letting the CSR dictate identity.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "template_grants_authentication_eku",
+    "option_description": "Whether an enrollee-reachable template grants an authentication-capable EKU (Client Authentication 1.3.6.1.5.5.7.3.2, PKINIT Client Auth 1.3.6.1.5.2.3.4, or Smart Card Logon 1.3.6.1.4.1.311.20.2.2) that turns a requested SAN into domain authentication.",
+    "security_impact": "One of the OR-triggers for \"Weak issuance authorization (enrollee-supplied identity)\" — combined with requester-supplied subject and no approval, an auth EKU on a low-priv-enrollable template is what makes an ESC1 SAN abusable as domain logon.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review pKIExtendedKeyUsage per template; flag templates granting auth EKUs enrollable by broad groups.",
+        "command": "certutil -v -template",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Insecure: Any Purpose / empty EKU / auth EKU on a template enrollable by broad groups. Secure: scoped EKU OIDs matching the certificate's real purpose.",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "EJBCA: review the Certificate Profile Extended Key Usage field — confirm scoped OIDs, not blanket assignment.",
+        "command": null,
+        "file_path": "EJBCA certificate profile",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Extended Key Usage",
+        "expected_output": "Secure: explicit EKU OIDs per RFC 5280 for the intended use; avoid broad assignments.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "enrollee_supplied_san_requires_approval",
+    "option_description": "Whether issuance for any template allowing requester-supplied subject/SAN (or carrying an auth/SubCA/enrollment-agent EKU) is held pending Certificate Manager approval or a required RA signature (CT_FLAG_PEND_ALL_REQUESTS / msPKI-RA-Signature).",
+    "security_impact": "One of the OR-triggers for \"Weak issuance authorization (enrollee-supplied identity)\" — fires when false (auto-issue with no manager approval), removing the compensating control that neutralises ESC1.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check msPKI-Enrollment-Flag for CT_FLAG_PEND_ALL_REQUESTS and msPKI-RA-Signature for required authorized signatures on sensitive templates.",
+        "command": "certutil -v -template",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: PEND_ALL_REQUESTS set (or RA signatures required) on sensitive templates. Insecure: neither — request auto-issues.",
+        "source": "Microsoft Learn — Securing PKI: Technical Controls for Securing PKI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "any_purpose_or_subca_eku_enrollable",
+    "option_description": "Whether a low-privilege-enrollable template grants the Any Purpose EKU (2.5.29.37.0) or carries no EKU at all (subordinate-CA capable), yielding a certificate usable for any purpose including authentication or sub-CA creation (ESC2).",
+    "security_impact": "One of the OR-triggers for \"Weak issuance authorization (enrollee-supplied identity)\" — fires when true (Any Purpose or empty EKU enrollable), the ESC2 primitive.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review pKIExtendedKeyUsage per template; flag templates with Any Purpose (2.5.29.37.0), no EKU, or auth EKUs enrollable by Domain Users.",
+        "command": "certutil -v -template",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Insecure: Any Purpose / empty EKU / auth EKU on a template enrollable by broad groups. Secure: scoped EKU OIDs matching the certificate's real purpose.",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "EJBCA: confirm the Certificate Profile Extended Key Usage uses scoped OIDs and no blanket/Any Purpose assignment.",
+        "command": null,
+        "file_path": "EJBCA certificate profile",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Extended Key Usage",
+        "expected_output": "Secure: explicit EKU OIDs per RFC 5280 for the intended use; avoid broad assignments.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ca_wide_san_attribute_flag_disabled",
+    "option_description": "Whether the CA-wide 'allow user-defined SAN in request attribute' policy flag is disabled (AD CS: EDITF_ATTRIBUTESUBJECTALTNAME2 absent from policy\\EditFlags). True = secure.",
+    "security_impact": "One of the OR-triggers for \"CA-wide SAN injection / issuance-control bypass\" — fires when false (EDITF_ATTRIBUTESUBJECTALTNAME2 present), the ESC6 flag that globally re-enables ESC1-style impersonation across every template regardless of per-template hardening.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the CA policy EditFlags and confirm the SAN-attribute flag is absent.",
+        "command": "certutil -getreg policy\\EditFlags",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: EDITF_ATTRIBUTESUBJECTALTNAME2 NOT listed. Insecure: it appears in the EditFlags value. Disable with: certutil -setreg policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2 then net stop certsvc && net start certsvc.",
+        "source": "Microsoft Learn — Securing PKI: Technical Controls for Securing PKI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "manage_ca_rights_restricted",
+    "option_description": "Whether CA-management rights (ManageCA / 'CA administrator' role) are restricted to dedicated Tier-0 admin accounts and withheld from broad/unprivileged principals, so the CA-wide SAN policy flag cannot be silently re-flipped.",
+    "security_impact": "An OR-trigger for both \"CA-wide SAN injection / issuance-control bypass\" and \"Weak / default CA admin access and role separation\" — fires when false (ESC7), where a broad/low-priv ManageCA holder can flip EDITF_ATTRIBUTESUBJECTALTNAME2 at will, voiding every per-template control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review the CA security descriptor / ACEs for the ManageCA right; PSPKIAudit Get-AuditCASecurity flags unprivileged principals.",
+        "command": "certutil -getreg CA\\Security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only dedicated CA admins/officers hold ManageCA. Insecure: low-priv or broad groups granted this (ESC7).",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "name_constraints_enforced",
+    "option_description": "Whether the issuing/subordinate CA certificate carries an X.509 NameConstraints extension (permitted/excluded DNS, IP, email, directory subtrees) scoping which identities it may ever sign, bound to the org's owned namespaces.",
+    "security_impact": "One of the OR-triggers for \"Unconstrained / over-trusted issuing CA\" — fires when false (no NameConstraints), letting the CA (or a stolen subordinate key) mint certificates for ANY name including domains it does not own.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Dump the issuing CA cert and inspect the Name Constraints extension.",
+        "command": "openssl x509 -in issuing-ca.crt -noout -text | grep -A10 'X509v3 Name Constraints'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'Permitted'/'Excluded' subtrees scoping DNS/email/dirName to owned namespaces. Insecure: extension absent — CA can issue for any name.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "config_file",
+        "instruction": "EJBCA: confirm Name Constraints (permitted/excluded) are configured on CA-type Certificate Profiles.",
+        "command": null,
+        "file_path": "EJBCA certificate profile",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <CA profile> -> Name Constraints",
+        "expected_output": "Secure: permitted/excluded name subtrees defined. Note: EJBCA does not validate path length at issuance, so constraints must be set deliberately.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "path_length_constraint_set",
+    "option_description": "Whether the issuing CA certificate's BasicConstraints pathLenConstraint is set to bound how many further intermediate CAs may chain below it (pathLen=0 on a leaf issuing CA = no further sub-CAs).",
+    "security_impact": "One of the OR-triggers for \"Unconstrained / over-trusted issuing CA\" — fires when false (pathLen unset/over-large), letting the CA spawn rogue subordinate CAs. EJBCA does not validate path length at issuance, so it must be set deliberately.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Dump the issuing CA cert and inspect Basic Constraints for the pathlen value.",
+        "command": "openssl x509 -in issuing-ca.crt -noout -text | grep -A2 'Basic Constraints'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: 'CA:TRUE, pathlen:0' on the issuing CA. Insecure: CA:TRUE with no pathlen, permitting rogue sub-CA creation.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "offline_root_ca",
+    "option_description": "Whether the trust-anchor root (and policy CA) is kept offline and separated from online issuing/subordinate CAs, rather than a flat hierarchy with an online root signing leaf certs or a CA co-located with a domain controller.",
+    "security_impact": "A secondary OR-trigger for \"Unconstrained / over-trusted issuing CA\" — fires when false (online root issuing leaves or Tier-0 co-location), amplifying the blast radius so a single compromise forges unlimited trust across namespaces.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the PKI hierarchy: confirm a distinct offline root, separate online issuing CA(s), and that no CA is co-located with a DC. For cloud CAs, confirm root in its own account with minimized root use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: offline root, constrained subordinates, isolated roles. Insecure: online root issuing leaves, or CA sharing a host with other Tier-0 roles.",
+        "source": "AWS Private CA — Best practices"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "key_storage",
+    "option_description": "The custody tier of the CA signing key: HSM/KMS-backed (hsm_fips_l3, hsm_fips_l2) where disk-image theft is worthless, vs software_non_exportable (still recoverable from a disk image) and software_exportable (any local admin exports the on-disk PEM / DPAPI key).",
+    "security_impact": "The primary OR-trigger for \"CA signing-key theft (no HSM custody)\" — fires when in [software_exportable, software_non_exportable], letting a local admin export the key and forge unlimited trusted certificates off-box.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AD CS: confirm the CSP/KSP provider — a hardware KSP vs 'Microsoft Software Key Storage Provider' (which indicates NO HSM); generic: check whether the signing key sits on disk vs a KMS/HSM URI.",
+        "command": "certutil -getreg CA\\CSP\\Provider",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: provider names a hardware KSP/HSM (e.g. nCipher, Luna); key non-exportable. Insecure: 'Microsoft Software Key Storage Provider' / a readable ca-key.pem on disk.",
+        "source": "Microsoft Learn — Securing PKI: Protecting CA Keys and Critical Artifacts"
+      },
+      {
+        "type": "config_file",
+        "instruction": "cfssl/step/smallstep/sigstore: confirm the signing key is referenced via a KMS/HSM URI rather than a local key file path.",
+        "command": null,
+        "file_path": "CA config (e.g. ca.json / cfssl config / ca.cfg)",
+        "navigation": null,
+        "expected_output": "Secure: KMS/PKCS#11 URI (awskms://, gcpkms://, azurekms://, hashivault://, pkcs11:) for the signing key. Insecure: a plaintext on-disk key file path.",
+        "source": "Sigstore Cosign — KMS key management overview"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "hsm_fips_l3",
+      "hsm_fips_l2",
+      "software_non_exportable",
+      "software_exportable"
+    ]
+  },
+  {
+    "option_name": "ca_key_bundled_in_routine_backup",
+    "option_description": "Whether routine backups bundle an exportable CA signing-key PFX onto general backup infrastructure (full system-state / certutil -backup) rather than DB-only backups with the key PFX isolated under chain-of-custody.",
+    "security_impact": "An OR-trigger for \"CA signing-key theft (no HSM custody)\" — fires when true, where the key is reachable from shared backup systems and a brute-forceable PFX hands an attacker the whole PKI.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup job: confirm it uses 'certutil -backupdb' or 'Backup-CARoleService -DatabaseOnly' (key excluded), and that any key PFX is stored offline with monitored access — not on shared backup systems.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: DB-only routine backups; key PFX isolated. Insecure: full -backup/system-state including the key reachable from the backup server.",
+        "source": "Microsoft Learn — Securing PKI: Technical Controls for Securing PKI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "http_enrollment_endpoint_exposed",
+    "option_description": "Whether an HTTP-based enrollment endpoint (AD CS Web Enrollment /certsrv, CES/CEP, or NDES /CertSrv/mscep) is reachable on this CA. The relay attack surface exists only when such an endpoint is present.",
+    "security_impact": "An OR-trigger (the gating precondition) for \"NTLM relay to HTTP enrollment endpoint\" — fires when true; if web enrollment is removed entirely the ESC8 vector is closed.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe for the web-enrollment endpoints (http(s)://<ca>/certsrv, /CertSrv/mscep for NDES) and confirm whether they are present and reachable on the CA host.",
+        "command": "curl -sk -o /dev/null -w '%{http_code}' https://<ca>/certsrv/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: endpoints removed/absent (connection refused / 404). Insecure: /certsrv, CES/CEP, or NDES /CertSrv/mscep present and reachable (ESC8 relay surface exists).",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "web_enrollment_https_enforced",
+    "option_description": "Whether the web-enrollment / CES-CEP / NDES endpoints are served HTTPS-only (plain HTTP bindings removed). True = secure.",
+    "security_impact": "An OR-trigger for \"NTLM relay to HTTP enrollment endpoint\" — fires when false (HTTP accepted), letting coerced NTLM auth be relayed over an unprotected channel to obtain an auth-capable certificate (ESC8).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the IIS/enrollment site bindings expose HTTPS only and that plain-HTTP bindings are removed on /certsrv, CES/CEP, and NDES.",
+        "command": "curl -sI http://<ca>/certsrv/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: plain HTTP refused / redirects to HTTPS only; only HTTPS bindings present. Insecure: HTTP binding answers on the enrollment endpoint.",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "extended_protection_for_authentication_enabled",
+    "option_description": "Whether IIS Extended Protection for Authentication (EPA / channel binding) is set to Required on the Windows Authentication of the enrollment endpoints, binding the authentication to the TLS channel.",
+    "security_impact": "An OR-trigger for \"NTLM relay to HTTP enrollment endpoint\" — fires when false; EPA Required defeats cross-protocol NTLM relay to the enrollment endpoint (ESC8).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the enrollment site's Windows Authentication Advanced Settings for Extended Protection = Required.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IIS Manager -> <enrollment site> -> Authentication -> Windows Authentication -> Advanced Settings -> Extended Protection",
+        "expected_output": "Secure: Extended Protection = Required (channel binding enforced). Insecure: Off / Accept — relay possible.",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ntlm_authentication_disabled_on_enrollment",
+    "option_description": "Whether NTLM is disabled on the HTTP enrollment endpoints (Kerberos/Negotiate-only), so coerced NTLM auth cannot be relayed there at all.",
+    "security_impact": "An OR-trigger for \"NTLM relay to HTTP enrollment endpoint\" — fires when false; disabling NTLM removes the relayed credential the ESC8 chain depends on.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the enrollment endpoints accept Kerberos/Negotiate only and that NTLM is disabled (site auth providers / network policy).",
+        "command": null,
+        "file_path": null,
+        "navigation": "IIS Manager -> <enrollment site> -> Authentication -> Windows Authentication -> Providers (Negotiate only, NTLM removed)",
+        "expected_output": "Secure: only Kerberos/Negotiate offered; NTLM removed from providers / blocked by policy. Insecure: NTLM accepted on the enrollment endpoint.",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "manage_certificates_rights_restricted",
+    "option_description": "Whether the ManageCertificates (Certificate Manager) issuance/approval permission is restricted to dedicated, vetted certificate-officer accounts and not held by broad or unprivileged principals.",
+    "security_impact": "An OR-trigger for \"Weak / default CA admin access and role separation\" — fires when false (granted broadly), where a holder can approve their own pending request, bypassing manager approval (ESC7).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review the CA security descriptor / ACEs for the ManageCertificates right; PSPKIAudit Get-AuditCASecurity flags unprivileged principals.",
+        "command": "certutil -getreg CA\\Security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only dedicated CA admins/officers hold ManageCertificates. Insecure: low-priv or broad groups granted this (ESC7).",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ca_admin_mfa_enforced",
+    "option_description": "Whether MFA / smart-card is enforced for interactive CA management access and CA admins use dedicated alternate (not daily-driver) accounts.",
+    "security_impact": "An OR-trigger for \"Weak / default CA admin access and role separation\" — fires when false (password-only console access), easing credential abuse on ManageCA/ManageCertificates holders.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm MFA / smart-card enforced for interactive CA access and that CA admins use dedicated alternate accounts, not daily-driver accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: MFA + dedicated admin accounts. Insecure: shared/daily accounts, password-only console access.",
+        "source": "Microsoft Learn — Securing PKI: Technical Controls for Securing PKI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "role_separation_enabled",
+    "option_description": "Whether Common-Criteria role separation is enforced so no single identity holds both ManageCA and ManageCertificates (admin vs issuer vs auditor vs backup duties split), and the setting is change-monitored.",
+    "security_impact": "An OR-trigger for \"Weak / default CA admin access and role separation\" — fires when false (role separation off/unset), where one account both weakens policy and approves issuance.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the CA RoleSeparationEnabled registry value (1 = enabled), and confirm the setting is monitored for change since any admin can disable it.",
+        "command": "certutil -getreg CA\\RoleSeparationEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: RoleSeparationEnabled = 1, with change monitoring. Insecure: 0 / unset — duties not separated. Enable with certutil -setreg CA\\RoleSeparationEnabled 1.",
+        "source": "Microsoft Learn — Securing PKI: Technical Controls for Securing PKI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "template_acls_hardened",
+    "option_description": "Whether ACLs on certificate-template AD objects limit Write/WriteDacl/WriteProperty/FullControl to Domain Admins / dedicated PKI-admin groups, with no such rights for unprivileged principals.",
+    "security_impact": "An OR-trigger for \"Weak / default CA admin access and role separation\" — fires when false, where a non-Tier-0 principal holding WriteDacl/WriteProperty/FullControl can reconfigure a benign template into an ESC1 template (ESC4).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate ACEs on certificate-template AD objects with PSPKIAudit / BloodHound ADCSESC4 edges.",
+        "command": "Get-AuditCertificateTemplateAcl",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only Tier-0 admins hold Write rights. Insecure: unprivileged principal with WriteDacl/WriteProperty/FullControl on a template (ESC4).",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pki_object_acls_hardened",
+    "option_description": "Whether ACLs on PKI infrastructure objects (CA computer object, NTAuthCertificates, CN=Public Key Services PKI containers) are Tier-0-protected with no Write/FullControl for unprivileged principals.",
+    "security_impact": "An OR-trigger for \"Weak / default CA admin access and role separation\" — fires when false, where dangerous ACLs on PKI objects/NTAuth enable RBCD or NTAuth poisoning to compromise the CA/forest (ESC5).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate ACEs over CN=Public Key Services,CN=Services,CN=Configuration with BloodHound ADCSESC5 edges / PSPKIAudit.",
+        "command": "Get-AuditCertificateTemplateAcl",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: only Tier-0 admins hold Write rights on PKI objects. Insecure: unprivileged principal with WriteDacl/WriteProperty/FullControl on a PKI container/NTAuth (ESC5).",
+        "source": "SpecterOps — Certified Pre-Owned: Abusing Active Directory Certificate Services (ESC1-ESC8)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "crl_or_ocsp_configured",
+    "option_description": "Whether the CA publishes a working revocation method — a CRL and/or OCSP responder — with CDP/AIA URLs embedded in issued certificates.",
+    "security_impact": "An OR-trigger for \"Missing or stale revocation lifecycle\" — fires when false (no revocation mechanism configured), so a compromised or mis-issued certificate stays trusted until natural expiry with no kill-switch.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect an issued leaf cert for CDP/AIA URLs that point to a revocation method.",
+        "command": "openssl x509 -in leaf.crt -noout -text | grep -A4 -E 'CRL Distribution|Authority Information Access'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: CDP/AIA URLs present pointing to a CRL/OCSP method. Insecure: no CDP/AIA — no revocation configured.",
+        "source": "AWS Private CA — Plan your certificate revocation method"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a revocation method is selected and managed (OCSP and/or CRL); for cloud/managed CAs verify RevocationConfiguration Crl/Ocsp Enabled = true.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: managed revocation enabled. Insecure: revocation absent — a compromised cert stays trusted until expiry.",
+        "source": "AWS Private CA — Plan your certificate revocation method"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "crl_distribution_point_reachable",
+    "option_description": "Whether the CDP/AIA URLs embedded in issued certificates are actually reachable by relying parties so CRL/OCSP fetches succeed.",
+    "security_impact": "An OR-trigger for \"Missing or stale revocation lifecycle\" — fires when false (dead URL, network-isolated, DNS failure), where relying parties silently fall open and revocation is unenforced even though a method is nominally configured.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a relying-party vantage point, fetch the CDP/AIA URLs embedded in a leaf cert and confirm they resolve and return current data.",
+        "command": "openssl x509 -in leaf.crt -noout -text | grep -A4 -E 'CRL Distribution|Authority Information Access'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: CDP/AIA URLs present and reachable. Insecure: unreachable URL / DNS failure — revocation fetch fails.",
+        "source": "AWS Private CA — Plan your certificate revocation method"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "crl_response_fresh",
+    "option_description": "Whether the published CRL's nextUpdate is in the future (not expired) and OCSP responses carry a short next-update — i.e. revocation data is current.",
+    "security_impact": "An OR-trigger for \"Missing or stale revocation lifecycle\" — fires when false (CRL stale/expired), where relying parties may treat it as invalid and fall open, leaving revoked certificates trusted.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Fetch the CRL and check its nextUpdate is in the future; confirm a short configured CRL next-update interval.",
+        "command": "openssl crl -in fetched.crl -noout -nextupdate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: nextUpdate in the future (fresh). Insecure: expired CRL — relying parties may fall open.",
+        "source": "AWS Private CA — Plan your certificate revocation method"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "max_leaf_validity_days",
+    "option_description": "The maximum validity period (in days) the CA grants to leaf certificates. HIGH_IS_INSECURE: an over-long lifetime widens the window a compromised or mis-issued certificate stays usable before natural expiry.",
+    "security_impact": "An OR-trigger for \"Missing or stale revocation lifecycle\" — fires when greater than 397 days (the CA/Browser Forum public-TLS leaf ceiling), most damaging precisely when revocation is missing or stale.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the issuing profile / template validity (EJBCA validity field; AD CS ValidityPeriod/ValidityPeriodUnits).",
+        "command": null,
+        "file_path": "EJBCA certificate profile / AD CS registry",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Validity (or certutil -getreg CA\\ValidityPeriod / ValidityPeriodUnits)",
+        "expected_output": "Secure: bounded validity (<= 397 days for leaves). Insecure: excessive lifetime widening the trusted window.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      90,
+      365,
+      397,
+      825
+    ]
+  },
+  {
+    "option_name": "requester_validity_override_disabled",
+    "option_description": "Whether the requester CANNOT dictate certificate lifetime (EJBCA 'Allow Validity Override' disabled, or the AD CS template not honouring a requester-supplied notAfter).",
+    "security_impact": "An OR-trigger for \"Missing or stale revocation lifecycle\" — fires when false (override enabled), letting an enrollee demand an arbitrary over-long lifetime, widening the trusted window beyond the CA's intended bound.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the certificate profile's 'Allow Validity Override' setting (must be disabled), or AD CS template notAfter handling.",
+        "command": null,
+        "file_path": "EJBCA certificate profile / AD CS registry",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Allow Validity Override",
+        "expected_output": "Secure: Allow Validity Override disabled. Insecure: override enabled — requester dictates lifetime.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "signing_hash_algorithm",
+    "option_description": "The hash algorithm the CA uses in its certificate signatures. SHA-256+ is the modern floor; sha1/md5 are deprecated and produce forgeable signatures.",
+    "security_impact": "An OR-trigger for \"Weak signing algorithm\" — fires on in [sha1, md5], undermining the integrity of every certificate the CA signs.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the issuing CA cert's Signature Algorithm.",
+        "command": "openssl x509 -in issuing-ca.crt -noout -text | grep -E 'Signature Algorithm'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: sha256WithRSAEncryption or stronger. Insecure: sha1WithRSAEncryption / md5.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      },
+      {
+        "type": "config_file",
+        "instruction": "EJBCA: check the Certificate Profile signature algorithm; AD CS: read the configured hash algorithm from the registry.",
+        "command": "certutil -getreg ca\\csp\\HashAlgorithm",
+        "file_path": "EJBCA certificate profile / AD CS registry",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Signature Algorithm",
+        "expected_output": "Secure: hash SHA-256+. Insecure: SHA-1 / MD5 permitted.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "sha256",
+      "sha384",
+      "sha512",
+      "sha1"
+    ]
+  },
+  {
+    "option_name": "ca_key_algorithm_strength",
+    "option_description": "The CA signing key's algorithm and strength. Floors are RSA >= 2048 (3072+ for long-lived roots) or P-256/P-384 ECDSA; rsa_1024 or smaller is below the floor and brute-forcible.",
+    "security_impact": "An OR-trigger for \"Weak signing algorithm\" — fires on in [rsa_1024, rsa_512], a forgeable signing key that undermines the entire chain.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the issuing CA cert's Public-Key size/algorithm.",
+        "command": "openssl x509 -in issuing-ca.crt -noout -text | grep -E 'Public-Key'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: RSA >= 2048 / EC >= 256. Insecure: 1024-bit (or smaller) key.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      },
+      {
+        "type": "config_file",
+        "instruction": "EJBCA: confirm 'Available Bit Lengths' enforces RSA >= 2048 / modern ECC.",
+        "command": null,
+        "file_path": "EJBCA certificate profile",
+        "navigation": "EJBCA Admin GUI -> Certificate Profiles -> <profile> -> Available Bit Lengths",
+        "expected_output": "Secure: minimum bit length >= 2048. Insecure: sub-2048 permitted.",
+        "source": "EJBCA (Keyfactor) — Certificate Profile Fields"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "rsa_2048",
+      "rsa_3072",
+      "rsa_4096",
+      "ecdsa_p256",
+      "ecdsa_p384",
+      "rsa_1024"
+    ]
+  },
+  {
+    "option_name": "issuance_audit_logging_enabled",
+    "option_description": "Whether the CA records every certificate issuance, revocation, and template change to an audit log across all event categories (AD CS: AuditFilter = 127 AND the OS 'Audit object access' policy enabled Success/Failure).",
+    "security_impact": "An OR-trigger for \"Disabled or non-attributable issuance auditing\" — fires when false/partial, where rogue-certificate minting (the goal of every ESC primitive) becomes invisible.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the CA AuditFilter (127 = all categories) and confirm the OS audit policy 'Audit object access' is enabled, else CA events are not written.",
+        "command": "certutil -getreg CA\\AuditFilter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: AuditFilter = 127 and object-access auditing on. Insecure: AuditFilter 0/partial — issuance not logged.",
+        "source": "Microsoft Learn — Securing PKI: Technical Controls for Securing PKI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_logs_forwarded_to_siem",
+    "option_description": "Whether CA issuance/revocation/admin audit events are centrally retained by forwarding to a SIEM rather than left only in the local host event log.",
+    "security_impact": "An OR-trigger for \"Disabled or non-attributable issuance auditing\" — fires when false, where locally-only logs are non-attributable, clearable on host compromise, and unavailable for PKI-abuse detection across the estate.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm a working forwarder ships CA audit events to a central SIEM / log store off the CA host.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: CA issuance/revocation/admin events appear in the central SIEM. Insecure: events only in the local host event log.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "admin_action_logging_enabled",
+    "option_description": "Whether CA administrative actions — template changes, CA security/ACL edits, policy-flag changes (e.g. EDITF_ATTRIBUTESUBJECTALTNAME2), role-separation toggles — are audited and attributable to individual operators.",
+    "security_impact": "An OR-trigger for \"Disabled or non-attributable issuance auditing\" — fires when false, where a config-weakening admin action that enables an ESC primitive leaves no attributable trace.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Verify admin/config-change auditing is enabled and that change events are attributable to named operators.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: admin/config-change events logged and attributable to individuals. Insecure: config changes untracked or anonymous.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_logs_tamper_protected",
+    "option_description": "Whether CA audit logs are tamper-resistant — write-once / off-host retained so a local administrator (or attacker who minted a rogue cert) cannot delete or edit the issuance record.",
+    "security_impact": "An OR-trigger for \"Disabled or non-attributable issuance auditing\" — fires when false, where even enabled logs are unreliable evidence because the very subject they would incriminate can clear them.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm logs are write-once / WORM or off-host retained and that local admins cannot edit or clear them.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: WORM / off-host retention; local admins cannot alter logs. Insecure: logs editable/clearable on the CA host.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,112 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "client_auth_uses_platform_identity": false,
+      "static_approle_secret_id_in_config": true,
+      "secret_id_response_wrapped": false,
+      "token_ttl_bounded_short": false,
+      "token_max_ttl_minutes": 525600,
+      "token_policy_over_broad": true,
+      "lease_revocation_on_teardown": false,
+      "token_revoked_on_logout": false,
+      "credential_lease_ttl_bounded": false,
+      "dynamic_secret_upstream_deleted_on_teardown": false,
+      "encryption_in_transit_enabled": false,
+      "server_certificate_validated": false,
+      "tls_verification_skipped": true,
+      "secret_injected_as_env_var": true,
+      "secret_delivery_mechanism": "tmpfs_file",
+      "secret_not_logged_by_consumer": false,
+      "sensitive_data_masking_enabled": false,
+      "secrets_manager_audit_device_enabled": false,
+      "audit_logs_forwarded_to_siem": false,
+      "secret_type_supports_dynamic_credentials": true,
+      "dynamic_secrets_preferred_over_static": false,
+      "static_secret_rotation_enabled": false
+    },
+    "expectedExposures": [
+      "Unverified TLS to secrets manager (MITM)",
+      "Retrieved secret echoed into consumer logs",
+      "Retrieved secret exposed via environment variable",
+      "Long-lived / over-broad token",
+      "Secret-zero leak (static AppRole secret_id)",
+      "No audit device — unattributable access",
+      "No revocation on teardown",
+      "Static long-lived secret instead of dynamic"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "client_auth_uses_platform_identity": true,
+      "static_approle_secret_id_in_config": false,
+      "secret_id_response_wrapped": true,
+      "token_ttl_bounded_short": true,
+      "token_max_ttl_minutes": 0,
+      "token_policy_over_broad": false,
+      "lease_revocation_on_teardown": true,
+      "token_revoked_on_logout": true,
+      "credential_lease_ttl_bounded": true,
+      "dynamic_secret_upstream_deleted_on_teardown": true,
+      "encryption_in_transit_enabled": true,
+      "server_certificate_validated": true,
+      "tls_verification_skipped": false,
+      "secret_injected_as_env_var": false,
+      "secret_delivery_mechanism": "csi_provider",
+      "secret_not_logged_by_consumer": true,
+      "sensitive_data_masking_enabled": true,
+      "secrets_manager_audit_device_enabled": true,
+      "audit_logs_forwarded_to_siem": true,
+      "secret_type_supports_dynamic_credentials": false,
+      "dynamic_secrets_preferred_over_static": true,
+      "static_secret_rotation_enabled": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "client_auth_uses_platform_identity": true,
+      "static_approle_secret_id_in_config": false,
+      "secret_id_response_wrapped": true,
+      "token_ttl_bounded_short": true,
+      "token_max_ttl_minutes": 0,
+      "token_policy_over_broad": false,
+      "lease_revocation_on_teardown": true,
+      "token_revoked_on_logout": true,
+      "credential_lease_ttl_bounded": true,
+      "dynamic_secret_upstream_deleted_on_teardown": true,
+      "encryption_in_transit_enabled": true,
+      "server_certificate_validated": true,
+      "tls_verification_skipped": false,
+      "secret_injected_as_env_var": false,
+      "secret_delivery_mechanism": "tmpfs_file",
+      "secret_not_logged_by_consumer": true,
+      "sensitive_data_masking_enabled": true,
+      "secrets_manager_audit_device_enabled": true,
+      "audit_logs_forwarded_to_siem": true,
+      "secret_type_supports_dynamic_credentials": false,
+      "dynamic_secrets_preferred_over_static": true,
+      "static_secret_rotation_enabled": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Unverified TLS to secrets manager (MITM)",
+      "Retrieved secret echoed into consumer logs",
+      "Long-lived / over-broad token",
+      "Secret-zero leak (static AppRole secret_id)",
+      "No audit device — unattributable access",
+      "No revocation on teardown",
+      "Static long-lived secret instead of dynamic"
+    ]
+  }
+]

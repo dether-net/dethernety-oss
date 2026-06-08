@@ -2,9 +2,9 @@ package _dt_built_in.exposures.database_query
 
 
 
-_sql_injection_enabling_bulk_exfiltration_def := {
-    "name": "SQL injection enabling bulk exfiltration",
-    "description": "A code path on this flow concatenates untrusted input into SQL text, allowing an attacker to alter query structure (UNION SELECT / stacked statements) and use the flow's own legitimate result-set channel to dump entire tables. Canonical OWASP A03 failure on a database-query dataFlow.",
+_query_injection_enabling_bulk_exfiltration_def := {
+    "name": "Query/command injection enabling bulk exfiltration",
+    "description": "A code path on this flow concatenates untrusted input into the query, command, or filter sent to the datastore (SQL UNION SELECT / stacked statements, NoSQL operator or JSON injection such as $where, CQL or Cypher injection, Elasticsearch/OpenSearch query-DSL injection, or Redis command/Lua injection), letting an attacker alter the query/command structure and use the flow's own legitimate result channel to dump entire datasets. Canonical OWASP A03 Injection failure on a database-query dataFlow, relational or not.",
     "type": "misconfiguration",
     "category": "",
     "criticality": "critical",
@@ -15,23 +15,23 @@ _sql_injection_enabling_bulk_exfiltration_def := {
             "property": "attack_id",
             "value": "T1190",
             "attributes": {
-                "justification": "Exploit Public-Facing Application \u2014 SQL injection on an application-fronted database query flow is the canonical T1190 vector: an attacker abuses an exposed application input to inject SQL and reach the data tier through the application's own legitimate flow."
+                "justification": "Exploit Public-Facing Application - query/command injection (SQL, NoSQL operator, CQL/Cypher, query-DSL, or Redis command/Lua) on an application-fronted datastore query flow is the canonical T1190 vector: an attacker abuses an exposed application input to inject into the datastore command and reach the data tier through the application's own legitimate flow."
             }
         }
     ],
     "attack_vector": "NETWORK"
 }
 
-sql_injection_enabling_bulk_exfiltration[_sql_injection_enabling_bulk_exfiltration_def] if {
-    not input.parameterized_queries_used
+query_injection_enabling_bulk_exfiltration[_query_injection_enabling_bulk_exfiltration_def] if {
+    not input.parameterized_or_safe_query_construction
 }
 
-sql_injection_enabling_bulk_exfiltration[_sql_injection_enabling_bulk_exfiltration_def] if {
-    input.dynamic_query_string_concatenation == true
+query_injection_enabling_bulk_exfiltration[_query_injection_enabling_bulk_exfiltration_def] if {
+    input.untrusted_input_concatenated_into_query_or_command == true
 }
 
-exposures contains _sql_injection_enabling_bulk_exfiltration_def if {
-    count(sql_injection_enabling_bulk_exfiltration) > 0
+exposures contains _query_injection_enabling_bulk_exfiltration_def if {
+    count(query_injection_enabling_bulk_exfiltration) > 0
 }
 
 _cleartext_db_transport_sniffing_def := {
@@ -186,12 +186,6 @@ _mass_data_egress_through_legitimate_flow_no_limit_no_quota_def := {
             "property": "attack_id",
             "value": "T1213",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -209,9 +203,9 @@ exposures contains _mass_data_egress_through_legitimate_flow_no_limit_no_quota_d
     count(mass_data_egress_through_legitimate_flow_no_limit_no_quota) > 0
 }
 
-_pii_leakage_via_pgaudit_driver_query_logs_def := {
-    "name": "PII leakage via pgaudit / driver query logs",
-    "description": "pgaudit.log_parameter=on in production, or the application driver logs full bind values at DEBUG, causes raw PII (emails, card numbers, SSNs) to be mirrored from the database into the log store. A breach of the log store then exposes the same PII the DB protects but without the DB's access controls.",
+_pii_leakage_via_query_audit_logs_def := {
+    "name": "PII leakage via query / audit logs",
+    "description": "Query or audit logging mirrors raw bind values into the log store (pgaudit.log_parameter=on, MySQL/MongoDB audit logs, Elasticsearch slow logs, Redis MONITOR/slowlog, or an application driver/ORM logging full bind values at DEBUG), copying raw PII (emails, card numbers, SSNs) and secrets from the datastore into logs. A breach of the log store then exposes the same PII the datastore protects but without its access controls.",
     "type": "misconfiguration",
     "category": "",
     "criticality": "medium",
@@ -237,16 +231,16 @@ _pii_leakage_via_pgaudit_driver_query_logs_def := {
     "attack_vector": "LOCAL"
 }
 
-pii_leakage_via_pgaudit_driver_query_logs[_pii_leakage_via_pgaudit_driver_query_logs_def] if {
+pii_leakage_via_query_audit_logs[_pii_leakage_via_query_audit_logs_def] if {
     not input.pii_excluded_from_logs
 }
 
-pii_leakage_via_pgaudit_driver_query_logs[_pii_leakage_via_pgaudit_driver_query_logs_def] if {
+pii_leakage_via_query_audit_logs[_pii_leakage_via_query_audit_logs_def] if {
     not input.secrets_masked_in_logs
 }
 
-exposures contains _pii_leakage_via_pgaudit_driver_query_logs_def if {
-    count(pii_leakage_via_pgaudit_driver_query_logs) > 0
+exposures contains _pii_leakage_via_query_audit_logs_def if {
+    count(pii_leakage_via_query_audit_logs) > 0
 }
 
 _publicly_reachable_db_listener_scanned_and_brute_forced_def := {
@@ -271,6 +265,14 @@ _publicly_reachable_db_listener_scanned_and_brute_forced_def := {
             "value": "T1133",
             "attributes": {
                 "justification": "Opening the DB port to 0.0.0.0/0 (or binding listen_addresses to all interfaces on a public NIC) creates an External Remote Service \u2014 the database listener becomes a remote service reachable from outside the trust boundary, available for credential brute-force and reuse."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1110",
+            "attributes": {
+                "justification": "Brute Force \u2014 once the listener is internet-reachable, mass scanners credential-stuff and password-spray any known or leaked role (Redis requirepass, MongoDB SCRAM, Cassandra/Neo4j roles, SQL logins); the public exposure turns the datastore's own authentication into a directly brute-forceable surface."
             }
         }
     ],

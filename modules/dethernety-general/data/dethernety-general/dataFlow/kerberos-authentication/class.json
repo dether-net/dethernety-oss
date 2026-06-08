@@ -1,0 +1,9 @@
+{
+  "id": "20879fab-fdc7-4bb7-ad7f-245f45873e9e",
+  "name": "Kerberos Authentication",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Kerberos authentication — also called the Kerberos ticket exchange, AS/TGS exchange, TGT and service-ticket issuance, or krb5 login — the flow where a client authenticates to a Kerberos Key Distribution Center (KDC) and obtains tickets: the AS-REQ / AS-REP exchange that issues a ticket-granting ticket (TGT) and the TGS-REQ / TGS-REP exchange that issues service tickets, then ticket presentation to a Kerberized service (AP-REQ), over MIT Kerberos or Heimdal (UDP/TCP 88). Distinct from the web-SSO Authentication Exchange (OIDC / SAML / OAuth2) as the Kerberos-realm authentication path behind Unix and Active-Directory-style single sign-on. The place to look for Kerberos, krb5, TGT / service tickets, the KDC exchange, or realm authentication. Its threat surface: accounts without pre-authentication enabling AS-REP roasting, service accounts with weak keys enabling Kerberoasting of TGS tickets, krbtgt key compromise yielding golden tickets, forged service tickets (silver tickets) and pass-the-ticket reuse, and weak or legacy ticket crypto (RC4 / DES).",
+  "category": "Identity & Access",
+  "status": "draft"
+}

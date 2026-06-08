@@ -1,0 +1,118 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "broker_client_authentication_required": false,
+      "anonymous_broker_access_disabled": false,
+      "topic_authorization_enforced": false,
+      "default_allow_authorizer": true,
+      "wildcard_topic_acl_present": true,
+      "encryption_in_transit_enabled": false,
+      "broker_tls_certificate_verified": false,
+      "tls_min_version": "SSLv3",
+      "shared_static_broker_credential_in_use": true,
+      "per_service_broker_credentials_used": false,
+      "broker_credentials_externalized": false,
+      "consumer_group_read_authorization_enforced": false,
+      "subscribe_scope_least_privilege": false,
+      "safe_deserialization_enforced": false,
+      "unsafe_polymorphic_deserialization_used": true,
+      "message_schema_validation_enabled": false,
+      "sensitive_data_in_payload_minimized_or_encrypted": false,
+      "sensitive_data_masking_enabled": false,
+      "message_log_retention_bounded": false,
+      "data_minimization_enforced": false,
+      "broker_listener_network_restricted": false,
+      "broker_listener_internet_reachable": true,
+      "message_size_limit_bounded": false
+    },
+    "expectedExposures": [
+      "Plaintext transport sniffing / unverified-TLS MITM",
+      "Anonymous / unauthenticated broker access",
+      "Mass unauthorized consumption",
+      "Publicly reachable broker listener",
+      "Shared static broker credential theft",
+      "Unsafe message deserialization -> RCE",
+      "Wildcard / missing topic authorization",
+      "PII / secrets in messages and broker logs"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "broker_client_authentication_required": true,
+      "anonymous_broker_access_disabled": true,
+      "topic_authorization_enforced": true,
+      "default_allow_authorizer": false,
+      "wildcard_topic_acl_present": false,
+      "encryption_in_transit_enabled": true,
+      "broker_tls_certificate_verified": true,
+      "tls_min_version": "TLS1.2",
+      "shared_static_broker_credential_in_use": false,
+      "per_service_broker_credentials_used": true,
+      "broker_credentials_externalized": true,
+      "consumer_group_read_authorization_enforced": true,
+      "subscribe_scope_least_privilege": true,
+      "safe_deserialization_enforced": true,
+      "unsafe_polymorphic_deserialization_used": false,
+      "message_schema_validation_enabled": true,
+      "sensitive_data_in_payload_minimized_or_encrypted": true,
+      "sensitive_data_masking_enabled": true,
+      "message_log_retention_bounded": true,
+      "data_minimization_enforced": true,
+      "broker_listener_network_restricted": true,
+      "broker_listener_internet_reachable": false,
+      "message_size_limit_bounded": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "broker_client_authentication_required": true,
+      "anonymous_broker_access_disabled": true,
+      "topic_authorization_enforced": true,
+      "default_allow_authorizer": false,
+      "wildcard_topic_acl_present": false,
+      "encryption_in_transit_enabled": true,
+      "broker_tls_certificate_verified": true,
+      "tls_min_version": "SSLv3",
+      "shared_static_broker_credential_in_use": false,
+      "per_service_broker_credentials_used": true,
+      "broker_credentials_externalized": true,
+      "consumer_group_read_authorization_enforced": true,
+      "subscribe_scope_least_privilege": true,
+      "safe_deserialization_enforced": true,
+      "unsafe_polymorphic_deserialization_used": false,
+      "message_schema_validation_enabled": true,
+      "sensitive_data_in_payload_minimized_or_encrypted": true,
+      "sensitive_data_masking_enabled": true,
+      "message_log_retention_bounded": true,
+      "data_minimization_enforced": true,
+      "broker_listener_network_restricted": true,
+      "broker_listener_internet_reachable": false,
+      "message_size_limit_bounded": true
+    },
+    "expectedExposures": [
+      "Plaintext transport sniffing / unverified-TLS MITM"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Plaintext transport sniffing / unverified-TLS MITM",
+      "Anonymous / unauthenticated broker access",
+      "Mass unauthorized consumption",
+      "Publicly reachable broker listener",
+      "Shared static broker credential theft",
+      "Unsafe message deserialization -> RCE",
+      "Wildcard / missing topic authorization",
+      "PII / secrets in messages and broker logs"
+    ]
+  }
+]

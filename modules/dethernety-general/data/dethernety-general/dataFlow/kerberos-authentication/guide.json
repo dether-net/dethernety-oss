@@ -1,0 +1,718 @@
+[
+  {
+    "option_name": "kerberos_preauthentication_required",
+    "option_description": "Whether Kerberos pre-authentication is required on every account so the KDC never returns an AS-REP encrypted with the account key to an unauthenticated requester (AD userAccountControl DONT_REQUIRE_PREAUTH bit 0x400000 unset everywhere).",
+    "security_impact": "One of the OR-triggers for \"Missing pre-authentication (AS-REP roasting)\" — fires when this is false (any account preauth-disabled). Also a precondition of \"Unarmored preauth exchange (no PKINIT/FAST)\" and the CVE-2022-33647/33679 preauth downgrade.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate AD accounts with the DONT_REQUIRE_PREAUTH userAccountControl bit (0x400000 = 4194304) set; an empty result means every account requires preauth.",
+        "command": "Get-ADUser -Filter 'useraccountcontrol -band 4194304' -Properties useraccountcontrol | Select-Object name",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result = secure (no accounts without preauth). Any account listed has the DONT_REQUIRE_PREAUTH bit set and is AS-REP roastable.",
+        "source": "MITRE ATT&CK T1558.004 AS-REP Roasting (mitigation: ensure all accounts have preauthentication)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect KDC Security log for AS-REPs issued without preauthentication.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security event 4768 (TGT requested) with Pre-Auth Type field = 0 indicates an AS-REP issued without preauthentication for that account (AS-REP roasting indicator).",
+        "source": "MITRE ATT&CK T1558.004 AS-REP Roasting (detection: Event ID 4768 with Pre-Auth Type 0)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "accounts_with_preauth_disabled_present",
+    "option_description": "Inverse-polarity attestation: whether one or more accounts in the realm/domain have 'Do not require Kerberos preauthentication' set (DONT_REQUIRE_PREAUTH UAC bit 0x400000). Insecure (firing) value is true.",
+    "security_impact": "One of the OR-triggers for \"Missing pre-authentication (AS-REP roasting)\" — fires when this is true (an exposed preauth-disabled account exists), the inverse-polarity form of kerberos_preauthentication_required.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate accounts with DONT_REQUIRE_PREAUTH (UAC 0x400000 = 4194304) set; any returned account is the exposed set.",
+        "command": "Get-ADUser -Filter 'useraccountcontrol -band 4194304' -Properties useraccountcontrol | Select-Object name",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result = secure (false). Any account listed means accounts_with_preauth_disabled_present is true (insecure) and those accounts are AS-REP roastable.",
+        "source": "MITRE ATT&CK T1558.004 AS-REP Roasting (mitigation: ensure all accounts have preauthentication)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Cross-check the KDC Security log for AS-REPs issued without preauth as direct evidence the exposed set is being targeted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security event 4768 with Pre-Auth Type field = 0 for any account confirms an AS-REP was issued without preauthentication (AS-REP roasting indicator).",
+        "source": "MITRE ATT&CK T1558.004 AS-REP Roasting (detection: Event ID 4768 with Pre-Auth Type 0)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "kerberos_ticket_encryption_type",
+    "option_description": "The encryption type negotiated for Kerberos AS-REP / TGS-REP ticket ciphertext on this flow (AES256 etype 0x12 and AES128 secure; rc4_hmac etype 0x17 and single-DES crackable offline).",
+    "security_impact": "One of the OR-triggers for \"Weak / legacy ticket encryption types (RC4/DES) and downgrade\" — fires when a weak legacy type (rc4_hmac / des_cbc_md5 / des_cbc_crc) is the negotiated enctype on the flow.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Read the Ticket Encryption Type field from KDC audit events to determine the enctype actually negotiated on the flow; enumerate RC4 tickets with Microsoft's helper script.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit events 4768/4769: a 'Ticket Encryption Type' of 0x17 = RC4-HMAC issued (insecure); 0x12 = AES256-CTS-HMAC-SHA1-96 (secure). Use Microsoft's Get-KerbEncryptionUsage.ps1 -Encryption RC4 to enumerate RC4 tickets.",
+        "source": "Microsoft Learn: Detect and Remediate RC4 Usage in Kerberos (event 4768/4769 Ticket Encryption Type field; 0x17=RC4-HMAC, 0x12=AES256)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On MIT krb5 / Heimdal realms, read the effective enctype lists that govern the negotiated ticket type.",
+        "command": "grep -E 'permitted_enctypes|default_tkt_enctypes|default_tgs_enctypes|allow_weak_crypto' /etc/krb5.conf",
+        "file_path": "/etc/krb5.conf",
+        "navigation": null,
+        "expected_output": "Under [libdefaults]: enctype lists contain only aes256-/aes128-cts-hmac-sha1-96 (secure). Presence of arcfour-hmac-md5, des-cbc-crc/md5, or allow_weak_crypto = true means a weak type can be negotiated.",
+        "source": "MIT krb5 krb5.conf reference ([libdefaults] permitted_enctypes / default_tkt_enctypes / default_tgs_enctypes / allow_weak_crypto)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "aes256",
+      "aes128",
+      "rc4_hmac"
+    ]
+  },
+  {
+    "option_name": "weak_legacy_enctypes_disabled",
+    "option_description": "Interpreted attestation that the realm's effective enctype policy excludes ALL weak legacy types (RC4 bit 0x4, single-DES bits 0x1/0x2) across every governing knob — AD DefaultDomainSupportedEncTypes = 0x18, no account with RC4/DES bits in msDS-SupportedEncryptionTypes, and MIT krb5 AES-only enctype lists with allow_weak_crypto=false.",
+    "security_impact": "One of the OR-triggers for \"Weak / legacy ticket encryption types (RC4/DES) and downgrade\" — fires when this is false (weak types are not filtered out everywhere).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the KDC fallback registry value restricts supported enctypes to AES-only.",
+        "command": "reg query \"HKLM\\System\\CurrentControlSet\\services\\KDC\" /v DefaultDomainSupportedEncTypes",
+        "file_path": "HKLM\\System\\CurrentControlSet\\services\\KDC\\DefaultDomainSupportedEncTypes",
+        "navigation": null,
+        "expected_output": "0x18 (decimal 24) = secure (AES only). Absent or a value with bit 0x4 set = RC4 fallback still permitted.",
+        "source": "Microsoft Learn: Detect and Remediate RC4 Usage in Kerberos (DefaultDomainSupportedEncTypes REG_DWORD = 0x18)"
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate accounts whose msDS-SupportedEncryptionTypes still carries the RC4 bit or is unset (defaults to RC4).",
+        "command": "Get-ADObject -Filter \"ObjectClass -eq 'user' -or ObjectClass -eq 'computer'\" -Properties msDS-SupportedEncryptionTypes,servicePrincipalName | Where-Object { ($_.'msDS-SupportedEncryptionTypes' -band 0x4) -or ($_.'msDS-SupportedEncryptionTypes' -eq $null) } | Select Name,servicePrincipalName,msDS-SupportedEncryptionTypes",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts returned have RC4 enabled or no enctype set (insecure). Bit table: 0x4=RC4, 0x8=AES128, 0x10=AES256, 0x18=AES128+AES256. Empty = AES-only everywhere.",
+        "source": "Microsoft Learn: Detect and Remediate RC4 Usage in Kerberos (msDS-SupportedEncryptionTypes attribute, Supported Encryption Types bit table)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On MIT krb5 / Heimdal realms confirm AES-only enctype lists and allow_weak_crypto disabled.",
+        "command": "grep -E 'permitted_enctypes|default_tkt_enctypes|default_tgs_enctypes|allow_weak_crypto' /etc/krb5.conf",
+        "file_path": "/etc/krb5.conf",
+        "navigation": null,
+        "expected_output": "[libdefaults] enctype lists contain only aes256-/aes128-cts-hmac-sha1-96 and allow_weak_crypto = false (or absent, defaults false). Any arcfour-hmac-md5 / des-cbc-* or allow_weak_crypto = true is insecure.",
+        "source": "MIT krb5 krb5.conf reference ([libdefaults] permitted_enctypes / default_tkt_enctypes / default_tgs_enctypes / allow_weak_crypto)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "rc4_preauth_downgrade_patched",
+    "option_description": "Interpreted attestation that the DCs serving this flow have the November-2022+ cumulative update removing the legacy RC4-MD4 (etype -128) and RC4-HMAC-OLD (etype -133) preauth encryption types (CVE-2022-33647 / CVE-2022-33679).",
+    "security_impact": "One of the OR-triggers for both \"Weak / legacy ticket encryption types (RC4/DES) and downgrade\" and \"Missing pre-authentication (AS-REP roasting)\" — fires when this is false (downgrade enctypes remain available), the assessable surface for CVE-2022-33647/33679.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm DCs carry the November 2022 (or later) cumulative update that removed the weak RC4-MD4 / RC4-HMAC-OLD preauth enctypes.",
+        "command": "Get-HotFix | Where-Object { $_.InstalledOn -ge '2022-11-08' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DC has the November 2022 (or later) cumulative update removing the weak RC4-MD4/RC4-HMAC-OLD preauth enctypes. Combine with the preauth_required check.",
+        "source": "CVE-2022-33647 / CVE-2022-33679 (Windows Kerberos preauth enctype downgrade EoP; root cause weak RC4-MD4 type -128 / RC4-HMAC-OLD type -133)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the preauth-disabled-account precondition is also closed, since the downgrade requires a target with DONT_REQUIRE_PREAUTH set.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patch level present AND no preauth-disabled accounts present = the CVE-2022-33647/33679 downgrade path is fully closed.",
+        "source": "CVE-2022-33647 / CVE-2022-33679 (attack requires the target's 'Do not require Kerberos preauthentication' flag)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "service_accounts_use_gmsa_or_strong_random_keys",
+    "option_description": "Attestation that every SPN-bearing service account is either a Group Managed Service Account (gMSA, 240-char auto-rotated machine-generated password) or governed by an enforced long random password policy (25+ characters), so the TGS-REP key resists offline cracking.",
+    "security_impact": "One of the OR-triggers for \"Weak service-account keys (Kerberoasting)\" — fires when this is false (any SPN account with a weak/short/human-chosen key, the offline-crackable TGS-REP substrate).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate SPN-bearing accounts and inspect their object class and PasswordLastSet to identify Kerberoast candidates.",
+        "command": "Get-ADUser -Filter \"servicePrincipalName -like '*'\" -Properties servicePrincipalName,PasswordLastSet,objectClass | Select Name,servicePrincipalName,PasswordLastSet",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "User-class accounts with an SPN are Kerberoast candidates. Confirm each is either a gMSA (msDS-GroupManagedServiceAccount class) or governed by a strong-password policy; long-stale PasswordLastSet on a user SPN is a red flag.",
+        "source": "MITRE ATT&CK T1558.003 Kerberoasting (mitigation M1027 strong 25+ char passwords; M1026 use Group Managed Service Accounts)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the password policy governing any non-gMSA SPN accounts to confirm a 25+ char random-password standard is enforced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each SPN account is a gMSA or covered by an enforced long-random-password policy (25+ chars). Any human-chosen / short password is insecure.",
+        "source": "MITRE ATT&CK T1558.003 Kerberoasting (mitigation M1027 strong 25+ char passwords; M1026 use Group Managed Service Accounts)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "spn_accounts_have_weak_passwords",
+    "option_description": "Inverse-polarity attestation that one or more SPNs are bound to ordinary user objects carrying human-chosen or short/stale passwords (rather than gMSA or strong-random accounts). True is the insecure (firing) state.",
+    "security_impact": "One of the OR-triggers for \"Weak service-account keys (Kerberoasting)\" — fires when this is true (a directly Kerberoastable SPN account whose TGS-REP key can be cracked offline).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate user-class SPN accounts and review PasswordLastSet / composition to find any human-chosen or stale passwords.",
+        "command": "Get-ADUser -Filter \"servicePrincipalName -like '*'\" -Properties servicePrincipalName,PasswordLastSet,objectClass | Select Name,servicePrincipalName,PasswordLastSet",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any user-class SPN with a stale / human-chosen password means spn_accounts_have_weak_passwords is true (insecure). None such = false (secure).",
+        "source": "MITRE ATT&CK T1558.003 Kerberoasting (mitigation M1027 strong 25+ char passwords; M1026 use Group Managed Service Accounts)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the directory/identity team whether any SPN accounts predate the gMSA/strong-password standard and still carry legacy operator-set passwords.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No legacy human-chosen SPN passwords remain in scope = false (secure); any acknowledged legacy SPN password = true (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "spn_account_rc4_tickets_permitted",
+    "option_description": "Inverse-polarity attestation that SPN-bearing service accounts can still be issued RC4-HMAC (etype 0x17) TGS-REPs — msDS-SupportedEncryptionTypes blank/0 or carrying the RC4 bit (0x4), and/or the KDC fallback (DefaultDomainSupportedEncTypes) not restricted to AES-only (0x18). True is the insecure (firing) state.",
+    "security_impact": "One of the OR-triggers for \"Weak service-account keys (Kerberoasting)\" (and contributes to \"Missing pre-authentication (AS-REP roasting)\") — fires when this is true: RC4 service tickets are the fast-offline-crack substrate that makes Kerberoasting practical.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Find SPN/service accounts that can still receive RC4 tickets (RC4 bit set or enctype unset).",
+        "command": "Get-ADObject -Filter \"ObjectClass -eq 'user' -or ObjectClass -eq 'computer'\" -Properties msDS-SupportedEncryptionTypes,servicePrincipalName | Where-Object { ($_.'msDS-SupportedEncryptionTypes' -band 0x4) -or ($_.'msDS-SupportedEncryptionTypes' -eq $null) } | Select Name,servicePrincipalName,msDS-SupportedEncryptionTypes",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts returned have RC4 enabled or no enctype set (insecure → true). Bit table: 0x4=RC4, 0x8=AES128, 0x10=AES256, 0x18=AES-only. Empty = AES-only (false/secure).",
+        "source": "Microsoft Learn: Detect and Remediate RC4 Usage in Kerberos (msDS-SupportedEncryptionTypes attribute, Supported Encryption Types bit table)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the KDC fallback registry value does not leave RC4 issuable by default.",
+        "command": "reg query \"HKLM\\System\\CurrentControlSet\\services\\KDC\" /v DefaultDomainSupportedEncTypes",
+        "file_path": "HKLM\\System\\CurrentControlSet\\services\\KDC\\DefaultDomainSupportedEncTypes",
+        "navigation": null,
+        "expected_output": "0x18 (decimal 24) = AES-only (false/secure). Absent or a value with bit 0x4 set = RC4 fallback permitted (true/insecure).",
+        "source": "Microsoft Learn: Detect and Remediate RC4 Usage in Kerberos (DefaultDomainSupportedEncTypes REG_DWORD = 0x18)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "spn_account_count",
+    "option_description": "Number of SPN-bearing accounts in the realm/domain enumerable by any authenticated principal — supporting context for the Kerberoasting blast radius, not itself a trigger.",
+    "security_impact": "Contextual evidence for \"Weak service-account keys (Kerberoasting)\" — does not itself fire the exposure; a larger count means a larger offline-cracking target set if other Kerberoasting triggers are present.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate and count servicePrincipalName-bearing accounts visible to any authenticated principal.",
+        "command": "(Get-ADUser -Filter \"servicePrincipalName -like '*'\" -Properties servicePrincipalName).Count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer count of SPN-bearing accounts (blast-radius context). Cross-reference the listing against the gMSA/strong-password check.",
+        "source": "MITRE ATT&CK T1558.003 Kerberoasting (mitigation M1027 strong 25+ char passwords; M1026 use Group Managed Service Accounts)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      12,
+      45,
+      120
+    ]
+  },
+  {
+    "option_name": "krbtgt_rotated_on_schedule",
+    "option_description": "Attests the krbtgt account key is rotated on a defined schedule (commonly ~180 days, and immediately after any suspected DC/domain compromise). The krbtgt key signs every TGT.",
+    "security_impact": "One of the OR-triggers for \"krbtgt key compromise / no rotation (Golden Ticket)\" — fires when this is false (no scheduled rotation), leaving any historical hash leak able to forge valid TGTs permanently.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the krbtgt account PasswordLastSet / whenChanged to confirm rotation cadence.",
+        "command": "Get-ADUser krbtgt -Properties PasswordLastSet,whenChanged | Select Name,PasswordLastSet,whenChanged",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PasswordLastSet within the rotation window (e.g. < 180 days) = secure. A multi-year-old date indicates krbtgt has never been rotated and any historical hash leak still forges valid Golden Tickets.",
+        "source": "MITRE ATT&CK T1558.001 Golden Ticket (mitigation Active Directory Configuration: reset krbtgt password twice; rotate ~every 180 days)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a documented krbtgt rotation schedule and an immediate-on-compromise reset procedure exist and are followed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented cadence (~180d) plus on-compromise reset procedure exists and recent runs are evidenced = true (secure). Absence of any rotation process = false (firing).",
+        "source": "MITRE ATT&CK T1558.001 Golden Ticket (mitigation Active Directory Configuration: reset krbtgt password twice; rotate ~every 180 days)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "krbtgt_reset_twice_on_rotation",
+    "option_description": "Attests that each krbtgt rotation resets the password TWICE so both the current and previous krbtgt key are invalidated (a single reset leaves the previous key, and any leaked hash of it, still able to sign valid TGTs).",
+    "security_impact": "One of the OR-triggers for \"krbtgt key compromise / no rotation (Golden Ticket)\" — fires when this is false, leaving a window in which a compromised prior krbtgt hash still forges Golden Tickets.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the krbtgt rotation runbook / procedure to confirm it performs two consecutive password resets (with the required replication interval between them), invalidating both current and previous keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Procedure documents and evidences a double-reset (e.g. via the Microsoft New-KrbtgtKeys / reset-twice script) = true (secure). A single-reset practice = false (firing).",
+        "source": "MITRE ATT&CK T1558.001 Golden Ticket (mitigation Active Directory Configuration: reset krbtgt password twice; rotate ~every 180 days)"
+      },
+      {
+        "type": "command",
+        "instruction": "Corroborate that a recent rotation occurred by reading the krbtgt account change metadata (a double-reset shows as a recent PasswordLastSet on the rotation date).",
+        "command": "Get-ADUser krbtgt -Properties PasswordLastSet,whenChanged | Select Name,PasswordLastSet,whenChanged",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A recent PasswordLastSet aligned to the documented rotation supports the double-reset claim; combine with the procedure review since a single read cannot prove two resets.",
+        "source": "MITRE ATT&CK T1558.001 Golden Ticket (mitigation Active Directory Configuration: reset krbtgt password twice; rotate ~every 180 days)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "krbtgt_password_age_days",
+    "option_description": "Age in days of the krbtgt account password (from PasswordLastSet / whenChanged). Higher is more insecure: a stale krbtgt password means any historical hash leak still forges valid Golden Tickets.",
+    "security_impact": "One of the OR-triggers for \"krbtgt key compromise / no rotation (Golden Ticket)\" — fires when the age exceeds the ~180-day rotation window.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read PasswordLastSet on the krbtgt account and compute days since that date.",
+        "command": "Get-ADUser krbtgt -Properties PasswordLastSet | ForEach-Object { (New-TimeSpan -Start $_.PasswordLastSet -End (Get-Date)).Days }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer number of days since the krbtgt password was last set. < 180 = within window; a multi-year value (e.g. > 365) indicates no rotation and a standing Golden Ticket risk.",
+        "source": "MITRE ATT&CK T1558.001 Golden Ticket (mitigation Active Directory Configuration: reset krbtgt password twice; rotate ~every 180 days)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      45,
+      179,
+      1500
+    ]
+  },
+  {
+    "option_name": "max_ticket_lifetime_hours",
+    "option_description": "Maximum Kerberos service/user ticket lifetime in hours (AD 'Maximum lifetime for user ticket' / MIT krb5 [libdefaults] ticket_lifetime). Longer lifetimes widen the window a stolen or forged ticket stays replayable.",
+    "security_impact": "One of the OR-triggers for \"Forged service ticket / pass-the-ticket\" — HIGH_IS_INSECURE, fires when greater than 10 hours.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On MIT krb5 / Heimdal read the configured ticket lifetime; on AD read the equivalent Kerberos policy.",
+        "command": "grep -E 'ticket_lifetime|renew_lifetime' /etc/krb5.conf",
+        "file_path": "/etc/krb5.conf",
+        "navigation": null,
+        "expected_output": "[libdefaults] ticket_lifetime default is 1 day; bound to a short value (<= 10h). AD equivalent: 'Maximum lifetime for user ticket' Kerberos policy = 10 hours default.",
+        "source": "MIT krb5 krb5.conf reference ([libdefaults] ticket_lifetime / renew_lifetime)"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Active Directory read the Default Domain Policy Kerberos ticket-lifetime setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Group Policy Management > Default Domain Policy > Computer Configuration > Policies > Windows Settings > Security Settings > Account Policies > Kerberos Policy > 'Maximum lifetime for user ticket'",
+        "expected_output": "Value <= 10 hours = secure. A value > 10 fires the pass-the-ticket exposure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      10,
+      8,
+      24
+    ]
+  },
+  {
+    "option_name": "max_renewable_lifetime_days",
+    "option_description": "Maximum Kerberos ticket renewable lifetime in days (AD 'Maximum lifetime for ticket renewal' / MIT krb5 [libdefaults] renew_lifetime). Unbounded renewable lifetimes let a stolen or forged ticket be renewed and replayed for an extended period.",
+    "security_impact": "One of the OR-triggers for \"Forged service ticket / pass-the-ticket\" — HIGH_IS_INSECURE, fires when greater than 7 days.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On MIT krb5 / Heimdal read the configured renewable lifetime.",
+        "command": "grep -E 'ticket_lifetime|renew_lifetime' /etc/krb5.conf",
+        "file_path": "/etc/krb5.conf",
+        "navigation": null,
+        "expected_output": "[libdefaults] renew_lifetime default 0; bound to a short value (<= 7 days). AD equivalent: 'Maximum lifetime for ticket renewal' Kerberos policy = 7 days default.",
+        "source": "MIT krb5 krb5.conf reference ([libdefaults] ticket_lifetime / renew_lifetime)"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Active Directory read the Default Domain Policy Kerberos ticket-renewal setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Group Policy Management > Default Domain Policy > Computer Configuration > Policies > Windows Settings > Security Settings > Account Policies > Kerberos Policy > 'Maximum lifetime for ticket renewal'",
+        "expected_output": "Value <= 7 days = secure. A value > 7 fires the pass-the-ticket exposure.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      7,
+      5,
+      30
+    ]
+  },
+  {
+    "option_name": "pac_validation_enforced",
+    "option_description": "Interpreted attestation that PAC (Privilege Attribute Certificate) signature validation is enforced so a service does not blindly trust a presented service ticket; a forged Silver Ticket carrying a fabricated PAC is rejected when signatures are verified with the KDC.",
+    "security_impact": "One of the OR-triggers for \"Forged service ticket / pass-the-ticket\" — fires when this is false (services accept tickets without PAC verification).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm DCs carry the CVE-2021-42287/42278 (PAC) hardening update enabling enforced PAC validation.",
+        "command": "Get-HotFix | Where-Object { $_.InstalledOn -ge '2021-11-09' } | Select-Object HotFixID,InstalledOn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DCs carrying the Nov-2021-or-later cumulative update have PAC signature validation available; confirm Enforcement mode is active (PacRequestorEnforcement registry value) rather than left in compatibility.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the AD team that PAC validation enforcement mode is enabled domain-wide rather than left in audit/compatibility.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enforcement mode confirmed enabled = true (secure). Compatibility/audit-only or services validating PACs out of band = false (firing).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tgs_request_auditing_enabled",
+    "option_description": "Interpreted attestation that KDC Kerberos ticket-request auditing is enabled and retained — Security events 4768 (TGT requested) and 4769 (service ticket requested) are generated. A Silver Ticket produces no matching 4769, so a ticket presented with no corresponding request is the primary forged-ticket indicator.",
+    "security_impact": "One of the OR-triggers for both \"Forged service ticket / pass-the-ticket\" and \"Insufficient TGS-request auditing & KDC exposure\" — fires when this is false, leaving forgeries undetectable.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm the KDC Security log captures and retains 4768 and 4769 events and apply the forged-ticket analytic.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm Security log captures 4768 (TGT) and 4769 (service ticket). Per MITRE analytic AN1443, flag TGS requests without a corresponding TGT request (silver-ticket / forged-ticket indicator) and high-volume RC4 (0x17) 4769s.",
+        "source": "MITRE ATT&CK T1558 detection DET0522 / analytics AN1443 (TGS requests without corresponding TGT; RC4-encrypted ticket anomalies); Microsoft event 4769 reference"
+      },
+      {
+        "type": "gui",
+        "instruction": "Confirm the audit policy that generates 4768/4769 is enabled on the DCs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Group Policy / Default Domain Controllers Policy > Advanced Audit Policy Configuration > Account Logon > 'Audit Kerberos Authentication Service' and 'Audit Kerberos Service Ticket Operations' (Success/Failure)",
+        "expected_output": "Both Kerberos audit subcategories enabled for Success = true (secure). Disabled = false (firing).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "kerberoasting_detection_alerting_enabled",
+    "option_description": "Whether the captured 4768/4769 audit stream is actively monitored/alerted for Kerberoasting and forged-ticket indicators per MITRE analytic AN1443 (high-volume RC4 etype 0x17 4769s for many SPNs from one principal; TGS requests without a corresponding TGT). Auditing without monitoring still leaves the flow effectively unobservable.",
+    "security_impact": "One of the OR-triggers for \"Insufficient TGS-request auditing & KDC exposure\" — fires when this is false (events captured but not analyzed/alerted).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm active detection logic exists over the 4768/4769 stream implementing the AN1443 indicators.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per MITRE analytic AN1443, flag TGS requests without a corresponding TGT request (silver-ticket / forged-ticket indicator) and high-volume RC4 (0x17) 4769s across many SPNs from one principal. Presence of these alert rules = true; raw capture only = false (firing).",
+        "source": "MITRE ATT&CK T1558 detection DET0522 / analytics AN1443 (TGS requests without corresponding TGT; RC4-encrypted ticket anomalies); Microsoft event 4769 reference"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review SIEM/detection content and on-call runbooks to confirm Kerberoasting / forged-ticket alerts are deployed and routed to responders.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named, enabled detection rules with an owner and routing = true (secure). No deployed Kerberos detection content = false (firing).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "kdc_network_exposure_restricted",
+    "option_description": "Whether the KDC's UDP/TCP 88 listener is reachable only from trusted domain-member network segments and not untrusted/internet-facing networks; restricting reachability limits anonymous AS-REQ probing and ticket-request abuse.",
+    "security_impact": "One of the OR-triggers for \"Insufficient TGS-request auditing & KDC exposure\" — fires when this is false (KDC port 88 reachable from untrusted networks).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe KDC port 88 (UDP and TCP) from an untrusted segment to confirm it is not reachable outside the trust boundary.",
+        "command": "nmap -sU -sT -p 88 <kdc-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port 88 open only from authorized segments. Reachability from untrusted networks is an exposure permitting anonymous AS-REQ probing and ticket requests.",
+        "source": "Kerberos KDC transport (UDP/TCP 88); MIT krb5 / network-segmentation hardening practice"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the firewall / network-segmentation rules governing the DC subnet to confirm port 88 is restricted to domain-member ranges.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACLs scope KDC 88 to trusted domain-member ranges only = true (secure). Any allow from untrusted/internet ranges = false (firing).",
+        "source": "Kerberos KDC transport (UDP/TCP 88); MIT krb5 / network-segmentation hardening practice"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_logs_forwarded_to_siem",
+    "option_description": "Whether the KDC Security log (4768/4769 events) is forwarded to a central SIEM for retention and cross-host correlation — supporting context for durable, queryable observability of the flow, not itself a trigger.",
+    "security_impact": "Contextual evidence for \"Insufficient TGS-request auditing & KDC exposure\" — does not itself fire the exposure; it indicates whether ticket-request auditing yields durable, queryable observability rather than host-local logs alone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm KDC Security events 4768/4769 are forwarded to a central SIEM with adequate retention and correlation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Forwarding pipeline (WEF/agent) confirmed delivering DC 4768/4769 events to the SIEM with retention sufficient for cross-host correlation = true. No forwarding / host-local only = false.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for recent 4768/4769 events from each KDC to confirm ingestion is live.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent 4768/4769 events present in the SIEM from every DC confirms forwarding is operational; a gap for any DC indicates broken/absent forwarding.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "kerberos_fast_armoring_enabled",
+    "option_description": "Attested true when FAST / Kerberos Armoring (Flexible Authentication Secure Tunneling) is enforced on the realm so the AS-REQ/AS-REP preauth exchange is tunnelled inside an armor key, protecting it from AS-REP roasting and enctype downgrade.",
+    "security_impact": "One of the OR-triggers for \"Unarmored preauth exchange (no PKINIT/FAST)\" — fires when this is false (the preauth exchange is bare password-based and exposed).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On MIT krb5 / Heimdal check for FAST/armoring configuration under [libdefaults]/[realms].",
+        "command": "grep -E 'pkinit|fast' /etc/krb5.conf",
+        "file_path": "/etc/krb5.conf",
+        "navigation": null,
+        "expected_output": "Presence of FAST-related options under [libdefaults]/[realms] indicates armored preauth is configured. AD: 'Kerberos client support for claims, compound authentication and Kerberos armoring' GPO Enabled.",
+        "source": "MIT krb5 krb5.conf reference (PKINIT / FAST configuration in [libdefaults]/[realms])"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Active Directory confirm the Kerberos armoring GPO is enabled and applied to the domain.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Group Policy > Computer Configuration > Administrative Templates > System > Kerberos > 'Kerberos client support for claims, compound authentication and Kerberos armoring' (and KDC-side 'Fail authentication requests when... armoring is not available' where required)",
+        "expected_output": "GPO Enabled and linked = true (secure). Not configured = false (firing).",
+        "source": "MIT krb5 krb5.conf reference (PKINIT / FAST configuration in [libdefaults]/[realms])"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "pkinit_required_for_sensitive_accounts",
+    "option_description": "Attested true when PKINIT (certificate-based preauthentication) is available/required for sensitive accounts, replacing crackable password-derived preauth with public-key material on the AS exchange.",
+    "security_impact": "One of the OR-triggers for \"Unarmored preauth exchange (no PKINIT/FAST)\" — fires when this is false (sensitive accounts rely on bare password-based preauth exposed to offline cracking and downgrade).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On MIT krb5 / Heimdal check for PKINIT anchors / configuration under [libdefaults]/[realms].",
+        "command": "grep -E 'pkinit|fast' /etc/krb5.conf",
+        "file_path": "/etc/krb5.conf",
+        "navigation": null,
+        "expected_output": "Presence of pkinit_anchors / pkinit configuration under [libdefaults]/[realms] indicates certificate-based preauth is configured for the realm.",
+        "source": "MIT krb5 krb5.conf reference (PKINIT / FAST configuration in [libdefaults]/[realms])"
+      },
+      {
+        "type": "command",
+        "instruction": "On Active Directory confirm sensitive accounts have smartcard/certificate preauth required (SMARTCARD_REQUIRED UAC bit 0x40000 = 262144).",
+        "command": "Get-ADUser -Filter 'useraccountcontrol -band 262144' -Properties useraccountcontrol | Select-Object name",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sensitive/privileged accounts appear in the list (SMARTCARD_REQUIRED set) = certificate-based preauth required for them (true/secure). Privileged accounts absent = password-derived preauth (false/firing).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unconstrained_delegation_disabled",
+    "option_description": "Attests that no computer/service account on the flow carries the AD userAccountControl TRUSTED_FOR_DELEGATION flag (0x80000 = 524288); delegation is restricted to constrained / resource-based constrained delegation (msDS-AllowedToDelegateTo) only.",
+    "security_impact": "One of the OR-triggers for \"Unconstrained / abused delegation (Bronze Bit)\" — fires when this is false: an account with unconstrained delegation caches every forwarded TGT, enabling domain takeover from one compromised host.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate computer and user accounts carrying the unconstrained-delegation flag.",
+        "command": "Get-ADComputer -Filter 'TrustedForDelegation -eq $true' -Properties TrustedForDelegation; Get-ADUser -Filter 'TrustedForDelegation -eq $true' -Properties TrustedForDelegation",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty (aside from DCs, which are expected) = secure. Any non-DC account returned has unconstrained delegation (userAccountControl bit 0x80000) and is a domain-takeover risk.",
+        "source": "Microsoft / AD delegation references (TRUSTED_FOR_DELEGATION userAccountControl flag 524288; constrained delegation via msDS-AllowedToDelegateTo)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Monitor for delegation reconfiguration events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Monitor Event ID 4738 (user account change) / 4742 (computer account change) for modifications to msDS-AllowedToDelegateTo and msDS-AllowedToActOnBehalfOfOtherIdentity (delegation reconfiguration).",
+        "source": "AD delegation monitoring guidance (Event ID 4738/4742 for delegation attribute changes)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "kdc_patched_against_delegation_bypass",
+    "option_description": "Attests that the KDCs on this flow have the November-2020-or-later cumulative update for CVE-2020-17049 (Bronze Bit) applied with enforcement enabled.",
+    "security_impact": "One of the OR-triggers for \"Unconstrained / abused delegation (Bronze Bit)\" — fires when this is false: a constrained-delegation S4U2Proxy service can tamper a non-forwardable ticket so the KDC accepts it, impersonating otherwise-protected accounts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the DC carries the November 2020 (or later) cumulative update that fixes CVE-2020-17049.",
+        "command": "Get-HotFix | Where-Object { $_.InstalledOn -ge '2020-11-10' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DC has the November 2020 (or later) cumulative update that fixes CVE-2020-17049. Absence means the constrained-delegation protection can be bypassed by the Bronze Bit attack.",
+        "source": "CVE-2020-17049 (Kerberos KCD/S4U2Proxy delegation-constraint bypass, Bronze Bit; Red Hat Bugzilla 2025721 / Microsoft advisory)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm Bronze Bit enforcement is active (not left in compatibility) per the Microsoft advisory rollout guidance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Patch applied AND enforcement mode confirmed enabled = true (secure). Patched but left in compatibility/audit = effectively still exposed.",
+        "source": "CVE-2020-17049 (Kerberos KCD/S4U2Proxy delegation-constraint bypass, Bronze Bit; Red Hat Bugzilla 2025721 / Microsoft advisory)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sensitive_accounts_marked_not_delegable",
+    "option_description": "Attests that privileged/sensitive accounts are placed in the Protected Users group and/or marked 'sensitive and cannot be delegated' (userAccountControl NOT_DELEGATED, 0x100000 = 1048576) so their tickets cannot be forwarded or delegated.",
+    "security_impact": "One of the OR-triggers for \"Unconstrained / abused delegation (Bronze Bit)\" — fires when this is false: sensitive accounts remain delegable, the precise targets the Bronze Bit bypass impersonates.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify privileged accounts that are NOT marked NOT_DELEGATED (UAC 0x100000) — the exposed delegable set.",
+        "command": "Get-ADUser -Filter 'AdminCount -eq 1' -Properties userAccountControl,memberOf | Where-Object { -not ($_.userAccountControl -band 1048576) } | Select Name",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty = all privileged accounts are non-delegable (secure). Any privileged account returned lacks the NOT_DELEGATED flag and is delegable (firing) unless covered by Protected Users membership.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm privileged accounts are members of the Protected Users group, which enforces non-delegation regardless of the per-account flag.",
+        "command": "Get-ADGroupMember -Identity 'Protected Users' | Select Name",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileged/sensitive accounts present in Protected Users membership = non-delegable (secure). Privileged accounts absent from both Protected Users and the NOT_DELEGATED set = firing.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

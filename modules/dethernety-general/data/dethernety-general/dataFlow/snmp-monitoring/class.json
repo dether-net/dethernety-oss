@@ -1,0 +1,9 @@
+{
+  "id": "9598e486-240a-470e-8796-797eb0f901aa",
+  "name": "SNMP Monitoring",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "SNMP monitoring — also called SNMP polling, SNMP traps, the network-management protocol flow, or device monitoring over SNMP — the flow where a network management station or monitoring server polls SNMP agents (UDP 161, GET / GETNEXT / GETBULK over the device MIB) and receives asynchronous SNMP traps and informs (UDP 162) from routers, switches, firewalls, printers, UPSes, and servers running an SNMP agent (net-snmp / snmpd). It is the classic network-device and infrastructure monitoring channel, distinct from HTTP /metrics scraping (Metrics Scrape) and from log shipping (Log & Telemetry Collection). The place to look for SNMP, network-device monitoring, MIB polling, SNMP community strings, or SNMP traps. Its threat surface: SNMPv1 / v2c community strings ('public' / 'private', cleartext, trivially guessed or sniffed), weak or absent SNMPv3 USM authentication and privacy, SNMP SET (write) that reconfigures the device over the monitoring channel, full MIB / device-inventory disclosure to anyone holding the community string, and SNMP reflection / amplification abuse for denial of service.",
+  "category": "Operational Traffic",
+  "status": "draft"
+}

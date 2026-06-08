@@ -1,0 +1,359 @@
+[
+  {
+    "option_name": "exporter_endpoint_authenticated",
+    "option_description": "Whether the scrape target's /metrics endpoint requires authentication. node_exporter and most exporters serve /metrics with NO auth by default; the exporter-toolkit --web.config.file adds basic_auth_users (bcrypt) and/or tls_server_config so the endpoint is not anonymously readable.",
+    "security_impact": "One of the OR-triggers for \"Unauthenticated /metrics endpoint exposure\" — firing when this is false (anonymous /metrics) — and contributes to \"/metrics not network-restricted to the monitoring segment\": an open endpoint that is also network-reachable is the full anonymous-exposure condition. Also frames the severity of \"Sensitive data leaked in metric labels\".",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the exporter's web.config.yml (path passed via --web.config.file) for an auth/TLS block.",
+        "command": "grep -E 'basic_auth_users|tls_server_config' web.config.yml",
+        "file_path": "web.config.yml (path passed to exporter via --web.config.file)",
+        "navigation": null,
+        "expected_output": "basic_auth_users: and/or tls_server_config: blocks present (secure); file absent or no auth block (insecure = open /metrics)",
+        "source": "Prometheus exporter-toolkit web configuration"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Curl the /metrics endpoint with no credentials and observe the HTTP status.",
+        "command": "curl -sS -o /dev/null -w '%{http_code}' http://<target>:9100/metrics",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "401 (auth required, secure) vs 200 with metrics body returned to an unauthenticated request (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "exporter_endpoint_network_restricted",
+    "option_description": "Whether the target /metrics endpoint is reachable only from the Prometheus monitoring segment (firewall/security-group/network-policy limiting ingress on the exporter port, e.g. 9100, to the monitoring server source). The Prometheus security model warns /metrics of instrumented binaries must not be exposed to public networks.",
+    "security_impact": "Primary mitigation and OR-trigger interplay for \"/metrics not network-restricted to the monitoring segment\" and \"Unauthenticated /metrics endpoint exposure\" — firing when this is false (0.0.0.0 bind, no ingress filtering, internet-reachable). Also bounds the leak scope of \"Sensitive data leaked in metric labels\".",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From OUTSIDE the monitoring segment, attempt to fetch the exporter port and confirm it is unreachable.",
+        "command": "curl -sS -m5 http://<target>:9100/metrics  # run from OUTSIDE the monitoring segment",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "connection refused/timeout from outside the monitoring segment (secure); metrics returned from an arbitrary host (insecure exposure)",
+        "source": "Prometheus security model"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the firewall / security-group / network-policy ingress rules governing the exporter port.",
+        "command": "Review firewall / security-group / network-policy rules governing the exporter port (e.g. 9100)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ingress to the exporter port limited to the Prometheus server source (secure); open/any-source ingress (insecure)",
+        "source": "Prometheus security model"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "metric_labels_free_of_sensitive_data",
+    "option_description": "Whether the metric label values emitted on this scrape carry no secrets, credentials, internal hostnames/IPs, build/version, process/environment data, or accidentally-labelled tokens. The Prometheus security model assumes /metrics readers are untrusted.",
+    "security_impact": "Primary OR-trigger for \"Sensitive data leaked in metric labels\" — firing when this is false, i.e. sensitive data IS present in labels on a reachable /metrics endpoint, a direct confidentiality breach. Also frames the severity of \"Unauthenticated /metrics endpoint exposure\".",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Curl /metrics and grep label values for secret-bearing or internal-address patterns.",
+        "command": "curl -s http://<target>:9100/metrics | grep -iE 'token|secret|password|key=|internal|10\\.|192\\.168'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no secret-bearing or internal-address labels returned (secure); credentials/internal IPs/hostnames present in labels (insecure exposure)",
+        "source": "Prometheus security model"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sensitive_data_masking_enabled",
+    "option_description": "Whether a label-scrubbing / masking control (metric_relabel_configs labeldrop/labelkeep, exporter-side redaction, or instrumentation that excludes secret/host fields) is applied so sensitive values cannot reach exported labels.",
+    "security_impact": "Secondary OR-trigger reinforcing \"Sensitive data leaked in metric labels\" — firing when this is false (no scrubbing in place, so sensitive label values flow to readers).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review metric_relabel_configs for labeldrop/labelkeep rules and any exporter-side redaction.",
+        "command": "grep -nE 'metric_relabel_configs|labeldrop|labelkeep' prometheus.yml",
+        "file_path": "prometheus.yml (scrape_configs[].metric_relabel_configs)",
+        "navigation": null,
+        "expected_output": "labeldrop/labelkeep (or exporter redaction) dropping secret/host label keys before ingest (secure); no scrubbing rules present (insecure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "network_test",
+        "instruction": "After confirming masking config, curl /metrics and verify the targeted secret/host label keys are absent from the emitted series.",
+        "command": "curl -s http://<target>:9100/metrics | grep -iE 'secret|password|token|hostname'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "the intended-to-be-masked label keys do not appear (masking effective); they still appear (masking absent/ineffective)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "data_minimization_enforced",
+    "option_description": "Whether data-minimization is enforced for what this flow exports — only operationally necessary metrics/labels are emitted, reducing the surface for accidental sensitive-value inclusion. Supporting context, not itself a trigger.",
+    "security_impact": "Supporting context for \"Sensitive data leaked in metric labels\" — it is not itself a condition trigger, but a minimized export set reduces the surface that the leak trigger evaluates.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Curl /metrics and review the emitted metric/label set against operational need.",
+        "command": "curl -s http://<target>:9100/metrics | grep -vE '^#' | cut -d'{' -f1 | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "only operationally necessary counters/gauges emitted; high-cardinality or descriptive labels carrying environment data are NOT exported (secure)",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a review process exists that limits exported metrics/labels to operational need.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "documented minimization of the exported metric/label set; no descriptive environment data labelled (secure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scrape_sample_and_label_limits_set",
+    "option_description": "Whether the scrape config bounds per-target ingest volume: sample_limit, label_limit, label_name_length_limit, label_value_length_limit and target_limit set to finite non-zero values. These all default to 0/unset, meaning Prometheus trusts whatever cardinality and label volume the target returns.",
+    "security_impact": "Primary OR-trigger for \"Cardinality bomb / TSDB resource exhaustion\" — firing when this is false: a malicious target ships millions of high-cardinality series or oversized labels and exhausts/OOMs the TSDB.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect prometheus.yml scrape_configs[] for the cardinality/label limit keys set to finite non-zero values.",
+        "command": "grep -E 'sample_limit|label_limit|label_name_length_limit|label_value_length_limit|target_limit|body_size_limit' prometheus.yml",
+        "file_path": "prometheus.yml (scrape_configs[])",
+        "navigation": null,
+        "expected_output": "finite non-zero values present (secure); keys absent / 0 = unbounded, target-trusted (insecure)",
+        "source": "Prometheus scrape_config configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scrape_body_size_limit_set",
+    "option_description": "Whether scrape_config.body_size_limit is set to a finite non-zero value capping the size of the response body Prometheus will read from a target. It defaults to 0 (no limit), so a malicious target can return an arbitrarily large /metrics body and exhaust scraper memory before any per-sample limit applies.",
+    "security_impact": "Primary OR-trigger for \"Cardinality bomb / TSDB resource exhaustion\" — firing when this is false (unbounded body accepted from an untrusted target), exhausting scraper memory ahead of any per-sample limit.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect prometheus.yml scrape_configs[].body_size_limit for a finite non-zero value (e.g. 10MB).",
+        "command": "grep -E 'body_size_limit' prometheus.yml",
+        "file_path": "prometheus.yml (scrape_configs[])",
+        "navigation": null,
+        "expected_output": "body_size_limit set to a finite non-zero value such as 10MB (secure); key absent / 0 = unbounded body accepted (insecure)",
+        "source": "Prometheus scrape_config configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scrape_config_edit_restricted",
+    "option_description": "Whether write access to scrape_config (prometheus.yml), file_sd target files, and relabel_configs that build target addresses is limited to trusted operators, and SD-derived targets are validated/allowlisted. When unrestricted, any party able to edit scrape config or relabel rules can point Prometheus at arbitrary internal URLs.",
+    "security_impact": "OR-trigger for \"SSRF via editable scrape config / service discovery\" — firing on the insecure (unrestricted) state, where editable config/relabel rules let an attacker steer Prometheus at internal targets.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review who can write prometheus.yml, file_sd target files, and the http_sd backing service, plus relabel_configs that build target addresses from SD labels.",
+        "command": "Review who can write prometheus.yml, file_sd target files, and http_sd backing service; review relabel_configs that build target addresses from SD labels",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "write access to config + SD sources limited to trusted operators; SD-derived targets validated/allowlisted (secure); any service-discovery contributor can inject targets (insecure SSRF surface)",
+        "source": "Prometheus security model"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "service_discovery_source_trusted",
+    "option_description": "Whether the service-discovery backends feeding scrape targets (http_sd endpoint, file_sd files, Consul, etc.) are trusted and write-restricted so untrusted parties cannot inject arbitrary target addresses. When untrusted, an attacker who can mutate SD data controls what Prometheus fetches.",
+    "security_impact": "OR-trigger for \"SSRF via editable scrape config / service discovery\" — firing on the insecure (untrusted SD) state, where an attacker mutating SD data dictates Prometheus's fetch targets.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Identify the SD backends in use and confirm write access to each is authenticated and restricted to trusted parties with target addresses validated/allowlisted.",
+        "command": "Review who can write prometheus.yml, file_sd target files, and http_sd backing service; review relabel_configs that build target addresses from SD labels",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "write access to config + SD sources limited to trusted operators; SD-derived targets validated/allowlisted (secure); any service-discovery contributor can inject targets (insecure SSRF surface)",
+        "source": "Prometheus security model"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Enumerate the SD source types configured for this job (http_sd, file_sd, Consul, etc.) to scope the trust review.",
+        "command": "grep -nE 'http_sd_configs|file_sd_configs|consul_sd_configs|_sd_configs' prometheus.yml",
+        "file_path": "prometheus.yml (scrape_configs[])",
+        "navigation": null,
+        "expected_output": "the set of SD backends feeding targets, each then checked for write-restriction/allowlisting",
+        "source": "Prometheus scrape_config configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "proxying_exporter_target_allowlisted",
+    "option_description": "Whether proxying exporters (Blackbox/SNMP) restrict the targets they will probe to a validated allowlist, so they cannot be coerced into requesting arbitrary internal endpoints and leaking client-side basic_auth secrets. When absent, the proxying exporter is an open SSRF relay.",
+    "security_impact": "OR-trigger for \"SSRF via editable scrape config / service discovery\" — firing on the insecure (no allowlist) state, where a Blackbox/SNMP proxy can be aimed at arbitrary internal endpoints and leak presented credentials.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "If Blackbox/SNMP or other proxying exporters are in use, confirm the target parameter is constrained to a validated allowlist rather than accepting any caller-supplied address.",
+        "command": "Review who can write prometheus.yml, file_sd target files, and http_sd backing service; review relabel_configs that build target addresses from SD labels",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "proxying-exporter target constrained to a validated allowlist (secure); any caller-supplied address accepted = open SSRF relay (insecure)",
+        "source": "Prometheus security model"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scrape_scheme_https",
+    "option_description": "Whether the Prometheus scrape_config.scheme is https for this flow. scheme defaults to 'http' (plaintext); scraping over http exposes the often sensitive-labelled metrics and any basic_auth credential the scraper presents on the wire.",
+    "security_impact": "OR-trigger for \"Plaintext scrape transport\" — firing (is_false) when the scrape runs over plaintext http, exposing metrics and presented credentials to an adjacent sniffer.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect prometheus.yml scrape_configs[].scheme for this job.",
+        "command": "grep -E 'scheme:' prometheus.yml",
+        "file_path": "prometheus.yml (scrape_configs[].scheme)",
+        "navigation": null,
+        "expected_output": "scheme: https (secure); scheme: http or key absent = default http (insecure)",
+        "source": "Prometheus scrape_config configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Shared workspace attestation that this flow's transport is encrypted end to end — both the client-side scheme (https) and the exporter serving /metrics under tls_server_config, neither plaintext push nor plaintext exporter response.",
+    "security_impact": "OR-trigger for \"Plaintext scrape transport\" — firing (is_false) when any leg of the scrape is carried in cleartext, exposing metrics and presented basic_auth credentials to an adjacent sniffer.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the exporter serves /metrics under TLS by checking web.config.yml for a tls_server_config block.",
+        "command": "grep -A4 'tls_server_config' web.config.yml",
+        "file_path": "web.config.yml",
+        "navigation": null,
+        "expected_output": "tls_server_config with cert_file/key_file present (secure server leg); block absent = plaintext (insecure)",
+        "source": "Prometheus exporter-toolkit web configuration"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture traffic on the scrape port to verify no cleartext metrics body crosses the wire on either leg.",
+        "command": "curl -s http://<target>:9100/metrics | head  # expect refused/empty if TLS-only; cleartext body = insecure",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "no cleartext metrics body observable (both legs TLS, secure); a readable plaintext metrics body (insecure leg)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_min_version",
+    "option_description": "The minimum negotiated TLS version for this flow — the exporter-toolkit tls_server_config.min_version on the server side and the scrape tls_config on the client side. Secure floor is TLS1.2 or TLS1.3.",
+    "security_impact": "OR-trigger for \"Plaintext scrape transport\" — firing when the negotiated floor is in {SSLv3, TLS1.0, TLS1.1}, which permits downgrade/weak-cipher transport even when TLS is nominally present, leaving the scrape sniffable.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect web.config.yml tls_server_config.min_version (exporter) and the scrape tls_config (client) for the configured floor.",
+        "command": "grep -A4 'tls_server_config' web.config.yml",
+        "file_path": "web.config.yml",
+        "navigation": null,
+        "expected_output": "tls_server_config with min_version: TLS12 (or TLS13) (secure); block absent = plaintext, or min_version below TLS12 (insecure)",
+        "source": "Prometheus exporter-toolkit web configuration"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the exporter with a deprecated TLS version and confirm the handshake is refused.",
+        "command": "openssl s_client -connect <target>:9100 -tls1_1 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "handshake failure for TLS1.1 (secure floor) vs successful negotiation of TLS1.1/older (insecure)",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3"
+    ]
+  },
+  {
+    "option_name": "scrape_target_tls_certificate_verified",
+    "option_description": "Whether Prometheus validates the scrape target's server certificate on the HTTPS scrape. Secure when scrape_config.tls_config.insecure_skip_verify is false (its default) with a ca_file pinning the trusted CA. When validation is disabled, a MITM can impersonate the target over a secure-looking HTTPS scrape.",
+    "security_impact": "OR-trigger for \"Unverified target TLS (insecure_skip_verify / MITM)\" — firing when this is false (insecure_skip_verify: true / no trust anchor), letting a man-in-the-middle serve poisoned metrics or capture presented basic_auth/bearer credentials.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect prometheus.yml scrape_configs[].tls_config for insecure_skip_verify and ca_file.",
+        "command": "grep -E 'insecure_skip_verify|ca_file' prometheus.yml",
+        "file_path": "prometheus.yml (scrape_configs[].tls_config)",
+        "navigation": null,
+        "expected_output": "insecure_skip_verify: false (or absent) with ca_file present (secure); insecure_skip_verify: true (insecure)",
+        "source": "Prometheus scrape_config configuration reference"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

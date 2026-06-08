@@ -1,0 +1,586 @@
+[
+  {
+    "option_name": "anonymous_bind_disabled",
+    "option_description": "Attests the directory server rejects anonymous bind requests (no DN, no credentials), so an unauthenticated client cannot connect and enumerate the DIT.",
+    "security_impact": "One of the OR-triggers for \"Anonymous / unauthenticated bind directory disclosure\" — the exposure fires when this attestation is false (anonymous bind accepted), permitting reconnaissance of users/groups/emails (ATT&CK T1087).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the slapd global config for the olcDisallows attribute (slapd.conf equivalent: 'disallow bind_anon').",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config '(objectClass=olcGlobal)' olcDisallows",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcDisallows: bind_anon (secure) or attribute absent (insecure — anonymous bind permitted by default).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Empirically attempt an anonymous bind against the directory and read the result.",
+        "command": "ldapwhoami -x -H ldap://HOST:389",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An error / inappropriateAuthentication (secure — anonymous bind refused) vs 'anonymous' / dn:'' returned (insecure — anonymous bind accepted).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "directory_access_requires_authentication",
+    "option_description": "Attests all directory operations require an authenticated identity ('require authc' / olcRequires: authc), closing the anonymous-read bypass that disabling anonymous bind alone leaves open.",
+    "security_impact": "One of the OR-triggers for \"Anonymous / unauthenticated bind directory disclosure\" — fires when false; even with anonymous bind disabled, the server answers anonymous searches, exposing the whole tree (ATT&CK T1087).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the olcRequires attribute on the database/global config (slapd.conf: 'require authc').",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcRequires",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcRequires: authc (secure) or absent (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify empirically that an anonymous search (not just bind) is refused rather than returning entries.",
+        "command": "ldapsearch -x -H ldap://HOST -b 'BASE_DN' '(objectClass=*)' dn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No entries / error without binding (secure) vs DIT entries returned to an anonymous client (insecure — directory readable without authc).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unauthenticated_empty_password_bind_rejected",
+    "option_description": "Attests a simple bind with a non-empty DN and a zero-length password (RFC 4513 §5.1.2 unauthenticated mechanism) is rejected rather than silently authenticating the named DN.",
+    "security_impact": "One of the OR-triggers for \"Anonymous / unauthenticated bind directory disclosure\" — fires when false; a lax server authenticates the client as the named DN with an empty password, an authentication bypass (ATT&CK T1078).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the olcAllows attribute and confirm bind_anon_cred is not present (slapd.conf: 'allow bind_anon_cred').",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcAllows",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcAllows does NOT contain bind_anon_cred (secure, default) vs 'olcAllows: bind_anon_cred' present (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a simple bind with a real DN and an empty password and read the result.",
+        "command": "ldapwhoami -H ldap://HOST -D 'cn=someuser,BASE_DN' -w ''",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bind fails with unwillingToPerform/invalidCredentials (secure) vs authenticated as the DN with an empty password (insecure — unauthenticated bind accepted).",
+        "source": "RFC 4513 §5.1.2 Unauthenticated Authentication Mechanism of Simple Bind"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Whether the LDAP flow is encrypted in transit (ldaps://636 or a successfully negotiated StartTLS on 389), so the bind DN and password do not cross the wire in cleartext.",
+    "security_impact": "One of the OR-triggers for \"Cleartext LDAP bind credential exposure / StartTLS downgrade\" — fires when false; a simple bind over ldap://389 exposes the credential to network sniffing (ATT&CK T1040).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Confirm ldaps://636 is reachable with TLS, or that StartTLS (-ZZ) succeeds on 389.",
+        "command": "nmap -p 636 --script ssl-enum-ciphers HOST  # and verify 389 StartTLS via 'ldapsearch -ZZ'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ldaps:// (636) reachable with TLS, or StartTLS (-ZZ) succeeds; cleartext 389 without StartTLS = insecure.",
+        "source": "AWS Managed Microsoft AD client-side LDAPS (reused corpus)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture the bind on the wire and confirm it is TLS, not a cleartext simple-bind DN/password.",
+        "command": "tcpdump -i any -A 'port 389 or port 636' -c 50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bind exchange is TLS-wrapped (secure) vs a readable cleartext simple-bind DN and password in the capture (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ldap_tls_required",
+    "option_description": "Whether the server enforces a minimum confidentiality strength so plaintext binds are refused (OpenLDAP olcSecurity ssf/minssf >= 128, or AD LDAP signing/channel-binding requirement).",
+    "security_impact": "One of the OR-triggers for \"Cleartext LDAP bind credential exposure / StartTLS downgrade\" — fires when false; without an enforced SSF the server accepts cleartext ldap://389 binds even when TLS is available (ATT&CK T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read olcSecurity for an enforced minimum SSF (slapd.conf: 'security ssf=128').",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcSecurity",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcSecurity contains ssf>=128 (256 recommended) and/or simple_bind / update_ssf (secure) vs no olcSecurity / ssf=0 (insecure — no confidentiality enforced).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a plaintext simple bind over port 389 and verify it is refused with confidentialityRequired.",
+        "command": "ldapwhoami -x -H ldap://HOST:389 -D 'BIND_DN' -w PW",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bind refused with confidentialityRequired over plaintext 389 (secure — TLS enforced) vs successful plaintext bind (insecure — credentials exposed).",
+        "source": "AWS Managed Microsoft AD client-side LDAPS (reused corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "starttls_downgrade_prevented",
+    "option_description": "Whether StartTLS on the flow cannot be stripped or downgraded by an active attacker — TLS is mandatory (ldaps://636 or StartTLS required, bind refused without it) rather than opportunistic.",
+    "security_impact": "One of the OR-triggers for \"Cleartext LDAP bind credential exposure / StartTLS downgrade\" — fires when false; a MITM can suppress the StartTLS upgrade and force the bind into cleartext (ATT&CK T1040).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm olcSecurity enforces an SSF so the server refuses an un-upgraded bind rather than answering it opportunistically.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcSecurity",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcSecurity ssf>=128 present so a non-TLS bind is refused (secure) vs no SSF requirement, StartTLS optional/strippable (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Simulate StartTLS suppression (or point the client at plaintext 389) and confirm the bind fails rather than proceeding in cleartext; confirm whether the client uses ldaps://636 exclusively.",
+        "command": "ldapwhoami -x -H ldap://HOST:389 -D 'BIND_DN' -w PW   # no -ZZ, i.e. StartTLS suppressed",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bind refused without TLS / client only uses ldaps://636 (secure — no opportunistic fallback) vs cleartext bind proceeds (insecure — downgradeable).",
+        "source": "AWS Managed Microsoft AD client-side LDAPS (reused corpus)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_min_version",
+    "option_description": "Minimum TLS protocol version the directory channel negotiates (olcTLSProtocolMin / observable via ssl-enum on ldaps://636 or StartTLS).",
+    "security_impact": "One of the OR-triggers for \"Weak/legacy TLS on the directory channel\" — fires when the floor is SSLv3/TLS1.0/TLS1.1; the recommended TLS1.2/TLS1.3 do not fire. A legacy floor leaves the encrypted bind channel breakable.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read olcTLSProtocolMin to confirm the enforced floor (3.3 = TLS 1.2).",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcTLSCipherSuite olcTLSProtocolMin",
+        "file_path": "cn=config",
+        "navigation": null,
+        "expected_output": "olcTLSProtocolMin set to 3.3 (TLS 1.2) or higher (secure) vs unset/permissive allowing TLS 1.0 (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations / Using TLS"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate the protocols offered on ldaps://636 (or StartTLS on 389) and read the lowest accepted.",
+        "command": "nmap -p 636 --script ssl-enum-ciphers HOST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lowest protocol is TLS 1.2/1.3 (secure) vs SSLv3/TLS1.0/TLS1.1 offered (insecure).",
+        "source": "general-knowledge (TLS cipher enumeration; corroborates olcTLSCipherSuite config)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3",
+      "TLS1.0"
+    ]
+  },
+  {
+    "option_name": "weak_tls_ciphers_disabled",
+    "option_description": "Attestation that the directory channel's cipher list excludes weak/legacy suites (NULL/aNULL/eNULL, RC4, DES/3DES, EXPORT, MD5).",
+    "security_impact": "One of the OR-triggers for \"Weak/legacy TLS on the directory channel\" — fires when false (weak ciphers still negotiable), leaving the encrypted bind channel breakable.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read olcTLSCipherSuite and confirm it excludes NULL/export/RC4/DES (e.g. a HIGH:!aNULL:!eNULL:!MD5:!RC4 form).",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcTLSCipherSuite olcTLSProtocolMin",
+        "file_path": "cn=config",
+        "navigation": null,
+        "expected_output": "olcTLSCipherSuite excludes NULL/export/RC4/DES (secure) vs unset/permissive (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations / Using TLS"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Enumerate negotiable cipher suites on 636 and confirm no weak suites remain.",
+        "command": "nmap -p 636 --script ssl-enum-ciphers HOST",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLS 1.2/1.3 with strong ciphers offered (secure) vs NULL/RC4/DES/3DES/EXPORT/MD5 suites listed (insecure).",
+        "source": "general-knowledge (TLS cipher enumeration; corroborates olcTLSCipherSuite config)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "ldap_search_filter_input_escaped",
+    "option_description": "Attestation that all user input concatenated into LDAP search filters is escaped per RFC 4515 (* ( ) \\ and NUL) or routed through a filter encoder.",
+    "security_impact": "One of the OR-triggers for \"LDAP injection via unescaped search filters / DNs\" — fires when false; raw input reaches the filter string, enabling uid=* / )(uid=* injection for auth bypass or full-tree disclosure (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Code-review the search-filter build path: input must pass an RFC 4515 escaper / filter-encoder before concatenation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Filters use parameterized templates or an LDAP filter encoder (LdapFilterEncode), and the four RFC 4515 chars (* ( ) \\) are escaped (secure) vs raw user input concatenated into the filter (insecure).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet (RFC 4515 / RFC 4514)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the app login/search endpoints with filter-injection payloads and confirm they are treated as literals.",
+        "command": "# Probe app login/search with payloads: uid=*  and  uid=*)(uid=*  and  )(uid=*))(|(uid=*",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Input rejected/escaped, login fails, no broadened result set (secure) vs authentication bypass or full-tree disclosure (insecure — filter injection).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "parameterized_filter_templates_used",
+    "option_description": "Attestation that search filters are built from parameterized templates (e.g. '(&(uid={0})(objectClass=person))' with input bound separately) or an encoder API, not string concatenation.",
+    "security_impact": "One of the OR-triggers for \"LDAP injection via unescaped search filters / DNs\" — fires when false; concatenation of raw user input is the root cause of LDAP injection (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Inspect the data-access layer: filters should use parameterized templates or an encoder API, not string concatenation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Parameterized filter templates / encoder API (LdapFilterEncode) in use (secure) vs raw concatenation, e.g. `+`-style filter assembly (insecure).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet (RFC 4515 / RFC 4514)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Grep the application source for string-concatenated filter assembly as a negative signal.",
+        "command": "grep -RniE '\\(&?\\(?(uid|cn|mail|sAMAccountName)=.*\\+' SRC_DIR/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No concatenated filter assembly found; matches resolve to template/encoder calls (secure) vs raw `+`-concatenated filter strings (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dn_input_escaped",
+    "option_description": "Attestation that user input placed into Distinguished Names is escaped per the broader RFC 4514 metacharacter set (or allow-listed).",
+    "security_impact": "One of the OR-triggers for \"LDAP injection via unescaped search filters / DNs\" — fires when false; an attacker injects DN metachars to alter the target DN of a bind or modify operation (ATT&CK T1190).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Code-review DN composition from user input: confirm RFC 4514 escaping (or strict allow-listing) via a DN encoder.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DNs built with an RFC 4514 encoder (LdapDistinguishedNameEncode) or allow-listed (secure) vs raw input concatenated into the DN (insecure).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet (RFC 4515 / RFC 4514)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test with DN injection characters and verify the target DN is not altered.",
+        "command": "# Probe with DN metachars in the username field: ,  +  =  \\  #",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Metachars escaped, target DN unchanged (secure) vs the bind/modify DN is altered (insecure — DN injection).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "directory_acl_least_privilege",
+    "option_description": "Attests the directory's olcAccess/access ACLs scope read to only the principals that require it and every chain terminates in 'by * none' — no catch-all 'access to * by * read'.",
+    "security_impact": "One of the OR-triggers for \"Over-permissive directory ACL / userPassword hash disclosure\" — fires when false; a catch-all read ACL exposes the whole DIT to anonymous/low-privilege clients for reconnaissance (ATT&CK T1087).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the olcAccess rules and confirm each chain ends 'by * none' with no catch-all read clause.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config '(olcAccess=*)' olcAccess",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "ACLs scope read to 'users'/specific DNs and end 'by * none' (secure) vs a rule granting 'by * read' or 'by anonymous read' on '*' (insecure — whole-DIT disclosure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      },
+      {
+        "type": "network_test",
+        "instruction": "As an anonymous/low-priv client, attempt to read entries and sensitive/operational attributes across the tree.",
+        "command": "ldapsearch -x -H ldap://HOST -b 'BASE_DN' '(objectClass=*)' '*' +",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Anonymous/low-priv client cannot read the tree or sensitive attrs (secure) vs entries with operational/sensitive attributes returned (insecure — over-broad ACL).",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "userpassword_attribute_read_restricted",
+    "option_description": "Attests a dedicated ACL gates userPassword (and other secrets) to 'by self =xw by anonymous auth by * none', preceding the generic read rule.",
+    "security_impact": "One of the OR-triggers for \"Over-permissive directory ACL / userPassword hash disclosure\" — fires when false; userPassword falls through to a generic read clause and hashes are readable for offline cracking (ATT&CK T1003).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a dedicated userPassword ACL precedes any generic read rule.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config '(olcAccess=*userPassword*)' olcAccess",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "A specific 'access to attrs=userPassword by self =xw by anonymous auth by * none' rule precedes the generic read rule (secure) vs no such rule (insecure — userPassword falls through to read).",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to read userPassword as an anonymous/low-priv (non-self) client.",
+        "command": "ldapsearch -x -H ldap://HOST -b 'BASE_DN' '(uid=someuser)' userPassword",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "userPassword empty/no-access for non-self readers (secure) vs the hash returned (insecure — password disclosure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "whole_tree_anonymous_read_disabled",
+    "option_description": "Attests anonymous clients cannot read the full directory tree — anonymous read of the DIT is denied (no anonymous 'by * read' on '*').",
+    "security_impact": "One of the OR-triggers for \"Over-permissive directory ACL / userPassword hash disclosure\" — fires when false; an anonymous client can enumerate the entire tree, the precondition turning an over-broad ACL into full-DIT disclosure (ATT&CK T1087).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run an anonymous full-subtree search and confirm it cannot enumerate the whole DIT.",
+        "command": "ldapsearch -x -H ldap://HOST -b 'BASE_DN' '(objectClass=*)' dn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No entries / refused for the anonymous client (secure) vs the full tree enumerated (insecure — anonymous 'by * read' on '*').",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read olcAccess and confirm no rule grants anonymous read on '*'.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config '(olcAccess=*)' olcAccess",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "No 'by anonymous read' / 'by * read' on '*' (secure) vs such a clause present (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bind_dn_credentials_stored_plaintext_in_config",
+    "option_description": "Attestation that the service bind-DN password is stored in plaintext in application config or environment files (a literal bindpw/ldap.password value rather than a runtime reference).",
+    "security_impact": "One of the OR-triggers for \"Privileged bind-DN credential in app config\" — fires when true; a plaintext bind credential is a high-value secret whose leak grants the app's directory privileges (ATT&CK T1552.001 Credentials In Files).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Audit the application config/env directory for a literal bind-DN password.",
+        "command": "grep -RniE 'bind.?(dn|pw|password)|ldap.*pass' CONFIG_DIR/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No plaintext bind password (only a runtime secret reference) = secure (false); a literal bind-DN password appearing in config/env = insecure (true, fires).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet (complementary: least-privilege bind account)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "bind_dn_credentials_externalized",
+    "option_description": "Attestation that the bind-DN credential is resolved at runtime from a secret manager (or a SASL EXTERNAL/GSSAPI/certificate bind is used) rather than held as a static value in app config.",
+    "security_impact": "One of the OR-triggers for \"Privileged bind-DN credential in app config\" — fires when false; a non-externalized in-config bind credential is the leakable secret behind this dataFlow's directory access (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the bind credential is fetched at runtime from a secret store (or a SASL/cert bind is used), and that config holds only a reference/path.",
+        "command": "grep -RniE 'bind.?(dn|pw|password)|ldap.*pass' CONFIG_DIR/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Credential resolved from a secret store at runtime / SASL EXTERNAL or GSSAPI bind; config holds only a reference (secure) vs static password embedded in config (insecure).",
+        "source": "OWASP LDAP Injection Prevention Cheat Sheet (complementary: least-privilege bind account)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "bind_account_least_privilege_readonly",
+    "option_description": "Attestation that the service bind account has a least-privilege, read-only ACL scoped to only the entries/attributes the app needs, rather than a broad or directory-admin-equivalent grant.",
+    "security_impact": "One of the OR-triggers for \"Privileged bind-DN credential in app config\" — fires when false; an over-privileged bind account widens the blast radius of a leaked credential to the whole DIT, often with write (ATT&CK T1552).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the olcAccess rules referencing the service bind DN and confirm they grant only minimal read and terminate in 'by * none'.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config '(olcAccess=*)' olcAccess",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "Bind DN's ACLs grant only the minimal read it needs and end 'by * none' (secure) vs directory-admin or write-equivalent access (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Access Control"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Bind as the service account and attempt a write/modify beyond its intended scope to confirm it is denied.",
+        "command": "ldapmodify -x -H ldap://HOST -D 'BIND_DN' -w PW   # attempt a modify outside the app's scope",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Out-of-scope write denied with insufficientAccessRights (secure — read-only least-privilege) vs the modify succeeds (insecure — over-privileged bind).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "userpassword_hash_scheme",
+    "option_description": "Storage scheme used for the userPassword attribute, set by slapd olcPasswordHash (or the FreeIPA/AD equivalent).",
+    "security_impact": "Triggers \"Weak password-hash storage scheme\" — fires when the scheme is one of the weak values (sha, crypt, cleartext); on disclosure the hash is trivially recovered (ATT&CK T1003). Salted strong schemes (argon2/bcrypt/ssha) do not fire.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read olcPasswordHash (slapd) or the FreeIPA/AD equivalent.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcPasswordHash",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcPasswordHash: {SSHA} (or argon2/bcrypt module) (secure) vs {CLEARTEXT} / unsalted (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations (password storage)"
+      },
+      {
+        "type": "command",
+        "instruction": "Where readable to an admin, sample a stored userPassword value and read its {SCHEME} prefix.",
+        "command": "# Where readable to admin: inspect a userPassword value prefix",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Value begins with {SSHA}/{ARGON2}/{BCRYPT} (secure) vs plaintext or {CRYPT} weak hash (insecure).",
+        "source": "OpenLDAP 2.5 Admin Guide — Security Considerations"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "ssha",
+      "bcrypt",
+      "argon2"
+    ]
+  },
+  {
+    "option_name": "account_lockout_policy_enabled",
+    "option_description": "Attests the directory bind endpoint enforces an account-lockout policy (OpenLDAP ppolicy overlay with pwdLockout: TRUE and bounded pwdMaxFailure/pwdLockoutDuration; equivalent on AD/FreeIPA).",
+    "security_impact": "One of the OR-triggers for \"Missing lockout / unbounded search (brute-force & resource exhaustion)\" — fires when false; the bind endpoint accepts unlimited attempts, exposing every account to brute-force/password-spray (ATT&CK T1110).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the ppolicy overlay is loaded and read pwdLockout/pwdMaxFailure/pwdLockoutDuration on the policy entry.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config '(olcOverlay=ppolicy)' && ldapsearch -x -D 'BIND_DN' -W -b 'POLICY_DN' pwdLockout pwdMaxFailure pwdLockoutDuration",
+        "file_path": "cn=config + policy entry",
+        "navigation": null,
+        "expected_output": "ppolicy overlay present; pwdLockout: TRUE, pwdMaxFailure small (e.g. 5), pwdLockoutDuration set (secure) vs overlay absent or pwdLockout FALSE (insecure).",
+        "source": "OpenLDAP Admin Guide — Overlays (ppolicy)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Empirically attempt repeated bad binds against a test account and confirm it locks.",
+        "command": "for i in $(seq 1 10); do ldapwhoami -x -H ldap://HOST -D 'cn=testuser,BASE_DN' -w wrongpw; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Account locks after the bounded failure count (secure) vs unlimited attempts accepted (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "search_size_and_time_limits_bounded",
+    "option_description": "Attests directory searches are bounded by enforced size and time limits (olcSizeLimit/olcTimeLimit, bounded paged-result size.prtotal, tighter per-initiator olcLimits for anonymous/unprivileged clients).",
+    "security_impact": "One of the OR-triggers for \"Missing lockout / unbounded search (brute-force & resource exhaustion)\" — fires when false; a single client can run unbounded searches to exhaust resources or mass-exfiltrate the DIT (ATT&CK T1499).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read olcSizeLimit/olcTimeLimit/olcLimits and confirm bounded values plus tighter limits for untrusted initiators.",
+        "command": "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config olcSizeLimit olcTimeLimit olcLimits",
+        "file_path": "cn=config / slapd.conf",
+        "navigation": null,
+        "expected_output": "olcSizeLimit bounded (default 500) and olcTimeLimit bounded (default 3600); olcLimits restrict anonymous/unprivileged initiators; size.prtotal not 'unlimited' for untrusted clients (secure) vs 'unlimited' values (insecure).",
+        "source": "OpenLDAP 2.6 Admin Guide — Limits"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run a broad search and verify it is capped rather than returning the whole DIT.",
+        "command": "ldapsearch -x -H ldap://HOST -b 'BASE_DN' '(objectClass=*)' dn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Result capped with sizeLimitExceeded / timeLimitExceeded (secure) vs the whole DIT returned in one query (insecure — unbounded search).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

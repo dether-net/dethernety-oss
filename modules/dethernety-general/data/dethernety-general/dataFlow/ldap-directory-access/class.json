@@ -1,0 +1,9 @@
+{
+  "id": "fdf21a15-695f-489b-833e-5df98188eee5",
+  "name": "LDAP / Directory Access",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "LDAP and directory access — also called LDAP bind, directory query, the LDAP search, or directory authentication — the flow where an application or service connects to an LDAP directory and authenticates (bind) or reads / writes directory entries (search, compare, modify): OpenLDAP (slapd) and FreeIPA over ldap:// (389) or ldaps:// (636) / StartTLS, used both as an authentication backend (bind to verify user credentials) and as an identity / group lookup. Distinct from the web-SSO Authentication Exchange (OIDC / SAML) and from the generic Database Query, though it shares their injection and transport concerns. The place to look for LDAP, directory bind / search, the LDAP server query, or directory-based authentication and group lookup. Its threat surface: anonymous or unauthenticated bind, cleartext LDAP on 389 without TLS / StartTLS exposing bind credentials and entries, LDAP injection via unescaped search filters, over-permissive directory ACLs disclosing the full directory tree, and a privileged bind-DN credential exposed in application config.",
+  "category": "Identity & Access",
+  "status": "draft"
+}

@@ -1,0 +1,589 @@
+[
+  {
+    "option_name": "acme_multi_perspective_validation_enabled",
+    "option_description": "Attests the CA corroborates ACME http-01/dns-01 domain-control validation from >=2 geographically distant vantage points (Multi-Perspective Issuance Corroboration, CA/Browser Forum SC-067), so a localized BGP/DNS hijack reaching one validator cannot forge a passing challenge.",
+    "security_impact": "One of the OR-triggers for \"Spoofable ACME domain-control validation\" — fires when this is false (single-vantage validation), letting a BGP/DNS hijack of the one validator mint a cert for a domain the attacker does not control. MPIC is the network-leg defense paired with CAA binding and DNSSEC.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Have the CA operator attest whether Multi-Perspective Issuance Corroboration is enabled. Public CAs are required to per SC-067; self-hosted/single-vantage step-ca typically validates from one vantage — record as residual risk and pair with EAB + CAA.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CA operator attests MPIC is enabled (>=2 remote vantage points corroborate). Single-vantage step-ca = residual risk, set false.",
+        "source": "CA/Browser Forum Ballot SC-067 / Let's Encrypt multi-vantage-point validation (USENIX Security '21)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "caa_method_binding_enforced",
+    "option_description": "Attests the domain publishes CAA records (RFC 8657) with accounturi= (bind issuance to one ACME account) and validationmethods= (restrict the permitted domain-control method, e.g. dns-01 only), and that the CA honors them.",
+    "security_impact": "One of the OR-triggers for \"Spoofable ACME domain-control validation\" — fires when false (no CAA account/method binding), so a hijacked vantage can pass an unauthorized method and a stolen account elsewhere can mint certs for the domain.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Query the domain's CAA records and confirm accounturi= and validationmethods= parameters are present.",
+        "command": "dig +short CAA example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "0 issue \"<ca-host>; accounturi=https://<ca>/acme/acct/1234; validationmethods=dns-01\" (secure) vs no CAA / bare issue with no params (insecure)",
+        "source": "RFC 8657 (accounturi / validationmethods CAA parameters)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Confirm the ACME provisioner publishes its caaIdentities so clients can pin CAA against the CA's issuer-domain-name.",
+        "command": "step ca provisioner list | jq '.[] | select(.type==\"ACME\") | .caaIdentities'",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "caaIdentities populated so the CA's issuer-domain-name is published for clients to set CAA against",
+        "source": "step-ca provisioners docs (caaIdentities JSON field)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "dnssec_validated_for_dns_challenge",
+    "option_description": "Attests the domain's DNS is DNSSEC-signed and the CA performs DNSSEC validation when resolving the dns-01 TXT record and the CAA lookup, so an off-path DNS hijack/cache-poisoning cannot forge the challenge TXT or strip CAA undetected.",
+    "security_impact": "One of the OR-triggers for \"Spoofable ACME domain-control validation\" — fires when false. DNSSEC is the third leg (alongside MPIC and CAA binding) that closes single-vantage domain-control spoofing of the dns-01 challenge and CAA lookup.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the enrollment domain is DNSSEC-signed by checking for DS/RRSIG records and an authenticated-data response from a validating resolver.",
+        "command": "dig +dnssec example.com SOA; dig DS example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RRSIG records and a DS record present, resolver returns the 'ad' (authenticated-data) flag = DNSSEC validated (secure); no DS/RRSIG = unsigned zone (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the CA's own resolver performs DNSSEC validation when resolving the dns-01 TXT and CAA lookups (not just that the zone is signed).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CA operator attests the validating resolver enforces DNSSEC for challenge/CAA resolution; a non-validating resolver leaves the dns-01 path spoofable.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "enrollment_client_authentication_required",
+    "option_description": "Attests the enrollment flow requires the requesting client to authenticate before issuance (ACME EAB, EST mTLS / HTTP-Basic-over-TLS, or a per-device SCEP secret), so no path mints certificates for an unauthenticated caller.",
+    "security_impact": "One of the OR-triggers for \"Weak enrollment authentication / open issuance oracle\" — fires when false: any party that can reach the endpoint (ACME finalize, EST simpleenroll, SCEP) can mint certificates, an unauthenticated issuance oracle.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Probe each enrollment path (EST simpleenroll, ACME finalize, SCEP) without credentials and confirm it rejects the request before issuance.",
+        "command": "curl -k https://<est-host>/.well-known/est/simpleenroll -o /dev/null -w '%{http_code}\\n'  # expect 401/handshake-fail without client cert",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Without credentials: TLS handshake requires a client cert OR 401 (secure). 200/enroll succeeding unauthenticated on any path = insecure (set false).",
+        "source": "RFC 7030 §3.3/§3.2 (TLS client auth, server MUST be authenticated, NULL/anon forbidden)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm no enrollment path (ACME finalize, EST simpleenroll, SCEP) accepts a request without authenticating the client first.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Operator confirms every enrollment endpoint gates issuance on client authentication; any open path sets this false.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "acme_external_account_binding_required",
+    "option_description": "Attests the ACME provisioner requires External Account Binding (RFC 8555 externalAccountBinding; step-ca --require-eab / requireEAB:true), tying account creation to a pre-issued MAC key/keyID so only pre-authorized clients can enroll.",
+    "security_impact": "One of the OR-triggers for \"Weak enrollment authentication / open issuance oracle\" — fires when false: ACME account creation is open and anyone passing a domain challenge can obtain a cert from the internal CA.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the ACME provisioner's requireEAB flag and confirm a managed EAB key list exists; verify account creation rejects requests lacking a valid externalAccountBinding.",
+        "command": "step ca provisioner list | jq '.[] | select(.type==\"ACME\") | .requireEAB'; step ca acme eab list <provisioner>",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "requireEAB: true and a managed EAB key list (secure). Add via: step ca provisioner add <name> --type ACME --require-eab; step ca acme eab add <provisioner> <ref>",
+        "source": "step-ca provisioners / step ca acme eab add reference (--require-eab flag, eab add command)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "est_mutual_tls_client_auth_required",
+    "option_description": "Attests the EST endpoint (RFC 7030) requires TLS client-certificate authentication (or HTTP-Basic/Digest strictly over TLS) for simpleenroll, with the server authenticated in the handshake and no NULL/anon ciphers.",
+    "security_impact": "One of the OR-triggers for \"Weak enrollment authentication / open issuance oracle\" — fires when false: the EST endpoint accepts unauthenticated enrollment requests, an open issuance oracle.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Hit EST /simpleenroll without a client certificate and confirm the handshake demands a cert or the server returns 401.",
+        "command": "curl -k https://<est-host>/.well-known/est/simpleenroll -o /dev/null -w '%{http_code}\\n'  # expect 401/handshake-fail without client cert",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Without a client cert: TLS handshake requires cert OR 401 (secure). 200/enroll succeeding unauthenticated = insecure.",
+        "source": "RFC 7030 §3.3/§3.2 (TLS client auth, server MUST be authenticated, NULL/anon forbidden)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scep_static_challenge_password_in_use",
+    "option_description": "Attests the SCEP provisioner authenticates enrollment with a single static, long-lived, broadly-distributed shared challenge password rather than a dynamic per-device/one-time secret. A leaked or sniffed static challenge lets an attacker enroll arbitrary devices.",
+    "security_impact": "One of the OR-triggers for \"Weak enrollment authentication / open issuance oracle\" — fires when true (static shared secret in use). Secure value is false (dynamic per-enrollment challenge).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SCEP provisioner challenge: a single literal shared challenge string across all devices sets this true; a dynamic per-device one-time challenge sets it false.",
+        "command": "step ca provisioner list | jq '.[] | select(.type==\"SCEP\") | {challengeStatic: (.challenge!=null), encryptionAlgorithmIdentifier, minimumPublicKeyLength}'",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "A single literal 'challenge' string shared across devices = static-secret finding (true). A dynamic per-device one-time challenge = false.",
+        "source": "step-ca provisioners docs (SCEP challenge / encryptionAlgorithmIdentifier default 0=DES-CBC / minimumPublicKeyLength default 2048)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "enrollee_supplies_subject_disabled",
+    "option_description": "True when the CA constrains the requester-supplied CSR Subject/SAN/EKU to the identity the enrollment principal is authorized for (x509 name policy, certificate template, or disableCustomSANs on cloud provisioners) rather than blindly honoring whatever the CSR asks for.",
+    "security_impact": "One of the OR-triggers for \"Requester-supplied SAN/Subject honored at issuance\" — fires when false (the ESC1-analogue): a low-privilege enrollee can mint a certificate impersonating any host or user. step-ca X5C/JWK provisioners issue for ANY Subject by default unless a template/name-policy restricts.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect each provisioner for an x509 template / allow-deny name policy bounding SANs, and check cloud provisioners for disableCustomSANs. Absent template on X5C/JWK = unconstrained.",
+        "command": "step ca provisioner list | jq '.[] | {type, claims, options}'; cat <template>.tpl",
+        "file_path": "ca.json / templates/*.tpl",
+        "navigation": null,
+        "expected_output": "Provisioner carries an x509 template / allow-deny name policy bounding SANs; cloud provisioner shows disableCustomSANs:true (sets true). Absent template + X5C/JWK = unconstrained, ESC1-style (false).",
+        "source": "step-ca provisioners docs (disableCustomSANs, X5C 'any Subject names' + templates) / EJBCA Certificate Profile Fields (Allow Subject DN Override risk)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "custom_sans_allowed_unconstrained",
+    "option_description": "True when the provisioner accepts arbitrary requester-chosen SANs with no allow/deny bound — disableCustomSANs is off on a cloud provisioner, or an X5C/JWK provisioner has no SAN-bounding template. Captures the disableCustomSANs control point from the insecure polarity.",
+    "security_impact": "One of the OR-triggers for \"Requester-supplied SAN/Subject honored at issuance\" — fires when true (custom SANs unconstrained). Secure value is false (custom SANs disabled / bounded). Distinct polarity from enrollee_supplies_subject_disabled.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check whether the provisioner accepts arbitrary requester SANs: disableCustomSANs off / no bounding template sets this true.",
+        "command": "step ca provisioner list | jq '.[] | {type, claims, options}'; cat <template>.tpl",
+        "file_path": "ca.json / templates/*.tpl",
+        "navigation": null,
+        "expected_output": "Cloud provisioner with disableCustomSANs:false, or X5C/JWK with no SAN-bounding template = true (unconstrained). disableCustomSANs:true / bounding template = false.",
+        "source": "step-ca provisioners docs (disableCustomSANs, X5C 'any Subject names' + templates) / EJBCA Certificate Profile Fields (Allow Subject DN Override risk)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "issuance_template_or_name_policy_enforced",
+    "option_description": "True when an x509 certificate template or allow/deny name policy is attached to the enrollment provisioner that bounds the allowed DNS/IP SANs, Subject DN, and EKU per authorized identity.",
+    "security_impact": "One of the OR-triggers for \"Requester-supplied SAN/Subject honored at issuance\" — fires when false (the absent-template X5C/JWK case), so the CA honors arbitrary Subject/SAN. Secondary trigger for the ESC1-analogue weakness from the policy-enforcement angle.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm a certificate template or x509 allow/deny name policy is bound to the provisioner, bounding SAN/Subject/EKU per identity.",
+        "command": "step ca provisioner list | jq '.[] | {type, claims, options}'; cat <template>.tpl",
+        "file_path": "ca.json / templates/*.tpl",
+        "navigation": null,
+        "expected_output": "An x509 template / allow-deny name policy is present and bound (true); no template/policy on the provisioner = false (unconstrained).",
+        "source": "step-ca provisioners docs (disableCustomSANs, X5C 'any Subject names' + templates) / EJBCA Certificate Profile Fields (Allow Subject DN Override risk)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "enrollment_provisioner_type",
+    "option_description": "Which provisioner mints certificates on this enrollment flow (acme/scep/est/jwk/oidc/x5c/cloud). Context for interpreting the SAN/Subject constraint: X5C/JWK default to 'any Subject', cloud provisioners expose disableCustomSANs, ACME finalize honors the CSR SANs.",
+    "security_impact": "Not itself a trigger. Provides context for \"Requester-supplied SAN/Subject honored at issuance\" — disambiguates which constraint mechanism (template, disableCustomSANs, CSR honoring) the assessor must check.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Record the provisioner type(s) from step-ca config to scope which constraint mechanism applies.",
+        "command": "step ca provisioner list | jq '.[] | {name, type}'",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "List of provisioners with type one of acme/scep/est/jwk/oidc/x5c/cloud, identifying the enrollment mechanism in use.",
+        "source": "step-ca provisioners docs (challenges JSON field)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "acme",
+      "scep",
+      "jwk",
+      "x5c"
+    ]
+  },
+  {
+    "option_name": "private_key_delivered_in_transit",
+    "option_description": "Whether the certificate private key traverses the enrollment channel (server-side keygen with PKCS#12 key delivery). True = the issued private key is on the wire and in CA memory; secure (false) keeps the private key client-side so only the CSR/public key crosses the channel.",
+    "security_impact": "One of the OR-triggers for \"Issued private key exposed in transit\" — fires when true: the private key is on the wire and in CA memory, exposed to MITM and CA compromise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Determine whether the CA generates the keypair and returns the private key (PKCS#12) on the wire, or only the public key (CSR) crosses the channel.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enrollment client attests keypair is generated locally (ACME/EST simple-enroll, SCEP PKCSReq carry a client CSR) = false. Any server-side-keygen / PKCS#12-with-key delivery path = true.",
+        "source": "RFC 8555 (CSR-based finalize) / RFC 7030 §4.2 (simpleenroll with client CSR) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "client_side_key_generation",
+    "option_description": "Whether the requesting host generates the keypair locally and submits a CSR carrying only the public key (RFC 8555 finalize / RFC 7030 simpleenroll). Secure value is true.",
+    "security_impact": "One of the OR-triggers for \"Issued private key exposed in transit\" — fires when false, because the CA generates the key and returns it (PKCS#12 with private key in transit / resident at the CA).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the enrollee generates its keypair locally and submits only a CSR; CA-side keygen with PKCS#12 return sets this false.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enrollment client attests keypair is generated locally (ACME/EST simple-enroll, SCEP PKCSReq carry a client CSR) = true. Any server-side-keygen / PKCS#12-with-key delivery path = false.",
+        "source": "RFC 8555 (CSR-based finalize) / RFC 7030 §4.2 (simpleenroll with client CSR) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "scep_payload_encryption_algorithm",
+    "option_description": "The SCEP encryptionAlgorithmIdentifier used to wrap the PKCS#7 enrollment payload (step-ca default 0 = DES-CBC). des_cbc/3des_cbc provide no real confidentiality for an issued private key carried in the SCEP response; secure value is aes256_cbc (encryptionAlgorithmIdentifier=2).",
+    "security_impact": "One of the OR-triggers for \"Issued private key exposed in transit\" — fires when the weak DES/3DES algorithms are selected, so a SCEP response carrying private material has no real confidentiality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the SCEP provisioner encryptionAlgorithmIdentifier; 0/1 (DES/3DES-CBC) are weak, 2 (aes256_cbc) is secure. Default is 0=DES-CBC and must be overridden.",
+        "command": "step ca provisioner list | jq '.[] | select(.type==\"SCEP\") | {challengeStatic: (.challenge!=null), encryptionAlgorithmIdentifier, minimumPublicKeyLength}'",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "encryptionAlgorithmIdentifier:2 (aes256_cbc) = secure. Default 0 (DES-CBC) / 1 (3DES-CBC) = weak finding.",
+        "source": "step-ca provisioners docs (SCEP challenge / encryptionAlgorithmIdentifier default 0=DES-CBC / minimumPublicKeyLength default 2048)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "des_cbc",
+      "aes256_cbc"
+    ]
+  },
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Attests the certificate-enrollment flow is carried exclusively over TLS/HTTPS (ACME mandates HTTPS per RFC 8555 §6.1; EST mandates TLS 1.1+ per RFC 7030 §3.3). When false, legacy SCEP plain-HTTP enrollment or an http:// directory exposes CSRs, SCEP challenge-passwords, and issued material.",
+    "security_impact": "One of the OR-triggers for \"Cleartext enrollment transport\" — fires when false (any plain-HTTP enrollment path), exposing enrollment material to network interception and tampering.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Verify the ACME directory is served only over HTTPS and that no plain-HTTP enrollment endpoint responds.",
+        "command": "openssl s_client -connect <ca-host>:443 -alpn acme-tls/1 </dev/null 2>/dev/null | openssl x509 -noout -subject; curl -sI http://<ca-host>/acme/<provisioner>/directory",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACME directory served only over HTTPS (secure); plain-HTTP SCEP endpoint responding 200 on http:// = insecure cleartext enrollment",
+        "source": "RFC 8555 §6.1 (HTTPS required) / step-ca acme-basics (ACME API requires HTTPS)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the EST endpoint negotiates TLS 1.1+ with no NULL/anon cipher.",
+        "command": "openssl s_client -connect <est-host>:443 -tls1_2 </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EST endpoint negotiates TLS 1.1+ with no NULL/anon cipher (secure). RFC 7030 forbids NULL/anon suites and mandates TLS for HTTP Basic/Digest.",
+        "source": "RFC 7030 §3.3 (HTTPS MUST, TLS 1.1+, NULL/anon MUST NOT)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "null_or_anon_ciphers_permitted",
+    "option_description": "Interpreted attestation that the enrollment endpoint negotiates NULL or anonymous (aNULL/eNULL) TLS cipher suites, which provide no confidentiality and/or no server authentication. RFC 7030 §3.3 forbids NULL/anon suites for EST.",
+    "security_impact": "One of the OR-triggers for \"Cleartext enrollment transport\" — fires when true: an enrollment TLS session accepting NULL/anon suites is effectively cleartext-equivalent and MITM-able. Secure value is false.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Test-negotiate the enrollment endpoint for aNULL/eNULL suites; any acceptance sets this true.",
+        "command": "testssl.sh --cipher-per-proto https://<ca-host>:443 | grep -iE 'null|anon'; openssl s_client -connect <ca-host>:443 -cipher 'aNULL:eNULL' </dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No NULL/anon cipher negotiated (handshake fails) = secure (false). Any aNULL/eNULL suite accepted = true (insecure).",
+        "source": "RFC 7030 §3.3 (HTTPS MUST, TLS 1.1+, NULL/anon MUST NOT)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "tls_min_version",
+    "option_description": "Minimum TLS protocol version the enrollment transport will negotiate. EST requires TLS 1.1+; modern hardening expects TLS 1.2+. A floor of SSLv3/TLS1.0 permits downgraded, weakly-protected enrollment sessions.",
+    "security_impact": "One of the OR-triggers for \"Cleartext enrollment transport\" — fires on legacy/insecure floor values (SSLv3/TLS1.0/TLS1.1). Secure value is TLS1.2 or TLS1.3.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Determine the lowest TLS version the enrollment endpoint will negotiate by probing each protocol floor.",
+        "command": "openssl s_client -connect <ca-host>:443 -tls1 </dev/null; openssl s_client -connect <ca-host>:443 -tls1_2 </dev/null; testssl.sh -p https://<ca-host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake fails for SSLv3/TLS1.0/TLS1.1 and succeeds at TLS1.2+ = secure. A successful SSLv3/TLS1.0/TLS1.1 handshake reveals the insecure floor.",
+        "source": "RFC 7030 §3.3 (HTTPS MUST, TLS 1.1+, NULL/anon MUST NOT)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3",
+      "TLS1.0"
+    ]
+  },
+  {
+    "option_name": "enrollment_tokens_short_lived_single_use",
+    "option_description": "Attests that JWK/OIDC/X5C provisioner enrollment tokens (bearer JWTs that authorize cert issuance) are short-lived and single-use. When false, a stolen or replayed long-lived reusable token mints trusted certs at will, bypassing challenge validation.",
+    "security_impact": "One of the OR-triggers for \"Provisioner / enrollment-token compromise\" — fires when false (long-lived/reusable token). Secure value is true.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Enumerate JWK/OIDC/X5C provisioners and confirm token TTL is short and tokens are single-use (nonce enforced); long-lived or replayable tokens set this false.",
+        "command": "step ca provisioner list | jq '.[] | {name,type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enumerate JWK/OIDC/X5C provisioners; confirm token TTL is short, tokens are bound (sub/sans/sha), and single-use. Long-lived/replayable tokens = false.",
+        "source": "step-ca provisioners docs (JWK token bound to SANs/CN/root fingerprint; OIDC ID tokens; X5C signed-by-cert) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "enrollment_token_bound_to_identity",
+    "option_description": "Attests that enrollment tokens are cryptographically bound to the expected SAN/CN plus the CA root fingerprint (sub/sans/sha audience binding), so a captured token cannot be redirected to mint a cert for an arbitrary identity.",
+    "security_impact": "One of the OR-triggers for \"Provisioner / enrollment-token compromise\" — fires when false: an unbound bearer token is a general-purpose issuance grant.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify tokens pin sub/sans plus the CA root SHA so they cannot be redirected to an arbitrary identity; unbound bearer tokens set this false.",
+        "command": "step ca provisioner list | jq '.[] | {name,type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirm JWK/X5C tokens are bound (sub/sans/sha) to the expected identity + root fingerprint. Unbound bearer tokens = false.",
+        "source": "step-ca provisioners docs (JWK token bound to SANs/CN/root fingerprint; OIDC ID tokens; X5C signed-by-cert) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "provisioner_signing_key_protected",
+    "option_description": "Attests the provisioner signing key / JWK provisioner password / OIDC trust material is access-controlled, stored in a secret manager, and rotated — not broadly shared. Theft lets an attacker mint trusted certs at will.",
+    "security_impact": "One of the OR-triggers for \"Provisioner / enrollment-token compromise\" — fires when false (unprotected/broadly-shared key).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm provisioner signing key / JWK password / OIDC trust material is vaulted, access-controlled, and rotated, not broadly shared.",
+        "command": "step ca provisioner list | jq '.[] | {name,type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify provisioner key custody/rotation: key in a secret manager with access control and rotation = true; broadly-shared/static key = false.",
+        "source": "step-ca provisioners docs (JWK token bound to SANs/CN/root fingerprint; OIDC ID tokens; X5C signed-by-cert) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "oidc_id_token_claims_validated",
+    "option_description": "For OIDC provisioners, attests the ID token's iss/aud/exp claims are pinned and validated rather than treating a client secret as the only gate.",
+    "security_impact": "One of the OR-triggers for \"Provisioner / enrollment-token compromise\" — fires when false: a token from the wrong issuer/audience or an expired token can drive issuance.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Verify the OIDC provisioner pins and validates iss/aud/exp on the ID token rather than relying on a client secret alone.",
+        "command": "step ca provisioner list | jq '.[] | select(.type==\"OIDC\") | {name, clientID, configurationEndpoint, admins}'",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "OIDC provisioner pins issuer (configurationEndpoint) and clientID (aud) and enforces exp = true. Client-secret-only gating without claim pinning = false.",
+        "source": "step-ca provisioners docs (JWK token bound to SANs/CN/root fingerprint; OIDC ID tokens; X5C signed-by-cert) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "max_leaf_validity_days",
+    "option_description": "Maximum validity (in days) a certificate issued by this enrollment flow may carry, mapped from the provisioner's maxTLSCertDuration (step-ca claims; default 24h). Bounding lifetime caps the blast radius of a mis-issuance or compromised key.",
+    "security_impact": "One of the OR-triggers for \"Unbounded validity + missing revocation\" — fires (HIGH_IS_INSECURE) above ~397 days (the CA/Browser-Forum leaf cap), and especially unbounded/multi-year durations up to the 3650-day max: a single mis-issued or stolen cert stays trusted for years.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the provisioner maxTLSCertDuration (and defaultTLSCertDuration) and express in days; confirm it is bounded and not overridable to years.",
+        "command": "step ca provisioner list | jq '.[].claims | {minTLSCertDuration,maxTLSCertDuration,defaultTLSCertDuration,disableRenewal}'",
+        "file_path": "ca.json",
+        "navigation": null,
+        "expected_output": "maxTLSCertDuration e.g. \"24h\" (step-ca default), defaultTLSCertDuration \"24h\" — bounded (well below 397 days). Multi-year / unbounded = finding.",
+        "source": "step-ca provisioners docs (minTLSCertDuration/maxTLSCertDuration/defaultTLSCertDuration claims)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      1,
+      90,
+      397,
+      3650
+    ]
+  },
+  {
+    "option_name": "crl_or_ocsp_configured",
+    "option_description": "Whether the enrollment flow's issued certificates carry a working revocation path (OCSP responder URI and/or CRL distribution point) so a mis-issued or compromised certificate can be recalled before natural expiry.",
+    "security_impact": "One of the OR-triggers for \"Unbounded validity + missing revocation\" — fires when false (no OCSP/CRL): combined with long validity, a bad certificate is trusted with no recall mechanism for years.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Inspect an issued cert for an OCSP responder URI / CRL distribution point and verify the endpoint is reachable (or that validity is short enough to make revocation moot).",
+        "command": "openssl x509 -in issued.pem -noout -ocsp_uri; dig +short CAA example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issued cert carries an OCSP URI / CRL DP (reachable), or validity is short enough to make revocation moot = true. Neither = false.",
+        "source": "AWS Private CA revocation docs (corpus: short-lived UsageMode reduces revocation dependence) / general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "issuance_rate_limiting_enabled",
+    "option_description": "Whether the enrollment flow enforces per-account / per-IP issuance rate limits (orders per window) with issuance-spike alerting. When false, a compromised credential or buggy client can flood the CA and mass-mint certificates unthrottled.",
+    "security_impact": "One of the OR-triggers for \"Unmonitored / unthrottled issuance\" — fires when false: unbounded issuance permits resource exhaustion and mass-minting from a compromised credential.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm per-account/per-IP issuance rate limits with spike alerting are configured on the enrollment endpoint (often at the reverse proxy, since step-ca OSS has limited built-in rate limiting).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reverse-proxy / CA config attests issuance rate limits (orders per account/IP per window). step-ca OSS has limited built-in rate limiting — usually enforced at proxy; record where.",
+        "source": "general-knowledge / step-ca operational guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "issuance_audit_logging_enabled",
+    "option_description": "Whether every issuance is recorded in a structured, immutable audit log capturing provisioner, principal, requested vs issued SAN/Subject, serial, validity (notAfter), and challenge type.",
+    "security_impact": "One of the OR-triggers for \"Unmonitored / unthrottled issuance\" — fires when false: mis-issuance and provisioner abuse are undetectable and unattributable.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm per-issuance records (provisioner, subject/SANs, serial, validity, challenge type) are present in the CA logs.",
+        "command": "journalctl -u step-ca | grep -i 'sign\\|provisioner\\|certificate' | tail",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-issuance records with provisioner name, subject/SANs, serial, validity present (secure); silence = no audit trail (false).",
+        "source": "general-knowledge / step-ca operational guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_logs_forwarded_to_siem",
+    "option_description": "Whether issuance audit records are shipped off-host to a SIEM / central log store rather than retained local-only and mutable. Local-only logs can be tampered with or wiped by an attacker who reaches the CA host.",
+    "security_impact": "One of the OR-triggers for \"Unmonitored / unthrottled issuance\" — fires when false: local-only mutable logs defeat detection of mis-issuance after a CA-host compromise.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm issuance audit records are forwarded off-host to a SIEM/central store rather than kept local-only and mutable.",
+        "command": "journalctl -u step-ca | grep -i 'sign\\|provisioner\\|certificate' | tail",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuance records are exported to a SIEM/central store (verify a forwarder/shipper is configured and records arrive) = true; local-only retention = false.",
+        "source": "general-knowledge / step-ca operational guidance"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

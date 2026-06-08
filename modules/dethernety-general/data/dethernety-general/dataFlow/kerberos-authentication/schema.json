@@ -1,0 +1,386 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "kerberos_preauthentication_required": {
+        "type": "boolean",
+        "title": "Kerberos Pre-Authentication Required on All Accounts",
+        "description": "Whether Kerberos pre-authentication is required on every account so the KDC never returns an AS-REP encrypted with the account key to an unauthenticated requester. Maps to the AD userAccountControl DONT_REQUIRE_PREAUTH bit (0x400000 = 4194304) being unset on all accounts; secure value true. When false, an account is AS-REP roastable: the AS-REQ/AS-REP leg issues crackable ciphertext to any requester (verify via Get-ADUser -Filter 'useraccountcontrol -band 4194304', or Event 4768 with Pre-Auth Type 0). Also the precondition the RC4-MD4/RC4-HMAC-OLD preauth downgrade CVEs (CVE-2022-33647/33679) depend on.",
+        "default": false
+      },
+      "accounts_with_preauth_disabled_present": {
+        "type": "boolean",
+        "title": "Accounts With Pre-Authentication Disabled Present",
+        "description": "Whether one or more accounts in the realm/domain have 'Do not require Kerberos preauthentication' set (DONT_REQUIRE_PREAUTH UAC bit 0x400000). Interpreted-boolean inverse of kerberos_preauthentication_required for assessors who enumerate the exposed account set directly; insecure (firing) value is true, secure value false. Any such account returns an AS-REP encrypted with its account key to an anonymous requester for offline cracking (AS-REP roasting), and is also the precondition the CVE-2022-33647/33679 preauth enctype downgrade requires.",
+        "default": false
+      },
+      "kerberos_ticket_encryption_type": {
+        "type": "string",
+        "enum": [
+          "aes256",
+          "aes128",
+          "rc4_hmac",
+          "des_cbc_md5",
+          "des_cbc_crc"
+        ],
+        "title": "Kerberos Ticket Encryption Type",
+        "description": "The encryption type negotiated for Kerberos AS-REP / TGS-REP ticket ciphertext on this flow, as determined by the effective KDC and account enctype policy (AD msDS-SupportedEncryptionTypes / DefaultDomainSupportedEncTypes; MIT krb5 permitted_enctypes / default_tgs_enctypes). AES256 (etype 0x12) and AES128 are secure; rc4_hmac (arcfour-hmac, etype 0x17) and single-DES (des-cbc-md5/crc) produce cheaply offline-crackable ticket ciphertext that is the Kerberoasting / AS-REP-roasting substrate. The exposure fires when a weak legacy type is negotiated on the flow."
+      },
+      "weak_legacy_enctypes_disabled": {
+        "type": "boolean",
+        "title": "Weak Legacy Enctypes (RC4/DES) Disabled Everywhere",
+        "description": "Interpreted attestation that the realm's effective enctype policy excludes ALL weak legacy types — RC4 (arcfour-hmac, bit 0x4) and single-DES (bits 0x1/0x2) — across every governing knob: AD DefaultDomainSupportedEncTypes restricted to 0x18 (AES128+AES256), no account left blank or with the RC4/DES bits in msDS-SupportedEncryptionTypes, and MIT krb5 [libdefaults] permitted_enctypes / default_tkt_enctypes / default_tgs_enctypes AES-only with allow_weak_crypto=false. True = weak types are filtered out everywhere (secure baseline); the exposure fires when this is false because the raw composite directives are interpreted rather than substring-matched. Avoids the substring/has_element polarity trap.",
+        "default": false
+      },
+      "rc4_preauth_downgrade_patched": {
+        "type": "boolean",
+        "title": "RC4 Preauth Downgrade Patched (CVE-2022-33647/33679)",
+        "description": "Interpreted attestation that the DCs serving this flow have the November-2022+ cumulative update that removed support for the legacy RC4-MD4 (etype -128) and RC4-HMAC-OLD (etype -133) preauth encryption types (CVE-2022-33647 / CVE-2022-33679). When unpatched, an attacker downgrades the AS-REQ/AS-REP preauth exchange to RC4-MD4 to extract a TGT session key (and, per Horizon3, perform unauthenticated Kerberoasting), so the exposure fires when this is false. This is the assessable surface for exposure to the cited CVE-2022-33647/33679 downgrade. Consolidates the equivalent weak_preauth_enctypes_patched evidence from the AS-REP-roasting vector."
+      },
+      "service_accounts_use_gmsa_or_strong_random_keys": {
+        "type": "boolean",
+        "title": "Service Accounts Use gMSA or Strong Random Keys",
+        "description": "Attestation that every SPN-bearing service account is either a Group Managed Service Account (gMSA, with a 240-character auto-rotated machine-generated password) or governed by an enforced long random password policy (25+ characters). When false, the TGS-REP encrypted with the service account's key is crackable offline (Kerberoasting). Insecure (firing) value is false; secure value is true. Grounded in dossier config_surface 'service_account_key_strength_or_gmsa' and the Kerberoasting attack vector.",
+        "default": false
+      },
+      "spn_accounts_have_weak_passwords": {
+        "type": "boolean",
+        "title": "SPN Accounts Have Weak Passwords",
+        "description": "Attestation that one or more SPNs are bound to ordinary user objects carrying human-chosen or short/stale passwords (rather than gMSA or strong-random-password accounts). True is the insecure (firing) state — a directly Kerberoastable service account whose TGS-REP key can be cracked offline. Secure value is false. Interpreted boolean derived from the assessor's review of user-class SPN accounts and their PasswordLastSet per dossier config_surface 'service_account_key_strength_or_gmsa'.",
+        "default": false
+      },
+      "spn_account_rc4_tickets_permitted": {
+        "type": "boolean",
+        "title": "SPN-Account RC4 Tickets Permitted",
+        "description": "Attestation that SPN-bearing service accounts can still be issued RC4-HMAC (etype 0x17) TGS-REPs — i.e. msDS-SupportedEncryptionTypes is blank/0 (KDC defaults to RC4) or has the RC4 bit (0x4) set, and/or the KDC fallback (DefaultDomainSupportedEncTypes) is not restricted to AES-only (0x18). True is the insecure (firing) state: RC4 service tickets are the fast-offline-crack substrate that makes Kerberoasting practical. Secure value is false (AES-only tickets). Consolidates the AS-REP-roasting vector's rc4_etype_permitted amplifying-context attribute (same RC4-permitted concept). Grounded in dossier config_surface 'account_supported_enctypes_aes' and 'rc4_disabled_kdc_default'."
+      },
+      "spn_account_count": {
+        "type": "integer",
+        "title": "SPN-Bearing Account Count",
+        "description": "Number of SPN-bearing accounts in the realm/domain enumerable by any authenticated principal. Supporting context for the Kerberoasting blast radius (more user-class SPN accounts means a larger offline-cracking target set); not itself a trigger. Derived from enumerating servicePrincipalName-bearing accounts per dossier config_surface 'service_account_key_strength_or_gmsa'.",
+        "minimum": 0
+      },
+      "krbtgt_rotated_on_schedule": {
+        "type": "boolean",
+        "title": "krbtgt Rotated on Schedule",
+        "description": "Attests the krbtgt account key is rotated on a defined schedule (commonly every ~180 days, and immediately after any suspected DC/domain compromise). The krbtgt key signs every TGT; when it is never rotated, any historical hash leak permanently forges valid TGTs (Golden Tickets) that survive normal credential resets. Secure value is true; the exposure fires when rotation is not performed on schedule (false). Assessor verifies via Get-ADUser krbtgt -Properties PasswordLastSet,whenChanged — a multi-year-old PasswordLastSet indicates no rotation.",
+        "default": false
+      },
+      "krbtgt_reset_twice_on_rotation": {
+        "type": "boolean",
+        "title": "krbtgt Reset Twice on Rotation",
+        "description": "Attests that each krbtgt rotation resets the password TWICE so both the current and the previous krbtgt key are invalidated (a single reset leaves the previous key — and any leaked hash of it — still able to sign valid TGTs). Secure value is true; the exposure fires when the double-reset discipline is not followed (false), leaving a window in which a compromised prior krbtgt hash still forges Golden Tickets.",
+        "default": false
+      },
+      "krbtgt_password_age_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "krbtgt Password Age (Days)",
+        "description": "Age in days of the krbtgt account password (derived from PasswordLastSet/whenChanged on the krbtgt account). Higher is more insecure: a stale krbtgt password means any historical hash leak still forges valid Golden Tickets. The exposure fires when age exceeds the ~180-day rotation window. Assessor reads PasswordLastSet for the krbtgt account and computes days since that date."
+      },
+      "max_ticket_lifetime_hours": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 720,
+        "title": "Maximum Ticket Lifetime (Hours)",
+        "description": "Maximum Kerberos service/user ticket lifetime in hours (AD 'Maximum lifetime for user ticket' / MIT krb5 [libdefaults] ticket_lifetime). Secure default is <= 10h; longer lifetimes widen the window in which a stolen or forged TGS (pass-the-ticket / Silver Ticket) remains replayable. HIGH_IS_INSECURE — fires when greater than 10."
+      },
+      "max_renewable_lifetime_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+        "title": "Maximum Renewable Lifetime (Days)",
+        "description": "Maximum Kerberos ticket renewable lifetime in days (AD 'Maximum lifetime for ticket renewal' / MIT krb5 [libdefaults] renew_lifetime). Secure default is <= 7 days; unbounded renewable lifetimes let a stolen or forged ticket be renewed and replayed for an extended period. HIGH_IS_INSECURE — fires when greater than 7."
+      },
+      "pac_validation_enforced": {
+        "type": "boolean",
+        "title": "PAC Validation Enforced",
+        "description": "Interpreted attestation that PAC (Privilege Attribute Certificate) signature validation is enforced so a service does not blindly trust a presented service ticket. A forged Silver Ticket carries an attacker-fabricated PAC; when the service verifies the PAC signatures with the KDC the forgery is rejected. Secure value is true; fires (exposure) when PAC validation is not enforced.",
+        "default": false
+      },
+      "tgs_request_auditing_enabled": {
+        "type": "boolean",
+        "title": "Kerberos Ticket-Request Auditing Enabled",
+        "description": "Interpreted attestation that KDC Kerberos ticket-request auditing is enabled and captured for this flow — Security events 4768 (TGT requested) and 4769 (service ticket requested) are generated and retained. A Silver Ticket is a TGS forged WITHOUT any KDC TGS-REQ, so it produces no matching 4769; a service ticket presented with no corresponding TGT/TGS request is the primary forged-ticket indicator (MITRE analytic AN1443). Secure value is true; fires (exposure) when ticket auditing is disabled, leaving forgeries undetectable. Consolidates the duplicate kerberos_ticket_request_auditing_enabled attribute from the TGS-auditing/KDC-exposure vector.",
+        "default": false
+      },
+      "kerberoasting_detection_alerting_enabled": {
+        "type": "boolean",
+        "title": "Kerberoasting / Forged-Ticket Detection Alerting Enabled",
+        "description": "Whether the captured 4768/4769 audit stream is actively monitored/alerted for Kerberoasting and forged-ticket indicators per MITRE analytic AN1443: high-volume RC4 (etype 0x17) service-ticket requests for many SPNs from one principal, and TGS requests without a corresponding TGT request (Silver Ticket / forged-ticket indicator). Auditing without monitoring still leaves the flow effectively unobservable. Interpreted boolean. Fires (exposure) when false; secure value is true. Distinct from raw event capture (tgs_request_auditing_enabled)."
+      },
+      "kdc_network_exposure_restricted": {
+        "type": "boolean",
+        "title": "KDC Network Exposure Restricted",
+        "description": "Whether the KDC's UDP/TCP 88 listener is reachable only from trusted domain-member network segments (not untrusted/internet-facing networks). When false, anonymous AS-REQ probing (AS-REP roasting reconnaissance) and ticket-request abuse are possible from outside the trust boundary. Interpreted boolean attesting network segmentation of the Kerberos flow's KDC endpoint (Kerberos KDC transport UDP/TCP 88; network-segmentation hardening). Fires (exposure) when false; secure value is true.",
+        "default": false
+      },
+      "audit_logs_forwarded_to_siem": {
+        "type": "boolean",
+        "title": "Audit Logs Forwarded to SIEM",
+        "description": "Whether the KDC Security log (4768/4769 events) is forwarded to a central SIEM for retention and cross-host correlation. Supporting context for whether ticket-request auditing yields durable, queryable observability of the flow rather than host-local logs alone. Not itself a trigger for this vector. Name aligned to the workspace-canonical audit_logs_forwarded_to_siem."
+      },
+      "kerberos_fast_armoring_enabled": {
+        "type": "boolean",
+        "title": "Kerberos FAST Armoring Enabled",
+        "description": "Attested true when FAST / Kerberos Armoring (Flexible Authentication Secure Tunneling) is enforced on the realm so the AS-REQ/AS-REP preauth exchange is tunnelled inside an armor key. When false the preauth exchange is bare password-based and exposed to AS-REP roasting (offline cracking) and enctype downgrade. AD: 'Kerberos client support for claims, compound authentication and Kerberos armoring' GPO Enabled; MIT krb5: FAST options under [libdefaults]/[realms]. Fires (exposure) when armoring is absent.",
+        "default": false
+      },
+      "pkinit_required_for_sensitive_accounts": {
+        "type": "boolean",
+        "title": "PKINIT Required for Sensitive Accounts",
+        "description": "Attested true when PKINIT (certificate-based preauthentication) is available/required for sensitive accounts, replacing crackable password-derived preauth with public-key material on the AS exchange. When false sensitive accounts rely on bare password-based preauth that is exposed to offline cracking and downgrade. MIT krb5: pkinit_anchors / pkinit configuration under [libdefaults]/[realms]. Fires (exposure) when PKINIT is not required for sensitive accounts.",
+        "default": false
+      },
+      "unconstrained_delegation_disabled": {
+        "type": "boolean",
+        "title": "Unconstrained Delegation Disabled",
+        "description": "Attests that no computer/service account on the Kerberos flow carries the AD userAccountControl TRUSTED_FOR_DELEGATION flag (0x80000 = 524288); delegation is restricted to constrained / resource-based constrained delegation (msDS-AllowedToDelegateTo) only. Secure value is true. Fires when false: an account with unconstrained delegation caches every forwarded TGT, enabling domain takeover from one compromised host.",
+        "default": false
+      },
+      "kdc_patched_against_delegation_bypass": {
+        "type": "boolean",
+        "title": "KDC Patched Against Delegation Bypass (CVE-2020-17049 Bronze Bit)",
+        "description": "Attests that the KDCs (domain controllers) on this flow have the November-2020-or-later cumulative update for CVE-2020-17049 (Bronze Bit) applied with enforcement enabled. Secure value is true. Fires when false: a constrained-delegation S4U2Proxy service can tamper a non-forwardable ticket so the KDC accepts it, impersonating accounts otherwise protected from delegation.",
+        "default": false
+      },
+      "sensitive_accounts_marked_not_delegable": {
+        "type": "boolean",
+        "title": "Sensitive Accounts Marked Not Delegable",
+        "description": "Attests that privileged/sensitive accounts are placed in the Protected Users group and/or marked 'sensitive and cannot be delegated' (userAccountControl NOT_DELEGATED, 0x100000) so their tickets cannot be forwarded or delegated. Secure value is true. Fires when false: sensitive accounts remain delegable and are exposed to delegation abuse, the precise targets the Bronze Bit bypass impersonates."
+      }
+    },
+    "required": [
+      "kerberos_preauthentication_required",
+      "accounts_with_preauth_disabled_present",
+      "kerberos_ticket_encryption_type",
+      "weak_legacy_enctypes_disabled",
+      "rc4_preauth_downgrade_patched",
+      "service_accounts_use_gmsa_or_strong_random_keys",
+      "spn_accounts_have_weak_passwords",
+      "spn_account_rc4_tickets_permitted",
+      "krbtgt_rotated_on_schedule",
+      "krbtgt_reset_twice_on_rotation",
+      "krbtgt_password_age_days",
+      "max_ticket_lifetime_hours",
+      "max_renewable_lifetime_days",
+      "pac_validation_enforced",
+      "tgs_request_auditing_enabled",
+      "kerberoasting_detection_alerting_enabled",
+      "kdc_network_exposure_restricted",
+      "kerberos_fast_armoring_enabled",
+      "pkinit_required_for_sensitive_accounts",
+      "unconstrained_delegation_disabled",
+      "kdc_patched_against_delegation_bypass",
+      "sensitive_accounts_marked_not_delegable"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accounts_with_preauth_disabled_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_fast_armoring_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_preauthentication_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_renewable_lifetime_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/max_ticket_lifetime_hours"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pac_validation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pkinit_required_for_sensitive_accounts"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kdc_patched_against_delegation_bypass"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unconstrained_delegation_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_accounts_marked_not_delegable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_ticket_encryption_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_legacy_enctypes_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rc4_preauth_downgrade_patched"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/spn_account_rc4_tickets_permitted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/krbtgt_reset_twice_on_rotation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/krbtgt_rotated_on_schedule"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_accounts_use_gmsa_or_strong_random_keys"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/spn_accounts_have_weak_passwords"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/krbtgt_password_age_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/spn_account_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kdc_network_exposure_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tgs_request_auditing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberoasting_detection_alerting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logs_forwarded_to_siem"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

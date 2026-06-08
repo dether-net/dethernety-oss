@@ -1,0 +1,345 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "client_auth_uses_platform_identity": {
+        "type": "boolean",
+        "title": "Client Authenticates With Platform Identity",
+        "description": "Attestation that the client bootstraps trust to the secrets manager with non-distributable platform identity (Kubernetes ServiceAccount JWT, cloud AWS/GCP/Azure IAM, or jwt/oidc auth) rather than a static distributable AppRole secret_id. Secure (true): platform-identity auth carries no static secret to stage or leak, eliminating the secret-zero surface. Insecure (false): the flow authenticates with a static AppRole secret_id (or token) that must be delivered and protected. Fires on the insecure (false) attestation.",
+        "default": false
+      },
+      "static_approle_secret_id_in_config": {
+        "type": "boolean",
+        "title": "Static AppRole secret_id Staged in Cleartext",
+        "description": "Attestation that a static, long-lived AppRole secret_id is staged in plaintext config file / environment variable / image layer / CI variable, readable by anyone with access to that staging location, who can then log in as the workload and retrieve every secret the role's policy permits. Secure (false): no literal static secret_id is staged (platform identity, or wrapped/single-use delivery instead). Insecure (true): the literal secret_id is staged in cleartext. Fires on the insecure (true) attestation.",
+        "default": false
+      },
+      "secret_id_response_wrapped": {
+        "type": "boolean",
+        "title": "AppRole secret_id Delivered Response-Wrapped",
+        "description": "Attestation that, when AppRole must be used, the secret_id is delivered as a single-use response-wrapping (cubbyhole) token (-wrap-ttl) rather than the literal secret_id, so a leaked/intercepted delivery token is tamper-evident (the legitimate client's unwrap fails) and single-use, mitigating secret-zero interception. Secure (true): secret_id delivered via wrapping token, consumer unwraps once and validates via sys/wrapping/lookup. Insecure (false): the literal secret_id is delivered in cleartext config/env/CI. Fires on the insecure (false) attestation."
+      },
+      "token_ttl_bounded_short": {
+        "type": "boolean",
+        "title": "Login Token TTL Short and Bounded",
+        "description": "Attestation that the Vault/OpenBao login token issued for this secret-retrieval flow has a short, explicitly bounded TTL (e.g. ~1h) AND a bounded token_max_ttl, so a leaked token self-expires quickly. False (the firing/insecure state) means token_ttl=0 / no max_ttl / a root or periodic token is used for routine reads, making a single leaked token indefinitely valid. Secure value is true.",
+        "default": false
+      },
+      "token_max_ttl_minutes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 525600,
+        "title": "Login Token Maximum TTL (Minutes)",
+        "description": "The bounded maximum lifetime (in minutes) of the login token used on this secret-retrieval flow (token_max_ttl). HIGH_IS_INSECURE: a large or unbounded value means a leaked token stays usable for a long time. 0 encodes 'no max_ttl' (effectively unbounded) and a very large value is equally insecure; the condition fires above a short-lived threshold (240 min ~= the bounded ~3h example). Secure value is a small bounded figure."
+      },
+      "token_policy_over_broad": {
+        "type": "boolean",
+        "title": "Token ACL Policy Over-Broad",
+        "description": "Interpreted attestation that the ACL policy attached to the flow's token is over-broad. True (the firing/insecure state) means the policy grants wildcard access over whole mounts (e.g. secret/*), any sys/ path, the sudo capability, or the built-in root policy attached to a workload token, turning one secret read into wide lateral access. Modeled as an interpreted boolean (not a substring match on the raw policy HCL) so polarity is safe. Secure value is false (least-privilege, deny-by-default).",
+        "default": false
+      },
+      "lease_revocation_on_teardown": {
+        "type": "boolean",
+        "title": "Leases Revoked on Teardown",
+        "description": "Attests that on logout/teardown the client explicitly revokes its leased secrets (vault lease revoke / vault lease revoke -prefix) so a leaked or decommissioned-workload credential is invalidated immediately rather than lingering until natural TTL expiry. False (no teardown revocation) fires this exposure.",
+        "default": false
+      },
+      "token_revoked_on_logout": {
+        "type": "boolean",
+        "title": "Auth Token Revoked on Logout",
+        "description": "Attests that the auth token issued at login is explicitly revoked at logout/teardown (vault token revoke), blocking further use and renewal of a leaked token. False (token left to self-expire only) fires this exposure.",
+        "default": false
+      },
+      "credential_lease_ttl_bounded": {
+        "type": "boolean",
+        "title": "Tokens and Leases Carry Bounded TTL",
+        "description": "Attests that tokens and dynamic-secret leases on this flow carry a bounded, non-zero TTL/max_ttl (not token_ttl=0 / unbounded lease). When unbounded, an unrevoked leaked credential stays usable forever, compounding the absence of teardown revocation. False (unbounded TTL) fires this exposure."
+      },
+      "dynamic_secret_upstream_deleted_on_teardown": {
+        "type": "boolean",
+        "title": "Upstream Dynamic Credential Deleted on Teardown",
+        "description": "Attests that for dynamic secret engines (database/aws/gcp/azure/pki) teardown revocation deletes the upstream credential entirely (lease revocation removes the cloud key) rather than leaving a generated upstream credential live after the workload exits. False (upstream credential never deleted) fires this exposure."
+      },
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Encryption in Transit Enabled",
+        "description": "Attestation that the secret-retrieval flow reaches the secrets manager over TLS (e.g. VAULT_ADDR=https://...), not plaintext http. When false the flow runs over cleartext (VAULT_ADDR=http://...), so an on-path attacker reads both the auth token and the retrieved secret directly off the wire. Fires when encryption in transit is absent. Shared workspace attribute, kept in sync across flows that cross the same boundary.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Secrets-Manager Server Certificate Validated",
+        "description": "Attestation that the client validates the secrets manager's server certificate against a trusted CA (VAULT_CACERT set to a real CA bundle; VAULT_SKIP_VERIFY unset/false). When false the certificate is not validated, so an attacker can present a rogue cert and terminate the TLS session as a MITM, capturing the token and secret in transit. Fires when certificate verification is absent. Aligned to the workspace-canonical server_certificate_validated name.",
+        "default": false
+      },
+      "tls_verification_skipped": {
+        "type": "boolean",
+        "title": "TLS Verification Explicitly Skipped",
+        "description": "Attestation that TLS certificate verification has been explicitly disabled on the flow (VAULT_SKIP_VERIFY=true / tls_skip_verify=1 / BAO_SKIP_VERIFY). HashiCorp docs state skipping verification 'violates the Vault security model and voids any associated security guarantees'. Secure value is false (verification not skipped); fires when true (verification disabled), which opens the read flow to rogue-cert MITM interception of the auth token and the retrieved secret.",
+        "default": false
+      },
+      "secret_injected_as_env_var": {
+        "type": "boolean",
+        "title": "Retrieved Secret Injected as Environment Variable",
+        "description": "True when the retrieved secret is delivered to the consumer as an environment variable (secretKeyRef / envFrom / exported VAULT_SECRET=...) rather than written to a memory-backed (tmpfs) file via the Vault Agent sidecar injector or CSI provider. Env-injected secrets are readable through /proc/<pid>/environ, leak into crash dumps and child processes, and are present in every replica's process environment. Secure (false): the secret is mounted on a tmpfs/in-memory emptyDir or CSI secrets-store volume and consumed as a file.",
+        "default": false
+      },
+      "secret_delivery_mechanism": {
+        "type": "string",
+        "enum": [
+          "tmpfs_file",
+          "csi_provider",
+          "env_var",
+          "persistent_disk_file"
+        ],
+        "title": "Secret Delivery Mechanism",
+        "description": "How the retrieved secret reaches the consuming workload. tmpfs_file (Vault Agent injector) and csi_provider keep the secret off disk and out of the process environment (secure); env_var exposes it via /proc and across replicas; persistent_disk_file writes it to durable storage. Supporting context that explains WHY secret_injected_as_env_var fires."
+      },
+      "secret_not_logged_by_consumer": {
+        "type": "boolean",
+        "title": "Retrieved Secret Not Logged by Consumer",
+        "description": "Attestation that the application or CI job consuming the retrieved secret never echoes it to stdout/stderr, debug logs, error/stack traces, or unmasked build output. Secure (true): secret values are redacted from all logs, the response body is never dump-logged, and the CI masks the retrieved value. Fires when false, a securely-retrieved secret is then printed to logs, exposing it to every downstream log sink and operator.",
+        "default": false
+      },
+      "sensitive_data_masking_enabled": {
+        "type": "boolean",
+        "title": "Sensitive-Data Masking Enabled",
+        "description": "Attestation that the consumer's logging/CI pipeline applies masking/redaction filters to sensitive values so that secret material printed into a log stream is automatically scrubbed before reaching a sink. Secure (true): a log scrubber or CI secret-masking is active. Fires when false, without masking, any incidental print of the retrieved secret (debug dump, stack trace, 'echo $TOKEN') reaches the log verbatim. Secondary trigger reinforcing secret_not_logged_by_consumer."
+      },
+      "secrets_manager_audit_device_enabled": {
+        "type": "boolean",
+        "title": "Secrets-Manager Audit Device Enabled",
+        "description": "Attestation that at least one Vault/OpenBao audit device (file or syslog) is enabled on the secrets-retrieval channel, so every secret read is attributable (who, which path, when). Audit devices HMAC-SHA256 sensitive values so the log stores no cleartext secret. A fresh cluster has auditing disabled by default; with no device enabled, secret reads are unlogged and a compromise of this flow cannot be detected, scoped, or attributed. Secure value: true.",
+        "default": false
+      },
+      "audit_logs_forwarded_to_siem": {
+        "type": "boolean",
+        "title": "Audit Logs Forwarded to SIEM",
+        "description": "Attestation that the secrets-manager audit records are forwarded off-host to a central SIEM / log pipeline rather than only written to a local file/syslog sink that an attacker on the host can tamper with or that is never reviewed. Without forwarding, even an enabled audit device yields unattributable access in practice because the evidence is neither retained centrally nor alertable. Secure value: true."
+      },
+      "secret_type_supports_dynamic_credentials": {
+        "type": "boolean",
+        "title": "Secret Type Supports Dynamic Credentials",
+        "description": "Attestation that the credential carried by this flow is of a type for which the secrets manager can issue per-request leased dynamic credentials (database, PKI, cloud AWS/GCP/Azure, transit). True means a dynamic secret engine is available for this secret type; when true, continuing to read a long-lived static value is an avoidable exposure. Gates the dynamic-preference trigger so the rule does not fire on secret types that genuinely have no dynamic equivalent."
+      },
+      "dynamic_secrets_preferred_over_static": {
+        "type": "boolean",
+        "title": "Dynamic Secrets Preferred Over Static",
+        "description": "Attestation that, where the secret type supports it, this flow retrieves a freshly-generated short-lived dynamic credential with a lease (from a database/pki/aws/gcp/azure engine) rather than reading a long-lived static KV secret shared across workloads. Secure value is true; fires is_false when the flow reads a static long-lived KV value instead of a leased dynamic credential.",
+        "default": false
+      },
+      "static_secret_rotation_enabled": {
+        "type": "boolean",
+        "title": "Static Secret Rotation Enabled",
+        "description": "Attestation that, when a static secret must be used for this flow (no dynamic engine available, or dynamic not yet adopted), the static secret is on an automated rotation schedule with a bounded validity rather than being an indefinitely-valid never-rotated shared credential. Secure value is true; fires is_false when the static secret is long-lived with no lease and no rotation, so any leak grants indefinite, non-attributable, broad-blast-radius access.",
+        "default": false
+      }
+    },
+    "required": [
+      "client_auth_uses_platform_identity",
+      "static_approle_secret_id_in_config",
+      "secret_id_response_wrapped",
+      "token_ttl_bounded_short",
+      "token_max_ttl_minutes",
+      "token_policy_over_broad",
+      "lease_revocation_on_teardown",
+      "token_revoked_on_logout",
+      "credential_lease_ttl_bounded",
+      "dynamic_secret_upstream_deleted_on_teardown",
+      "encryption_in_transit_enabled",
+      "server_certificate_validated",
+      "tls_verification_skipped",
+      "secret_injected_as_env_var",
+      "secret_not_logged_by_consumer",
+      "sensitive_data_masking_enabled",
+      "secrets_manager_audit_device_enabled",
+      "audit_logs_forwarded_to_siem",
+      "secret_type_supports_dynamic_credentials",
+      "dynamic_secrets_preferred_over_static",
+      "static_secret_rotation_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_auth_uses_platform_identity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_revoked_on_logout"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_ttl_bounded_short"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_max_ttl_minutes"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_policy_over_broad"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_verification_skipped"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_secrets_preferred_over_static"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/lease_revocation_on_teardown"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_injected_as_env_var"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/static_approle_secret_id_in_config"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/static_secret_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_lease_ttl_bounded"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_secret_upstream_deleted_on_teardown"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_id_response_wrapped"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_type_supports_dynamic_credentials"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_delivery_mechanism"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_not_logged_by_consumer"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_manager_audit_device_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logs_forwarded_to_siem"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_masking_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
