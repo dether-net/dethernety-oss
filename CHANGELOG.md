@@ -5,8 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [0.3.0] - 2026-06-08
 
 A feature release centred on residual-risk reporting, the finding disposition
@@ -26,7 +24,7 @@ resumes the changelog and compares against the previous tag, `v0.2.1`.
 - **Finding disposition lifecycle** — pending / confirmed / disposed states with
   lifecycle badges, one-click affirm, and an affirm-edit dialog. The new
   **AFFIRMED** disposition keeps a finding live across the ledger, coverage
-  metrics, and exports (ADR-010).
+  metrics, and exports.
 - **MITRE technique picker** for assigning ATT&CK techniques to findings.
 - **MITRE verb edges** — countermeasure→technique verb relationships surfaced in
   GraphQL with allowlisted edge provenance and append-only justification
@@ -66,7 +64,7 @@ enrichment flow, one TypeScript strict-mode cleanup. No breaking changes.
 
 ### Dethereal
 
-- **MITRE tactic coverage now platform-derived.** `/dethereal:surface` §5 now
+- **MITRE tactic coverage now platform-derived.** `/dethereal:surface` now
   aggregates `Exposure.exploitedBy` across analysed elements instead of reading a
   hand-maintained `mitre_attack_techniques` field on component attributes. The
   security-enricher agent's 3-step MITRE anti-hallucination protocol
@@ -74,8 +72,7 @@ enrichment flow, one TypeScript strict-mode cleanup. No breaking changes.
   now the single source of truth for technique mappings. Module policies already
   declare `exploited_by: [T...]` on every exposure; removing the duplicate
   client-side list eliminates a two-source-of-truth drift risk. Escape hatch for
-  uncovered techniques is a module policy addition, not a hand annotation. See
-  `BACKEND_DELEGATION.md` §3 for rationale. (#106)
+  uncovered techniques is a module policy addition, not a hand annotation. (#106)
 - **TypeScript strict-mode fixes in three tools.** `generate-attribute-stubs`,
   `manage-controls`, and `validate-model` now pass `noUncheckedIndexedAccess`
   cleanly — replaces ad-hoc structural parameter types with dt-core types,
@@ -161,6 +158,90 @@ greenfield ID rebinding, and append-only audit log (#104).
 - Routine dependency sync — 2026-04-16 (#101)
 - Bump safe minor/patch dependencies (#79)
 
+## [0.1.3] - 2026-03-13
+
+### Security
+
+- Resolve 6 transitive dependency vulnerabilities via `pnpm.overrides`:
+  - **serialize-javascript** (HIGH: RCE) — eliminated by upgrading webpack to
+    >=5.105.4
+  - **express-rate-limit** (HIGH: IPv4-mapped IPv6 rate-limit bypass) — bumped to
+    >=8.2.2
+  - **hono** (MEDIUM: prototype pollution) — bumped to >=4.12.7
+  - **dompurify** (MEDIUM: XSS) — bumped to >=3.3.2
+  - **file-type** (MEDIUM: infinite loop in ASF parser) — bumped to >=21.3.1
+  - **ajv** (MEDIUM: ReDoS) — bumped to >=6.14.0
+
+### Improvements
+
+- Bump TypeScript target from ES2021 to ES2023 across all packages (dt-ws,
+  dt-core, dt-module, dethernety-module)
+- Add `{ cause: error }` to all catch-rethrow sites in dt-ws services for proper
+  error cause chaining
+- Re-enable ESLint 10 `preserve-caught-error` rule in dt-ws
+
+### Dependencies
+
+- Bump `vue-tsc` to 3.2.5
+- Bump `@eslint/js` from 9.39.2 to 10.0.1
+- Bump `@types/node` from 22.19.0 to 25.5.0
+
+## [0.1.2] - 2026-03-13
+
+### Apollo Client 4 Migration
+
+- Upgrade `@apollo/client` from v3 to v4 across dt-ui, dt-core (22 data access
+  classes), and dethereal
+- Replace `onError` with `ErrorLink` class and `CombinedGraphQLErrors.is()`
+  pattern
+- Remove `NormalizedCacheObject` generic parameter (no longer needed in v4)
+- Replace `@vue/apollo-composable` with minimal local shim (`apolloComposable.ts`)
+
+### Remove Deprecated Plugins
+
+- Remove `unplugin-vue-router`, `vite-plugin-pages`, `vite-plugin-vue-layouts`,
+  `@types/vue`
+- Replace with explicit route definitions in `router/index.ts` using
+  `DefaultLayout` wrapper
+- Update `unplugin-auto-import` to use `vue-router` instead of `vue-router/auto`
+
+### UI Polish
+
+- Add pointer cursor to clickable model name overlay on dataflow canvas
+- Add pointer cursor to app bar logo/title
+
+### Breaking Changes
+
+- `dt-core` data access classes now accept `Apollo.ApolloClient` instead of
+  `ApolloClient<NormalizedCacheObject>`
+
+## [0.1.1] - 2026-03-04
+
+### Added
+
+- **Auth-less mode** — run Dethernety without an OIDC provider for local
+  evaluation and demos
+- **Demo environment** — one-command `demo.sh` script with Docker Compose
+  (Memgraph + OPA + Dethernety)
+- **Module manager CLI** — install, list, and remove modules from the command
+  line
+- **ZIP-based export/import** — export and import complete threat models as ZIP
+  archives
+- **Testing foundation** — test setup and initial test suites for dt-ui, dt-ws,
+  and dethereal
+
+### Fixed
+
+- Exposure dialog compatibility with Neo4j GraphQL v7
+- Model export/import round-trip bugs
+- Analysis button now hidden when no analysis classes are available
+
+### Changed
+
+- Upgraded OPA SDK
+- Removed automated Claude security review workflow
+- Updated CLAUDE.md with corrected documentation references
+
 ## [0.1.0] - 2026-02-27
 
 ### Added
@@ -184,8 +265,10 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
-[Unreleased]: https://github.com/dether-net/dethernety-oss/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/dether-net/dethernety-oss/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dether-net/dethernety-oss/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dether-net/dethernety-oss/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/dether-net/dethernety-oss/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/dether-net/dethernety-oss/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/dether-net/dethernety-oss/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dether-net/dethernety-oss/releases/tag/v0.1.0
