@@ -1,0 +1,102 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "encryption_in_transit_enabled": false,
+      "mutual_tls_client_auth_enabled": false,
+      "unauthenticated_cluster_join_allowed": true,
+      "cluster_route_authorization_enforced": false,
+      "replication_broker_auth_plugin_enabled": false,
+      "erlang_cookie_value_non_default": false,
+      "erlang_cookie_file_permissions_restricted": false,
+      "replication_principal_least_privilege": false,
+      "replication_credentials_dedicated_not_shared": false,
+      "federation_peers_explicitly_allowlisted": false,
+      "federation_ca_trust_scoped": false,
+      "remote_peer_endpoint_verified": false,
+      "replication_credentials_embedded_in_uri": true,
+      "replication_credentials_externalized_from_config": false,
+      "secrets_stored_in_secret_manager": false,
+      "config_file_permissions_hardened": false,
+      "inter_broker_listener_network_isolated": false,
+      "replication_listener_internet_reachable": true,
+      "inter_broker_listener_separate_from_client": false
+    },
+    "expectedExposures": [
+      "Weak/default Erlang cookie enabling rogue RabbitMQ node",
+      "Rogue broker / unauthenticated cluster join",
+      "Cleartext inter-broker / replication channel",
+      "Replication credential / Erlang-cookie exposure at rest",
+      "Untrusted / spoofed federation or geo-replication peer",
+      "Over-broad replication / mirror credentials",
+      "Inter-broker listener not network-isolated"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "encryption_in_transit_enabled": true,
+      "mutual_tls_client_auth_enabled": true,
+      "unauthenticated_cluster_join_allowed": false,
+      "cluster_route_authorization_enforced": true,
+      "replication_broker_auth_plugin_enabled": true,
+      "erlang_cookie_value_non_default": true,
+      "erlang_cookie_file_permissions_restricted": true,
+      "replication_principal_least_privilege": true,
+      "replication_credentials_dedicated_not_shared": true,
+      "federation_peers_explicitly_allowlisted": true,
+      "federation_ca_trust_scoped": true,
+      "remote_peer_endpoint_verified": true,
+      "replication_credentials_embedded_in_uri": false,
+      "replication_credentials_externalized_from_config": true,
+      "secrets_stored_in_secret_manager": true,
+      "config_file_permissions_hardened": true,
+      "inter_broker_listener_network_isolated": true,
+      "replication_listener_internet_reachable": false,
+      "inter_broker_listener_separate_from_client": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "encryption_in_transit_enabled": true,
+      "mutual_tls_client_auth_enabled": true,
+      "unauthenticated_cluster_join_allowed": false,
+      "cluster_route_authorization_enforced": true,
+      "replication_broker_auth_plugin_enabled": true,
+      "erlang_cookie_value_non_default": true,
+      "erlang_cookie_file_permissions_restricted": true,
+      "replication_principal_least_privilege": true,
+      "replication_credentials_dedicated_not_shared": true,
+      "federation_peers_explicitly_allowlisted": true,
+      "federation_ca_trust_scoped": true,
+      "remote_peer_endpoint_verified": true,
+      "replication_credentials_embedded_in_uri": false,
+      "replication_credentials_externalized_from_config": true,
+      "secrets_stored_in_secret_manager": true,
+      "config_file_permissions_hardened": true,
+      "inter_broker_listener_network_isolated": true,
+      "replication_listener_internet_reachable": false,
+      "inter_broker_listener_separate_from_client": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Weak/default Erlang cookie enabling rogue RabbitMQ node",
+      "Rogue broker / unauthenticated cluster join",
+      "Cleartext inter-broker / replication channel",
+      "Replication credential / Erlang-cookie exposure at rest",
+      "Untrusted / spoofed federation or geo-replication peer",
+      "Over-broad replication / mirror credentials",
+      "Inter-broker listener not network-isolated"
+    ]
+  }
+]

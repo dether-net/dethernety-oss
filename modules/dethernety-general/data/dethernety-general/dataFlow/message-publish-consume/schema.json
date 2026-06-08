@@ -1,0 +1,391 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "broker_client_authentication_required": {
+        "type": "boolean",
+        "title": "Broker Client Authentication Required",
+        "description": "Attestation: the client<->broker produce/consume channel authenticates the producer/consumer before accepting traffic (Kafka SASL_SSL/mTLS, RabbitMQ user/X.509, NATS account/nkey/JWT, MQTT password/cert, Pulsar authenticationEnabled). True when no anonymous/PLAINTEXT listener accepts unauthenticated clients. The exposure fires when false: any client can connect and publish/consume without proving identity, enabling injection, replay and tampering.",
+        "default": false
+      },
+      "anonymous_broker_access_disabled": {
+        "type": "boolean",
+        "title": "Anonymous Broker Access Disabled",
+        "description": "Attestation: anonymous and default-credential access to the broker is explicitly disabled (Mosquitto allow_anonymous false; RabbitMQ guest deleted or loopback-only and ANONYMOUS mechanism removed; NATS no anonymous user). True when anonymous/default-account login is refused on the produce/consume flow. The exposure fires when false: allow_anonymous true, or a remotely reachable default guest/guest, lets any client connect without credentials. (Consolidates default-broker-account-removed context.)",
+        "default": false
+      },
+      "topic_authorization_enforced": {
+        "type": "boolean",
+        "title": "Topic Authorization Enforced",
+        "description": "Attestation that an authorizer is active on the produce/consume flow and the broker denies-by-default, so an authenticated client cannot read/write topics/queues/subjects it has no explicit grant for (Kafka authorizer.class.name set; RabbitMQ per-vhost perms; NATS permissions{}; Mosquitto acl_file present; Pulsar authorizationEnabled). Secure=true; the exposure fires when no authorizer governs the flow (is_false).",
+        "default": false
+      },
+      "default_allow_authorizer": {
+        "type": "boolean",
+        "title": "Default-Allow Authorizer In Effect",
+        "description": "Attestation that the authorizer falls back to ALLOW when no matching ACL is found (Kafka allow.everyone.if.no.acl.found=true; Mosquitto with no acl_file so all authenticated clients see all topics). Interpreted boolean - secure=false (default-deny). The exposure fires when default-allow is in effect (is_true), since any authenticated client gains full read/write absent an explicit deny.",
+        "default": false
+      },
+      "wildcard_topic_acl_present": {
+        "type": "boolean",
+        "title": "Wildcard Topic ACL Present",
+        "description": "Attestation that a universal/wildcard authorization grant exists on the flow (Kafka User:* / Topic:* LITERAL:* ALLOW; RabbitMQ '.*'/'.*'/'.*' configure/write/read regex; NATS bare '>' publish or subscribe grant). Interpreted boolean (not a raw-string/has_element match, to stay polarity-safe) - secure=false (scoped per-topic grants only). The exposure fires when such a wildcard grant is present (is_true), defeating least-privilege.",
+        "default": false
+      },
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Encryption In Transit Enabled",
+        "description": "Interpreted attestation that the produce/consume flow runs over TLS end-to-end on every listener carrying traffic (Kafka SSL/SASL_SSL, AMQPS, MQTTS 8883, NATS tls, Pulsar TLS), with no plaintext broker listener (9092/5672/1883/4222) serving traffic. False when a plaintext listener is reachable and serving produce/consume - credentials and message PII traverse the wire in cleartext and are exposed to passive sniffing. Shared workspace concept; reuse the same name across the gateway/component planes.",
+        "default": false
+      },
+      "broker_tls_certificate_verified": {
+        "type": "boolean",
+        "title": "Broker TLS Certificate Verified",
+        "description": "Interpreted attestation that the client validates the broker's server certificate against the expected CA (and, where mTLS is used, the broker validates the client cert), so the encrypted channel is authenticated against MITM rather than merely encrypted. False when ssl.client.auth=requested/none, the client truststore is absent or verification is disabled, or a self-signed cert is accepted unverified (require_certificate false / no cafile) - an active attacker can present a substituted certificate and transparently man-in-the-middle the flow.",
+        "default": false
+      },
+      "tls_min_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "Canonical workspace enum for the minimum TLS protocol version the broker negotiates on the produce/consume flow. Obsolete floors (SSLv3, TLS1.0, TLS1.1) permit downgrade and known protocol-level attacks that recover or weaken the encrypted channel, undermining transport confidentiality even when TLS is nominally enabled. Reuse the exact same five-value enum and name across the gateway and other planes so a flow's TLS floor compares against the same vocabulary. Kept distinct from the ledger's two-value min_tls_version because this rule matches with an 'in' operator over the five concrete protocol versions."
+      },
+      "shared_static_broker_credential_in_use": {
+        "type": "boolean",
+        "title": "Shared Static Broker Credential In Use",
+        "description": "True when a single shared static broker credential (SASL user/password, NATS nkey, or token) is reused across all producer/consumer services on this flow. Insecure: one credential authenticates every client, so a leak grants any holder the full access of every service with no per-service scoping. Secure value is false (each service has its own distinct principal).",
+        "default": false
+      },
+      "per_service_broker_credentials_used": {
+        "type": "boolean",
+        "title": "Per-Service Broker Credentials Used",
+        "description": "True when each producer/consumer service authenticates to the broker with its own per-service principal (distinct SASL user / X.509 cert / nkey / token), so grants are scoped per service and a compromised credential can be revoked without affecting other services. Secure value is true; the rule fires when this is false (no per-service scoping). Consolidates the per-consumer-principal-scoped contextual signal from the mass-consumption vector.",
+        "default": false
+      },
+      "broker_credentials_externalized": {
+        "type": "boolean",
+        "title": "Broker Credentials Externalized",
+        "description": "True when broker credentials are injected from a secret store / environment per service and rotated, rather than hardcoded/embedded in source, deploy manifests, or container images. Secure value is true; the rule fires when false (credentials embedded in code/images, the leak path that makes a shared static credential trivially stealable). Reuses the workspace secrets concept."
+      },
+      "consumer_group_read_authorization_enforced": {
+        "type": "boolean",
+        "title": "Consumer-Group Read Authorization Enforced",
+        "description": "READ access and consumer-group membership are explicitly authorized and scoped per consumer (Kafka READ on Topic + READ on Group resource, RabbitMQ per-vhost read regex, NATS subscribe permissions, MQTT acl read topics) under default-deny. When false, any authenticated client may join any consumer group and consume any topic, enabling mass unauthorized consumption and exfiltration of the event stream.",
+        "default": false
+      },
+      "subscribe_scope_least_privilege": {
+        "type": "boolean",
+        "title": "Subscribe Scope Least-Privilege",
+        "description": "Subscribe/read grants are namespaced to required subjects/topics, not a broad wildcard that drains everything (no NATS bare '>' subscribe, no Kafka Topic:* READ for User:*, no RabbitMQ '.*' read regex). When false, an authenticated-but-unscoped client subscribes broadly and reads topics it should never see. Modeled as an interpreted boolean (not a raw wildcard-string match) so it is polarity-safe.",
+        "default": false
+      },
+      "safe_deserialization_enforced": {
+        "type": "boolean",
+        "title": "Safe Deserialization Enforced",
+        "description": "Consumed message bodies are deserialized only via a safe path that cannot instantiate arbitrary attacker-chosen types - no Java ObjectInputStream/readObject on untrusted bytes, no Jackson default typing, no jsonpickle/pickle on broker payloads. Secure value is true; this exposure fires when safe deserialization is NOT enforced (is_false), leaving the consumer open to CWE-502 gadget-chain RCE.",
+        "default": false
+      },
+      "unsafe_polymorphic_deserialization_used": {
+        "type": "boolean",
+        "title": "Unsafe Polymorphic Deserialization Used",
+        "description": "The consumer reflectively/polymorphically deserializes untrusted message bodies into arbitrary runtime types (Java ObjectInputStream, Jackson enableDefaultTyping, jsonpickle.decode, pickle.loads). Secure value is false; this exposure fires when such a gadget-prone deserializer IS in use (is_true) on broker payloads, the direct CWE-502 -> RCE trigger. Interpreted boolean so polarity is safe by construction.",
+        "default": false
+      },
+      "message_schema_validation_enabled": {
+        "type": "boolean",
+        "title": "Message Schema Validation Enabled",
+        "description": "Consumed payloads are validated against a registered schema (Schema Registry / Avro / JSON Schema / Protobuf) before being deserialized into application objects, so malformed or poisoned bodies are rejected at the boundary. Secure value is true; this exposure fires when schema validation is NOT enabled (is_false), removing the guard that would reject a gadget-carrying payload before it reaches a reflective deserializer."
+      },
+      "sensitive_data_in_payload_minimized_or_encrypted": {
+        "type": "boolean",
+        "title": "Sensitive Data In Payload Minimized Or Encrypted",
+        "description": "Attestation that PII/secrets are not carried in cleartext message payloads on this flow: sensitive fields are minimized (data minimization) or end-to-end encrypted/tokenized within the payload, so a party with broker/queue access cannot read them in the clear. Secure value is true; the exposure fires when false (cleartext PII/credentials in message bodies). Interpreted boolean, not a substring match on any composite directive.",
+        "default": false
+      },
+      "sensitive_data_masking_enabled": {
+        "type": "boolean",
+        "title": "Sensitive Data Masking Enabled",
+        "description": "Attestation that sensitive values are masked/redacted before being echoed into broker and consumer logs (no verbose payload logging that writes emails, tokens, or card numbers into log files readable by anyone with log access). Secure value is true; the exposure fires when false. Shared workspace attribute name reused for cross-cutting consistency.",
+        "default": false
+      },
+      "message_log_retention_bounded": {
+        "type": "boolean",
+        "title": "Message/Log Retention Bounded",
+        "description": "Attestation that topic/queue and broker/audit log retention is bounded to business need (e.g. Kafka retention.ms / log.retention.hours set, not unbounded), so sensitive message data and any echoed log lines do not accumulate indefinitely in a place readable by broker/log access. Secure value is true; the exposure fires when false (long/unbounded retention)."
+      },
+      "data_minimization_enforced": {
+        "type": "boolean",
+        "title": "Data Minimization Enforced",
+        "description": "Supporting context: the flow only carries the minimum sensitive fields required for its business purpose (data minimization principle), corroborating the payload-protection attestation. Shared workspace attribute name reused for cross-cutting consistency; not itself a trigger for any rule."
+      },
+      "broker_listener_network_restricted": {
+        "type": "boolean",
+        "title": "Broker Listener Network-Restricted",
+        "description": "The broker listener (Kafka 9092/9093, AMQP 5672/5671, MQTT 1883/8883, NATS 4222, Pulsar 6650) is bound to a private/internal interface or security-group restricted and is NOT reachable from the public internet. Secure value is true; the exposure fires when false (listener publicly reachable), making anonymous access, default creds, and oversized payloads remotely exploitable. Consolidates the network-restriction context referenced by the anonymous-access vector.",
+        "default": false
+      },
+      "broker_listener_internet_reachable": {
+        "type": "boolean",
+        "title": "Broker Listener Internet-Reachable",
+        "description": "Interpreted boolean: the broker port is open to 0.0.0.0 and routable from the internet (the positive-insecure framing of network exposure). Secure value is false; the exposure fires when true. Modeled as a positive-insecure boolean so the trigger is polarity-safe by construction and the all-secure baseline supplies false (silent on a hardened, network-confined flow).",
+        "default": false
+      },
+      "message_size_limit_bounded": {
+        "type": "boolean",
+        "title": "Message Size Limit Bounded",
+        "description": "An explicit non-zero maximum message/packet size is enforced (Mosquitto message_size_limit / max_packet_size non-zero, Kafka message.max.bytes / max.message.bytes bounded) so a single oversized payload cannot exhaust broker memory/disk. Secure value is true; the exposure fires when false (unbounded payloads accepted, e.g. Mosquitto message_size_limit 0 = unlimited). Secondary trigger: combined with a publicly reachable listener it turns resource-exhaustion DoS into a remotely exploitable availability risk."
+      }
+    },
+    "required": [
+      "broker_client_authentication_required",
+      "anonymous_broker_access_disabled",
+      "topic_authorization_enforced",
+      "default_allow_authorizer",
+      "wildcard_topic_acl_present",
+      "encryption_in_transit_enabled",
+      "broker_tls_certificate_verified",
+      "tls_min_version",
+      "shared_static_broker_credential_in_use",
+      "per_service_broker_credentials_used",
+      "broker_credentials_externalized",
+      "consumer_group_read_authorization_enforced",
+      "subscribe_scope_least_privilege",
+      "safe_deserialization_enforced",
+      "unsafe_polymorphic_deserialization_used",
+      "message_schema_validation_enabled",
+      "sensitive_data_in_payload_minimized_or_encrypted",
+      "sensitive_data_masking_enabled",
+      "message_log_retention_bounded",
+      "broker_listener_network_restricted",
+      "broker_listener_internet_reachable",
+      "message_size_limit_bounded"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_broker_access_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/broker_client_authentication_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_service_broker_credentials_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_static_broker_credential_in_use"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/consumer_group_read_authorization_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_allow_authorizer"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/subscribe_scope_least_privilege"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/topic_authorization_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/wildcard_topic_acl_present"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/broker_tls_certificate_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_min_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_in_payload_minimized_or_encrypted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_minimization_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/broker_credentials_externalized"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/broker_listener_internet_reachable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/broker_listener_network_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/safe_deserialization_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unsafe_polymorphic_deserialization_used"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/message_schema_validation_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/message_size_limit_bounded"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_masking_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/message_log_retention_bounded"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

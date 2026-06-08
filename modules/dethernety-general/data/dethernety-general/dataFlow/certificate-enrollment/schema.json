@@ -1,0 +1,438 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "acme_multi_perspective_validation_enabled": {
+        "type": "boolean",
+        "title": "ACME Multi-Perspective Domain-Control Validation Enabled",
+        "description": "Attests that the CA corroborates ACME http-01/dns-01 domain-control validation from >=2 geographically distant vantage points (Multi-Perspective Issuance Corroboration, CA/Browser Forum SC-067). When false, the CA validates from a single vantage point, so a localized BGP/DNS hijack reaching that one validator forges a passing challenge and mints a cert for a domain the attacker does not control. Self-hosted/single-vantage step-ca typically lacks MPIC — record as residual risk.",
+        "default": false
+      },
+      "caa_method_binding_enforced": {
+        "type": "boolean",
+        "title": "CAA Account/Method Binding Enforced",
+        "description": "Attests that the domain publishes CAA records (RFC 8657) constraining issuance with accounturi= (bind to one ACME account) and validationmethods= (restrict the permitted domain-control method, e.g. dns-01 only), and that the CA honors them. When false, no CAA binding exists, so even a hijacked validation vantage point can pass an unauthorized method and a stolen account elsewhere can mint certs for the domain. Interpreted from `dig +short CAA <domain>` (accounturi/validationmethods present) and step-ca caaIdentities.",
+        "default": false
+      },
+      "dnssec_validated_for_dns_challenge": {
+        "type": "boolean",
+        "title": "DNSSEC Validated for DNS-01 Challenge",
+        "description": "Attests that the domain's DNS is DNSSEC-signed and the CA performs DNSSEC validation when resolving the dns-01 TXT record (and CAA lookup). When false, an off-path DNS hijack/cache-poisoning of the validator's resolution path can forge the challenge TXT (or strip CAA) undetected. DNSSEC is the third leg, alongside MPIC and CAA binding, that closes single-vantage domain-control spoofing."
+      },
+      "enrollment_client_authentication_required": {
+        "type": "boolean",
+        "title": "Enrollment Client Authentication Required",
+        "description": "Attestation that the certificate-enrollment flow requires the requesting client to authenticate before issuance (ACME EAB, EST mTLS / HTTP-Basic-over-TLS, or a per-device SCEP secret). When false, any party that can reach the endpoint can mint certificates — an unauthenticated issuance oracle. Fires on the insecure (unauthenticated) state; secure value is true.",
+        "default": false
+      },
+      "acme_external_account_binding_required": {
+        "type": "boolean",
+        "title": "ACME External Account Binding (EAB) Required",
+        "description": "Attestation that the ACME provisioner requires External Account Binding (RFC 8555 externalAccountBinding; step-ca --require-eab / requireEAB:true), tying account creation to a pre-issued MAC key/keyID so only pre-authorized clients can enroll. When false, ACME account creation is open and anyone passing a domain challenge can obtain a cert from the internal CA. Fires on the insecure (open ACME / no EAB) state; secure value is true.",
+        "default": false
+      },
+      "est_mutual_tls_client_auth_required": {
+        "type": "boolean",
+        "title": "EST Mutual-TLS Client Auth Required",
+        "description": "Attestation that the EST endpoint (RFC 7030) requires TLS client-certificate authentication (or HTTP-Basic/Digest strictly over TLS) for simpleenroll, with the server authenticated in the handshake and no NULL/anon ciphers. When false, the EST endpoint accepts unauthenticated enrollment requests — an open issuance oracle. Fires on the insecure (no client auth) state; secure value is true.",
+        "default": false
+      },
+      "scep_static_challenge_password_in_use": {
+        "type": "boolean",
+        "title": "SCEP Static Challenge Password In Use",
+        "description": "Attestation that the SCEP provisioner authenticates enrollment with a single static, long-lived, broadly-distributed shared challenge password (rather than a dynamic per-device/one-time secret). A leaked or sniffed static challenge lets an attacker enroll arbitrary devices. Fires on the insecure (static shared secret in use) state; secure value is false (dynamic per-enrollment challenge).",
+        "default": false
+      },
+      "enrollee_supplies_subject_disabled": {
+        "type": "boolean",
+        "title": "Enrollee-Supplied Subject Constrained",
+        "description": "True when the CA constrains the requester-supplied CSR Subject/SAN/EKU to the identity the enrollment principal is authorized for (x509 name policy, certificate template, or disableCustomSANs on cloud provisioners), rather than blindly honoring whatever the CSR asks for. False is the ESC1-analogue exposure: a low-privilege enrollee can mint a certificate impersonating any host or user. step-ca X5C/JWK provisioners issue for ANY Subject by default unless a template/name-policy restricts. Fires (exposure) when false; secure value is true. Aligned to the workspace Certificate Authority vocabulary name.",
+        "default": false
+      },
+      "custom_sans_allowed_unconstrained": {
+        "type": "boolean",
+        "title": "Custom SANs Allowed Unconstrained",
+        "description": "True when the provisioner accepts arbitrary requester-chosen SANs with no allow/deny bound — i.e. disableCustomSANs is off (false) on a cloud provisioner, or an X5C/JWK provisioner has no SAN-bounding template. Interpreted-boolean trigger that captures the disableCustomSANs control point from the opposite (insecure) polarity so the rule reads directly as a hazard. Fires (exposure) when true; secure value is false (custom SANs disabled / bounded). Kept distinct from the secure-true workspace SAN names because this attribute fires on is_true (opposite polarity).",
+        "default": false
+      },
+      "issuance_template_or_name_policy_enforced": {
+        "type": "boolean",
+        "title": "Issuance Template / Name Policy Enforced",
+        "description": "True when an x509 certificate template or allow/deny name policy is attached to the enrollment provisioner that bounds the allowed DNS/IP SANs, Subject DN, and EKU per authorized identity. False means issuance is unconstrained by any template/policy (the absent-template X5C/JWK case), so the CA honors arbitrary Subject/SAN. Secondary trigger for the same ESC1-analogue weakness from the policy-enforcement angle. Fires (exposure) when false; secure value is true."
+      },
+      "enrollment_provisioner_type": {
+        "type": "string",
+        "enum": [
+          "acme",
+          "scep",
+          "est",
+          "jwk",
+          "oidc",
+          "x5c",
+          "cloud"
+        ],
+        "title": "Enrollment Provisioner Type",
+        "description": "Which provisioner mints certificates on this enrollment flow. Context for interpreting the SAN/Subject constraint: X5C/JWK default to 'any Subject', cloud provisioners expose disableCustomSANs, ACME finalize honors the CSR SANs. Not itself a trigger — disambiguates which constraint mechanism the assessor must check."
+      },
+      "private_key_delivered_in_transit": {
+        "type": "boolean",
+        "title": "Issued Private Key Delivered In Transit",
+        "description": "Whether the certificate private key traverses the enrollment channel (server-side keygen with PKCS#12 key delivery). True = the issued private key is on the wire and in CA memory, exposed to MITM and CA compromise; secure (false) keeps the private key client-side so only the CSR/public key crosses the channel.",
+        "default": false
+      },
+      "client_side_key_generation": {
+        "type": "boolean",
+        "title": "Client-Side Key Generation",
+        "description": "Whether the requesting host generates the keypair locally and submits a CSR carrying only the public key (RFC 8555 finalize / RFC 7030 simpleenroll). Secure value is true; an insecure false fires this exposure because the CA generates the key and returns it (PKCS#12 with private key in transit / resident at the CA).",
+        "default": false
+      },
+      "scep_payload_encryption_algorithm": {
+        "type": "string",
+        "enum": [
+          "aes256_cbc",
+          "aes128_cbc",
+          "3des_cbc",
+          "des_cbc"
+        ],
+        "title": "SCEP Payload Encryption Algorithm",
+        "description": "The SCEP encryptionAlgorithmIdentifier used to wrap the PKCS#7 enrollment payload (step-ca default 0 = DES-CBC). des_cbc/3des_cbc provide no real confidentiality for an issued private key carried in the SCEP response; secure value is aes256_cbc (encryptionAlgorithmIdentifier=2). Fires when the weak DES/3DES algorithms are selected."
+      },
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Enrollment Transport Encrypted (TLS) Required",
+        "description": "Attestation that the certificate-enrollment flow is carried exclusively over TLS/HTTPS (ACME mandates HTTPS per RFC 8555 §6.1; EST mandates TLS 1.1+ per RFC 7030 §3.3). When false, legacy SCEP-style plain-HTTP enrollment or an http:// directory exposes CSRs, SCEP challenge-passwords, and issued material to network interception and tampering. Insecure value is false (cleartext); secure value is true (TLS enforced). Aligned to the workspace transit-encryption vocabulary name.",
+        "default": false
+      },
+      "null_or_anon_ciphers_permitted": {
+        "type": "boolean",
+        "title": "NULL / Anonymous TLS Ciphers Permitted",
+        "description": "Interpreted attestation that the enrollment endpoint negotiates NULL or anonymous (aNULL/eNULL) TLS cipher suites, which provide no confidentiality and/or no server authentication. RFC 7030 §3.3 forbids NULL/anon suites for EST; an enrollment TLS session that accepts them is effectively cleartext-equivalent and MITM-able. Modeled as an interpreted boolean (not a raw cipher-list substring match) to stay polarity-safe: a hardened cipher string that excludes these suites still mentions their names. Insecure value is true; secure value is false.",
+        "default": false
+      },
+      "tls_min_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum Negotiated TLS Version",
+        "description": "Minimum TLS protocol version the enrollment transport will negotiate (shared workspace transit name). EST requires TLS 1.1+; modern hardening expects TLS 1.2+. A floor of SSLv3/TLS1.0 permits downgraded, weakly-protected enrollment sessions vulnerable to interception/tampering. The condition fires positively on the legacy/insecure floor values; secure value is TLS1.2 or TLS1.3. Enum value-set adopted whole from the workspace shared enum."
+      },
+      "enrollment_tokens_short_lived_single_use": {
+        "type": "boolean",
+        "title": "Enrollment Tokens Short-Lived / Single-Use",
+        "description": "Attests that JWK/OIDC/X5C provisioner enrollment tokens (bearer JWTs that authorize cert issuance) are short-lived and single-use. When false, a stolen or replayed long-lived reusable token lets an attacker mint trusted certs at will, bypassing challenge validation. Secure value is true; fires on the insecure (long-lived/reusable) state. Verify via step-ca provisioner token TTL and single-use/nonce enforcement.",
+        "default": false
+      },
+      "enrollment_token_bound_to_identity": {
+        "type": "boolean",
+        "title": "Enrollment Token Bound to Identity",
+        "description": "Attests that enrollment tokens are cryptographically bound to the expected SAN/CN plus the CA root fingerprint (sub/sans/sha audience binding), so a captured token cannot be redirected to mint a cert for an arbitrary identity. When false, an unbound bearer token is a general-purpose issuance grant. Secure value is true; fires on the insecure (unbound) state.",
+        "default": false
+      },
+      "provisioner_signing_key_protected": {
+        "type": "boolean",
+        "title": "Provisioner Signing Key Protected",
+        "description": "Attests that the provisioner signing key / JWK provisioner password / OIDC trust material is access-controlled, stored in a secret manager, and rotated — not broadly shared. Theft of the provisioner signing key lets an attacker mint trusted certs at will. Secure value is true; fires on the insecure (unprotected/broadly-shared key) state. Maps to dossier provisioner_token_protection custody/rotation.",
+        "default": false
+      },
+      "oidc_id_token_claims_validated": {
+        "type": "boolean",
+        "title": "OIDC ID-Token Claims Validated",
+        "description": "For OIDC provisioners, attests the ID token's iss/aud/exp claims are pinned and validated rather than treating a client secret as the only gate. When false, a token from the wrong issuer/audience or an expired token can drive issuance. Secure value is true; fires on the insecure (unvalidated-claims) state."
+      },
+      "max_leaf_validity_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "title": "Maximum Issued Certificate Validity (Days)",
+        "description": "Maximum validity (in days) a certificate issued by this enrollment flow may carry, mapped from the provisioner's maxTLSCertDuration (step-ca claims; default 24h). Bounding lifetime caps the blast radius of a mis-issuance or compromised key and reduces reliance on revocation. HIGH_IS_INSECURE: values above ~397 days (the CA/Browser-Forum leaf cap) — and especially unbounded/multi-year durations up to the 3650-day schema maximum — mean a single mis-issued or stolen cert stays trusted for years. The all-insecure baseline (max validity) fires this condition; a hardened short maxTLSCertDuration (e.g. 24h-90d) stays below the threshold and stays silent. Aligned to the workspace Certificate Authority leaf-validity vocabulary name."
+      },
+      "crl_or_ocsp_configured": {
+        "type": "boolean",
+        "title": "Revocation (CRL/OCSP) Configured",
+        "description": "Whether the enrollment flow's issued certificates carry a working revocation path (OCSP responder URI and/or CRL distribution point) so a mis-issued or compromised certificate can be recalled before natural expiry. Secure value is true (revocation reachable); the exposure fires on is_false (no OCSP/CRL), where — combined with long validity — a bad certificate is trusted with no recall mechanism for years. Maps to revocation_capability in the dossier (cert OCSP URI / CRL DP present). Aligned to the workspace Certificate Authority revocation vocabulary name.",
+        "default": false
+      },
+      "issuance_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Issuance Rate Limiting Enabled",
+        "description": "Whether the enrollment flow enforces per-account / per-IP issuance rate limits (orders per window) with issuance-spike alerting. When false, a compromised credential or buggy client can flood the CA and mass-mint certificates unthrottled. Secure value: true.",
+        "default": false
+      },
+      "issuance_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Issuance Audit Logging Enabled",
+        "description": "Whether every issuance is recorded in a structured, immutable audit log capturing provisioner, principal, requested vs issued SAN/Subject, serial, validity (notAfter), and challenge type. When false, mis-issuance and provisioner abuse are undetectable and unattributable. Secure value: true. Aligned to the workspace issuance-audit vocabulary name.",
+        "default": false
+      },
+      "audit_logs_forwarded_to_siem": {
+        "type": "boolean",
+        "title": "Audit Logs Forwarded to SIEM",
+        "description": "Whether issuance audit records are shipped off-host to a SIEM / central log store rather than retained local-only and mutable. Local-only logs can be tampered with or wiped by an attacker who reaches the CA host, defeating detection of mis-issuance. Secure value: true. Aligned to the workspace SIEM-forwarding vocabulary name."
+      }
+    },
+    "required": [
+      "acme_multi_perspective_validation_enabled",
+      "caa_method_binding_enforced",
+      "dnssec_validated_for_dns_challenge",
+      "enrollment_client_authentication_required",
+      "acme_external_account_binding_required",
+      "est_mutual_tls_client_auth_required",
+      "scep_static_challenge_password_in_use",
+      "enrollee_supplies_subject_disabled",
+      "custom_sans_allowed_unconstrained",
+      "issuance_template_or_name_policy_enforced",
+      "private_key_delivered_in_transit",
+      "client_side_key_generation",
+      "scep_payload_encryption_algorithm",
+      "encryption_in_transit_enabled",
+      "null_or_anon_ciphers_permitted",
+      "tls_min_version",
+      "enrollment_tokens_short_lived_single_use",
+      "enrollment_token_bound_to_identity",
+      "provisioner_signing_key_protected",
+      "oidc_id_token_claims_validated",
+      "max_leaf_validity_days",
+      "crl_or_ocsp_configured",
+      "issuance_rate_limiting_enabled",
+      "issuance_audit_logging_enabled",
+      "audit_logs_forwarded_to_siem"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/acme_external_account_binding_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/acme_multi_perspective_validation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollment_client_authentication_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/est_mutual_tls_client_auth_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dnssec_validated_for_dns_challenge"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oidc_id_token_claims_validated"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/caa_method_binding_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/custom_sans_allowed_unconstrained"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollee_supplies_subject_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollment_token_bound_to_identity"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/issuance_template_or_name_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/null_or_anon_ciphers_permitted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scep_payload_encryption_algorithm"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_min_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_side_key_generation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollment_tokens_short_lived_single_use"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_key_delivered_in_transit"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/provisioner_signing_key_protected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scep_static_challenge_password_in_use"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crl_or_ocsp_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_leaf_validity_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/issuance_rate_limiting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/issuance_audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logs_forwarded_to_siem"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enrollment_provisioner_type"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

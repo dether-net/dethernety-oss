@@ -1,0 +1,620 @@
+[
+  {
+    "option_name": "client_auth_uses_platform_identity",
+    "option_description": "Whether the client bootstraps trust to the secrets manager with non-distributable platform identity (Kubernetes ServiceAccount JWT, cloud AWS/GCP/Azure IAM, or jwt/oidc auth) instead of a static, distributable AppRole secret_id or token.",
+    "security_impact": "One of the OR-triggers for \"Secret-zero leak (static AppRole secret_id)\" — fires on the insecure (false) attestation, i.e. when bootstrap trust derives from a staged static secret_id rather than platform identity. Platform-identity auth carries no static secret to stage, deliver, or leak, eliminating the secret-zero surface.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List enabled auth methods and confirm workloads authenticate via a platform-identity mount (kubernetes/, aws/, gcp/, azure/, jwt/) rather than a static-secret_id approle/ mount.",
+        "command": "vault auth list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: kubernetes/, aws/, gcp/, azure/, or jwt/ used for workload auth (platform identity). Insecure signal: workloads authenticating via approle/ with a static secret_id staged in config.",
+        "source": "Vault Kubernetes auth method docs"
+      },
+      {
+        "type": "command",
+        "instruction": "Read the Kubernetes auth role and confirm it binds the specific workload ServiceAccount, namespace, and audience — proving the client authenticates with its pod ServiceAccount JWT, with no static secret to leak.",
+        "command": "vault read auth/kubernetes/role/<role>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "bound_service_account_names and bound_service_account_namespaces are set to the specific workload SA/namespace, and audience is set — proving the client authenticates with its pod ServiceAccount JWT (no static secret to leak).",
+        "source": "Vault Kubernetes auth method docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "static_approle_secret_id_in_config",
+    "option_description": "Whether a static, long-lived AppRole secret_id is staged in cleartext in a config file, environment variable, image layer, or CI variable — readable by anyone with access to that staging location.",
+    "security_impact": "One of the OR-triggers for \"Secret-zero leak (static AppRole secret_id)\" — fires on the insecure (true) attestation. A cleartext staged secret_id lets anyone who reads the staging location log in as the workload and retrieve every secret the role's policy permits.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect every plausible staging location (rendered config files, container env, image layers, CI/CD variable store) for a literal AppRole secret_id value. This is an interpreted boolean, not a raw-string match: true means a cleartext static secret_id is staged.",
+        "command": null,
+        "file_path": "<app config / env file / CI variable store>",
+        "navigation": null,
+        "expected_output": "Secure: no literal secret_id present (platform identity, or wrapped/single-use delivery instead). Insecure: a literal secret_id string is staged in cleartext in config/env/image/CI.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-check delivery: confirm the pipeline generates wrapped (single-use) secret_ids rather than writing raw secret_id values, which would indicate a static secret_id is staged.",
+        "command": "vault write -wrap-ttl=60s -force auth/approle/role/<role>/secret-id",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a wrapping_token (not a literal secret_id). Secure: the delivery pipeline generates wrapped secret_ids. Insecure: pipeline generates and stores raw secret_id values.",
+        "source": "Vault AppRole best-practices (approle-pattern) docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "secret_id_response_wrapped",
+    "option_description": "When AppRole must be used, whether the secret_id is delivered as a single-use response-wrapping (cubbyhole) token (-wrap-ttl) rather than the literal secret_id, so an intercepted delivery token is tamper-evident and single-use.",
+    "security_impact": "One of the OR-triggers for \"Secret-zero leak (static AppRole secret_id)\" — fires on the insecure (false) attestation, when the literal secret_id is delivered in cleartext instead of a wrapping token. Wrapping makes a leaked/intercepted delivery token detectable (the legitimate unwrap fails) and single-use.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm the delivery pipeline generates response-wrapped secret_ids (a wrapping_token), not raw secret_id values.",
+        "command": "vault write -wrap-ttl=60s -force auth/approle/role/<role>/secret-id",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a wrapping_token (not a literal secret_id). Secure: the delivery pipeline generates wrapped secret_ids. Insecure: pipeline generates and stores raw secret_id values.",
+        "source": "Vault AppRole best-practices (approle-pattern) docs"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the consumer unwraps once and validates the wrapping token via sys/wrapping/lookup (interception detection).",
+        "command": "vault unwrap <wrapping_token>   (and: vault write sys/wrapping/lookup token=<wrapping_token>)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "unwrap returns the secret_id exactly once; a second unwrap fails. sys/wrapping/lookup confirms creation_path=auth/approle/role/<role>/secret-id and that the token has not already been unwrapped (interception detection).",
+        "source": "Vault response-wrapping concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "token_ttl_bounded_short",
+    "option_description": "Whether the Vault/OpenBao login token issued for this secret-retrieval flow has a short, explicitly bounded TTL (e.g. ~1h) and a bounded token_max_ttl, so a leaked token self-expires quickly.",
+    "security_impact": "One of the OR-triggers for \"Long-lived / over-broad token\" — fires on the insecure (false) state, i.e. token_ttl=0 / no max_ttl / a root or periodic token used for routine reads, making a single leaked token indefinitely valid.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the role (or look up the live token) and confirm token_ttl/token_max_ttl are short bounded values, ttl > 0 and not 'infinity', and the token is not a root token.",
+        "command": "vault read auth/approle/role/<role>   (or)   vault token lookup",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "token_ttl and token_max_ttl are short, bounded values; the token in use is NOT a root token and has an explicit expiry (ttl > 0, not 'infinity'). Insecure: token_ttl=0, no max_ttl, or root token in use.",
+        "source": "Vault AppRole best-practices (approle-pattern) docs"
+      },
+      {
+        "type": "command",
+        "instruction": "For a dynamically-leased secret, confirm the lease itself carries a short TTL and bounded expire_time.",
+        "command": "vault lease lookup <lease-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For a secret retrieved from a dynamic engine, the lease has a short TTL and a bounded expire_time. Insecure: very long or unbounded lease TTL.",
+        "source": "Vault lease concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "token_max_ttl_minutes",
+    "option_description": "The bounded maximum lifetime, in minutes, of the login token used on this secret-retrieval flow (token_max_ttl). 0 encodes 'no max_ttl' (effectively unbounded). HIGH_IS_INSECURE.",
+    "security_impact": "One of the OR-triggers for \"Long-lived / over-broad token\" — the condition fires above a short-lived threshold (gt 240 min ~= the bounded ~3h example); 0 is treated as unbounded and equally insecure. A large/unbounded value keeps a leaked token usable for a long time.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read token_max_ttl from the role and convert to minutes; treat 0 as unbounded (insecure).",
+        "command": "vault read auth/approle/role/<role>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "token_max_ttl is a short, bounded value (e.g. 3h = 180 min). Insecure: 0 (no max_ttl / unbounded) or a very large value.",
+        "source": "Vault AppRole best-practices (approle-pattern) docs"
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-check against the live token's recorded max TTL.",
+        "command": "vault token lookup",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The token has an explicit bounded max expiry (not 'infinity'). Insecure: no max_ttl or an effectively unbounded value.",
+        "source": "Vault AppRole best-practices (approle-pattern) docs"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      60,
+      180,
+      0
+    ]
+  },
+  {
+    "option_name": "token_policy_over_broad",
+    "option_description": "Whether the ACL policy attached to the flow's token is over-broad — wildcard access over whole mounts (secret/*), any sys/ path, the sudo capability, or the built-in root policy on a workload token.",
+    "security_impact": "One of the OR-triggers for \"Long-lived / over-broad token\" — fires on the insecure (true) state. An over-broad policy turns one secret read into wide lateral access; Vault is deny-by-default, so breadth is the operator's choice.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the policy attached to the workload token and judge whether grants exceed read on the exact required secret path. Interpreted boolean (not a substring match on raw HCL).",
+        "command": "vault policy read <policy-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy lists only the workload's specific paths with minimal capabilities (read/list). Insecure signals: broad globs like 'secret/*', any 'sys/' path, 'sudo' capability, or the workload using the built-in 'root' policy.",
+        "source": "Vault ACL policies concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "lease_revocation_on_teardown",
+    "option_description": "Whether on logout/teardown the client explicitly revokes its leased secrets (vault lease revoke / vault lease revoke -prefix), invalidating a leaked or decommissioned-workload credential immediately rather than waiting for natural TTL expiry.",
+    "security_impact": "One of the OR-triggers for \"No revocation on teardown\" — fires on the insecure (false) state. Without teardown revocation, leaked or no-longer-needed leases linger until natural expiry (or forever if TTL=0).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify teardown/logout logic actually issues lease revocation and that revocation immediately invalidates the lease (and, for cloud engines, deletes the upstream key).",
+        "command": "vault lease revoke <lease-id>   /   vault lease revoke -prefix <path>   /   vault token revoke <token-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Revocation succeeds; the lease/token is immediately invalid and cannot be renewed. Verify teardown logic actually calls these. Docs: revoking invalidates the secret immediately and (for cloud engines) deletes the upstream key.",
+        "source": "Vault lease concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "token_revoked_on_logout",
+    "option_description": "Whether the auth token issued at login is explicitly revoked at logout/teardown (vault token revoke), blocking further use and renewal of a leaked token.",
+    "security_impact": "One of the OR-triggers for \"No revocation on teardown\" — fires on the insecure (false) state, when the token is left to self-expire only. A leaked but unrevoked token remains usable (and renewable) until natural expiry.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm logout/teardown issues an explicit token revoke for the login token rather than leaving it to self-expire, and that revocation blocks further use and renewal.",
+        "command": "vault token revoke <token-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Revocation succeeds; the token is immediately invalid and cannot be renewed. Verify teardown logic actually calls this. Insecure: token left to expire on its own.",
+        "source": "Vault lease concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "credential_lease_ttl_bounded",
+    "option_description": "Whether tokens and dynamic-secret leases on this flow carry a bounded, non-zero TTL/max_ttl (not token_ttl=0 / unbounded lease).",
+    "security_impact": "One of the OR-triggers for \"No revocation on teardown\" — fires on the insecure (false) state. An unbounded TTL means an unrevoked leaked credential stays usable forever, compounding the absence of teardown revocation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify the login token carries a bounded non-zero TTL/max_ttl (no token_ttl=0).",
+        "command": "vault read auth/approle/role/<role>   (or)   vault token lookup",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "token_ttl and token_max_ttl are short, bounded, non-zero values; the token has an explicit expiry (not 'infinity'). Insecure: token_ttl=0 or no max_ttl.",
+        "source": "Vault AppRole best-practices (approle-pattern) docs"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify dynamic-secret leases carry a bounded non-zero TTL and expire_time.",
+        "command": "vault lease lookup <lease-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The lease has a short TTL and a bounded expire_time. Insecure: very long or unbounded lease TTL.",
+        "source": "Vault lease concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dynamic_secret_upstream_deleted_on_teardown",
+    "option_description": "For dynamic secret engines (database/aws/gcp/azure/pki), whether teardown revocation deletes the upstream credential entirely (lease revocation removes the cloud key / DB user) rather than leaving a generated upstream credential live after the workload exits.",
+    "security_impact": "One of the OR-triggers for \"No revocation on teardown\" — fires on the insecure (false) state, when the upstream credential is never deleted. A live upstream credential after teardown remains exploitable independent of the Vault lease.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm that lease revocation on a dynamic engine removes the upstream credential (deletes the cloud IAM key / DB user) rather than leaving it live after teardown.",
+        "command": "vault lease revoke <lease-id>   /   vault lease revoke -prefix <path>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Revocation succeeds; the lease/token is immediately invalid and cannot be renewed. Docs: revoking invalidates the secret immediately and (for cloud engines) deletes the upstream key.",
+        "source": "Vault lease concept docs"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm in the cloud/DB control plane that the generated upstream credential is gone after lease revocation (e.g. the IAM access key / DB user no longer exists).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The upstream credential generated by the dynamic engine is absent post-revocation. Insecure: the upstream IAM key / DB user remains live after teardown.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "encryption_in_transit_enabled",
+    "option_description": "Whether the secret-retrieval flow reaches the secrets manager over TLS (VAULT_ADDR=https://...) rather than plaintext http.",
+    "security_impact": "One of the OR-triggers for \"Unverified TLS to secrets manager (MITM)\" — fires when encryption in transit is absent (VAULT_ADDR=http://...). Over cleartext, an on-path attacker reads both the auth token and the retrieved secret directly off the wire.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the client's Vault/OpenBao address env vars and confirm VAULT_ADDR/BAO_ADDR begins with https:// (TLS), not http://.",
+        "command": "env | grep -E 'VAULT_ADDR|VAULT_CACERT|VAULT_SKIP_VERIFY|VAULT_TLS_SERVER_NAME'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VAULT_ADDR begins with https://. Insecure: VAULT_ADDR=http:// (plaintext).",
+        "source": "Vault TLS / VAULT_SKIP_VERIFY CLI env docs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm a TLS handshake actually completes against the Vault endpoint (proving the channel is encrypted, not plaintext).",
+        "command": "openssl s_client -connect <vault-host>:8200 -CAfile $VAULT_CACERT < /dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake succeeds with 'Verify return code: 0 (ok)' against the trusted CA; certificate CN/SAN matches the Vault host. Failure or self-signed-untrusted indicates the flow would only work with verification disabled.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "server_certificate_validated",
+    "option_description": "Whether the client validates the secrets manager's server certificate against a trusted CA (VAULT_CACERT set to a real CA bundle; VAULT_SKIP_VERIFY unset/false).",
+    "security_impact": "One of the OR-triggers for \"Unverified TLS to secrets manager (MITM)\" — fires when certificate verification is absent. Without validation an attacker can present a rogue cert and terminate the TLS session as a MITM, capturing the token and secret in transit.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm VAULT_CACERT points at a real CA bundle and verification is not disabled.",
+        "command": "env | grep -E 'VAULT_ADDR|VAULT_CACERT|VAULT_SKIP_VERIFY|VAULT_TLS_SERVER_NAME'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VAULT_CACERT points to a real CA bundle; VAULT_SKIP_VERIFY is absent or false. Insecure: no VAULT_CACERT and a self-signed cert accepted, or VAULT_SKIP_VERIFY set.",
+        "source": "Vault TLS / VAULT_SKIP_VERIFY CLI env docs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Prove the server certificate validates against the configured trusted CA on the wire.",
+        "command": "openssl s_client -connect <vault-host>:8200 -CAfile $VAULT_CACERT < /dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake succeeds with 'Verify return code: 0 (ok)' against the trusted CA; certificate CN/SAN matches the Vault host. Failure or self-signed-untrusted indicates the flow would only work with verification disabled.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "tls_verification_skipped",
+    "option_description": "Whether TLS certificate verification has been explicitly disabled on the flow (VAULT_SKIP_VERIFY=true / tls_skip_verify=1 / BAO_SKIP_VERIFY). HashiCorp docs state this 'violates the Vault security model and voids any associated security guarantees'.",
+    "security_impact": "One of the OR-triggers for \"Unverified TLS to secrets manager (MITM)\" — fires on the insecure (true) state. Disabling verification opens the read flow to rogue-cert MITM interception of the auth token and the retrieved secret.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the client environment for a skip-verify flag (VAULT_SKIP_VERIFY / tls_skip_verify / BAO_SKIP_VERIFY).",
+        "command": "env | grep -E 'VAULT_ADDR|VAULT_CACERT|VAULT_SKIP_VERIFY|VAULT_TLS_SERVER_NAME'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VAULT_SKIP_VERIFY is absent or false (secure). Insecure: VAULT_SKIP_VERIFY=true/1. Docs: skipping verification 'violates the Vault security model and voids any associated security guarantees'.",
+        "source": "Vault TLS / VAULT_SKIP_VERIFY CLI env docs"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Independently verify the cert chain validates against the trusted CA — a flow that only works with skip-verify will fail this check.",
+        "command": "openssl s_client -connect <vault-host>:8200 -CAfile $VAULT_CACERT < /dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Handshake succeeds with 'Verify return code: 0 (ok)' against the trusted CA; certificate CN/SAN matches the Vault host. Failure or self-signed-untrusted indicates the flow would only work with verification disabled.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "secret_injected_as_env_var",
+    "option_description": "Whether the retrieved secret is delivered to the consumer as an environment variable (secretKeyRef / envFrom / exported VAULT_SECRET=...) rather than written to a memory-backed (tmpfs) file via the Vault Agent injector or CSI provider.",
+    "security_impact": "One of the OR-triggers for \"Retrieved secret exposed via environment variable\" — fires on the insecure (true) state. Env-injected secrets are readable through /proc/<pid>/environ, leak into crash dumps and child processes, and are present in every replica's process environment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the pod spec for how the secret is delivered: env:/envFrom:/secretKeyRef (insecure) vs a tmpfs/memory-backed emptyDir or CSI secrets-store volume consumed as a file (secure).",
+        "command": "kubectl get pod <pod> -o yaml  (inspect volumes / volumeMounts / env)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret is mounted via a tmpfs (medium: Memory) emptyDir or a CSI secrets-store volume, consumed as a file. Insecure: secret appears under env: / envFrom: (secretKeyRef), or is on a non-memory volume. K8s docs: env-injected secrets appear in every replica's process environment.",
+        "source": "Kubernetes Secrets injection (corpus: kubernetes-io-docs-concepts-configuration-secret)"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm at runtime whether secret material appears in the consumer's process environment.",
+        "command": "cat /proc/<pid>/environ | tr '\\0' '\\n' | grep -iE 'secret|token|password|vault'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No secret material present in the process environment. Any hit means the secret is exposed to anyone who can read /proc for that pid (and to crash dumps / child processes).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "secret_delivery_mechanism",
+    "option_description": "How the retrieved secret reaches the consuming workload: tmpfs_file (Vault Agent injector), csi_provider, env_var, or persistent_disk_file. Supporting context explaining WHY secret_injected_as_env_var fires.",
+    "security_impact": "Contextual evidence backing \"Retrieved secret exposed via environment variable\". env_var exposes the secret via /proc and across replicas; persistent_disk_file writes it to durable storage; tmpfs_file and csi_provider keep it off disk and out of the process environment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine the delivery path from the workload spec — memory-backed file (tmpfs), CSI secrets-store volume, environment variable, or a file on persistent disk.",
+        "command": "kubectl get pod <pod> -o yaml  (inspect volumes / volumeMounts / env)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Identifies one of: tmpfs (medium: Memory) emptyDir file, CSI secrets-store volume, env:/envFrom:/secretKeyRef, or a persistent-disk volume mount.",
+        "source": "Kubernetes Secrets injection (corpus: kubernetes-io-docs-concepts-configuration-secret)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm the delivery mechanism with the deployment team (Vault Agent sidecar injector, CSI provider, env injection, or on-disk file) and cross-check against the manifest.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Stated delivery mechanism matches the manifest: tmpfs_file or csi_provider (secure), env_var or persistent_disk_file (less secure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tmpfs_file",
+      "csi_provider",
+      "env_var",
+      "persistent_disk_file"
+    ]
+  },
+  {
+    "option_name": "secret_not_logged_by_consumer",
+    "option_description": "Whether the application or CI job consuming the retrieved secret never echoes it to stdout/stderr, debug logs, error/stack traces, or unmasked build output.",
+    "security_impact": "One of the OR-triggers for \"Retrieved secret echoed into consumer logs\" — fires on the insecure (false) state. A securely-retrieved secret then printed to logs is exposed to every downstream log sink and operator.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Grep application and CI logs for Vault token prefixes (modern 'hvs.', legacy 's.') and KV values; confirm the consumer never dump-logs the response body or echoes the value.",
+        "command": "grep -riE 'secret|token|password|s\\.[A-Za-z0-9]{24}|hvs\\.' <app-and-ci-logs>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No retrieved secret/token values appear in application or CI logs. Vault tokens (prefix 'hvs.' / legacy 's.') or KV values found in logs indicate the consumer leaks the secret post-retrieval.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "sensitive_data_masking_enabled",
+    "option_description": "Whether the consumer's logging/CI pipeline applies masking/redaction filters so secret material printed into a log stream is automatically scrubbed before reaching a sink.",
+    "security_impact": "One of the OR-triggers for \"Retrieved secret echoed into consumer logs\" — a secondary trigger reinforcing secret_not_logged_by_consumer; fires on the insecure (false) state. Without masking, any incidental print of the secret (debug dump, stack trace, echo $TOKEN) reaches the log verbatim.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a log scrubber/redaction filter or CI secret-masking is active so any incidental print of a secret is scrubbed before reaching a sink (e.g. GitHub Actions add-mask / GitLab masked variables / app-side log redactor).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A masking/redaction layer is configured and active in the consumer's logging or CI pipeline. Insecure: no masking, so printed secret values reach the sink verbatim.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Test the masking by checking that a deliberately-referenced secret value is rendered as a mask marker (e.g. ***) rather than cleartext in the log stream.",
+        "command": "grep -riE 'secret|token|password|hvs\\.|s\\.[A-Za-z0-9]{24}' <app-and-ci-logs>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret values appear masked (***) or absent. Cleartext secret/token values in logs indicate masking is not effective.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secrets_manager_audit_device_enabled",
+    "option_description": "Whether at least one Vault/OpenBao audit device (file or syslog) is enabled on the secrets-retrieval channel, so every secret read is attributable (who, which path, when). Audit devices HMAC-SHA256 sensitive values so the log stores no cleartext secret.",
+    "security_impact": "One of the OR-triggers for \"No audit device — unattributable access\" — fires on the insecure (false) state. A fresh cluster has auditing disabled by default; with no device, secret reads are unlogged and a compromise cannot be detected, scoped, or attributed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List enabled audit devices; empty output means auditing is disabled.",
+        "command": "vault audit list -detailed",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists at least one enabled device (type file or syslog). Empty output means auditing is disabled and secret reads are unattributable. Docs: a new cluster has auditing disabled until you enable a device.",
+        "source": "Vault audit device docs"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Confirm audit entries are being written and that sensitive values are HMAC-hashed, not cleartext.",
+        "command": "tail -n 5 /var/log/vault_audit.log | jq .",
+        "file_path": "/var/log/vault_audit.log",
+        "navigation": null,
+        "expected_output": "Audit entries record request path/auth/time; sensitive string values appear as HMAC-SHA256 hashes (hmac-sha256:...), confirming secret payloads are not stored in cleartext while access stays attributable.",
+        "source": "Vault audit device docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "audit_logs_forwarded_to_siem",
+    "option_description": "Whether secrets-manager audit records are forwarded off-host to a central SIEM / log pipeline rather than only written to a local file/syslog sink that an attacker on the host can tamper with or that is never reviewed.",
+    "security_impact": "One of the OR-triggers for \"No audit device — unattributable access\" — fires on the insecure (false) state. Without forwarding, even an enabled audit device yields unattributable access in practice because the evidence is neither retained centrally nor alertable.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Confirm audit records are shipped off-host to a central SIEM/log pipeline (e.g. via a syslog audit device targeting the SIEM, or a log shipper tailing the audit file) and are alertable — not only a local file/syslog sink.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit records are forwarded to a central SIEM and retained/alertable. Insecure: audit output stays only in a local file/syslog the host operator (or attacker) controls.",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the enabled audit devices to see whether a syslog device targets a central collector (vs a file device only written locally).",
+        "command": "vault audit list -detailed",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A syslog/file device whose destination is the central pipeline. A purely local file device with no shipper confirms records are not forwarded.",
+        "source": "Vault audit device docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "secret_type_supports_dynamic_credentials",
+    "option_description": "Whether the credential carried by this flow is of a type for which the secrets manager can issue per-request leased dynamic credentials (database, PKI, cloud AWS/GCP/Azure, transit). Gates the dynamic-preference trigger so the rule does not fire on secret types with no dynamic equivalent.",
+    "security_impact": "Gating condition for \"Static long-lived secret instead of dynamic\". When true, a dynamic engine is available for this secret type, so continuing to read a long-lived static value is an avoidable exposure; when false, the dynamic-preference trigger does not fire.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine whether a dynamic secret engine exists for this credential type (database/pki/aws/gcp/azure/transit).",
+        "command": "vault secrets list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dynamic engine (database/, pki/, aws/, gcp/, azure/) is mounted that matches this credential type (true). False when no dynamic equivalent exists for the secret type.",
+        "source": "Vault lease concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "dynamic_secrets_preferred_over_static",
+    "option_description": "Whether, where the secret type supports it, this flow retrieves a freshly-generated short-lived dynamic credential with a lease (from a database/pki/aws/gcp/azure engine) rather than reading a long-lived static KV secret shared across workloads.",
+    "security_impact": "One of the OR-triggers for \"Static long-lived secret instead of dynamic\" — fires on the insecure (false) state, when the flow reads a static long-lived KV value instead of a leased dynamic credential. Dynamic secrets are unique per consumer, auto-expire, and are revocable upstream, shrinking blast radius and enabling attribution.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Confirm a dynamic engine is mounted for this credential type and that the read path returns a lease_id (dynamic) rather than a static KV value.",
+        "command": "vault secrets list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For credential-type secrets, a dynamic engine (database/, pki/, aws/, gcp/, azure/) is mounted and used, rather than the consumer reading static long-lived values from kv/. Confirm the read path returns a lease_id (dynamic) vs none (static KV).",
+        "source": "Vault lease concept docs"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify a retrieved credential actually carries a lease (dynamic) rather than being a bare static KV value.",
+        "command": "vault lease lookup <lease-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A valid lease with a short TTL and bounded expire_time confirms a dynamic credential. No lease_id on the read path indicates a static KV value (insecure).",
+        "source": "Vault lease concept docs"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "static_secret_rotation_enabled",
+    "option_description": "Whether, when a static secret must be used (no dynamic engine available, or dynamic not yet adopted), that static secret is on an automated rotation schedule with bounded validity rather than being an indefinitely-valid never-rotated shared credential.",
+    "security_impact": "One of the OR-triggers for \"Static long-lived secret instead of dynamic\" — fires on the insecure (false) state, when the static secret is long-lived with no lease and no rotation, so any leak grants indefinite, non-attributable, broad-blast-radius access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether a rotation mechanism (e.g. Vault static-roles / managed KV rotation) is configured so the credential has a non-infinite effective lifetime; static-role reads return a last_vault_rotation / ttl.",
+        "command": "vault secrets list   (then: vault read <db-mount>/static-roles/<role>)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A static-role or KV rotation pipeline is configured with a bounded rotation_period / non-infinite effective lifetime. Insecure: a never-rotated, indefinitely-valid static credential.",
+        "source": "Vault lease concept docs"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Where rotation is external to Vault, confirm with operators that an automated rotation schedule with bounded validity exists for this static secret (not a manual, indefinite credential).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An automated rotation schedule with bounded validity is documented and active. Insecure: no rotation; the static secret is indefinitely valid and never rotated.",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

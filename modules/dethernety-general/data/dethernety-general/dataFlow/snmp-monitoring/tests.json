@@ -1,0 +1,93 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "snmp_version_and_security_level": "v1",
+      "snmp_default_community_string_in_use": true,
+      "snmp_community_string_strong_unique": false,
+      "snmpv3_uses_sha_and_aes_not_md5_des": false,
+      "known_vulnerabilities_patched": false,
+      "snmp_write_community_disabled_or_acl_bound": false,
+      "snmp_mib_view_restricted_to_subtree": false,
+      "snmp_access_acl_restricted": false,
+      "snmp_agent_bound_to_management_interface": false,
+      "snmp_agent_internet_reachable": true,
+      "snmp_agent_open_reflector": true,
+      "snmp_amplification_exposure_mitigated": false,
+      "response_rate_limiting_enabled": false,
+      "unauthenticated_v1_v2c_traps_accepted": true,
+      "snmp_traps_authenticated_v3_informs": false
+    },
+    "expectedExposures": [
+      "Cleartext SNMPv1/v2c community on the wire",
+      "Default / guessable community string (public/private)",
+      "SNMP SET write reconfiguration (rwcommunity / rwuser)",
+      "SNMP GETBULK reflection / amplification DoS",
+      "Weak/absent SNMPv3 USM security level (noAuth / MD5 / DES)",
+      "Agent network exposure / missing source-IP ACL",
+      "Spoofed unauthenticated trap/inform injection",
+      "Full-MIB inventory disclosure (no VACM view restriction)"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "snmp_version_and_security_level": "disabled",
+      "snmp_default_community_string_in_use": false,
+      "snmp_community_string_strong_unique": true,
+      "snmpv3_uses_sha_and_aes_not_md5_des": true,
+      "known_vulnerabilities_patched": true,
+      "snmp_write_community_disabled_or_acl_bound": true,
+      "snmp_mib_view_restricted_to_subtree": true,
+      "snmp_access_acl_restricted": true,
+      "snmp_agent_bound_to_management_interface": true,
+      "snmp_agent_internet_reachable": false,
+      "snmp_agent_open_reflector": false,
+      "snmp_amplification_exposure_mitigated": true,
+      "response_rate_limiting_enabled": true,
+      "unauthenticated_v1_v2c_traps_accepted": false,
+      "snmp_traps_authenticated_v3_informs": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "snmp_version_and_security_level": "v1",
+      "snmp_default_community_string_in_use": false,
+      "snmp_community_string_strong_unique": true,
+      "snmpv3_uses_sha_and_aes_not_md5_des": true,
+      "known_vulnerabilities_patched": true,
+      "snmp_write_community_disabled_or_acl_bound": true,
+      "snmp_mib_view_restricted_to_subtree": true,
+      "snmp_access_acl_restricted": true,
+      "snmp_agent_bound_to_management_interface": true,
+      "snmp_agent_internet_reachable": false,
+      "snmp_agent_open_reflector": false,
+      "snmp_amplification_exposure_mitigated": true,
+      "response_rate_limiting_enabled": true,
+      "unauthenticated_v1_v2c_traps_accepted": false,
+      "snmp_traps_authenticated_v3_informs": true
+    },
+    "expectedExposures": [
+      "Cleartext SNMPv1/v2c community on the wire"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Default / guessable community string (public/private)",
+      "SNMP SET write reconfiguration (rwcommunity / rwuser)",
+      "SNMP GETBULK reflection / amplification DoS",
+      "Weak/absent SNMPv3 USM security level (noAuth / MD5 / DES)",
+      "Agent network exposure / missing source-IP ACL",
+      "Spoofed unauthenticated trap/inform injection",
+      "Full-MIB inventory disclosure (no VACM view restriction)"
+    ]
+  }
+]

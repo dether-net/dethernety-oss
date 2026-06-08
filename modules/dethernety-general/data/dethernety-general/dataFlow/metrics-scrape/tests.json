@@ -1,0 +1,89 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "exporter_endpoint_authenticated": false,
+      "exporter_endpoint_network_restricted": false,
+      "metric_labels_free_of_sensitive_data": false,
+      "sensitive_data_masking_enabled": false,
+      "data_minimization_enforced": false,
+      "scrape_sample_and_label_limits_set": false,
+      "scrape_body_size_limit_set": false,
+      "scrape_config_edit_restricted": false,
+      "service_discovery_source_trusted": false,
+      "proxying_exporter_target_allowlisted": false,
+      "scrape_scheme_https": false,
+      "encryption_in_transit_enabled": false,
+      "tls_min_version": "SSLv3",
+      "scrape_target_tls_certificate_verified": false
+    },
+    "expectedExposures": [
+      "Plaintext scrape transport",
+      "Cardinality bomb / TSDB resource exhaustion",
+      "/metrics not network-restricted to the monitoring segment",
+      "SSRF via editable scrape config / service discovery",
+      "Unauthenticated /metrics endpoint exposure",
+      "Unverified target TLS (insecure_skip_verify / MITM)",
+      "Sensitive data leaked in metric labels"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "exporter_endpoint_authenticated": true,
+      "exporter_endpoint_network_restricted": true,
+      "metric_labels_free_of_sensitive_data": true,
+      "sensitive_data_masking_enabled": true,
+      "data_minimization_enforced": true,
+      "scrape_sample_and_label_limits_set": true,
+      "scrape_body_size_limit_set": true,
+      "scrape_config_edit_restricted": true,
+      "service_discovery_source_trusted": true,
+      "proxying_exporter_target_allowlisted": true,
+      "scrape_scheme_https": true,
+      "encryption_in_transit_enabled": true,
+      "tls_min_version": "TLS1.2",
+      "scrape_target_tls_certificate_verified": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "exporter_endpoint_authenticated": true,
+      "exporter_endpoint_network_restricted": true,
+      "metric_labels_free_of_sensitive_data": true,
+      "sensitive_data_masking_enabled": true,
+      "data_minimization_enforced": true,
+      "scrape_sample_and_label_limits_set": true,
+      "scrape_body_size_limit_set": true,
+      "scrape_config_edit_restricted": true,
+      "service_discovery_source_trusted": true,
+      "proxying_exporter_target_allowlisted": true,
+      "scrape_scheme_https": true,
+      "encryption_in_transit_enabled": true,
+      "tls_min_version": "SSLv3",
+      "scrape_target_tls_certificate_verified": true
+    },
+    "expectedExposures": [
+      "Plaintext scrape transport"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Plaintext scrape transport",
+      "Cardinality bomb / TSDB resource exhaustion",
+      "/metrics not network-restricted to the monitoring segment",
+      "SSRF via editable scrape config / service discovery",
+      "Unauthenticated /metrics endpoint exposure",
+      "Unverified target TLS (insecure_skip_verify / MITM)",
+      "Sensitive data leaked in metric labels"
+    ]
+  }
+]

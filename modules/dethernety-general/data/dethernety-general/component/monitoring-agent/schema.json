@@ -1,0 +1,459 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Telemetry Egress Encrypted in Transit (TLS)",
+        "description": "Whether the monitoring agent encrypts its egress telemetry channel (logs/metrics/syslog) to the backend with TLS. Maps to the agent_to_backend_tls config surface: Fluentd <transport tls> present, Filebeat output hosts using https:// with ssl configured, rsyslog omfwd StreamDriver=gtls. When false the agent forwards over plaintext TCP/UDP, exposing telemetry payload and embedded backend credentials to passive sniffing and active MITM. Fires (is_false) on cleartext forwarding and stays silent on the TLS-enabled secure baseline.",
+        "default": false
+      },
+      "server_certificate_validated": {
+        "type": "boolean",
+        "title": "Backend TLS Certificate Validated",
+        "description": "Whether the agent validates the backend server's TLS certificate. Maps to the tls_verification_mode config surface: Filebeat ssl.verification_mode full (the default) / Fluentd <transport tls> insecure false. Disabling verification (verification_mode: none / insecure true) accepts any certificate, re-enabling MITM despite 'TLS on' — a control bypass of encryption_in_transit_enabled. Fires (is_false) when validation is disabled; silent on the secure baseline where verification is full.",
+        "default": false
+      },
+      "tls_min_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum Negotiated TLS Version",
+        "description": "Minimum negotiated TLS version on the agent's egress/endpoints (Filebeat ssl, Fluentd transport tls, Prometheus exporter-toolkit tls_server_config.min_version). Maps to the tls_min_version config surface. NIST SP 800-52r2 floor is TLS 1.2. Allowing TLS 1.0/1.1/SSLv3 exposes telemetry to known protocol-downgrade weaknesses even when encryption is nominally on. Positive condition on the insecure complement (in [TLS1.0, TLS1.1, SSLv3]) fires on a downgraded floor and stays silent on the TLS1.2/TLS1.3 secure baseline."
+      },
+      "listening_endpoint_authenticated": {
+        "type": "boolean",
+        "title": "Listening Scrape/Forward Endpoint Authenticated",
+        "description": "Whether the agent's HTTP scrape/forward listening endpoint requires authentication. node_exporter and most Prometheus exporters serve /metrics with NO auth unless --web.config.file sets basic_auth_users (bcrypt) and/or tls_server_config.client_auth_type RequireAndVerifyClientCert; Fluentd in_forward without a <security> block (allow_anonymous_source defaults true) and SNMPv1/v2c community strings are likewise unauthenticated. Secure value: true (auth configured). Fires (is_false) when the listening endpoint is open/unauthenticated.",
+        "default": false
+      },
+      "agent_endpoint_bound_loopback_or_internal": {
+        "type": "boolean",
+        "title": "Listening Endpoint Bound to Loopback / Internal",
+        "description": "Whether the agent's listening endpoint is bound to loopback (127.0.0.1) or a restricted internal interface behind a TLS reverse proxy / firewall, rather than 0.0.0.0 / :: (all interfaces). Verified via --web.listen-address (exporter), Fluentd in_http/in_forward bind, SNMP agentAddress, and ss/ps inspection. Secure value: true (loopback or restricted internal bind). Fires (is_false) when the endpoint is bound to a world/network-reachable interface, exposing an unauthenticated scrape/forward surface.",
+        "default": false
+      },
+      "metrics_endpoint_internet_reachable": {
+        "type": "boolean",
+        "title": "Scrape/Metrics Endpoint Internet-Reachable",
+        "description": "Whether the agent's scrape/metrics/forward endpoint is reachable from the public internet (not merely all local interfaces) — e.g. bound to a public IP with no firewall/security-group restriction. A world-reachable unauthenticated /metrics leaks host inventory, mount points, and process/network stats and presents attack surface (e.g. an exposed embedded HTTP server). Secure value: false (not internet reachable). Fires (is_true) when the endpoint is internet-reachable."
+      },
+      "agent_to_backend_authentication_enabled": {
+        "type": "boolean",
+        "title": "Agent Authenticates to Backend",
+        "description": "Whether the monitoring agent proves its own identity to the SIEM/log backend on its egress channel (Fluentd forward <security> shared_key + user_auth; Filebeat api_key, username/password, or PKI client cert under output.*). Server-only TLS authenticates the backend but NOT the agent, so a rogue forwarder can inject telemetry and a stolen channel can be replayed. Fires (is_false) when the agent forwards with no backend credential / shared_key. Secure value: true.",
+        "default": false
+      },
+      "anonymous_forwarder_source_allowed": {
+        "type": "boolean",
+        "title": "Anonymous Forwarder Sources Allowed",
+        "description": "Whether the agent's forward receiver accepts telemetry from unauthenticated/anonymous sources (Fluentd allow_anonymous_source, which DEFAULTS true when no <security> block is present). When true, any network peer can push records into the pipeline with no client identity. Fires (is_true) when anonymous sources are permitted. Secure value: false.",
+        "default": false
+      },
+      "mutual_tls_client_auth_enabled": {
+        "type": "boolean",
+        "title": "Mutual TLS Client Authentication Enabled",
+        "description": "Whether mutual TLS is in effect so the agent presents a client certificate the backend verifies against a truststore, authenticating the agent by certificate rather than (or in addition to) a shared secret (Fluentd client_cert_auth + ca_path; Filebeat ssl.certificate + ssl.key). Fires (is_false) when only server-side TLS is used with no client-cert auth. Secure value: true."
+      },
+      "backend_credential_storage_secure": {
+        "type": "boolean",
+        "title": "Backend Credential Stored Securely (Context)",
+        "description": "Supporting context: whether the backend shared_key/api_key/password the agent presents is referenced via keystore/env (${VAR}) on a 0600 root-owned config rather than stored inline plaintext in a world-readable config. A credential that authenticates the agent but is trivially readable locally weakens the authentication guarantee; not itself the trigger for this vector."
+      },
+      "snmp_version_and_security_level": {
+        "type": "string",
+        "enum": [
+          "v3_authpriv",
+          "v3_authnopriv",
+          "v3_noauth",
+          "v2c",
+          "v1",
+          "disabled"
+        ],
+        "title": "SNMP Version / Security Level",
+        "description": "Effective SNMP version and SNMPv3 security level the agent's snmpd exposes (net-snmp /etc/snmp/snmpd.conf). v1/v2c authenticate with a CLEARTEXT community string (rocommunity/rwcommunity) trivially sniffed on an ADJACENT segment; v3_noauth (noAuthNoPriv) and v3_authnopriv (authNoPriv) leave the polled MIB payload unencrypted in transit. Only v3_authpriv (SHA auth + AES privacy) or disabled is secure — so the exposure fires when this is in {v1, v2c, v3_noauth, v3_authnopriv} and stays silent on v3_authpriv/disabled."
+      },
+      "snmp_default_community_string_in_use": {
+        "type": "boolean",
+        "title": "Default SNMP Community String In Use",
+        "description": "Whether any rocommunity/rwcommunity line uses a well-known default community string (public/private) — an immediate guess-without-sniffing finding per the net-snmp snmpd.conf guidance. Interpreted boolean (assessor reads the community token from snmpd.conf rather than a raw substring match, so it is polarity-safe): fires is_true when a default community is configured; the secure baseline (SNMPv3-only, no community lines, or non-default community) is false and does not fire.",
+        "default": false
+      },
+      "backend_credentials_stored_inline_plaintext": {
+        "type": "boolean",
+        "title": "Backend Credentials Stored Inline Plaintext",
+        "description": "True when backend authentication secrets (Fluentd <security> shared_key, Filebeat output.* api_key/password, Promtail/Loki bearer tokens) are written as inline plaintext literals in the agent config file rather than referenced via keystore or ${ENV}. The assessor inspects the config (e.g. grep -nE 'api_key|password|shared_key' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf) and sets this true if any secret value is a literal rather than a ${VAR}/keystore reference. Secure value is false. Any local reader of such a config obtains credentials to write to or impersonate the SIEM/log backend.",
+        "default": false
+      },
+      "secrets_stored_in_secret_manager": {
+        "type": "boolean",
+        "title": "Backend Secrets Resolved via Secret Store",
+        "description": "True when the agent resolves backend secrets through an external secret store rather than embedding them in config — Filebeat keystore, environment-variable indirection (${VAR}), or an equivalent injected-at-runtime mechanism. Secure value is true; false (combined with unhardened config permissions) means inline secrets are exposed to any local reader. Maps to research config_surface backend_credentials_storage (secret-reference half of the control)."
+      },
+      "config_file_permissions_hardened": {
+        "type": "boolean",
+        "title": "Agent Config File Permissions Hardened",
+        "description": "True when the agent config file (and any readable spooled buffer/registry that may carry secrets) is root-owned with restrictive mode (0600/0640) and not world/group-readable. Assessor inspects e.g. stat -c '%a %U:%G' /etc/filebeat/filebeat.yml /etc/fluent/fluentd.conf. Secure value is true; false means a world-readable config (0644/0666) exposes any inline credentials to local readers. Maps to research config_surface backend_credentials_storage (file-permission half of the control)."
+      },
+      "agent_runs_as_non_root_least_privilege": {
+        "type": "boolean",
+        "title": "Agent Runs as Non-Root Least Privilege",
+        "description": "True when the monitoring agent process runs as a dedicated unprivileged user with need-based scoping (adm group membership, file ACLs, or Linux capabilities for log read) rather than root (uid 0). Verify via `ps -o user= -C fluentd,filebeat,vector,node_exporter,promtail` and `systemctl show <svc> -p User`. A root-context agent turns any agent RCE/parser bug or host local-privesc into full host compromise; least privilege shrinks blast radius. Fires (is_false) when the agent runs as root.",
+        "default": false
+      },
+      "host_security_patches_current": {
+        "type": "boolean",
+        "title": "Host Security Patches Current (Local-Privesc)",
+        "description": "True when the host and agent are current on security patches for known local-privilege-escalation and agent CVEs — notably sudo > 1.9.5p1 (CVE-2021-3156 Baron Samedit, unprivileged->root, which a root-context agent amplifies) and a patched agent build (e.g. Fluent Bit >= 3.0.4 / 2.2.3 for CVE-2024-4323). Verify via `sudo --version`, `fluent-bit --version`, and vendor advisory tracking. Fires (is_false) when an unpatched local-root primitive is present on the host.",
+        "default": false
+      },
+      "agent_process_user": {
+        "type": "string",
+        "title": "Agent Process OS User (Context)",
+        "description": "Raw effective OS user the agent process runs under (e.g. 'root', 'fluent', 'filebeat'). Context for deriving agent_runs_as_non_root_least_privilege; 'root' or empty (systemd default) indicates uid 0."
+      },
+      "known_vulnerabilities_patched": {
+        "type": "boolean",
+        "title": "Agent Patched Against Known Parser/HTTP CVEs",
+        "description": "Whether the monitoring agent build is patched against publicly-known critical CVEs in its parsers / embedded HTTP server. The triggering case is CVE-2024-4323 ('Linguistic Lumberjack', Fluent Bit 2.0.7-3.0.3, CVSS 9.8): a memory-corruption in the embedded HTTP server's /api/v1/traces parser enabling DoS, information disclosure, and potentially RCE. Secure (true) means the agent runs a fixed version (Fluent Bit >= 3.0.4 or backported 2.2.3) and vendor security advisories are tracked and applied. Assess via 'fluent-bit --version' / 'td-agent --version' against the vendor advisory floor. Fires (is_false) on an unpatched, exploitable build.",
+        "default": false
+      },
+      "software_version_supported": {
+        "type": "boolean",
+        "title": "Agent Version Vendor-Supported (Context)",
+        "description": "Whether the running agent version is a vendor-supported (non-EOL) release that still receives security backports. Supporting context for known_vulnerabilities_patched: an EOL build cannot receive the CVE-2024-4323 fix and compounds patch-currency exposure. Not itself a trigger."
+      },
+      "embedded_http_server_disabled_or_loopback": {
+        "type": "boolean",
+        "title": "Embedded HTTP Server Disabled or Loopback-Bound",
+        "description": "Whether the agent's embedded HTTP / monitoring server (the attack surface for CVE-2024-4323's /api/v1/traces parser) is disabled or bound only to loopback rather than reachable from the network. Secure (true) means HTTP_Server is Off, or its Listen address is 127.0.0.1 / behind a restricted interface, so the vulnerable parser cannot be reached by a network peer. Assess via 'grep -niE HTTP_Server|Listen /etc/fluent-bit/fluent-bit.conf' and 'ss -ltnp'. Fires (is_false) when the embedded HTTP endpoint is enabled and bound to a non-loopback / world-reachable address.",
+        "default": false
+      },
+      "embedded_http_endpoint_authenticated": {
+        "type": "boolean",
+        "title": "Embedded HTTP Endpoint Authenticated",
+        "description": "Whether the agent's reachable embedded HTTP / monitoring endpoint requires authentication (or sits behind an authenticating reverse proxy / network ACL) before the parser processes a request. Secure (true) means a request must be authenticated/authorized to reach /api/v1/traces. Combined (AND) with embedded_http_server_disabled_or_loopback being insecure, an unauthenticated reachable endpoint makes the CVE-2024-4323 parser directly exploitable by any network peer. Fires (is_false) when the reachable endpoint is unauthenticated."
+      },
+      "sensitive_data_masking_enabled": {
+        "type": "boolean",
+        "title": "Sensitive-Data Masking at Source Enabled",
+        "description": "Whether the monitoring agent masks/scrubs sensitive data (credentials, tokens, PII/PHI) before forwarding telemetry to the SIEM/monitoring backend. Interpreted from the agent pipeline config (Fluentd record_modifier/grep/scrub or @type gsub, Vector remap/redact, Filebeat processors drop_fields). Secure value is true (masking applied at the source per NIST SP 800-122 data minimization); fires is_false when raw telemetry is forwarded verbatim, over-collecting sensitive data into the monitoring tier.",
+        "default": false
+      },
+      "pii_redaction_filters_configured": {
+        "type": "boolean",
+        "title": "PII/Secret Redaction Filters Configured",
+        "description": "Whether explicit scrub/redact/drop_fields filters are configured in the agent pipeline to remove PII/PHI and secret patterns prior to egress. Interpreted boolean over the agent config (presence of a masking/redaction/drop filter targeting sensitive fields). Secure value is true (filters present, minimizing forwarded data); fires is_false when no redaction filter exists, so credentials and personal data reach the backend in full and create data-residency/retention liabilities for anyone with SIEM access."
+      },
+      "data_minimization_enforced": {
+        "type": "boolean",
+        "title": "Data Minimization Posture Enforced (Context)",
+        "description": "Contextual evidence: whether a data-minimization posture (collect/forward only what is operationally required) is enforced for the agent's telemetry, per NIST SP 800-122. Supports interpretation of the masking/redaction triggers but is not itself a firing condition."
+      },
+      "agent_config_write_restricted_to_admin": {
+        "type": "boolean",
+        "title": "Agent Config Write-Restricted to Admin",
+        "description": "Whether the agent config files AND their containing directories (e.g. fluentd.conf, filebeat.yml, snmpd.conf under /etc/fluent, /etc/filebeat) are writable only by root/admin (owned root, not group/other-writable; files <=0644, dirs 0755 root). When false, a non-admin attacker can edit the config to disable forwarding (blind the SIEM during intrusion), redirect telemetry to an attacker sink, or inject an exec/parser stage that runs as the agent's (often root) user. Insecure value (writable by non-admin) fires this exposure; secure value is true.",
+        "default": false
+      },
+      "config_reload_endpoint_authenticated": {
+        "type": "boolean",
+        "title": "Config-Reload/Admin Endpoint Authenticated",
+        "description": "Whether any remote/local config-reload or admin/monitoring HTTP endpoint exposed by the agent (e.g. an embedded HTTP server or reload signal trigger) requires authentication. When false, an unauthenticated reload/admin endpoint lets an attacker hot-swap pipeline config or trigger a reload of attacker-planted config without credentials, achieving the same SIEM-blinding/telemetry-redirect tamper without filesystem write. Insecure value (unauthenticated endpoint) fires; secure value is true (endpoint authenticated, or no such endpoint exposed).",
+        "default": false
+      },
+      "forwarding_tamper_monitored": {
+        "type": "boolean",
+        "title": "Config Tamper / Forwarding Cessation Monitored",
+        "description": "Whether changes to the agent config or a stop/disable of telemetry forwarding are detected (config-integrity monitoring / FIM on the agent config, heartbeat or dead-man's-switch alerting on forwarding cessation at the SIEM). When false, an attacker who tampers with the config or kills forwarding blinds the SIEM silently with no compensating detection — the tamper goes unnoticed during the intrusion window. Insecure value (no tamper/cessation monitoring) fires this secondary exposure; secure value is true."
+      }
+    },
+    "required": [
+      "encryption_in_transit_enabled",
+      "server_certificate_validated",
+      "tls_min_version",
+      "listening_endpoint_authenticated",
+      "agent_endpoint_bound_loopback_or_internal",
+      "metrics_endpoint_internet_reachable",
+      "agent_to_backend_authentication_enabled",
+      "anonymous_forwarder_source_allowed",
+      "mutual_tls_client_auth_enabled",
+      "snmp_version_and_security_level",
+      "snmp_default_community_string_in_use",
+      "backend_credentials_stored_inline_plaintext",
+      "secrets_stored_in_secret_manager",
+      "config_file_permissions_hardened",
+      "agent_runs_as_non_root_least_privilege",
+      "host_security_patches_current",
+      "known_vulnerabilities_patched",
+      "embedded_http_server_disabled_or_loopback",
+      "embedded_http_endpoint_authenticated",
+      "sensitive_data_masking_enabled",
+      "pii_redaction_filters_configured",
+      "agent_config_write_restricted_to_admin",
+      "config_reload_endpoint_authenticated",
+      "forwarding_tamper_monitored"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_to_backend_authentication_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_forwarder_source_allowed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_reload_endpoint_authenticated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/listening_endpoint_authenticated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_default_community_string_in_use"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/embedded_http_endpoint_authenticated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mutual_tls_client_auth_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_runs_as_non_root_least_privilege"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_process_user"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_certificate_validated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_version_and_security_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_min_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_masking_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_redaction_filters_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_minimization_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_credentials_stored_inline_plaintext"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_file_permissions_hardened"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_secret_manager"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_credential_storage_secure"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_endpoint_bound_loopback_or_internal"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/embedded_http_server_disabled_or_loopback"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/metrics_endpoint_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_security_patches_current"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/known_vulnerabilities_patched"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/software_version_supported"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/forwarding_tamper_monitored"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_config_write_restricted_to_admin"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

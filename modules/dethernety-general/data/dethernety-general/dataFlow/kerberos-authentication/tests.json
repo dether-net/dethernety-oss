@@ -1,0 +1,121 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "kerberos_preauthentication_required": false,
+      "accounts_with_preauth_disabled_present": true,
+      "kerberos_ticket_encryption_type": "des_cbc_crc",
+      "weak_legacy_enctypes_disabled": false,
+      "rc4_preauth_downgrade_patched": false,
+      "service_accounts_use_gmsa_or_strong_random_keys": false,
+      "spn_accounts_have_weak_passwords": true,
+      "spn_account_rc4_tickets_permitted": true,
+      "spn_account_count": 0,
+      "krbtgt_rotated_on_schedule": false,
+      "krbtgt_reset_twice_on_rotation": false,
+      "krbtgt_password_age_days": 3650,
+      "max_ticket_lifetime_hours": 720,
+      "max_renewable_lifetime_days": 365,
+      "pac_validation_enforced": false,
+      "tgs_request_auditing_enabled": false,
+      "kerberoasting_detection_alerting_enabled": false,
+      "kdc_network_exposure_restricted": false,
+      "audit_logs_forwarded_to_siem": false,
+      "kerberos_fast_armoring_enabled": false,
+      "pkinit_required_for_sensitive_accounts": false,
+      "unconstrained_delegation_disabled": false,
+      "kdc_patched_against_delegation_bypass": false,
+      "sensitive_accounts_marked_not_delegable": false
+    },
+    "expectedExposures": [
+      "Unarmored preauth exchange (no PKINIT/FAST)",
+      "krbtgt key compromise / no rotation (Golden Ticket)",
+      "Missing pre-authentication (AS-REP roasting)",
+      "Weak / legacy ticket encryption types (RC4/DES) and downgrade",
+      "Forged service ticket / pass-the-ticket",
+      "Unconstrained / abused delegation (Bronze Bit)",
+      "Weak service-account keys (Kerberoasting)",
+      "Insufficient TGS-request auditing & KDC exposure"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "kerberos_preauthentication_required": true,
+      "accounts_with_preauth_disabled_present": false,
+      "kerberos_ticket_encryption_type": "aes128",
+      "weak_legacy_enctypes_disabled": true,
+      "rc4_preauth_downgrade_patched": true,
+      "service_accounts_use_gmsa_or_strong_random_keys": true,
+      "spn_accounts_have_weak_passwords": false,
+      "spn_account_rc4_tickets_permitted": false,
+      "spn_account_count": 1,
+      "krbtgt_rotated_on_schedule": true,
+      "krbtgt_reset_twice_on_rotation": true,
+      "krbtgt_password_age_days": 0,
+      "max_ticket_lifetime_hours": 1,
+      "max_renewable_lifetime_days": 1,
+      "pac_validation_enforced": true,
+      "tgs_request_auditing_enabled": true,
+      "kerberoasting_detection_alerting_enabled": true,
+      "kdc_network_exposure_restricted": true,
+      "audit_logs_forwarded_to_siem": true,
+      "kerberos_fast_armoring_enabled": true,
+      "pkinit_required_for_sensitive_accounts": true,
+      "unconstrained_delegation_disabled": true,
+      "kdc_patched_against_delegation_bypass": true,
+      "sensitive_accounts_marked_not_delegable": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "kerberos_preauthentication_required": true,
+      "accounts_with_preauth_disabled_present": false,
+      "kerberos_ticket_encryption_type": "des_cbc_crc",
+      "weak_legacy_enctypes_disabled": true,
+      "rc4_preauth_downgrade_patched": true,
+      "service_accounts_use_gmsa_or_strong_random_keys": true,
+      "spn_accounts_have_weak_passwords": false,
+      "spn_account_rc4_tickets_permitted": false,
+      "spn_account_count": 0,
+      "krbtgt_rotated_on_schedule": true,
+      "krbtgt_reset_twice_on_rotation": true,
+      "krbtgt_password_age_days": 0,
+      "max_ticket_lifetime_hours": 0,
+      "max_renewable_lifetime_days": 0,
+      "pac_validation_enforced": true,
+      "tgs_request_auditing_enabled": true,
+      "kerberoasting_detection_alerting_enabled": true,
+      "kdc_network_exposure_restricted": true,
+      "audit_logs_forwarded_to_siem": true,
+      "kerberos_fast_armoring_enabled": true,
+      "pkinit_required_for_sensitive_accounts": true,
+      "unconstrained_delegation_disabled": true,
+      "kdc_patched_against_delegation_bypass": true,
+      "sensitive_accounts_marked_not_delegable": true
+    },
+    "expectedExposures": [
+      "Weak / legacy ticket encryption types (RC4/DES) and downgrade"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Unarmored preauth exchange (no PKINIT/FAST)",
+      "krbtgt key compromise / no rotation (Golden Ticket)",
+      "Missing pre-authentication (AS-REP roasting)",
+      "Weak / legacy ticket encryption types (RC4/DES) and downgrade",
+      "Forged service ticket / pass-the-ticket",
+      "Unconstrained / abused delegation (Bronze Bit)",
+      "Weak service-account keys (Kerberoasting)",
+      "Insufficient TGS-request auditing & KDC exposure"
+    ]
+  }
+]

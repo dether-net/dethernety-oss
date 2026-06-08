@@ -1,0 +1,9 @@
+{
+  "id": "f7ec6d29-ae34-4364-a5dc-3f0faaf755e6",
+  "name": "Inter-Broker Replication",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Inter-broker replication and federation traffic — also called broker-to-broker replication, cluster mirroring, message federation, or geo-replication — the east-west channel between nodes of a message broker or event-streaming cluster that copies messages for durability and availability: Kafka inter-broker replication and MirrorMaker, RabbitMQ federation/shovel and quorum-queue replication, NATS cluster/gateway/supercluster routing, and Pulsar geo-replication over its BookKeeper tier. It is the intra-cluster data and control path that keeps replicas and mirrors in sync, distinct from the app-to-broker publish/consume flow (which carries client produce/consume) and from generic east-west service RPC. The place to look for broker replication, cluster mirroring, message federation, or inter-node broker traffic. Its threat surface: inter-broker authentication (mTLS between nodes), replication and mirror ACLs, cluster-link / replication-channel encryption, and trust between clusters in a federated or geo-replicated topology.",
+  "category": "Messaging Traffic",
+  "status": "draft"
+}

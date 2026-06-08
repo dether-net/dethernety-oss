@@ -3,7 +3,7 @@
   "name": "Log & Telemetry Collection",
   "classType": "dataFlow",
   "type": "dataFlow",
-  "description": "Log and telemetry collection — also called log shipping, metrics/trace ingestion, the telemetry pipeline, or agent-to-SIEM flow — the flow of events and metrics from components into the monitoring and SIEM tier. The feed that detection depends on. The place to look for log shipping, telemetry/metrics ingestion, the observability pipeline, or how events reach the monitoring stack.",
+  "description": "Log and telemetry collection — also called log shipping, syslog, metrics/trace ingestion, the telemetry pipeline, or agent-to-SIEM flow — the flow of events, logs, and metrics from components into the monitoring and SIEM tier: syslog (RFC 5424 / RFC 3164 over UDP 514, TCP, or TLS, from rsyslog or syslog-ng), Windows Event Log forwarding (Windows Event Forwarding / WEF over WinRM, winlogbeat), application, audit, and access logs shipped by Fluentd, Fluent Bit, Promtail, Filebeat, or Vector, and pushed metrics and traces. The feed that detection depends on. The place to look for log shipping, syslog, Windows Event Log collection, telemetry/metrics ingestion, the observability pipeline, or how events and logs reach the monitoring stack. Distinct from Metrics Scrape (pull /metrics) and SNMP Monitoring (network-device polling and traps).",
   "category": "Operational Traffic",
   "status": "draft"
 }

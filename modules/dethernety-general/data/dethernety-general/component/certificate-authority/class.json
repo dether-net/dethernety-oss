@@ -1,0 +1,9 @@
+{
+  "id": "ff718898-926e-4776-a55f-3637f778252b",
+  "name": "Certificate Authority",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A certificate authority — also called a CA, PKI server, issuing CA, the PKI root, or the internal CA — the generic, technology-agnostic server that issues, signs, renews, and revokes X.509 (and sometimes SSH) certificates for an organization's public-key infrastructure. The trust anchor a workload, host, or user enrolls against to obtain a certificate. Use this when modeling 'our internal CA', 'the PKI', or 'the certificate server' without a specific product: Microsoft Active Directory Certificate Services (AD CS), EJBCA, Dogtag / Red Hat Certificate System, cfssl, OpenSSL- or easy-rsa-based CAs, Boulder, and the like. Distinct from the specific self-managed step-ca and FreeIPA classes (in selfmanaged-secrets-identity) and from a managed cloud CA (AWS ACM Private CA); pairs with the Certificate Enrollment dataFlow as the server that flow terminates on. Its threat surface: an over-trusted or unconstrained issuing CA, weak issuance authorization (a requester obtaining a certificate for any Subject / SAN it does not own), missing name constraints / path-length / EKU restrictions (the AD CS ESC1–ESC8 misconfiguration class), CA private-key custody (an online signing key with no HSM), no certificate lifecycle or revocation (absent or unchecked CRL / OCSP), and default or weak admin access to the CA console.",
+  "category": "Identity & Access",
+  "status": "draft"
+}

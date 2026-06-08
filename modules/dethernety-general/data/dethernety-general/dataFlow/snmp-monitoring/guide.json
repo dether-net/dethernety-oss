@@ -1,0 +1,471 @@
+[
+  {
+    "option_name": "snmp_version_and_security_level",
+    "option_description": "The SNMP protocol version, and (for v3) the USM security level, that governs this monitoring flow. v1/v2c transmit the community string and all polled MIB data in cleartext with no message authentication or encryption; only v3_authpriv both authenticates (HMAC) and encrypts the payload.",
+    "security_impact": "Drives two exposures. The cleartext values v2c/v1 are an OR-trigger of \"Cleartext SNMPv1/v2c community on the wire\" (the community and polled data are sniffable/spoofable on the wire). The weak v3 levels v3_authnopriv/v3_noauth are an OR-trigger of \"Weak/absent SNMPv3 USM security level (noAuth / MD5 / DES)\". v3_authpriv and disabled are the secure non-firing states.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect snmpd.conf for v1/v2c community lines versus SNMPv3 user lines to determine the effective version.",
+        "command": "grep -E '^[[:space:]]*(rocommunity|rwcommunity|com2sec|com2sec6)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "No matches (secure — v1/v2c disabled). Any rocommunity/rwcommunity/com2sec line means cleartext community access is enabled (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the v3 user lines and createUser to determine the in-force USM security level (priv vs auth vs noauth).",
+        "command": "grep -E '^[[:space:]]*(ro|rw)user' /etc/snmp/snmpd.conf; grep -E '^[[:space:]]*createUser' /var/net-snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf and /var/net-snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "rouser/rwuser lines end in 'priv' (secure — authPriv) and the matching createUser uses 'SHA ... AES ...'. A user with 'noauth'/'auth' indicates a weak v3 level (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Prove on the wire whether v2c polling is served and accepted by the agent.",
+        "command": "snmpget -v2c -c public <agent-ip> 1.3.6.1.2.1.1.1.0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timeout / 'No Response' / authorizationError (secure — v2c rejected). A returned sysDescr value proves v2c is served and the community is accepted (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "v3_authpriv",
+      "v2c",
+      "v3_authnopriv"
+    ]
+  },
+  {
+    "option_name": "snmp_default_community_string_in_use",
+    "option_description": "Attestation that a vendor-default community string is accepted on the SNMP monitoring flow ('public' read / 'private' read-write, or another well-known default). Modeled as an interpreted boolean: fires (is_true) on the insecure flow; secure value is false.",
+    "security_impact": "An OR-trigger of \"Default / guessable community string (public/private)\" — firing when snmp_default_community_string_in_use is true. Default communities are the single most-exploited SNMP weakness: scanners spray 'public'/'private' to dump the MIB or, with 'private', reconfigure the device.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep snmpd.conf for any access line naming the default 'public'/'private' community.",
+        "command": "grep -E '^[[:space:]]*(rocommunity|rwcommunity|com2sec)[[:space:]]+(public|private)\\b' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "No matches (secure). A line such as 'rocommunity public' or 'rwcommunity private' is a default community in use (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a walk of the system group using the default 'public' community to prove it is accepted.",
+        "command": "snmpwalk -v2c -c public <agent-ip> 1.3.6.1.2.1.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timeout / authorizationError (secure — default community not accepted). Returned system-group OIDs prove 'public' works (insecure).",
+        "source": "Fortra: SNMP Agent Default Community Name (public) Vulnerability"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Also test the default write community 'private' against the agent.",
+        "command": "snmpwalk -v2c -c private <agent-ip> 1.3.6.1.2.1.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timeout / authorizationError (secure). Returned OIDs prove the 'private' default community is accepted (insecure, and likely read-write).",
+        "source": "Fortra: SNMP Agent Default Community Name (public) Vulnerability"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "snmp_community_string_strong_unique",
+    "option_description": "Attestation that any community string still in use on the flow is strong and unique — not a vendor default and not a guessable dictionary word. Secure value is true (every community is high-entropy and unique, or — best — no community at all because the flow is SNMPv3-only); the exposure fires (is_false) when a weak/guessable community is accepted.",
+    "security_impact": "An OR-trigger of \"Default / guessable community string (public/private)\" — firing when snmp_community_string_strong_unique is false. This is the secondary half of the default-community weakness: a non-'public' but trivially guessable community is sprayed/dictionaried the same way a scanner sprays 'public'/'private'.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "List every community string configured on the agent so each can be assessed against an entropy/dictionary baseline.",
+        "command": "grep -E '^[[:space:]]*(rocommunity|rwcommunity|com2sec)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "No community lines at all (secure — v3-only flow). Where present, the community token in each line must be high-entropy and unique; a dictionary word or shared/reused string is insecure.",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review each community string against an entropy/dictionary baseline; confirm none is a shipped default, a reused/shared secret, or a guessable word. A v3-only flow with no community satisfies this true.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every community is high-entropy and unique (or none exists). Any guessable/dictionary/reused community means false (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmpv3_uses_sha_and_aes_not_md5_des",
+    "option_description": "Interpreted attestation that, where v3 priv is configured, the USM user is backed by SHA/SHA-2 authentication AND AES privacy rather than the deprecated MD5 auth / DES privacy primitives. Fires (is_false) when MD5/DES legacy crypto is in use; secure value is true.",
+    "security_impact": "An OR-trigger of \"Weak/absent SNMPv3 USM security level (noAuth / MD5 / DES)\" — firing when snmpv3_uses_sha_and_aes_not_md5_des is false. Per RFC 3414/3826, MD5 auth and DES privacy are the deprecated legacy primitives; a 'v3 priv' user on MD5/DES is the weak-USM state.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the createUser line (and rouser/rwuser priv mapping) to confirm SHA/SHA-2 auth and AES privacy, not MD5/DES.",
+        "command": "grep -E '^[[:space:]]*(ro|rw)user' /etc/snmp/snmpd.conf; grep -E '^[[:space:]]*createUser' /var/net-snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf and /var/net-snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "createUser uses 'SHA ... AES ...' and rouser/rwuser end in 'priv' (secure). A createUser using MD5 auth or DES privacy is the weak legacy primitive (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify the agent rejects an unencrypted authNoPriv poll, confirming priv (encryption) is required for the user.",
+        "command": "snmpget -v3 -l authNoPriv -u <user> -a SHA -A <authpass> <agent-ip> 1.3.6.1.2.1.1.1.0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "authorizationError / 'Authentication failure' (secure — agent requires priv). A returned value means authNoPriv (unencrypted) polling is permitted (insecure).",
+        "source": "RFC 3414 User-based Security Model (USM) for SNMPv3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "known_vulnerabilities_patched",
+    "option_description": "Interpreted attestation that the SNMP agent stack is patched current against known exploitable SNMP defects — the USM HMAC-length authentication bypass (CVE-2008-0960, where a 1-byte HMAC length defeats authPriv/auth verification) and known SNMP DoS defects (e.g. CVE-2025-20170 Cisco IOS/IOS XE improper error handling that reloads the device). Fires (is_false) on an unpatched agent; secure value is true.",
+    "security_impact": "An OR-trigger of two exposures: \"Weak/absent SNMPv3 USM security level (noAuth / MD5 / DES)\" (CVE-2008-0960 means an authPriv config is still authentication-bypassable when unpatched — firing when known_vulnerabilities_patched is false) and \"SNMP GETBULK reflection / amplification DoS\" (CVE-2025-20170 and related SNMP DoS defects on an unpatched agent — firing when false).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the installed net-snmp build version to compare against the CVE-2008-0960 fix line.",
+        "command": "snmpd --version 2>&1; rpm -q net-snmp 2>/dev/null || dpkg -l net-snmp\\* 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "net-snmp at or above the vendor fix for CVE-2008-0960 (post-5.4.x advisory fixes). A pre-fix 5.2/5.3/5.4 build is unpatched (insecure).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For a vendor device agent (e.g. Cisco IOS/IOS XE), compare the running SNMP stack/OS version against the relevant vendor advisory for current SNMP DoS CVEs such as CVE-2025-20170.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running version is at or above the fixed release in the vendor advisory (secure/true). A version below the fix line is unpatched (false).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmp_write_community_disabled_or_acl_bound",
+    "option_description": "Attestation that the SNMP monitoring flow grants no write (SET) access: no rwcommunity and no rwuser line is present, so only read access is granted. Monitoring must be read-only; a value of false (rwcommunity/rwuser present) turns the flow into a device-control channel. Secure value is true; the exposure fires when false.",
+    "security_impact": "An OR-trigger of \"SNMP SET write reconfiguration (rwcommunity / rwuser)\" — firing when snmp_write_community_disabled_or_acl_bound is false. Write access lets a holder change interface/route/ACL state or trigger a TFTP config download/upload — an authorization escalation over the monitoring channel.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Grep snmpd.conf for any write-access directive (rwcommunity/rwuser).",
+        "command": "grep -E '^[[:space:]]*(rwcommunity|rwcommunity6|rwuser)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "No matches (secure — read-only). Any rwcommunity/rwuser line grants SNMP SET (insecure unless write is justified and tightly scoped).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a SET on a writable scalar (sysContact) to prove whether write access is actually granted.",
+        "command": "snmpset -v3 -l authPriv -u <user> -a SHA -A <ap> -x AES -X <pp> <agent-ip> 1.3.6.1.2.1.1.4.0 s test",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notWritable / authorizationError / 'no access' (secure — write denied). A successful SET (sysContact changed) proves write access exists (insecure for a monitoring flow).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmp_mib_view_restricted_to_subtree",
+    "option_description": "Attestation that VACM restricts the polling user/community READ access to a needed OID subtree (net-snmp 'view'/'access' lines scoping READ to e.g. .1.3.6.1.2.1.1) rather than mapping it to the full MIB. True = scoped read view (secure). False = mapped to the full '.1'/'.1.3'/'all' tree or a rouser with no -V view, so any poller reads the complete device inventory.",
+    "security_impact": "An OR-trigger of \"Full-MIB inventory disclosure (no VACM view restriction)\" — firing when snmp_mib_view_restricted_to_subtree is false. An unrestricted view discloses interfaces, ARP/route tables, processes, installed software, sometimes config to any authenticated poller or default-community holder.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect VACM view/access lines (or the -V option on rouser) and confirm READ is scoped to a minimal subtree, not 'all'/'.1'.",
+        "command": "grep -E '^[[:space:]]*(view|access)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "'view' lines define a narrow subtree (e.g. 'view restricted included .1.3.6.1.2.1.1') and 'access' references it for READ (secure). A view of '.1'/'.1.3' or an access line granting the full 'all' view as READ is unrestricted (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Walk an OID outside the intended subtree (e.g. the running-software table) to prove the read view is actually scoped.",
+        "command": "snmpwalk -v3 -l authPriv -u <user> -a SHA -A <ap> -x AES -X <pp> <agent-ip> 1.3.6.1.2.1.25.4",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "End of MIB / authorizationError for OIDs outside the granted view (secure). A full process/software listing (hrSWRunTable) returned means the view is unrestricted (insecure inventory disclosure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmp_access_acl_restricted",
+    "option_description": "Whether every SNMP access line restricts polling by source IP to the NMS (net-snmp SOURCE field on rocommunity/rwcommunity/com2sec, e.g. 'rocommunity secret 10.20.0.0/24', or rouser via VACM). Secure = true (every line names a specific NMS IP/subnet). Source ACL is also the primary control that defeats spoofed-source amplification. Fires when false.",
+    "security_impact": "An OR-trigger of two exposures: \"Agent network exposure / missing source-IP ACL\" (a 'default'/blank SOURCE accepts any host that reaches the agent and holds the credential — firing when snmp_access_acl_restricted is false) and \"SNMP GETBULK reflection / amplification DoS\" (a missing source ACL is what lets a spoofed victim source be answered, enabling reflection — firing when false).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm the SOURCE field on every rocommunity/rwcommunity/com2sec line names a specific NMS IP/subnet, not 'default' or blank.",
+        "command": "grep -E '^[[:space:]]*(rocommunity|rwcommunity|com2sec)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "Each line names a specific NMS IP/subnet in the SOURCE field (e.g. 'rocommunity secret 10.20.0.0/24') — secure. A SOURCE of 'default' or an omitted SOURCE accepts any source IP (insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe UDP 161 from a host outside the NMS subnet to confirm the source-IP ACL rejects non-NMS sources.",
+        "command": "snmpget -v2c -c <community> <agent-ip> 1.3.6.1.2.1.1.1.0   (run from a non-NMS source IP)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timeout / no response from a non-NMS source (secure — source ACL enforced). A returned value from an arbitrary source IP means no effective source ACL (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmp_agent_bound_to_management_interface",
+    "option_description": "Whether 'agentaddress' pins UDP 161 to the management IP rather than binding all interfaces. Secure = true (agentaddress udp:<mgmt-ip>:161). Fires when false: the net-snmp default binds 161 on all IPv4 interfaces (absent directive or bare 'udp:161'), widening the reachable attack surface.",
+    "security_impact": "An OR-trigger of \"Agent network exposure / missing source-IP ACL\" — firing when snmp_agent_bound_to_management_interface is false. Binding 161 on all interfaces widens the reachable surface of the monitoring flow beyond the management plane.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the agentaddress directive and confirm UDP 161 is pinned to the management IP, not all interfaces.",
+        "command": "grep -E '^[[:space:]]*agentaddress' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "agentaddress pins a specific management IP (e.g. 'agentaddress udp:10.20.0.10:161') — secure. Absent directive or 'udp:161' binds all interfaces (default, potentially exposed — insecure).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm on the host which address snmpd is actually listening on for UDP 161.",
+        "command": "ss -ulnp | grep ':161'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Listening on the management IP only (e.g. 10.20.0.10:161) — secure. Listening on 0.0.0.0:161 (all interfaces) confirms the agent is not bound to the management interface (insecure).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "snmp_agent_internet_reachable",
+    "option_description": "Whether UDP 161 of the SNMP agent is reachable from untrusted/internet networks (no firewall/host ACL confining it to management networks). Secure = false (port 161 filtered/closed from untrusted vantage points). Fires when true: an internet-reachable agent is both a device-takeover target and a reflection/amplification source.",
+    "security_impact": "An OR-trigger of two exposures: \"Agent network exposure / missing source-IP ACL\" (an internet-reachable agent is exposed to any untrusted host — firing when snmp_agent_internet_reachable is true) and \"SNMP GETBULK reflection / amplification DoS\" (untrusted reachability is what makes the agent usable as a spoofed-source reflector — firing when true).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the listen-binding directive that confines the agent to management interfaces (precondition for non-exposure).",
+        "command": "grep -E '^[[:space:]]*agentaddress' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "agentaddress pins a specific management IP (e.g. 'agentaddress udp:10.20.0.10:161') — secure. Absent directive or 'udp:161' binds all interfaces (default, potentially exposed).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe UDP 161 from an untrusted vantage point to confirm it is not reachable from outside the management network.",
+        "command": "nmap -sU -p 161 --script snmp-info <agent-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port 161 filtered/closed from untrusted networks (secure — not internet-reachable). 'open' with snmp-info returned proves the agent is reachable from an untrusted source (insecure — true).",
+        "source": "BITAG: SNMP Reflected Amplification DDoS Attack Mitigation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "snmp_agent_open_reflector",
+    "option_description": "Whether the agent answers GETBULK from arbitrary sources with a default/guessable community, making it usable as a spoofed-source UDP reflection/amplification vector (BAF ~6.3:1, higher on large tables). Secure = false (source ACL + non-exposure + no default community remove the open-reflector condition). Fires when true.",
+    "security_impact": "An OR-trigger of \"Agent network exposure / missing source-IP ACL\" — firing when snmp_agent_open_reflector is true. The open-reflector condition is the combination of untrusted exposure, missing source ACL, and a default/guessable community that answers GETBULK from any source.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Issue an unauthenticated/default-community GETBULK from an arbitrary source and measure response size vs request to detect an open amplifier.",
+        "command": "snmpbulkget -v2c -c public -Cr50 <agent-ip> 1.3.6.1.2.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timeout / authorizationError (secure — no anonymous GETBULK amplification). A large multi-varbind response to a small unauthenticated request confirms the agent is an open amplifier (insecure — true).",
+        "source": "BITAG: SNMP Reflected Amplification DDoS Attack Mitigation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm from an off-subnet/untrusted host whether the agent responds at all to an arbitrary source (reflector reachability).",
+        "command": "nmap -sU -p 161 --script snmp-info <agent-ip>   (run from an off-subnet/untrusted host)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Filtered/no-response from untrusted sources (secure — source ACL/firewall blocks the reflection vector). A response confirms an exploitable open reflector (insecure — true).",
+        "source": "Imperva: SNMP Reflection & Amplification DDoS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "snmp_amplification_exposure_mitigated",
+    "option_description": "Attestation that the SNMP monitoring agent cannot be abused as a spoofed-source UDP reflection/amplification vector. Secure (true) when no anonymous/default-community GETBULK access is answerable from arbitrary sources (source-IP ACL + no default/public community + no untrusted-network exposure combine so a spoofed-source GETBULK cannot reflect an amplified response). Fires on false.",
+    "security_impact": "An OR-trigger of \"SNMP GETBULK reflection / amplification DoS\" — firing when snmp_amplification_exposure_mitigated is false. This is the polarity-inverse trigger of the amplification vector: any gap in the combined mitigation set (source ACL + no default community + no untrusted exposure + rate limiting) leaves the agent usable as an open amplifier.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Issue a spoofable-style high-repetition GETBULK from an arbitrary source and compare response size to request to confirm the amplification path is closed.",
+        "command": "snmpbulkget -v2c -c public -Cr50 <agent-ip> 1.3.6.1.2.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Timeout / authorizationError (secure — no anonymous GETBULK amplification). A large multi-varbind response to a small unauthenticated request confirms the agent is an open amplifier (insecure — not mitigated).",
+        "source": "BITAG: SNMP Reflected Amplification DDoS Attack Mitigation"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an off-subnet/untrusted host, confirm the source ACL/firewall blocks the reflection vector entirely.",
+        "command": "nmap -sU -p 161 --script snmp-info <agent-ip>   (run from an off-subnet/untrusted host)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Filtered/no-response from untrusted sources (secure — mitigated). A response confirms an exploitable open reflector (insecure — not mitigated).",
+        "source": "Imperva: SNMP Reflection & Amplification DDoS"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "response_rate_limiting_enabled",
+    "option_description": "Attestation that the agent (or fronting firewall/host ACL) rate-limits SNMP responses so a burst of GETBULK queries cannot sustain a high-volume reflected stream at a victim. Secure (true) when response rate limiting is in place; fires on false when no rate limiting caps the reflected/amplified traffic. Secondary structural mitigation per BITAG.",
+    "security_impact": "An OR-trigger of \"SNMP GETBULK reflection / amplification DoS\" — firing when response_rate_limiting_enabled is false. Per BITAG, response rate limiting is the secondary structural mitigation alongside source ACL and non-exposure; without it the agent can sustain an amplification flood.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the fronting host firewall for a rate-limit on UDP 161 responses (e.g. iptables hashlimit).",
+        "command": "iptables -S | grep -E '161|hashlimit'; nft list ruleset 2>/dev/null | grep -E '161|limit'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A hashlimit/limit rule caps SNMP UDP 161 response traffic (secure — true). No rate-limit rule on the SNMP path means unbounded reflected traffic is possible (insecure — false).",
+        "source": "general-knowledge"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm a response rate-limit exists on the agent or fronting firewall/host ACL — e.g. an iptables hashlimit on UDP 161 responses, or platform Control Plane Policing (CoPP) on a device agent.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rate limiting (host firewall hashlimit or platform CoPP) is in place on the SNMP response path (true). No mechanism limiting reflected/amplified responses means false.",
+        "source": "BITAG: SNMP Reflected Amplification DDoS Attack Mitigation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  },
+  {
+    "option_name": "unauthenticated_v1_v2c_traps_accepted",
+    "option_description": "Interpreted attestation: the NMS accepts SNMPv1/v2c traps (UDP 162) on this flow, configured via trapsink/trap2sink or informsink with a bare community. v1/v2c traps carry only a cleartext community and no message-origin authentication, so any host that can reach the NMS can forge a trap. Fires (true = insecure) when unauthenticated traps are accepted; secure value is false.",
+    "security_impact": "An OR-trigger of \"Spoofed unauthenticated trap/inform injection\" — firing when unauthenticated_v1_v2c_traps_accepted is true. A forged trap can mask genuine events, raise false alarms, or trigger automated (mis)remediation on the NMS.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect net-snmp trapsink/trap2sink/informsink directives; any community-only v1/v2c trap acceptance path means true (insecure).",
+        "command": "grep -E '^[[:space:]]*(trapsink|trap2sink|trapsess|informsink)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "Notifications via 'trapsess -v 3 ... -l authPriv ...' only (secure — false). Any trapsink/trap2sink, or informsink with a bare community, means v1/v2c unauthenticated traps are in use (insecure — true).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On the receiving NMS (snmptrapd), check whether v1/v2c community-only trap acceptance is configured (authCommunity / disableAuthorization).",
+        "command": "grep -E '^[[:space:]]*(authCommunity|disableAuthorization|createUser)' /etc/snmp/snmptrapd.conf",
+        "file_path": "/etc/snmp/snmptrapd.conf",
+        "navigation": null,
+        "expected_output": "Only v3 USM users (createUser) accepted, no bare authCommunity / no 'disableAuthorization' (secure — false). An 'authCommunity log,execute,net public' or 'disableAuthorization yes' line accepts unauthenticated v1/v2c traps (insecure — true).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      false,
+      true
+    ]
+  },
+  {
+    "option_name": "snmp_traps_authenticated_v3_informs",
+    "option_description": "Interpreted attestation: asynchronous notifications on this flow use authenticated, encrypted SNMPv3 informs (trapsess -v 3 ... -l authPriv; informs preferred because they are acknowledged) rather than unauthenticated v1/v2c traps. authPriv informs provide the data-origin authentication and integrity that v1/v2c traps lack. Secure value is true; the exposure fires when false.",
+    "security_impact": "An OR-trigger of \"Spoofed unauthenticated trap/inform injection\" — firing when snmp_traps_authenticated_v3_informs is false. Without a v3 authPriv notification channel, the trap/inform path lacks origin authentication and a forged trap can be injected into the NMS.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Confirm notifications are sent via 'trapsess -v 3 -l authPriv' (informs), not v1/v2c trapsink; absence of an authPriv inform channel = false.",
+        "command": "grep -E '^[[:space:]]*(trapsink|trap2sink|trapsess|informsink)' /etc/snmp/snmpd.conf",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "Notifications via 'trapsess -v 3 ... -l authPriv ...' (secure — true). Any trapsink/trap2sink, or informsink with a bare community, means no authPriv inform channel (insecure — false).",
+        "source": "net-snmp snmpd.conf community vs SNMPv3"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the receiving NMS, confirm arriving notifications are authenticated v3 informs (acknowledged) rather than v1/v2c traps by inspecting snmptrapd logs for the security model/level of received notifications.",
+        "command": "grep -iE 'SNMPv3|authPriv|TRAP2|INFORM' /var/log/snmptrapd.log",
+        "file_path": "/var/log/snmptrapd.log",
+        "navigation": null,
+        "expected_output": "Received notifications show SNMPv3 / authPriv inform processing (secure — true). Entries showing v1/v2c TRAP processing with a community indicate no authenticated v3 inform channel (insecure — false).",
+        "source": "general-knowledge"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      true,
+      false
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "115f2d98-a51d-4e90-8d72-a746bcb789c7",
+  "name": "Monitoring Agent",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A monitoring agent — also called a logging agent, log forwarder or log shipper, metrics exporter, telemetry / observability agent, or collector sidecar — the host-side process that collects and forwards logs, metrics, and events FROM a host or workload TO the monitoring and SIEM tier. The generic, technology-agnostic source / forwarder process you drop in when a specific product is not being modeled: a syslog daemon (rsyslog, syslog-ng), a log / metric shipper (Fluentd, Fluent Bit, Promtail, Filebeat, Vector, winlogbeat / a Windows Event Log forwarder), a Prometheus exporter (node_exporter and friends), or an SNMP agent (net-snmp / snmpd). Use it to model the on-host telemetry process that emits the Log & Telemetry Collection, Metrics Scrape, or SNMP Monitoring flows. Distinct from the Monitoring & SIEM Service — the backend that INGESTS and analyzes telemetry (the destination, not the source) — and from the specific self-managed shipper products (rsyslog, fluentd, fluent-bit) modeled in selfmanaged-observability. The place to look for the monitoring or logging agent, log forwarder, metrics exporter, telemetry collector, or the daemon that ships a host's logs and metrics out.",
+  "category": "Operational Monitoring",
+  "status": "draft"
+}

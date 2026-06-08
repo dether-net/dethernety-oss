@@ -1,0 +1,9 @@
+{
+  "id": "ab829ff4-023d-4e48-a4f7-68de079f493a",
+  "name": "Message Publish/Consume",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "The message publish/consume flow — also called message broker traffic, produce/consume, publish/subscribe, pub-sub, event streaming, or the async messaging path — the asynchronous exchange between application processes and a message broker or event-streaming platform: Kafka produce/fetch, AMQP publish/deliver via RabbitMQ, NATS pub-sub and JetStream, MQTT publish/subscribe via Mosquitto, and Pulsar produce/consume. It carries events and messages onto and off of topics, queues, and subjects rather than a synchronous request/response, decoupling producer from consumer through the broker. The producer→broker→consumer channel and the place to look for message broker traffic, event/stream publish and consume, topic/queue/subject pub-sub, and the producer/consumer flow between an app and its message broker. Distinct from API Call and Internal Service Communication (synchronous service-to-service RPC) and from Database Query (datastore access). Its threat surface: unauthenticated or anonymous broker access, missing or wildcard topic/queue/subject authorization, plaintext or unverified TLS transport, shared static broker credentials, mass unauthorized consumption, poisoned-payload and unsafe message deserialization, PII or secrets in messages and broker logs, and a publicly reachable broker listener.",
+  "category": "Messaging Traffic",
+  "status": "draft"
+}

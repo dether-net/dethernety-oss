@@ -1,8 +1,8 @@
 [
   {
-    "option_name": "parameterized_queries_used",
-    "option_description": "Attests that every SQL statement issued on this application-to-database flow is constructed via a parameterised/prepared API (PreparedStatement, $1/$2 placeholders, named-binding ORM) so the SQL text and user-supplied values travel as separate fields and untrusted input can never alter query structure.",
-    "security_impact": "One of the OR-triggers for the exposure \"SQL injection enabling bulk exfiltration\" — fires when parameterized_queries_used is false. Canonical OWASP A03 (Injection) failure mode: without parameterisation the SQL parser cannot distinguish data from structure and the flow's own legitimate result-set channel becomes a bulk-exfiltration path (T1190).",
+    "option_name": "parameterized_or_safe_query_construction",
+    "option_description": "Attests that every statement, command, or query issued on this application-to-datastore flow is constructed via a parameterized/prepared/safe-binding API for whatever engine speaks here (SQL prepared statements, MongoDB operator binding, CQL bound statements, Elasticsearch/OpenSearch query DSL, Cypher parameters, Redis argument arrays) so query/command structure and user-supplied values travel as separate fields and untrusted input can never alter the structure.",
+    "security_impact": "One of the OR-triggers for the exposure \"Query/command injection enabling bulk exfiltration\" — fires when parameterized_or_safe_query_construction is false. Canonical OWASP A03 (Injection) failure mode: without safe binding the datastore engine cannot distinguish data from structure and the flow's own legitimate result channel becomes a bulk-exfiltration path (T1190).",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -30,9 +30,9 @@
     ]
   },
   {
-    "option_name": "dynamic_query_string_concatenation",
-    "option_description": "Attests whether at least one code path on this flow builds SQL by concatenating or interpolating untrusted input directly into the query string (string-format, plus-concatenation, template substitution). Independent of parameterized_queries_used because a flow may use prepared statements on most paths while still concatenating on one outlier helper.",
-    "security_impact": "One of the OR-triggers for the exposure \"SQL injection enabling bulk exfiltration\" — fires when dynamic_query_string_concatenation is true. When true, the SQL parser cannot distinguish data from structure on that one path and the flow is exploitable for injection regardless of any sibling validation (OWASP A03 / MITRE T1190).",
+    "option_name": "untrusted_input_concatenated_into_query_or_command",
+    "option_description": "Attests whether at least one code path on this flow builds the query, command, or filter by concatenating or interpolating untrusted input directly (SQL/CQL/Cypher string-building, MongoDB operator/JSON injection, Elasticsearch/OpenSearch query-DSL concatenation, or Redis CRLF/command/Lua injection). Independent of parameterized_or_safe_query_construction because a flow may use safe binding on most paths while still concatenating on one outlier helper.",
+    "security_impact": "One of the OR-triggers for the exposure \"Query/command injection enabling bulk exfiltration\" — fires when untrusted_input_concatenated_into_query_or_command is true. When true, the datastore engine cannot distinguish data from structure on that one path and the flow is exploitable for injection regardless of any sibling validation (OWASP A03 / MITRE T1190).",
     "how_to_obtain": [
       {
         "type": "command",
@@ -281,7 +281,7 @@
   {
     "option_name": "bulk_read_volume_anomaly_alerted",
     "option_description": "Attests out-of-band anomaly detection (DAM, RDS/Cloud SQL Performance Insights, or SIEM rule) watches this database-query flow for per-principal volume spikes (rows returned / bytes shipped) and routes alerts to an on-call owner.",
-    "security_impact": "One of the OR-triggers for the exposure \"Mass-data egress through legitimate flow (no LIMIT / no quota)\" — fires when bulk_read_volume_anomaly_alerted is false. Without per-principal volume alerting, a single SELECT * over a large table — accidental or weaponised via SQLi / stolen credential / insider — leaves through this legitimate flow as one 'normal' query response with no one watching (MITRE T1030 / T1213 / T1567).",
+    "security_impact": "One of the OR-triggers for the exposure \"Mass-data egress through legitimate flow (no LIMIT / no quota)\" — fires when bulk_read_volume_anomaly_alerted is false. Without per-principal volume alerting, a single SELECT * over a large table — accidental or weaponised via SQLi / stolen credential / insider — leaves through this legitimate flow as one 'normal' query response with no one watching (MITRE T1030 / T1213).",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -311,7 +311,7 @@
   {
     "option_name": "bulk_export_monitored_and_alerted",
     "option_description": "Attests bulk-export operations on this flow (large result sets, multi-table breadth, or sustained high-row-count fetches per principal) are continuously monitored with a defined threshold and alert routing — the OWASP API Security 'per-account quota / volume anomaly' compensating control for cases where in-app LIMIT caps are bypassed.",
-    "security_impact": "One of the OR-triggers for the exposure \"Mass-data egress through legitimate flow (no LIMIT / no quota)\" — fires when bulk_export_monitored_and_alerted is false. Without per-account quota monitoring, exfiltration via the legitimate query channel is indistinguishable from normal traffic (MITRE T1030 / T1213 / T1567).",
+    "security_impact": "One of the OR-triggers for the exposure \"Mass-data egress through legitimate flow (no LIMIT / no quota)\" — fires when bulk_export_monitored_and_alerted is false. Without per-account quota monitoring, exfiltration via the legitimate query channel is indistinguishable from normal traffic (MITRE T1030 / T1213).",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -341,7 +341,7 @@
   {
     "option_name": "pii_excluded_from_logs",
     "option_description": "Attests raw PII (card numbers, emails, SSNs, names) bound into query parameters is NOT written to the database/driver log store. Secure when pgaudit.log_parameter is OFF in production AND the application's driver/ORM SQL-logging layer is set to log statement text only (no bind values).",
-    "security_impact": "One of the OR-triggers for the exposure \"PII leakage via pgaudit / driver query logs\" — fires when pii_excluded_from_logs is false. When raw bind values are mirrored into logs, a breach of the log store becomes a parallel breach of the PII table — without the DB's access controls (MITRE T1552.001 / T1530).",
+    "security_impact": "One of the OR-triggers for the exposure \"PII leakage via query / audit logs\" — fires when pii_excluded_from_logs is false. When raw bind values are mirrored into logs, a breach of the log store becomes a parallel breach of the PII table — without the DB's access controls (MITRE T1552.001 / T1530).",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -371,7 +371,7 @@
   {
     "option_name": "secrets_masked_in_logs",
     "option_description": "Attests secret material that may appear in queries on this flow (auth tokens, API keys, password-reset tokens passed as bind values, encryption keys) is masked or excluded in any captured query/error log. Secure when the log pipeline scrubs/masks known secret fields before persistence.",
-    "security_impact": "One of the OR-triggers for the exposure \"PII leakage via pgaudit / driver query logs\" — fires when secrets_masked_in_logs is false. When secrets traverse this flow as raw bind values and reach the log store unredacted, the log store becomes a credential file readable without DB access controls (MITRE T1552.001 / T1530).",
+    "security_impact": "One of the OR-triggers for the exposure \"PII leakage via query / audit logs\" — fires when secrets_masked_in_logs is false. When secrets traverse this flow as raw bind values and reach the log store unredacted, the log store becomes a credential file readable without DB access controls (MITRE T1552.001 / T1530).",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -401,7 +401,7 @@
   {
     "option_name": "data_store_publicly_routable",
     "option_description": "Interpreted attestation that the database endpoint serving this flow is reachable from the public internet — its security group / firewall allows 0.0.0.0/0 (or ::/0) on the DB port, OR listen_addresses is bound to all interfaces on a publicly-routable NIC. Secure value is false.",
-    "security_impact": "One of the OR-triggers for the exposure \"Publicly reachable DB listener scanned and brute-forced\" — fires when data_store_publicly_routable is true. Mass internet scanners discover the listener within hours and credential-stuff against any known/leaked role — the precondition for the public-listener brute-force vector (MITRE T1190 / T1133).",
+    "security_impact": "One of the OR-triggers for the exposure \"Publicly reachable DB listener scanned and brute-forced\" — fires when data_store_publicly_routable is true. Mass internet scanners discover the listener within hours and credential-stuff against any known/leaked role — the precondition for the public-listener brute-force vector (MITRE T1190 / T1133 / T1110).",
     "how_to_obtain": [
       {
         "type": "network_test",
@@ -431,7 +431,7 @@
   {
     "option_name": "data_tier_ingress_scoped_per_workload_identity",
     "option_description": "Interpreted attestation that ingress to the data tier on this flow is constrained to the specific application workload's identity — security-group source is the app-tier SG (not 0.0.0.0/0, not a shared bastion SG, not a broad VPC CIDR), and pg_hba.conf / equivalent restricts the source range to that workload.",
-    "security_impact": "One of the OR-triggers for the exposure \"Publicly reachable DB listener scanned and brute-forced\" — fires when data_tier_ingress_scoped_per_workload_identity is false. When ingress isn't scoped to the workload, any host that can reach the VPC (or the internet) can attempt the DB port — the network half of the brute-force precondition that pairs with data_store_publicly_routable (MITRE T1190 / T1133).",
+    "security_impact": "One of the OR-triggers for the exposure \"Publicly reachable DB listener scanned and brute-forced\" — fires when data_tier_ingress_scoped_per_workload_identity is false. When ingress isn't scoped to the workload, any host that can reach the VPC (or the internet) can attempt the DB port — the network half of the brute-force precondition that pairs with data_store_publicly_routable (MITRE T1190 / T1133 / T1110).",
     "how_to_obtain": [
       {
         "type": "command",

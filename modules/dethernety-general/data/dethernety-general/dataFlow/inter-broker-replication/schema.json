@@ -1,0 +1,319 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "encryption_in_transit_enabled": {
+        "type": "boolean",
+        "title": "Inter-Broker Channel Encrypted in Transit (TLS)",
+        "description": "Workspace-shared transit-encryption attestation: the inter-broker / replication (east-west) channel carries traffic over TLS rather than cleartext (Kafka security.inter.broker.protocol=SSL/SASL_SSL with the inter.broker.listener mapped to SSL; MSK EncryptionInfo.EncryptionInTransit.InCluster=true; Pulsar replicationTlsEnabled=true + brokerClientTlsEnabled=true; RabbitMQ inter-node -proto_dist inet_tls; NATS cluster{}/gateway{} tls{} block; Redis tls-replication yes + tls-cluster yes). Secure value true. Fires (is_false) when the replication listener is PLAINTEXT / InCluster=false / inet_tcp default / no route tls — exposing replicated payloads and SASL credentials to on-path sniffing. Reuses the canonical workspace name so this flow's transit-encryption posture lines up with sibling flows and gateway components.",
+        "default": false
+      },
+      "mutual_tls_client_auth_enabled": {
+        "type": "boolean",
+        "title": "Inter-Broker Mutual TLS (Peer Cert) Required",
+        "description": "Attested: the inter-broker / replication join path enforces mutual TLS, requiring each peer to present a CA-signed broker identity before joining replication (Kafka ssl.client.auth=required on the inter.broker.listener; RabbitMQ inter_node_tls.config verify_peer + fail_if_no_peer_cert; NATS cluster/gateway tls verify_and_map). Secure value true; fires (is_false) when peer certs are not enforced (none/requested/verify_none), so a rogue node can join as a peer and read/forge replicated partitions. Reuses the canonical workspace mutual-TLS attribute name.",
+        "default": false
+      },
+      "unauthenticated_cluster_join_allowed": {
+        "type": "boolean",
+        "title": "Unauthenticated Cluster Join Allowed",
+        "description": "Attested: the cluster permits anonymous/unauthenticated peers to join or act (MSK ClientAuthentication.Unauthenticated.Enabled=true, or allow.everyone.if.no.acl.found=true; any broker accepting cluster membership without proving identity). Secure value false; fires (is_true) when an unauthenticated node can become a cluster peer / replication participant.",
+        "default": false
+      },
+      "cluster_route_authorization_enforced": {
+        "type": "boolean",
+        "title": "Cluster Route / Gateway Authorization Enforced",
+        "description": "Attested: server-to-server cluster routes / gateway connections require route-level authorization (credential or mapped identity) before joining the mesh, independent of transport encryption (NATS cluster{ authorization{} } and gateway{ authorization{} }; Pulsar/Kafka inter-broker principal listed in super.users/ACLs). Secure value true; fires (is_false) when discovered routes accept unauthorized peers, allowing an attacker server to route into the cluster.",
+        "default": false
+      },
+      "replication_broker_auth_plugin_enabled": {
+        "type": "boolean",
+        "title": "Replication Broker-Client Auth Plugin Enabled",
+        "description": "Attested: geo-replication / cross-cluster brokers authenticate to remote peers using a broker-client auth plugin (Pulsar brokerClientTlsEnabled + brokerClientAuthenticationPlugin=AuthenticationTls with brokerClientTrustCertsFilePath; Kafka MM2 per-cluster SSL keystore identity). Secure value true; fires (is_false) when replication connects to peer clusters anonymously, letting an unverified/spoofed broker participate in replication."
+      },
+      "erlang_cookie_value_non_default": {
+        "type": "boolean",
+        "title": "Cluster-Membership Secret (Erlang Cookie) Strong & Non-Default",
+        "description": "Attested: the shared secret gating RabbitMQ cluster membership (the Erlang cookie / .erlang.cookie) is a long, high-entropy, randomly-generated value distributed out-of-band — NOT a default, predictable, or weak value. RabbitMQ cluster membership is gated entirely by this shared cookie: any node or process presenting the same value can join the Erlang distribution, run rabbitmqctl, and gain full cluster control plus access to replicated messages. Secure value true; fires (is_false) when the cookie is default/predictable/weak so a rogue node can join. Verify via the value of /var/lib/rabbitmq/.erlang.cookie (high-entropy, not the packaged/default value).",
+        "default": false
+      },
+      "erlang_cookie_file_permissions_restricted": {
+        "type": "boolean",
+        "title": "Erlang Cookie File Permissions Restricted",
+        "description": "Attested: the on-disk cluster-membership secret file (.erlang.cookie) is protected with restrictive ownership and permissions — mode 0400 (or 0600) owned by the rabbitmq service user, NOT world- or group-readable. A loosely-permissioned cookie lets any local process read the standing credential and join the Erlang distribution / run rabbitmqctl, taking over the cluster and reading replicated messages. Secure value true; fires (is_false) when world/group-readable. Verify via stat -c '%a %U' /var/lib/rabbitmq/.erlang.cookie.",
+        "default": false
+      },
+      "replication_principal_least_privilege": {
+        "type": "boolean",
+        "title": "Replication/Mirror Principal Least-Privilege",
+        "description": "The replication/mirror principal (Kafka MirrorMaker/MM2 user, RabbitMQ federation/shovel user, NATS account, Pulsar broker-client identity) is scoped to ONLY the operations replication needs — source READ + target WRITE/ClusterAction/IdempotentWrite on the specific mirrored topics/queues/subjects — with no cluster-wide ALL/admin grant beyond the inter-broker identity. Attested true when ACLs are narrow (kafka-acls --list --principal / rabbitmqctl list_user_permissions); fires (is_false) when the mirror principal holds broad Allow ALL / Topic:* / '.*' configure+write+read / cluster admin, so a compromised mirror process can read or write arbitrary topics/queues across both clusters.",
+        "default": false
+      },
+      "replication_credentials_dedicated_not_shared": {
+        "type": "boolean",
+        "title": "Replication Credentials Dedicated, Not Shared",
+        "description": "The replication/mirror credential is a dedicated identity used solely for the replication path, NOT shared with application/client principals. Attested true when the mirror/federation/shovel principal is distinct from any app principal; fires (is_false) when replication reuses an application or shared admin principal — collapsing the blast radius so a compromise grants both application access and cross-cluster replication read/write."
+      },
+      "federation_peers_explicitly_allowlisted": {
+        "type": "boolean",
+        "title": "Federation/Geo-Replication Peers Explicitly Allowlisted",
+        "description": "The set of remote clusters permitted to participate in federation/geo-replication is explicitly enumerated (Kafka MM2 source/target list, Pulsar clusters list, NATS gateways[], RabbitMQ federation upstreams) and matches the intended topology. Secure value true; fires (is_false) on wildcard / unbounded peer acceptance, letting an untrusted or attacker-impersonated cluster join the cross-cluster trust boundary and inject/exfiltrate replicated messages — a data-residency breach.",
+        "default": false
+      },
+      "federation_ca_trust_scoped": {
+        "type": "boolean",
+        "title": "Federation CA Trust Scoped",
+        "description": "The trust store backing inter-cluster federation/geo-replication is limited to the federation CA(s) only, not a public/wide CA bundle. Secure value true; fires (is_false) on over-broad CA trust, where any cluster bearing a certificate from the broadly-trusted CA can impersonate a legitimate federation peer and cross the data-residency boundary.",
+        "default": false
+      },
+      "remote_peer_endpoint_verified": {
+        "type": "boolean",
+        "title": "Remote Federation/Replication Endpoint Verified",
+        "description": "Each registered remote federation/replication endpoint is verified (TLS-secure service URLs, peer identity bound to the expected named cluster) rather than accepted unverified. Secure value true; fires (is_false) on unverified remote cluster endpoints, where a spoofed endpoint can substitute for a legitimate peer and participate in replication."
+      },
+      "replication_credentials_embedded_in_uri": {
+        "type": "boolean",
+        "title": "Replication Credentials Embedded In URI",
+        "description": "Whether replication/federation endpoint credentials are embedded inline in connection URIs at rest (e.g. RabbitMQ federation/shovel amqps://user:pass@host URIs). Secure value false; fires (is_true) when standing creds sit in plaintext config and can be read to impersonate the replication path.",
+        "default": false
+      },
+      "replication_credentials_externalized_from_config": {
+        "type": "boolean",
+        "title": "Replication Credentials Externalized From Config",
+        "description": "Whether replication credentials (MirrorMaker keystore/truststore passwords, federation/shovel passwords, broker-client auth parameters) are externalized out of plaintext config files rather than written literally into them. Secure value true; fires (is_false) when creds sit in cleartext config at rest.",
+        "default": false
+      },
+      "secrets_stored_in_secret_manager": {
+        "type": "boolean",
+        "title": "Replication Secrets Resolved via Secret Manager",
+        "description": "Workspace-shared secrets attestation: replication credentials and keystore passwords are sourced from a managed secret store / secret manager rather than committed to disk in cleartext. Secure value true; fires (is_false) when secrets are stored on disk."
+      },
+      "config_file_permissions_hardened": {
+        "type": "boolean",
+        "title": "Replication Config File Permissions Hardened",
+        "description": "Whether the on-disk replication config files holding credentials (broker.conf, server.properties, MirrorMaker/connect properties, federation definitions) have restrictive ownership/permissions (not world/group-readable). Aligns with the workspace config_file_permissions_hardened concept for this flow. Secure value true; fires (is_false) when world/group-readable."
+      },
+      "inter_broker_listener_network_isolated": {
+        "type": "boolean",
+        "title": "Inter-Broker Listener Network-Isolated",
+        "description": "Attested true when the inter-broker/replication listener is bound to a private/internal interface and firewalled so it is reachable only from peer cluster nodes (e.g. a dedicated INTERNAL listener on a private interface; nmap from the client/public network shows the inter-broker port filtered/closed). Fires (is_false) when the replication port is bound broadly (0.0.0.0) or reachable from client/public networks — exposing the east-west channel to rogue-join and on-path sniffing even when TLS is enabled.",
+        "default": false
+      },
+      "replication_listener_internet_reachable": {
+        "type": "boolean",
+        "title": "Replication Listener Internet-Reachable",
+        "description": "Attested true when the inter-broker/replication port is reachable from a public/internet-facing or client network position (advertised/bound on 0.0.0.0, no firewall/security-group restriction to the peer subnet, nmap from outside the cluster trust zone shows the port open). A broadly reachable replication port invites rogue broker join and traffic capture from outside the cluster's trust boundary. Secure value false; fires (is_true) on the reachable state.",
+        "default": false
+      },
+      "inter_broker_listener_separate_from_client": {
+        "type": "boolean",
+        "title": "Inter-Broker Listener Separate From Client Listener",
+        "description": "Attested true when the inter-broker/replication channel uses a distinct listener/interface dedicated to peer-node traffic, separate from the client-facing listener (e.g. inter.broker.listener.name points at a distinct INTERNAL listener, not the shared client listener). Fires (is_false) when a single shared listener serves both clients and replication, removing the segmentation that would let the replication port be firewalled independently to peers only."
+      }
+    },
+    "required": [
+      "encryption_in_transit_enabled",
+      "mutual_tls_client_auth_enabled",
+      "unauthenticated_cluster_join_allowed",
+      "cluster_route_authorization_enforced",
+      "replication_broker_auth_plugin_enabled",
+      "erlang_cookie_value_non_default",
+      "erlang_cookie_file_permissions_restricted",
+      "replication_principal_least_privilege",
+      "replication_credentials_dedicated_not_shared",
+      "federation_peers_explicitly_allowlisted",
+      "federation_ca_trust_scoped",
+      "remote_peer_endpoint_verified",
+      "replication_credentials_embedded_in_uri",
+      "replication_credentials_externalized_from_config",
+      "secrets_stored_in_secret_manager",
+      "config_file_permissions_hardened",
+      "inter_broker_listener_network_isolated",
+      "replication_listener_internet_reachable",
+      "inter_broker_listener_separate_from_client"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mutual_tls_client_auth_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthenticated_cluster_join_allowed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_peer_endpoint_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_broker_auth_plugin_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cluster_route_authorization_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_principal_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_credentials_dedicated_not_shared"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_in_transit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/federation_ca_trust_scoped"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/federation_peers_explicitly_allowlisted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/erlang_cookie_file_permissions_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/erlang_cookie_value_non_default"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_credentials_embedded_in_uri"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_credentials_externalized_from_config"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_secret_manager"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_broker_listener_network_isolated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_listener_internet_reachable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_broker_listener_separate_from_client"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_file_permissions_hardened"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

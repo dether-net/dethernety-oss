@@ -1,0 +1,9 @@
+{
+  "id": "9bf2195b-c375-4314-b988-6df4824afd77",
+  "name": "Metrics Scrape",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Metrics scrape — also called Prometheus scraping, pull-based metrics collection, the /metrics scrape, or target scraping — the pull-model flow where a monitoring server periodically reaches OUT over HTTP to a target's metrics endpoint and pulls counters, gauges, and histograms: Prometheus and VictoriaMetrics scraping /metrics, node_exporter and application exporters, and OpenMetrics endpoints. It is the inverse of the push-based Log & Telemetry Collection pipeline — here the collector initiates and pulls, rather than the source shipping out. The place to look for metrics scraping, pull-based monitoring collection, /metrics endpoint exposure, exporter scraping, or how a TSDB harvests metrics from its targets. Distinct from Log & Telemetry Collection (push: an agent ships events to the backend) and from API Call (application request/response). Its threat surface: an unauthenticated /metrics endpoint exposing internal counters and build/version info to anyone who can reach it, scrape-target trust (a compromised or malicious target returning poisoned or high-cardinality metrics that exhaust the time-series database), SSRF via scrape configuration pointed at internal URLs, and plaintext or unverified-TLS scrape transport.",
+  "category": "Operational Traffic",
+  "status": "draft"
+}

@@ -2,16 +2,16 @@
   "schema": {
     "type": "object",
     "properties": {
-      "parameterized_queries_used": {
+      "parameterized_or_safe_query_construction": {
         "type": "boolean",
-        "title": "Parameterized Queries Used",
-        "description": "Attestation: every statement issued on this data flow is constructed via a parameterised/prepared API (PreparedStatement, $1/$2 placeholders, named-binding ORM) so the SQL text and user-supplied values travel as separate fields. When false, untrusted input can alter query structure (UNION SELECT, stacked statements) and the flow's own legitimate result-set channel becomes a bulk-exfiltration path. Verified by code review and SAST (CodeQL / Semgrep sql-injection packs) on every query-construction path in the data-access layer; corroborated by pgaudit showing PREPARE/EXECUTE pairs rather than fully-substituted ad-hoc SQL. Grounded in OWASP Top 10 2021 A03 Injection.",
+        "title": "Parameterized / Safe Query Construction",
+        "description": "Attestation: every statement, command, or query issued on this data flow is built via a parameterized/prepared/safe-binding API for whatever engine speaks here - SQL prepared statements ($1/$2 placeholders, PreparedStatement, named-binding ORM), MongoDB query-object/operator binding (not string-built $where/JS), Cassandra/CQL bound statements, Elasticsearch/OpenSearch parameterized query DSL, Cypher parameters ($param, not string-built) for Neo4j/Memgraph, and Redis argument arrays rather than untrusted EVAL/Lua - so query/command structure and user-supplied values travel as separate fields. When false, untrusted input can alter the query/command structure (UNION SELECT, NoSQL operator injection, CQL/Cypher injection, RESP/Lua injection) and the flow's own legitimate result channel becomes a bulk-exfiltration path. Verified by code review and SAST on every query/command-construction path in the data-access layer. Grounded in OWASP Top 10 2021 A03 Injection.",
         "default": false
       },
-      "dynamic_query_string_concatenation": {
+      "untrusted_input_concatenated_into_query_or_command": {
         "type": "boolean",
-        "title": "Dynamic Query String Concatenation",
-        "description": "Attestation: at least one code path on this data flow builds SQL by concatenating or interpolating untrusted input directly into the query string (string-format, plus-concatenation, template substitution). When true, the SQL parser cannot distinguish data from structure and the path is exploitable for injection regardless of any sibling validation. Independent of parameterized_queries_used because a flow may use prepared statements on most paths while still concatenating on one outlier helper; both triggers are kept so either failure mode fires the exposure.",
+        "title": "Untrusted Input Concatenated Into Query Or Command",
+        "description": "Attestation: at least one code path on this data flow builds the query, command, or filter by concatenating or interpolating untrusted input directly (SQL/CQL/Cypher string-building, MongoDB operator/JSON injection, Elasticsearch/OpenSearch query-DSL string concatenation, or Redis CRLF/command or EVAL/Lua injection). When true, the engine cannot distinguish data from structure and the path is exploitable for injection regardless of any sibling validation. Independent of parameterized_or_safe_query_construction because a flow may use safe binding on most paths while still concatenating on one outlier helper; both triggers are kept so either failure mode fires the exposure.",
         "default": false
       },
       "flow_tls_encrypted": {
@@ -94,8 +94,8 @@
       }
     },
     "required": [
-      "parameterized_queries_used",
-      "dynamic_query_string_concatenation",
+      "parameterized_or_safe_query_construction",
+      "untrusted_input_concatenated_into_query_or_command",
       "flow_tls_encrypted",
       "data_tier_transit_encrypted",
       "server_certificate_validated",
@@ -219,11 +219,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/dynamic_query_string_concatenation"
+                "scope": "#/properties/parameterized_or_safe_query_construction"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/parameterized_queries_used"
+                "scope": "#/properties/untrusted_input_concatenated_into_query_or_command"
               }
             ]
           }

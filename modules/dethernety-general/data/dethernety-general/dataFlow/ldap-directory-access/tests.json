@@ -1,0 +1,109 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "anonymous_bind_disabled": false,
+      "directory_access_requires_authentication": false,
+      "unauthenticated_empty_password_bind_rejected": false,
+      "encryption_in_transit_enabled": false,
+      "ldap_tls_required": false,
+      "starttls_downgrade_prevented": false,
+      "tls_min_version": "SSLv3",
+      "weak_tls_ciphers_disabled": false,
+      "ldap_search_filter_input_escaped": false,
+      "parameterized_filter_templates_used": false,
+      "dn_input_escaped": false,
+      "directory_acl_least_privilege": false,
+      "userpassword_attribute_read_restricted": false,
+      "whole_tree_anonymous_read_disabled": false,
+      "bind_dn_credentials_stored_plaintext_in_config": true,
+      "bind_dn_credentials_externalized": false,
+      "bind_account_least_privilege_readonly": false,
+      "userpassword_hash_scheme": "cleartext",
+      "account_lockout_policy_enabled": false,
+      "search_size_and_time_limits_bounded": false
+    },
+    "expectedExposures": [
+      "Privileged bind-DN credential in app config",
+      "LDAP injection via unescaped search filters / DNs",
+      "Over-permissive directory ACL / userPassword hash disclosure",
+      "Anonymous / unauthenticated bind directory disclosure",
+      "Cleartext LDAP bind credential exposure / StartTLS downgrade",
+      "Weak password-hash storage scheme",
+      "Missing lockout / unbounded search (brute-force & resource exhaustion)",
+      "Weak/legacy TLS on the directory channel"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "anonymous_bind_disabled": true,
+      "directory_access_requires_authentication": true,
+      "unauthenticated_empty_password_bind_rejected": true,
+      "encryption_in_transit_enabled": true,
+      "ldap_tls_required": true,
+      "starttls_downgrade_prevented": true,
+      "tls_min_version": "TLS1.2",
+      "weak_tls_ciphers_disabled": true,
+      "ldap_search_filter_input_escaped": true,
+      "parameterized_filter_templates_used": true,
+      "dn_input_escaped": true,
+      "directory_acl_least_privilege": true,
+      "userpassword_attribute_read_restricted": true,
+      "whole_tree_anonymous_read_disabled": true,
+      "bind_dn_credentials_stored_plaintext_in_config": false,
+      "bind_dn_credentials_externalized": true,
+      "bind_account_least_privilege_readonly": true,
+      "userpassword_hash_scheme": "argon2",
+      "account_lockout_policy_enabled": true,
+      "search_size_and_time_limits_bounded": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "anonymous_bind_disabled": true,
+      "directory_access_requires_authentication": true,
+      "unauthenticated_empty_password_bind_rejected": true,
+      "encryption_in_transit_enabled": true,
+      "ldap_tls_required": true,
+      "starttls_downgrade_prevented": true,
+      "tls_min_version": "SSLv3",
+      "weak_tls_ciphers_disabled": true,
+      "ldap_search_filter_input_escaped": true,
+      "parameterized_filter_templates_used": true,
+      "dn_input_escaped": true,
+      "directory_acl_least_privilege": true,
+      "userpassword_attribute_read_restricted": true,
+      "whole_tree_anonymous_read_disabled": true,
+      "bind_dn_credentials_stored_plaintext_in_config": false,
+      "bind_dn_credentials_externalized": true,
+      "bind_account_least_privilege_readonly": true,
+      "userpassword_hash_scheme": "cleartext",
+      "account_lockout_policy_enabled": true,
+      "search_size_and_time_limits_bounded": true
+    },
+    "expectedExposures": [
+      "Weak password-hash storage scheme",
+      "Weak/legacy TLS on the directory channel"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Privileged bind-DN credential in app config",
+      "LDAP injection via unescaped search filters / DNs",
+      "Over-permissive directory ACL / userPassword hash disclosure",
+      "Anonymous / unauthenticated bind directory disclosure",
+      "Cleartext LDAP bind credential exposure / StartTLS downgrade",
+      "Missing lockout / unbounded search (brute-force & resource exhaustion)",
+      "Weak/legacy TLS on the directory channel"
+    ]
+  }
+]

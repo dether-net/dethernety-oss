@@ -1,0 +1,9 @@
+{
+  "id": "710727b7-143a-4468-9bae-1774759c9371",
+  "name": "Secret Retrieval",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Secret retrieval — also called secret fetch, secrets-manager access, the Vault read flow, or dynamic-credential issuance — the flow where an application, workload, or CI job authenticates to a secrets manager and retrieves a secret, token, or dynamic credential: HashiCorp Vault / OpenBao API reads (KV, database, PKI, transit engines) with AppRole / Kubernetes / JWT auth, Consul KV secret reads, and agent / sidecar / CSI secret injection. The secrets analog of the Database Query flow — the read exchange between an app and its secrets backend — distinct from a plain datastore query (Database Query) and from the SSO login handshake (Authentication Exchange). The place to look for secret retrieval, Vault / OpenBao reads, dynamic credential issuance, lease renewal, or how a workload obtains its secrets. Its threat surface: the secret-zero / bootstrap-trust problem (how the client first authenticates), long-lived or over-broad secret tokens, missing lease TTL / renewal / revocation, secrets fetched over plaintext or unverified TLS, response-wrapping not used, and the retrieved secret exposed in transit, in environment variables, or in the consumer's logs.",
+  "category": "Identity & Access",
+  "status": "draft"
+}
