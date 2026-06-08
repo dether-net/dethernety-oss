@@ -24,7 +24,7 @@ resumes the changelog and compares against the previous tag, `v0.2.1`.
 - **Finding disposition lifecycle** — pending / confirmed / disposed states with
   lifecycle badges, one-click affirm, and an affirm-edit dialog. The new
   **AFFIRMED** disposition keeps a finding live across the ledger, coverage
-  metrics, and exports (ADR-010).
+  metrics, and exports.
 - **MITRE technique picker** for assigning ATT&CK techniques to findings.
 - **MITRE verb edges** — countermeasure→technique verb relationships surfaced in
   GraphQL with allowlisted edge provenance and append-only justification
@@ -64,7 +64,7 @@ enrichment flow, one TypeScript strict-mode cleanup. No breaking changes.
 
 ### Dethereal
 
-- **MITRE tactic coverage now platform-derived.** `/dethereal:surface` §5 now
+- **MITRE tactic coverage now platform-derived.** `/dethereal:surface` now
   aggregates `Exposure.exploitedBy` across analysed elements instead of reading a
   hand-maintained `mitre_attack_techniques` field on component attributes. The
   security-enricher agent's 3-step MITRE anti-hallucination protocol
@@ -72,8 +72,7 @@ enrichment flow, one TypeScript strict-mode cleanup. No breaking changes.
   now the single source of truth for technique mappings. Module policies already
   declare `exploited_by: [T...]` on every exposure; removing the duplicate
   client-side list eliminates a two-source-of-truth drift risk. Escape hatch for
-  uncovered techniques is a module policy addition, not a hand annotation. See
-  `BACKEND_DELEGATION.md` §3 for rationale. (#106)
+  uncovered techniques is a module policy addition, not a hand annotation. (#106)
 - **TypeScript strict-mode fixes in three tools.** `generate-attribute-stubs`,
   `manage-controls`, and `validate-model` now pass `noUncheckedIndexedAccess`
   cleanly — replaces ad-hoc structural parameter types with dt-core types,
