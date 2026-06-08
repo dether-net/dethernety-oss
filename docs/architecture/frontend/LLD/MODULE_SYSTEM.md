@@ -436,7 +436,26 @@ The `services` object gives a module bundle controlled access to host capabiliti
 | Service | Signature | Purpose |
 |---------|-----------|---------|
 | `componentRegistry` | `register(key, component, moduleId)` / `getComponent(key)` | Register a module's Vue components by key so the host can resolve and render them (e.g. an analysis-results page resolving a module's document component). |
-| `openDispositionDialog` | `(args: OpenDispositionArgs) => Promise<DispositionMutationResult \| null>` | Open the platform's shared finding-disposition dialog from anywhere — including module bundles and host pages that have no access to `flowStore` or dt-ui components. |
+| `openDispositionDialog` | `(args: OpenDispositionArgs) => Promise<DispositionMutationResult \| null>` | Open the platform's shared finding-disposition dialog from anywhere — including module bundles and host pages that have no access to `flowStore` or dt-ui components. Now supports an **affirm mode** (the dialog with its kind locked to `AFFIRMED`, only the reason editable). |
+| `affirmFinding` | `({ finding }) => Promise<DispositionMutationResult>` | One-click affirm — dispose the finding with kind `AFFIRMED` (reviewed and confirmed a real, live risk). |
+| `clearFindingDisposition` | `({ finding }) => Promise<DispositionMutationResult>` | Lift any disposition (including Undo of an affirm). Idempotent. |
+| `supersedeFinding` | `({ finding, elementId }) => Promise<…>` | Clone a SYSTEM finding into a USER-editable copy and dispose the original as `SUPERSEDED`. |
+| `deleteFinding` | `({ finding }) => Promise<boolean>` | Delete a USER-authored finding. |
+| `openFindingIssueSelector` | `({ finding, elementId, modelId, elementLabel? }) => Promise<FindingIssueResult \| null>` | Open the platform's finding → issue workflow (the same picker as the exposures tab: "Add to Issue board", or create a real issue of a chosen class attached to the element). |
+
+**Finding-action services — narrow action functions, never the store.** The five
+services above (`affirmFinding`, `clearFindingDisposition`, `supersedeFinding`,
+`deleteFinding`, `openFindingIssueSelector`) each map a finding reference onto a
+single canonical `flowStore` → `dt-core` mutation — the *same* write path the
+dt-ui exposures tab calls — so a module-loaded surface (e.g. the Threat Report's
+Residual Risk ledger) gets behaviour that cannot drift from the platform's. This
+preserves the trust model: the Pinia `flowStore` itself is **never** handed to a
+module; only these bounded, session-scoped action functions are, each returning a
+result envelope. The caller owns feedback (snackbar/Undo) and refresh. The
+disposition lifecycle (`AFFIRMED` as the one live-keeping kind, Supersede,
+re-derivation survival) is specified in
+[ADR-010](../../decisions/010-finding-affirmation-lifecycle.md), which extends
+[ADR-007](../../decisions/007-finding-disposition-lifecycle.md).
 
 **`openDispositionDialog` — finding triage from a module.** A single `<DispositionDialog>` is mounted once in `layouts/default.vue` and bound to a small `dispositionDialogStore`. A caller invokes `openDispositionDialog(args)` and awaits the returned promise, which resolves with the mutation result on **save/clear** or `null` on **cancel/close**. A new call supersedes any pending one (resolving the prior as cancelled).
 
@@ -447,9 +466,18 @@ interface OpenDispositionArgs {
 }
 ```
 
-The dialog itself owns the write path (`flowStore.disposeExposure` / `controlsStore.disposeCountermeasure`); this service only marshals open/close state and the pending promise. It **does not widen scope** — disposal remains bounded by the platform's session-scoped, authenticated mutation. This lets a module (such as the Threat Report's Residual Risk ledger) route a finding's "Review →" action through the platform's real triage flow rather than reimplementing it.
+The dialog itself owns the write path (`flowStore.disposeExposure` / `controlsStore.disposeCountermeasure`); this service only marshals open/close state and the pending promise. It **does not widen scope** — disposal remains bounded by the platform's session-scoped, authenticated mutation. This lets a module (such as the Threat Report's Residual Risk ledger) route a finding's disposition action through the platform's real triage flow rather than reimplementing it.
 
-> Note: the window-level `HostDependencies.services` (exposed via `ModuleLoader.exposeHostDependencies`) carries only `componentRegistry`; `openDispositionDialog` is provided through the `useHostContext()` composable, which is the surface modules call.
+**`openFindingIssueSelector` — the finding → issue workflow.** The same
+singleton-dialog pattern backs the issue workflow. A `stores/issueDialogStore.ts`
+drives a single global `<FindingIssueDialog>` mounted once in
+`layouts/default.vue` (alongside the global `<DispositionDialog>`). A caller
+invokes `openFindingIssueSelector(args)` and awaits the picker outcome — "Add to
+Issue board" (copy + redirect) or a real issue created of a chosen class and
+attached to the element. The host owns all issue logic; the module only triggers
+it, so there is no drift and no second issue implementation in module code.
+
+> Note: the window-level `HostDependencies.services` (exposed via `ModuleLoader.exposeHostDependencies`) carries only `componentRegistry`; the finding-action services (`openDispositionDialog`, `affirmFinding`, `clearFindingDisposition`, `supersedeFinding`, `deleteFinding`, `openFindingIssueSelector`) are provided through the `useHostContext()` composable, which is the surface modules call.
 
 ### Exposed Vue Primitives
 

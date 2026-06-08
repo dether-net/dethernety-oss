@@ -183,6 +183,7 @@ differently. Applies to both Exposure and Countermeasure.
 
 | Value | Description |
 |-------|-------------|
+| `AFFIRMED` | Reviewed and confirmed — a real risk for an Exposure, in place for a Countermeasure. The only kind that keeps the finding live; every other kind mutes it |
 | `NOT_APPLICABLE` | Finding does not apply to this element / model context |
 | `FALSE_POSITIVE` | Finding is incorrect — the underlying weakness does not exist as described |
 | `COMPENSATING_CONTROL` | A compensating control mitigates the finding to an acceptable residual risk (exposure-only) |

@@ -137,6 +137,7 @@ describe('DispositionResolverService — disposition mutations (e2e)', () => {
       'COMPENSATING_CONTROL',
       'RISK_ACCEPTED',
       'SUPERSEDED',
+      'AFFIRMED',
     ] as const)('disposes with kind=%s — all 5 fields stamped, stale=false', async (kind) => {
       await seedExposure(mg.driver, 'e-1');
       const before = Date.now();
@@ -385,6 +386,7 @@ describe('DispositionResolverService — disposition mutations (e2e)', () => {
       'FALSE_POSITIVE',
       'WAIVED',
       'SUPERSEDED',
+      'AFFIRMED',
     ] as const)('disposes with kind=%s — all 5 fields stamped, stale=false', async (kind) => {
       await seedCountermeasure(mg.driver, 'cm-1');
       const result = await svc.disposeCountermeasure(
@@ -427,6 +429,73 @@ describe('DispositionResolverService — disposition mutations (e2e)', () => {
       // Idempotent second clear.
       const again = await svc.clearCountermeasureDisposition({ countermeasureId: 'cm-1' }, makeAuthCtx());
       expect(again.success).toBe(true);
+    });
+  });
+
+  describe('SUPERSEDED -> AFFIRMED guard', () => {
+    it('disposeExposure rejects AFFIRMED on a SUPERSEDED exposure (VALIDATION_ERROR, no write)', async () => {
+      await seedExposure(mg.driver, 'e-1', {
+        dispositionKind: 'SUPERSEDED',
+        dispositionReason: "Superseded by user-authored exposure 'x'",
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const result = await svc.disposeExposure(
+        { exposureId: 'e-1', kind: 'AFFIRMED', reason: 'Attempt to affirm' },
+        makeAuthCtx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('VALIDATION_ERROR');
+      expect(String(result.errorMessage)).toContain('superseded');
+      // No write — the superseded row is untouched.
+      const stored = await readExposure(mg.driver, 'e-1');
+      expect(stored.dispositionKind).toBe('SUPERSEDED');
+      expect(stored.dispositionedBy).toBe('auth0|prior');
+    });
+
+    it('disposeCountermeasure rejects AFFIRMED on a SUPERSEDED countermeasure (VALIDATION_ERROR, no write)', async () => {
+      await seedCountermeasure(mg.driver, 'cm-1', {
+        dispositionKind: 'SUPERSEDED',
+        dispositionReason: "Superseded by user-authored countermeasure 'x'",
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const result = await svc.disposeCountermeasure(
+        { countermeasureId: 'cm-1', kind: 'AFFIRMED', reason: 'Attempt to affirm' },
+        makeAuthCtx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('VALIDATION_ERROR');
+      expect(String(result.errorMessage)).toContain('superseded');
+      const stored = await readCountermeasure(mg.driver, 'cm-1');
+      expect(stored.dispositionKind).toBe('SUPERSEDED');
+    });
+
+    it('allows AFFIRMED over a non-SUPERSEDED disposition (NOT_APPLICABLE -> AFFIRMED)', async () => {
+      await seedExposure(mg.driver, 'e-1', {
+        dispositionKind: 'NOT_APPLICABLE',
+        dispositionReason: 'Was NA',
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const result = await svc.disposeExposure(
+        { exposureId: 'e-1', kind: 'AFFIRMED', reason: 'Confirmed as a live risk' },
+        makeAuthCtx(),
+      );
+      expect(result.success).toBe(true);
+      expect(result.dispositionKind).toBe('AFFIRMED');
+      const stored = await readExposure(mg.driver, 'e-1');
+      expect(stored.dispositionKind).toBe('AFFIRMED');
+      expect(stored.dispositionedBy).toBe(TEST_USER_SUB);
+    });
+
+    it('affirming a missing finding returns not-found (guard null pre-read does not mask EXPOSURE_NOT_FOUND)', async () => {
+      const result = await svc.disposeExposure(
+        { exposureId: 'no-such-e', kind: 'AFFIRMED', reason: 'Confirmed' },
+        makeAuthCtx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('EXPOSURE_NOT_FOUND');
     });
   });
 

@@ -55,7 +55,7 @@ describe('computePostureSummary — disposition', () => {
   const s = computePostureSummary(LEDGER, { crossings: CROSSINGS })
   it('splits open vs reviewed and surfaces stale + kinds', () => {
     expect(s.disposition.open).toBe(4)
-    expect(s.disposition.reviewed).toBe(1)
+    expect(s.disposition.dispositioned).toBe(1)
     expect(s.disposition.stale).toBe(1)
     expect(s.disposition.byKind).toEqual({ RISK_ACCEPTED: 1 })
   })

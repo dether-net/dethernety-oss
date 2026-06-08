@@ -23,9 +23,9 @@
       <span class="trd-sum-main">
         <strong>{{ totals.findings }}</strong> findings ·
         <strong>{{ totals.live }}</strong> open ·
-        <strong>{{ totals.dispositioned }}</strong> reviewed
+        <strong>{{ totals.dispositioned }}</strong> dispositioned
         <span v-if="totals.live > 0 && totals.dispositioned === 0" class="trd-untriaged">
-          — none reviewed yet
+          — none dispositioned yet
         </span>
         <span v-if="totals.stale > 0" class="trd-stale-count">· {{ totals.stale }} stale</span>
       </span>
@@ -54,6 +54,15 @@
         </button>
         <button type="button" class="trd-fb-chip" :class="{ 'trd-fb-chip--on': isProvActive('SYSTEM') }" :aria-pressed="isProvActive('SYSTEM')" @click="toggleProv('SYSTEM')">
           System <span class="trd-fb-count">{{ totals.byProvenance.SYSTEM }}</span>
+        </button>
+      </span>
+      <span class="trd-fb-sep" aria-hidden="true">·</span>
+      <span class="trd-fb-group">
+        <button type="button" class="trd-fb-chip" :class="{ 'trd-fb-chip--on': isLifecycleActive('pending') }" :aria-pressed="isLifecycleActive('pending')" @click="toggleLifecycle('pending')">
+          Not reviewed <span class="trd-fb-count">{{ totals.byLifecycle.pending }}</span>
+        </button>
+        <button type="button" class="trd-fb-chip" :class="{ 'trd-fb-chip--on': isLifecycleActive('confirmed') }" :aria-pressed="isLifecycleActive('confirmed')" @click="toggleLifecycle('confirmed')">
+          Confirmed <span class="trd-fb-count">{{ totals.byLifecycle.confirmed }}</span>
         </button>
       </span>
       <span v-if="typeFacets.length" class="trd-fb-sep" aria-hidden="true">·</span>
@@ -95,7 +104,7 @@
           {{ g.name }}
         </button>
         <span class="trd-etype">{{ g.type }}</span>
-        <span class="trd-group-counts">{{ g.liveCount }} open · {{ g.dispositionedCount }} reviewed</span>
+        <span class="trd-group-counts">{{ g.liveCount }} open · {{ g.dispositionedCount }} dispositioned</span>
       </h3>
 
       <p v-if="g.supportingControls.length" class="trd-controls">
@@ -120,7 +129,7 @@
         class="trd-route-xref"
         :class="{ 'trd-route-xref--stale': groupHasStaleDisposition(g) }"
       >
-        ‼ {{ g.dispositionedCount }} reviewed finding{{ g.dispositionedCount === 1 ? '' : 's' }} here sit on a
+        ‼ {{ g.dispositionedCount }} dispositioned finding{{ g.dispositionedCount === 1 ? '' : 's' }} here sit on a
         crown-jewel route to <strong>{{ routeJewels(g.id).join(', ') }}</strong> —
         <button type="button" class="trd-linkbtn" @click="openReachability">view in Reachability ↗</button>
         <span v-if="groupHasStaleDisposition(g)" class="trd-muted"> · a stale disposition still guards a path to a high-value asset</span>
@@ -144,6 +153,7 @@
             <td class="trd-c-score">{{ f.score == null ? '—' : f.score }}</td>
             <td class="trd-c-name">
               {{ f.name }}
+              <span v-if="chipFor(f)" class="trd-confirmed" :title="chipFor(f).title">{{ chipFor(f).text }}</span>
               <TechniqueChips
                 v-if="techsFor(f.id).length"
                 class="trd-tech-inline"
@@ -155,7 +165,18 @@
             <td class="trd-c-vector">{{ f.attackVector || '—' }}</td>
             <td class="trd-c-prov" :title="f.provenance">{{ f.provenance }}</td>
             <td class="trd-c-act">
-              <button v-if="canDispose" type="button" class="trd-review" @click="$emit('dispose', f)">Review →</button>
+              <FindingActions
+                v-if="canDispose"
+                :finding="f"
+                :element-id="g.id"
+                :can-dispose="canDispose"
+                @affirm="$emit('affirm', $event)"
+                @dispose="$emit('dispose', $event)"
+                @supersede="$emit('supersede', $event)"
+                @add-note="$emit('add-note', $event)"
+                @delete="$emit('delete', $event)"
+                @issue="$emit('issue', $event)"
+              />
             </td>
           </tr>
         </tbody>
@@ -163,7 +184,7 @@
 
       <!-- Dispositioned (muted, never dropped; with who / when / why) -->
       <details v-if="g.dispositioned.length" class="trd-disposed">
-        <summary>{{ g.dispositionedCount }} reviewed</summary>
+        <summary>{{ g.dispositionedCount }} dispositioned</summary>
         <table class="trd-table trd-table--muted">
           <tbody>
             <tr v-for="f in g.dispositioned" :key="f.id" :class="{ 'trd-row-stale': f.stale }">
@@ -196,7 +217,18 @@
               <td class="trd-c-vector">{{ f.attackVector || '—' }}</td>
               <td class="trd-c-prov" :title="f.provenance">{{ f.provenance }}</td>
               <td class="trd-c-act">
-                <button v-if="canDispose" type="button" class="trd-review" @click="$emit('dispose', f)">Edit →</button>
+                <FindingActions
+                  v-if="canDispose"
+                  :finding="f"
+                  :element-id="g.id"
+                  :can-dispose="canDispose"
+                  @affirm="$emit('affirm', $event)"
+                  @dispose="$emit('dispose', $event)"
+                  @supersede="$emit('supersede', $event)"
+                  @add-note="$emit('add-note', $event)"
+                  @delete="$emit('delete', $event)"
+                  @issue="$emit('issue', $event)"
+                />
               </td>
             </tr>
           </tbody>
@@ -212,9 +244,11 @@
 <script setup>
   import { computed, ref } from 'vue'
   import { aggregateLedger, dispositionKindLabel } from '../lib/aggregateLedger.js'
+  import { lifecycleChipFor } from '../lib/findingActions.js'
   import { buildCoverageView } from '../lib/coverageMatrix.js'
   import TechniqueChips from './TechniqueChips.vue'
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
+  import FindingActions from './FindingActions.vue'
 
   const props = defineProps({
     // The snapshot doc's `ledger` (LedgerElement[]).
@@ -241,7 +275,12 @@
     techniqueIndex: { type: Object, default: () => ({}) },
   })
 
-  const emit = defineEmits(['dispose', 'drill', 'navigate'])
+  const emit = defineEmits(['dispose', 'affirm', 'supersede', 'add-note', 'delete', 'issue', 'drill', 'navigate'])
+
+  // Inline lifecycle chip for a live row (only an AFFIRMED-confirmed finding earns
+  // one) — so an affirmed finding in the open table is no longer indistinguishable
+  // from an un-triaged one.
+  const chipFor = lifecycleChipFor
 
   const bandOrder = ['critical', 'high', 'medium', 'low', 'unknown']
   const bandLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', unknown: 'Unknown' }
@@ -274,15 +313,23 @@
   const isBandActive = (b) => props.filter?.band === b
   const isProvActive = (p) => props.filter?.provenance === p
   const isTypeActive = (t) => props.filter?.elementType === t
+  const isLifecycleActive = (l) => props.filter?.lifecycle === l
   const anyFilterActive = computed(
-    () => !!(props.filter && (props.filter.band || props.filter.live || props.filter.provenance || props.filter.elementType)),
+    () => !!(props.filter && (props.filter.band || props.filter.live || props.filter.provenance || props.filter.elementType || props.filter.lifecycle)),
   )
+  // The lifecycle facet labels: 'pending' reads as "Not reviewed" (the triage
+  // backlog), 'confirmed' as "Confirmed" (reviewed & kept live). Both are LIVE
+  // states, so selecting one narrows the open set and empties the dispositioned
+  // partition (disposed findings are neither).
+  const lifecycleLabels = { pending: 'Not reviewed', confirmed: 'Confirmed' }
   const toggleBand = (b) =>
     emit('navigate', { type: 'toggle-filter', filter: { key: 'band', type: 'band', value: b, label: `band: ${bandLabel(b)}` } })
   const toggleProv = (p) =>
     emit('navigate', { type: 'toggle-filter', filter: { key: 'provenance', type: 'provenance', value: p, label: `source: ${p === 'USER' ? 'User' : 'System'}` } })
   const toggleType = (t) =>
     emit('navigate', { type: 'toggle-filter', filter: { key: 'type', type: 'type', value: t, label: `type: ${typeLabel(t)}` } })
+  const toggleLifecycle = (l) =>
+    emit('navigate', { type: 'toggle-filter', filter: { key: 'lifecycle', type: 'lifecycle', value: l, label: `status: ${lifecycleLabels[l] ?? l}` } })
   const clearAll = () => emit('navigate', { type: 'clear-filters' })
 
   // The coverage honesty view — the shell's shared build when provided, otherwise
@@ -323,16 +370,19 @@
   const infoTech = ref(null)
 
   // Apply the active filter (Posture Summary deep-link AND/OR the in-view facet bar): band +
-  // provenance match individual findings; `live: true` hides the dispositioned
-  // partition; elementType matches the whole group. Drop groups left empty.
+  // provenance + lifecycle match individual findings; `live: true` hides the
+  // dispositioned partition; elementType matches the whole group. Drop groups left
+  // empty. A lifecycle facet ('pending'/'confirmed') is a LIVE-only state, so it
+  // also drops the dispositioned partition (those findings are 'disposed').
   const matchFinding = (f) => {
     if (props.filter?.band && f.band !== props.filter.band) return false
     if (props.filter?.provenance && f.provenance !== props.filter.provenance) return false
+    if (props.filter?.lifecycle && f.lifecycle !== props.filter.lifecycle) return false
     return true
   }
   const visibleGroups = computed(() => {
     const flt = props.filter
-    if (!flt || (!flt.band && !flt.live && !flt.provenance && !flt.elementType)) return groups.value
+    if (!flt || (!flt.band && !flt.live && !flt.provenance && !flt.elementType && !flt.lifecycle)) return groups.value
     const out = []
     for (const g of groups.value) {
       if (flt.elementType && g.type !== flt.elementType) continue
@@ -479,6 +529,21 @@
   /* The Finding column takes the remaining width (table-layout:fixed); long names
      + chips wrap inside it rather than widening the column. */
   .trd-c-name { overflow-wrap: anywhere; }
+  /* Inline "Confirmed" lifecycle chip on a live row — risk-toned (an affirmed
+     finding is still an open risk), outlined, never a solid stoplight, never green. */
+  .trd-confirmed {
+    display: inline-block;
+    border: 1px solid #0892ad;
+    color: #0892ad;
+    border-radius: 10px;
+    padding: 0 7px;
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+  }
   .trd-disp { font-size: 0.75rem; opacity: 0.85; margin-top: 0.15rem; }
   .trd-disp-by { opacity: 0.7; }
   .trd-stale { color: #c77700; font-weight: 600; }

@@ -17,7 +17,7 @@ The tab is powered by the **Coverage Tools** module. If that module is not deplo
 
 ## What the Matrix Shows — and What It Does Not
 
-The matrix charts your model's **live** (untriaged) exposures against the MITRE ATT&CK techniques they map to. Each **row** is a technique that one or more of your exposures actually exploits; each **column** is a tactic those techniques reach.
+The matrix charts your model's **live** (untriaged **or** affirmed) exposures against the MITRE ATT&CK techniques they map to. Each **row** is a technique that one or more of your exposures actually exploits; each **column** is a tactic those techniques reach. An **affirmed** exposure is a reviewed-and-confirmed risk, so it stays on the live grid; only the muting dispositions take an exposure off it.
 
 > **This is not the full ATT&CK matrix.** It shows only the techniques your model's exposures map to — never the entire framework. A technique you don't see is one your model doesn't currently expose, not a silent gap. Gaps that the model *does* expose appear as uncovered cells; gaps it can't chart appear in the off-grid notes below the controls.
 
@@ -121,7 +121,7 @@ Below the controls sits an **Off-grid** summary line. Its counts are **always vi
 | **unmapped** (soft) | Live exposures with no ATT&CK mapping. | Coverage **can't be assessed** for them. They are neither a covered win nor a grid gap — just unchartable. |
 | **Data-mapped** | Exposures on **Data** elements. | Kept off the grid because controls attach to the *handling* element, never to the Data node — so data-level coverage isn't assessable. Their techniques are still disclosed (see below). |
 | **structural gap** | An element class with zero supporting controls anywhere in the model. | One honest completeness line — for example `No control in this model supports any component` — not a flood of per-technique cells. A maturity gap, not a single missing control. |
-| **excluded** | Dispositioned (triaged) exposures. | Excluded from the live grid but **counted**, never silently dropped. They still appear in the **Residual Risk** ledger. |
+| **excluded** | **Muted** exposures — those given a muting disposition. | Excluded from the live grid but **counted**, never silently dropped. They still appear in the **Residual Risk** ledger. **Affirmed** findings are *not* excluded — they stay live and remain charted on the grid; only the muting dispositions land here. |
 
 ### Data exposures: off the grid, but disclosed
 

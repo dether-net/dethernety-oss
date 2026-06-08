@@ -128,7 +128,7 @@ given and describes where they are enforced.
 
 | Library | Purpose |
 |---|---|
-| [`aggregateLedger.js`](../../../modules/dethernety-threat-report/frontend/lib/aggregateLedger.js) | The base aggregation over the snapshot `ledger`: per-element live/dispositioned partition, score-band annotation, USER/SYSTEM provenance, control-consistency audit. The shared substrate the other engines reuse. |
+| [`aggregateLedger.js`](../../../modules/dethernety-threat-report/frontend/lib/aggregateLedger.js) | The base aggregation over the snapshot `ledger`: per-element live/dispositioned partition, score-band annotation, USER/SYSTEM provenance, control-consistency audit. Also **derives each finding's lifecycle** (`pending \| confirmed \| disposed`) from `dispositionKind` + provenance — never stored, recomputed at view time, mirroring the dt-ui `useFindingDisposition` composable so report and editor agree. The rules: `AFFIRMED` with an attributed actor → **confirmed**; `AFFIRMED` with a null actor → **pending** (an unattributed affirm is not a real confirmation); no disposition + USER-authored → **confirmed**; no disposition + SYSTEM-authored (or null) → **pending**; any muting kind → **disposed**. **AFFIRMED is treated as live** (`isLive` = `dispositionKind` is null **or** `=== 'AFFIRMED'`). The shared substrate the other engines reuse. |
 | [`postureSummary.js`](../../../modules/dethernety-threat-report/frontend/lib/postureSummary.js) | Composes the ledger aggregation plus the boundary-crossing counts into the Posture Summary roll-up. The only aggregating surface; introduces no new analysis. |
 | [`coverageMatrix.js`](../../../modules/dethernety-threat-report/frontend/lib/coverageMatrix.js) | The MITRE ATT&CK coverage presentation/honesty layer: joins live coverage facts to the ledger for disposition, buckets by tactic × tier × prevent/detect, and accounts for everything held off the grid. |
 | [`reachability.js`](../../../modules/dethernety-threat-report/frontend/lib/reachability.js) | The flow-route engine: a pure, bounded, simple-path traversal over the snapshot topology for crown-jewel reachability and origin→target route enumeration. |
@@ -265,8 +265,9 @@ element and partitioned into open versus dispositioned findings (dispositioned
 ones muted with who/when/why, never removed). The score band is presented as a
 triage sort-aid, not a risk rating. It honors the in-view facet filters and the
 deep-link filters from Posture (band, live, provenance, element type), renders the
-technique chips on each finding, and emits `dispose(finding)` for the host to
-route to the real disposition dialog.
+technique chips on each finding, and offers the per-finding **FindingActions**
+(Affirm / Dispose / Supersede / Issue) that route to the host's real finding-action
+services.
 
 **Component Profile** is the per-element drill target from
 `computeComponentProfile`, reachable for a Component, SecurityBoundary, DataFlow,
@@ -377,6 +378,19 @@ ATT&CK name, tactics, and cleaned description, and is reused by the coverage
 matrix, the Component Profile, and the Residual Risk ledger so the affordance is
 identical everywhere. It is a Vuetify `v-dialog` so it stacks correctly above the
 Component Profile dialog.
+
+### The per-finding action grid
+
+[`FindingActions.vue`](../../../modules/dethernety-threat-report/frontend/components/FindingActions.vue)
+is the lifecycle-aware action surface rendered on each finding in the Residual Risk
+ledger and the Component Profile — **Affirm · Dispose · Supersede · Issue** (replacing
+the old single **"Review →" / "Edit →"** button). It is presentational: each action
+emits an intent the shell routes to the host's finding-action services
+(`affirmFinding`, `openDispositionDialog`, `supersedeFinding`,
+`openFindingIssueSelector`) — the module owns no write path. The action set adapts to
+the derived lifecycle from `aggregateLedger` (a **confirmed** finding offers an Undo of
+its affirm; a **pending** one offers a one-click Affirm), and Affirm is rendered with an
+info accent, never green.
 
 ### Sensitivity and score-band encoding
 

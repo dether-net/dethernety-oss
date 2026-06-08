@@ -12,18 +12,23 @@
     useFindingDisposition,
     emptyDispositionDialogState,
     dispositionStateFor,
+    affirmDialogStateFor,
     type SnackBarState,
   } from '@/composables/useFindingDisposition'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
   import ExposureDialog from '@/components/Dialogs/DataFlow/ExposureDialog.vue'
   import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
+  import LifecycleBadge from '@/components/Disposition/LifecycleBadge.vue'
   import AttackTechniqueDialog from '@/components/Dialogs/Mitre/AttackTechniqueDialog.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
 
-  // Props
+  // Props. `selectedItem` is the host element the exposures belong to — a vue-flow
+  // Node/Edge (the SettingsWindow canvas selection) OR a minimal { id, data: { label } }
+  // shape (e.g. a Data entity opened from DataDialog). Only `.id` (element id, used as
+  // the supersede/create target) and `.data?.label` (display name) are read.
   interface Props {
-    selectedItem: Node | Edge | null;
+    selectedItem: Node | Edge | { id: string; data?: { label?: string | null } } | null;
     exposures: Exposure[];
   }
 
@@ -35,6 +40,8 @@
     'redirect:issue': [];
     /** Parent renders the badge using this count. */
     'update:staleCount': [count: number];
+    /** Parent renders the "awaiting review" badge using this count. */
+    'update:pendingCount': [count: number];
   }>()
 
   // Stores
@@ -49,9 +56,12 @@
     provenanceInfo,
     isUserAuthored,
     dispositionKindLabel,
+    lifecycleStatus,
+    affirmReasonFor,
     partitionAndSort,
     rowClass,
     DISPOSE_ICON,
+    AFFIRM_ICON,
     ERROR_MESSAGES,
   } = useFindingDisposition()
 
@@ -85,6 +95,14 @@
   )
   watch(exposureStaleCount, count => {
     emit('update:staleCount', count)
+  }, { immediate: true })
+
+  // Expose the pending (unreviewed) backlog count for the per-tab PendingBadge.
+  const exposurePendingCount = computed(() =>
+    props.exposures.filter(e => lifecycleStatus(e) === 'pending').length,
+  )
+  watch(exposurePendingCount, count => {
+    emit('update:pendingCount', count)
   }, { immediate: true })
 
   // Exposures-related refs
@@ -196,16 +214,14 @@
     issueStore.setIssueDataClipboard({
       name: data.name,
       description: data.name + ' Issue on ' + (props.selectedItem?.data?.label as string) + data.description,
-      elementIds: [data.id, flowStore.selectedItem?.id || '', flowStore.modelId || ''],
+      // Attach the host element (props.selectedItem — the Data entity when this tab is
+      // reused inside DataDialog) as well as the canvas selection, matching the create
+      // path's element set. Sourcing only flowStore.selectedItem dropped the Data
+      // entity from board issues raised off a Data-entity exposure.
+      elementIds: [data.id, props.selectedItem?.id || '', flowStore.selectedItem?.id || '', flowStore.modelId || ''],
       returnTo,
     })
     emit('redirect:issue')
-  }
-
-  const onIssueAdded = () => {
-    showIssueDialog.value = false
-    issueClass.value = null
-    issueExposureId.value = ''
   }
 
   // Dispose / re-affirm action.
@@ -225,6 +241,64 @@
 
   const onDispositionDialogClose = () => {
     dispositionDialog.value.show = false
+  }
+
+  // One-click affirm: confirm a pending finding is a real, live risk. Awaits the
+  // mutation and only refreshes on success — the row never shows `confirmed` until
+  // the server attributes it, so a `success:false` can't manufacture a false
+  // confirmation (it simply stays pending). Undo clears back to pending; the durable
+  // "Add note…" path is the affirm-edit dialog on the now-confirmed row.
+  const onAffirm = async (item: Exposure) => {
+    const result = await flowStore.disposeExposure({
+      exposureId: item.id,
+      kind: 'AFFIRMED',
+      reason: affirmReasonFor('EXPOSURE'),
+    })
+    if (!result.success) {
+      const reason = ERROR_MESSAGES[result.errorCode ?? ''] ?? 'an unexpected error'
+      snackBar.value = {
+        show: true, color: 'error',
+        message: `Couldn't affirm "${item.name}" (${reason}).`,
+        action: null,
+      }
+      return
+    }
+    emit('updateForm')
+    snackBar.value = {
+      show: true,
+      color: 'success',
+      message: `Affirmed "${item.name}" as a live risk.`,
+      timeout: 6000, // finite even though it carries an action (Undo)
+      action: {
+        label: 'Undo',
+        handler: async () => {
+          const undo = await flowStore.clearDisposition({ exposureId: item.id })
+          if (undo.success) {
+            emit('updateForm')
+          } else {
+            const reason = ERROR_MESSAGES[undo.errorCode ?? ''] ?? 'an unexpected error'
+            snackBar.value = {
+              show: true, color: 'error',
+              message: `Couldn't undo — "${item.name}" is still affirmed (${reason}).`,
+              action: null,
+            }
+          }
+        },
+      },
+    }
+  }
+
+  // Affirm-edit (re-affirm / "Add note…"): opens the dialog locked to AFFIRMED so the
+  // reason can be edited without converting the finding into a disposal.
+  const onAffirmEdit = (item: Exposure) => {
+    dispositionDialog.value = affirmDialogStateFor(item)
+  }
+
+  // A stale live row's Review re-affirms via the affirm-edit dialog when confirmed,
+  // or the normal dispose dialog when it's a (stale) disposition.
+  const onReview = (item: Exposure) => {
+    if (lifecycleStatus(item) === 'confirmed') onAffirmEdit(item)
+    else onDispose(item)
   }
 
   // Supersede orchestration handler.
@@ -324,16 +398,7 @@
             </v-tooltip>
             <span class="text-capitalize" @click="editExposure(item.id)">{{ item.name?.replaceAll('_', ' ') }}</span>
           </div>
-          <div
-            v-if="item.dispositionKind"
-            role="img"
-            :aria-label="`Disposition: ${dispositionKindLabel(item.dispositionKind)}`"
-            class="mt-1"
-          >
-            <v-chip size="x-small" variant="outlined">
-              {{ dispositionKindLabel(item.dispositionKind) }}
-            </v-chip>
-          </div>
+          <LifecycleBadge :item="item" finding-type="EXPOSURE" />
         </div>
       </template>
       <template #item.exploitedBy="{ item }">
@@ -350,42 +415,13 @@
         </div>
       </template>
       <template #item.actions="{ item }">
-        <div class="d-flex flex-row align-center">
-          <!-- Slot 1: issue link (existing) -->
-          <IssueSelector
-            :id="item.id || ''"
-            :name="item.name || ''"
-            :description="item.description || ''"
-            @add:issue="onAddIssue"
-            @copy:issue="onCopyToIssue"
-          />
-
-          <!-- Slot 2: edit (USER) | supersede (SYSTEM) -->
-          <v-tooltip v-if="isUserAuthored(item)" text="Edit exposure" location="top">
-            <template #activator="{ props: tProps }">
-              <v-btn
-                v-bind="tProps"
-                aria-label="Edit exposure"
-                icon="mdi-pencil"
-                variant="plain"
-                @click="editExposure(item.id)"
-              />
-            </template>
-          </v-tooltip>
-          <v-tooltip v-else text="Customize as an editable copy" location="top">
-            <template #activator="{ props: tProps }">
-              <v-btn
-                v-bind="tProps"
-                aria-label="Customize as an editable copy"
-                color="secondary"
-                icon="mdi-content-duplicate"
-                variant="plain"
-                @click="onSupersede(item)"
-              />
-            </template>
-          </v-tooltip>
-
-          <!-- Slot 3: delete (USER) | re-affirm (SYSTEM stale, with visible "Review" text) | dispose (SYSTEM no-stale) -->
+        <!-- Actions wrap into a compact 2-col grid: the triage pair (Affirm/Dispose
+             or the lifecycle action) leads, then structural (supersede/edit), then
+             issue — so a pending row reads as [Affirm Dispose] / [Supersede Issue],
+             and fewer-action states (confirmed/disposed/USER) degrade cleanly. -->
+        <div class="actions-grid">
+          <!-- Lifecycle (leads). USER → delete. SYSTEM → Review (stale) |
+               Affirm + Dispose (pending) | Add note (confirmed) | Edit disposition (disposed). -->
           <v-tooltip v-if="isUserAuthored(item)" text="Delete exposure" location="top">
             <template #activator="{ props: tProps }">
               <v-btn
@@ -410,26 +446,108 @@
                 color="warning"
                 variant="text"
                 prepend-icon="mdi-refresh"
-                @click="onDispose(item)"
+                @click="onReview(item)"
               >Review</v-btn>
             </template>
           </v-tooltip>
+          <template v-else-if="lifecycleStatus(item) === 'pending'">
+            <v-tooltip text="Affirm — confirm this is a real, live risk" location="top">
+              <template #activator="{ props: tProps }">
+                <v-btn
+                  v-bind="tProps"
+                  aria-label="Affirm exposure"
+                  :icon="AFFIRM_ICON"
+                  color="info"
+                  variant="plain"
+                  @click="onAffirm(item)"
+                />
+              </template>
+            </v-tooltip>
+            <v-tooltip text="Dispose" location="top">
+              <template #activator="{ props: tProps }">
+                <v-btn
+                  v-bind="tProps"
+                  aria-label="Dispose"
+                  :icon="DISPOSE_ICON"
+                  color="secondary"
+                  variant="plain"
+                  @click="onDispose(item)"
+                />
+              </template>
+            </v-tooltip>
+          </template>
           <v-tooltip
-            v-else
-            :text="item.dispositionKind ? `Edit disposition (${dispositionKindLabel(item.dispositionKind)})` : 'Dispose'"
+            v-else-if="lifecycleStatus(item) === 'confirmed'"
+            text="Add a note to this confirmation"
             location="top"
           >
             <template #activator="{ props: tProps }">
               <v-btn
                 v-bind="tProps"
-                :aria-label="item.dispositionKind ? 'Edit disposition' : 'Dispose'"
+                aria-label="Add a note to this confirmation"
+                icon="mdi-note-edit-outline"
+                color="tertiary"
+                variant="plain"
+                @click="onAffirmEdit(item)"
+              />
+            </template>
+          </v-tooltip>
+          <v-tooltip
+            v-else
+            :text="`Edit disposition (${dispositionKindLabel(item.dispositionKind)})`"
+            location="top"
+          >
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Edit disposition"
                 :icon="DISPOSE_ICON"
-                :color="item.dispositionKind ? 'tertiary' : 'secondary'"
+                color="tertiary"
                 variant="plain"
                 @click="onDispose(item)"
               />
             </template>
           </v-tooltip>
+
+          <!-- Structural: edit (USER) | supersede (SYSTEM). -->
+          <v-tooltip v-if="isUserAuthored(item)" text="Edit exposure" location="top">
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Edit exposure"
+                icon="mdi-pencil"
+                variant="plain"
+                @click="editExposure(item.id)"
+              />
+            </template>
+          </v-tooltip>
+          <!-- Supersede only on LIVE rows (pending/confirmed), matching ControlDialog
+               and the threat-report module — a disposed finding isn't superseded. -->
+          <v-tooltip
+            v-else-if="lifecycleStatus(item) !== 'disposed'"
+            text="Customize as an editable copy"
+            location="top"
+          >
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Customize as an editable copy"
+                color="secondary"
+                icon="mdi-content-duplicate"
+                variant="plain"
+                @click="onSupersede(item)"
+              />
+            </template>
+          </v-tooltip>
+
+          <!-- Issue (last). -->
+          <IssueSelector
+            :id="item.id || ''"
+            :name="item.name || ''"
+            :description="item.description || ''"
+            @add:issue="onAddIssue"
+            @copy:issue="onCopyToIssue"
+          />
         </div>
       </template>
     </v-data-table>
@@ -466,7 +584,6 @@
       :issue-name="issueName"
       :show="showIssueDialog"
       @cancel:issue="showIssueDialog = false"
-      @issue:added="onIssueAdded"
     />
 
     <!-- Disposition dialog -->
@@ -487,11 +604,13 @@
       @cleared="onDispositionCleared"
     />
 
-    <!-- Snackbar with optional action button (Retry on supersede partial-failure) -->
+    <!-- Snackbar with optional action button (Retry on supersede partial-failure;
+         Undo on affirm). An explicit timeout overrides the action ? -1 default so the
+         affirm Undo snackbar still auto-dismisses. -->
     <v-snackbar
       v-model="snackBar.show"
       :color="snackBar.color"
-      :timeout="snackBar.action ? -1 : 5000"
+      :timeout="snackBar.timeout ?? (snackBar.action ? -1 : 5000)"
       top
     >
       <span>{{ snackBar.message }}</span>
@@ -510,5 +629,14 @@
   /* Yellow left border for stale dispositioned rows. */
   :deep(.row-stale) {
     border-left: 4px solid rgb(var(--v-theme-warning));
+  }
+  /* Row actions as a compact, right-aligned 2-column grid. Four actions (a pending
+     row) form a 2×2; fewer actions degrade to 2+1 / 1 without a ragged grid. */
+  .actions-grid {
+    display: inline-grid;
+    grid-template-columns: repeat(2, min-content);
+    align-items: center;
+    justify-items: center;
+    float: right;
   }
 </style>

@@ -13,7 +13,7 @@ The **Residual Risk** tab is the Threat Report's findings ledger. It lists every
 
 This guide assumes you've already generated a report and know how to move between tabs. If not, start with [Getting Started with the Threat Report](./GETTING_STARTED.md). The shared visual language — score bands, sensitivity chips, the freshness banner — is explained in [Reading the Report](./READING_THE_REPORT.md).
 
-> **The ledger never hides anything.** A reviewed finding is set aside into a muted partition with its decision attached — it is never dropped. The counts you see always describe the whole model.
+> **The ledger never hides anything.** A reviewed finding keeps its decision attached and is never dropped. A finding you've **affirmed** stays in the live, open set — it's a confirmed risk, not a muted one; only the muting decisions move it aside. The counts you see always describe the whole model.
 
 ---
 
@@ -27,16 +27,18 @@ Open the **Residual Risk** tab. At the top you'll see a summary line such as:
 
 Below it, findings are organized **per element**. Each element with at least one finding gets its own group, headed by the element's name (a dotted link — click it to open the **Component Profile**), its type, and a per-element count such as `5 open · 2 reviewed`. Elements with open findings are sorted to the top, worst score band first, so the work that needs attention rises.
 
+Each tab also carries a **pending count `(N)`** — the number of findings still awaiting your review. It counts down as you act on findings, so you always know how much triage is left.
+
 ### Open versus reviewed
 
 Within each group, findings sit in one of two partitions:
 
 | Partition | What it means |
 |---|---|
-| **Open** | No decision has been recorded yet. These are shown as a full table — they are the live work. |
-| **Reviewed** | A decision has been recorded. These move into a muted, collapsible block labeled with the count (for example `2 reviewed`). Expand it to see them. |
+| **Open** | Live work — shown as a full table. A finding is open when no decision has been recorded yet, **or** when you've **affirmed** it as a confirmed risk. Affirmed findings carry a **"Confirmed"** marker but stay here, because they are still live residual risk. |
+| **Reviewed** | A *muting* decision has been recorded (any kind other than Affirm). These move into a muted, collapsible block labeled with the count (for example `2 reviewed`). Expand it to see them. |
 
-A finding is **open** purely because it has no recorded disposition. Recording one moves it to the reviewed partition; it is set aside and counted, never deleted.
+Recording a muting decision moves a finding into the reviewed partition; it is set aside and counted, never deleted. **Affirming** a finding records a decision too, but keeps it in the open set with a **"Confirmed"** marker — affirming says "I've reviewed this and it's a real, live risk," not "mute it."
 
 ### How to read a finding row
 
@@ -62,24 +64,29 @@ The chips are an identity and a launcher — nothing more. They are **not** tint
 
 ## Triaging Findings
 
-Triage means recording a decision about a finding. The ledger doesn't run its own triage workflow — it hands off to the platform's disposition dialog, the same one you'd use anywhere else, so your decisions live with the model rather than only inside the report.
+Triage means deciding what to do about a finding. Each finding row carries its own **action set** — a small grid of one-click actions — so you can act without leaving the ledger. The actions that change a disposition hand off to the platform's disposition dialog, the same one you'd use anywhere else, so your decisions live with the model rather than only inside the report.
 
-### Recording a decision
+### The action set
 
-1. Find the open finding you want to act on.
-2. Click **Review →** at the right end of its row. The platform's disposition dialog opens.
-3. Choose a disposition kind, add a reason, and confirm.
-4. The finding moves into that element's **reviewed** partition, tagged with the decision, who recorded it, and when.
+Every finding row offers these actions:
 
-To change a decision you've already made, expand the **reviewed** block and click **Edit →** on the finding — this reopens the same dialog.
+| Action | What it does |
+|---|---|
+| **Affirm** | Confirm the finding as a **live risk** — "I've reviewed this and it's real." The finding stays in the open set with a **"Confirmed"** marker; it is *not* muted. |
+| **Dispose** | Mute the finding with a reason. Opens the disposition dialog where you pick a muting kind (see [the disposition kinds](#the-disposition-kinds) below) and record why. The finding moves to the **reviewed** partition. |
+| **Customize** | Take over a **system** finding with your own editable copy — use it when the system's finding is close but not quite right. The original is set aside as **Superseded**; your copy stays live for you to edit and triage. |
+| **Issue** | Raise an issue from the finding. Opens a picker to add it to an existing issue board or create a new issue, so the finding becomes tracked work. |
+| **Delete** | Remove a finding you authored. Appears **only** on findings you created yourself — system findings can't be deleted, only customized or disposed. |
 
-> **Permission required.** Recording decisions needs the appropriate permission. Without it the report is read-only: the **Review →** and **Edit →** actions simply don't appear, so you can read and filter the ledger but not change it. This is intentional, not a missing button.
+To revisit a decision you've already made — change a reason, or re-affirm a finding whose underlying details shifted — use the same actions again. Affirming reopens an **affirm note** dialog where you can adjust your note; the finding's **"Confirmed"** marker stays in place.
+
+> **Permission required.** Acting on findings needs the appropriate permission. Without it the report is read-only: the **Affirm**, **Dispose**, **Customize**, **Issue**, and **Delete** actions simply don't appear, so you can read and filter the ledger but not change it. This is intentional, not a missing button.
 
 > **Recording a decision changes the model.** Because the report reads a stored snapshot, a new disposition won't appear until you regenerate. After triaging, **Recreate** the report to fold your decisions into a fresh snapshot — see [Getting Started](./GETTING_STARTED.md#snapshots-and-freshness).
 
 ### The disposition kinds
 
-The dialog offers six dispositions. Choose the one that matches your actual reasoning — the label travels with the finding and is what a later reviewer will read.
+When you **Dispose** a finding, the dialog offers these muting kinds. Choose the one that matches your actual reasoning — the label travels with the finding and is what a later reviewer will read. (To keep a finding live instead of muting it, use **Affirm**, not one of these.)
 
 | Disposition | Use it when |
 |---|---|
@@ -98,7 +105,7 @@ The dialog offers six dispositions. Choose the one that matches your actual reas
 
 A recorded decision can be flagged **stale**. You'll see a `⚠ stale` marker on the reviewed finding, and the count of stale dispositions appears in the summary line at the top of the tab.
 
-**Stale means the underlying finding changed after the decision was recorded.** The attributes the decision was based on are no longer the attributes in front of you, so the decision may no longer hold. The flag is a prompt to revisit: re-read the finding, confirm the disposition still applies, and re-record it (via **Edit →**) if needed. Don't trust a stale call at face value.
+**Stale means the underlying finding changed after the decision was recorded.** The attributes the decision was based on are no longer the attributes in front of you, so the decision may no longer hold. The flag is a prompt to revisit: re-read the finding, confirm the disposition still applies, and re-record it — re-run the matching action (**Dispose** for a muted finding, **Affirm** for a confirmed one) to re-stamp the decision and clear the flag. Don't trust a stale call at face value.
 
 > **Why this matters.** A "Risk Accepted" or "Compensating Control" decision made against an earlier version of a finding can quietly stop reflecting reality. Surfacing staleness keeps an out-of-date decision from silently guarding a live exposure.
 
@@ -140,7 +147,7 @@ For a Component or a Security Boundary, the **Boundary context** section lists t
 
 ### Exposures
 
-The **Exposures** section shows the element's own findings, partitioned exactly like the ledger: an open table and a collapsible **reviewed** block, each finding carrying its band, score, vector, source, and ATT&CK technique chips. An open finding on an element with no supporting control is flagged `⛉ uncovered`. You can triage right here — the **Review →** and **Edit →** actions behave identically to the ledger (and obey the same permission rule).
+The **Exposures** section shows the element's own findings, partitioned exactly like the ledger: an open table (including affirmed, **"Confirmed"**-marked findings) and a collapsible **reviewed** block, each finding carrying its band, score, vector, source, and ATT&CK technique chips. An open finding on an element with no supporting control is flagged `⛉ uncovered`. You can triage right here — the **Affirm**, **Dispose**, **Customize**, **Issue**, and **Delete** actions behave identically to the ledger (and obey the same permission rule).
 
 ### Data relations, in both directions
 

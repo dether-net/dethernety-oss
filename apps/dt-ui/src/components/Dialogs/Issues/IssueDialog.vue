@@ -64,14 +64,22 @@
     }
     issueStore.createIssue(newIssue).then(async result => {
       if (result) {
-        if (props.elementIds) {
-          issueStore.addElementsToIssue({ issueId: result.id, elementIds: props.elementIds }).then(() => {
-            updateIssue(result.id)
-          })
-        }
+        // The issue exists now; show it regardless of the element-link outcome.
         issue.value = result
+        // Signal a real creation so callers can distinguish created-then-closed from
+        // cancelled (the dialog stays open afterwards for editing; consumers that
+        // don't care simply ignore this event).
+        emits('issue:added', result)
+        if (props.elementIds) {
+          // Linking elements is best-effort: a failure here (e.g. a slow/erroring
+          // attach mutation) must not leave the created issue without a card or
+          // raise an unhandled rejection — surface the issue and warn instead.
+          issueStore.addElementsToIssue({ issueId: result.id, elementIds: props.elementIds })
+            .then(() => updateIssue(result.id))
+            .catch(err => console.warn('Issue created, but linking its elements failed:', err))
+        }
       }
-    })
+    }).catch(err => console.error('Error creating issue:', err))
   }
 
   const deleteIssue = async () => {

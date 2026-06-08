@@ -17,7 +17,7 @@ This page is the index for the Threat Report documentation set. New to the repor
 
 ## What it tells you
 
-- **Live findings** — every open and reviewed finding (an exposure) in the model, grouped per element, ordered by severity band for triage.
+- **Live findings** — every finding (an exposure) in the model, grouped per element, ordered by severity band for triage. A finding stays **live** while it is untriaged or **affirmed** (a confirmed risk); a dispositioned finding is either *live* (affirmed) or *muted* (any of the other disposition kinds).
 - **MITRE ATT&CK coverage by tier** — which techniques your modeled exposures map to, and how strongly each is countered (DIRECT, Mitigation, or D3FEND), where the **Coverage Tools** module is present.
 - **Flow routes to key assets** — which crown jewels are reachable over your modeled data flows, how many hops away, and what threats sit on the way.
 - **Boundary crossings** — where data flows leave or enter a security boundary, and the sensitivity each crossing carries.

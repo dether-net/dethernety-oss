@@ -3,7 +3,12 @@
   import { useFlowStore } from '@/stores/flowStore'
   import { useControlsStore } from '@/stores/controlsStore'
   import type { DispositionKind, DispositionMutationResult } from '@dethernety/dt-core'
-  import type { FindingType } from '@/composables/useFindingDisposition'
+  import {
+    affirmDialogTitleFor,
+    saveLabelFor,
+    dispositionKindLabel,
+    type FindingType,
+  } from '@/composables/useFindingDisposition'
 
   /**
    * Disposition dialog — shared by both finding types via `findingType`.
@@ -76,15 +81,6 @@
     WAIVED: 'Waived — we have decided not to implement this control.',
   }
 
-  const KIND_LABELS: Record<DispositionKind, string> = {
-    NOT_APPLICABLE: 'Not Applicable',
-    FALSE_POSITIVE: 'False Positive',
-    COMPENSATING_CONTROL: 'Compensating Control',
-    RISK_ACCEPTED: 'Risk Accepted',
-    WAIVED: 'Waived',
-    SUPERSEDED: 'Superseded',
-  }
-
   // Local form state — initial values copied in on each open.
   const kind = ref<DispositionKind | null>(props.initialKind)
   const reason = ref<string>(props.initialReason)
@@ -133,7 +129,15 @@
   })
 
   const isEdit = computed(() => Boolean(props.initialKind))
-  const saveLabel = computed(() => (props.isStale ? 'Re-affirm' : 'Save'))
+  // Lifecycle-aware title + save label. The affirm-edit variant (lockKind + AFFIRMED,
+  // from affirmDialogStateFor) must NEVER read "Dispose" and saves as an affirmation.
+  const isAffirmEdit = computed(() => props.lockKind && props.initialKind === 'AFFIRMED')
+  const dialogTitle = computed(() =>
+    isAffirmEdit.value
+      ? affirmDialogTitleFor(props.findingType, props.isStale)
+      : `Dispose ${findingTypeLabel.value}`,
+  )
+  const saveLabel = computed(() => saveLabelFor(props.lockKind, props.initialKind ?? null, props.isStale))
   const saveDisabled = computed(() => isSaving.value || !kind.value || !reason.value.trim() || reason.value.length > 2000)
   const hasUnsavedChanges = computed(
     () =>
@@ -245,7 +249,7 @@
     <v-card class="pa-0 ma-0 rounded-lg">
       <v-card-title class="pa-0">
         <v-sheet class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between" color="primary" density="compact" variant="plain">
-          <span>Dispose {{ findingTypeLabel }}</span>
+          <span>{{ dialogTitle }}</span>
           <span class="text-subtitle-2 text-disabled ml-2">{{ findingName }}</span>
         </v-sheet>
       </v-card-title>
@@ -279,15 +283,18 @@
           Model attributes changed since this disposition was set. Review and re-affirm if it still applies.
         </v-alert>
 
-        <!-- Locked-kind variant (SUPERSEDED case from Supersede flow) -->
+        <!-- Locked-kind read-only variant. The kind is fixed (not user-pickable):
+             the affirm-edit path locks it to AFFIRMED so re-affirm / "Add note…"
+             can never convert a confirmed finding into a disposal. Label derived
+             from initialKind (do NOT hardcode a kind here). -->
         <div
           v-if="lockKind"
           role="group"
-          aria-label="Disposition kind, locked: Superseded"
+          :aria-label="`Disposition kind, locked: ${dispositionKindLabel(initialKind)}`"
           class="locked-kind-line mb-3"
         >
           <span class="text-subtitle-2 text-medium-emphasis">Disposition:</span>
-          <span class="ml-2">Superseded</span>
+          <span class="ml-2">{{ dispositionKindLabel(initialKind) }}</span>
         </div>
 
         <!-- Radio group variant -->
@@ -307,7 +314,7 @@
           >
             <template #label>
               <div class="d-flex flex-column">
-                <span>{{ KIND_LABELS[k] }}</span>
+                <span>{{ dispositionKindLabel(k) }}</span>
                 <span v-if="KIND_HELP[k]" class="text-caption text-medium-emphasis">{{ KIND_HELP[k] }}</span>
               </div>
             </template>
@@ -345,10 +352,10 @@
         confirmation remains as a second guard.
       -->
       <v-card-actions>
-        <v-btn variant="text" @click="onCancel">Cancel</v-btn>
+        <v-btn variant="text" @click="onCancel" color="secondary">Cancel</v-btn>
         <v-btn
           v-if="isEdit"
-          :color="removeConfirmPending ? 'error' : undefined"
+          :color="removeConfirmPending ? 'error' : 'secondary'"
           :variant="removeConfirmPending ? 'outlined' : 'text'"
           class="ml-2"
           :disabled="isSaving"
@@ -358,7 +365,7 @@
         </v-btn>
         <v-spacer />
         <v-btn
-          color="primary"
+          color="secondary"
           variant="flat"
           :loading="isSaving"
           :disabled="saveDisabled"

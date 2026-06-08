@@ -14,6 +14,7 @@
   import SettingsControlsTab from '@/components/DataFlow/SettingsTabs/SettingsControlsTab.vue'
   import SettingsExposuresTab from '@/components/DataFlow/SettingsTabs/SettingsExposuresTab.vue'
   import StaleBadge from '@/components/Disposition/StaleBadge.vue'
+  import PendingBadge from '@/components/Disposition/PendingBadge.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
   import { useIssueStore } from '@/stores/issueStore'
 
@@ -47,6 +48,9 @@
   // Stale-disposition count emitted by SettingsExposuresTab; drives the
   // Exposures tab badge (mirrors the Countermeasures sub-table badge).
   const exposureStaleCount = ref(0)
+  // Pending (unreviewed) count emitted by SettingsExposuresTab; drives the
+  // "awaiting review" badge on the Exposures tab.
+  const exposurePendingCount = ref(0)
 
   // Attributes data management — lastLoadedAttributes is the backend snapshot; pendingAttributes (declared below) is the UI buffer.
   const lastLoadedAttributes = ref<object>({})
@@ -596,7 +600,6 @@
   }
 
   const onAddIssue = (cls: Class) => {
-    console.log('onAddIssue', cls)
     issueClass.value = cls
     showIssueDialog.value = true
   }
@@ -762,7 +765,7 @@
               Controls<span v-if="dirtyTabs.has('controls')" class="dirty-dot" aria-label="Unsaved changes">●</span>
             </v-tab>
             <v-tab prepend-icon="mdi-bug-outline" value="exposures">
-              Exposures<StaleBadge :count="exposureStaleCount" /><span v-if="dirtyTabs.has('exposures')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+              Exposures<StaleBadge :count="exposureStaleCount" /><PendingBadge :count="exposurePendingCount" /><span v-if="dirtyTabs.has('exposures')" class="dirty-dot" aria-label="Unsaved changes">●</span>
             </v-tab>
           </v-tabs>
         </v-col>
@@ -808,7 +811,6 @@
                 <template #default="{ isHovering, props }">
                   <v-sheet
                     class="position-absolute top-0 right-0 ma-0 mt-0 mr-1 pa-0 d-flex flex-row align-center justify-center border-thin border-tertiary border-opacity-50 rounded-lg opacity-80"
-                    @hover="console.log('hover')"
                   >
                     <v-fab
                       v-bind="props"
@@ -859,6 +861,7 @@
                 :selectedItem="selectedItem"
                 @redirect:issue="emit('redirect:issue')"
                 @update:staleCount="exposureStaleCount = $event"
+                @update:pendingCount="exposurePendingCount = $event"
                 @updateForm="updateForm"
               />
             </v-tabs-window-item>

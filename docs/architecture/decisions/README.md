@@ -17,10 +17,11 @@ We use the [Nygard template](https://cognitect.com/blog/2011/11/15/documenting-a
 | [007](007-finding-disposition-lifecycle.md) | Finding disposition lifecycle | Accepted |
 | [008](008-embedding-technique-matching.md) | Embedding-based MITRE technique matching | Accepted |
 | [009](009-model-delete-lifecycle-hooks.md) | Model-delete semantics and module lifecycle hooks | Accepted |
+| [010](010-finding-affirmation-lifecycle.md) | Finding affirmation lifecycle | Accepted |
 
 ## Adding new ADRs
 
 1. Copy an existing ADR as a template
-2. Number sequentially (next: 010)
+2. Number sequentially (next: 011)
 3. Set status to "Proposed" until reviewed
 4. Add the entry to the index table above

@@ -8,7 +8,7 @@
 // buildJsonExport / buildHtmlExport are pure (string in, string out) → unit
 // tested. downloadBlob is the only DOM touch.
 
-import { aggregateLedger, dispositionKindLabel } from './aggregateLedger.js'
+import { aggregateLedger, dispositionKindLabel, lifecycleStatus } from './aggregateLedger.js'
 import { buildCoverageView } from './coverageMatrix.js'
 import { modeAReachability } from './reachability.js'
 
@@ -154,10 +154,25 @@ function findingRowHtml(f, muted) {
         f.stale ? ' <span class="stale">⚠ stale</span>' : ''
       }${f.dispositionReason ? `<div class="reason">${esc(f.dispositionReason)}</div>` : ''}</td>`
     : ''
+  // Live-confirmed (AFFIRMED) findings stay in the 5-column live table (no Disposition
+  // column). Surface their affirmation reason + stale flag INLINE in the Finding cell —
+  // otherwise a stale affirmed row silently contradicts totals.stale and reads as fresh.
+  const liveNote =
+    !muted && f.dispositionKind === 'AFFIRMED'
+      ? `${f.stale ? ' <span class="stale">⚠ stale</span>' : ''}${
+          f.dispositionReason ? `<div class="reason">${esc(f.dispositionReason)}</div>` : ''
+        }`
+      : ''
+  // A reviewed-and-confirmed (AFFIRMED + attributed) live row earns a Confirmed marker
+  // so it reads distinctly from an un-triaged pending row, mirroring the in-app chip.
+  const confirmedTag =
+    !muted && lifecycleStatus(f) === 'confirmed'
+      ? ' <span class="confirmed">Confirmed</span>'
+      : ''
   return `<tr class="${muted ? 'disposed' : ''}">
     <td><span class="band" style="background:${color}">${esc(f.band)}</span></td>
     <td class="score">${f.score == null ? '—' : esc(f.score)}</td>
-    <td>${esc(f.name)}</td>
+    <td>${esc(f.name)}${confirmedTag}${liveNote}</td>
     <td class="vector">${esc(f.attackVector ?? '')}</td>
     <td class="prov">${prov}</td>
     ${disp}
@@ -284,6 +299,7 @@ export function buildHtmlExport(doc, coverage = null) {
   tr.disposed { opacity: .6; }
   .reason { font-size: .75rem; color: #666; font-style: italic; }
   .stale { color: #c77700; font-weight: 600; }
+  .confirmed { font-size: .7rem; color: #0892ad; border: 1px solid #0892ad; border-radius: 3px; padding: 0 .3rem; margin-left: .35rem; vertical-align: middle; }
   .controls { font-size: .8rem; color: #2c7; margin: .2rem 0; }
   .none { color: #888; font-size: .85rem; }
   .summary { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 4px; padding: .6rem 1rem; }
@@ -293,7 +309,7 @@ export function buildHtmlExport(doc, coverage = null) {
 <body>
   <h1>Threat Report — Residual-Risk Ledger</h1>
   <div class="summary">
-    <p><strong>${totals.findings}</strong> findings · <strong>${totals.live}</strong> open · <strong>${totals.dispositioned}</strong> reviewed${totals.stale ? ` · <span class="stale">${totals.stale} stale</span>` : ''}</p>
+    <p><strong>${totals.findings}</strong> findings · <strong>${totals.live}</strong> open · <strong>${totals.dispositioned}</strong> dispositioned${totals.stale ? ` · <span class="stale">${totals.stale} stale</span>` : ''}</p>
     <p>${bandSummary || '<span class="none">No findings.</span>'}</p>
     <p class="prov">Provenance — USER: ${totals.byProvenance.USER} · SYSTEM: ${totals.byProvenance.SYSTEM}</p>
   </div>

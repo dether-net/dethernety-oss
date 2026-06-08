@@ -404,3 +404,42 @@ interface DatabaseOperationResult<T = any> {
   message: null                               // Error message if failed
 }
 ```
+
+## Issue `@cypher` Query-Shape Notes
+
+`syncedAttributes` is the only field on `Issue` backed by this service. The
+`elementsWithExtendedInfo` field and the `addElementsToIssue` mutation are
+resolved directly by `@cypher` statements in the schema. Both carry
+query-shape hazards on Memgraph that the statements were tuned to avoid.
+
+### `Issue.elementsWithExtendedInfo`
+
+This field resolves each linked element's owning `Model` via **directed,
+depth-bounded `*0..50` containment routes** (`BELONGS_TO` / `CONTAINS` /
+`FLOWS` walks), mirroring the directed shape used elsewhere for assigned-model
+resolution.
+
+It previously used an **undirected `*1..10` multi-relationship variable-length
+expansion** to reach `(:Model)`. On a hub element — a busy `DataFlow` with many
+incident relationships — that walk fans out combinatorially and aborts at the
+Memgraph transaction timeout. The directed, bounded containment routes stay
+tree-bounded and complete predictably.
+
+### `addElementsToIssue`
+
+The mutation links each `elementId` to the issue with **per-label indexed `id`
+lookups** — one `OPTIONAL MATCH (:Label {id: elementId})` branch per allowed
+element label, then `coalesce` to the single non-null match. Each branch hits
+its label's `id` index.
+
+A single label-less `MATCH (n {id: elementId})` **cannot use an index** —
+indexes are per-label — so it degrades to an all-nodes scan per `UNWIND` row,
+which stalls on a graph with the full MITRE ATT&CK/D3FEND corpus ingested.
+
+### Backing indexes
+
+The per-label `id` lookups for findings are backed by `Exposure.id` and
+`Countermeasure.id` indexes, created idempotently at application bootstrap by
+[`EnsureIndexesService`](../../../../apps/dt-ws/src/bootstrap/ensure-indexes.service.ts).
+These were the only allowed element labels that previously lacked an `id`
+index, so their `OPTIONAL MATCH` branch fell back to a label scan per row.

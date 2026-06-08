@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateLedger, scoreBand, provenanceOf, isLive } from '../lib/aggregateLedger.js'
+import {
+  aggregateLedger,
+  scoreBand,
+  provenanceOf,
+  isLive,
+  isLiveKind,
+  lifecycleStatus,
+  dedupeLedgerElements,
+} from '../lib/aggregateLedger.js'
 import { buildJsonExport, buildHtmlExport } from '../lib/exportReport.js'
 
 // --- fixtures -------------------------------------------------------------
@@ -62,9 +70,32 @@ describe('provenance + live', () => {
     expect(provenanceOf({ createdBy: null })).toBe('SYSTEM')
     expect(provenanceOf({})).toBe('SYSTEM')
   })
-  it('live = dispositionKind == null', () => {
+  it('live = dispositionKind == null OR AFFIRMED', () => {
     expect(isLive({ dispositionKind: null })).toBe(true)
+    expect(isLive({ dispositionKind: 'AFFIRMED' })).toBe(true)
     expect(isLive({ dispositionKind: 'WAIVED' })).toBe(false)
+  })
+  it('isLiveKind is true only for null/AFFIRMED', () => {
+    expect(isLiveKind(null)).toBe(true)
+    expect(isLiveKind('AFFIRMED')).toBe(true)
+    for (const k of ['NOT_APPLICABLE', 'FALSE_POSITIVE', 'COMPENSATING_CONTROL', 'RISK_ACCEPTED', 'WAIVED', 'SUPERSEDED']) {
+      expect(isLiveKind(k)).toBe(false)
+    }
+  })
+})
+
+describe('lifecycleStatus (derived, D2)', () => {
+  it('SYSTEM/legacy + null ⇒ pending; USER + null ⇒ confirmed (born confirmed)', () => {
+    expect(lifecycleStatus({ createdBy: 'SYSTEM', dispositionKind: null })).toBe('pending')
+    expect(lifecycleStatus({ dispositionKind: null })).toBe('pending')
+    expect(lifecycleStatus({ createdBy: 'USER', dispositionKind: null })).toBe('confirmed')
+  })
+  it('AFFIRMED ⇒ confirmed only when attributed (forensic guard)', () => {
+    expect(lifecycleStatus({ dispositionKind: 'AFFIRMED', dispositionedBy: 'alice@x' })).toBe('confirmed')
+    expect(lifecycleStatus({ dispositionKind: 'AFFIRMED', dispositionedBy: null })).toBe('pending')
+  })
+  it('any muting kind ⇒ disposed', () => {
+    expect(lifecycleStatus({ createdBy: 'USER', dispositionKind: 'WAIVED' })).toBe('disposed')
   })
 })
 
@@ -90,6 +121,34 @@ describe('aggregateLedger', () => {
     expect(comp1.dispositioned.length).toBe(2) // kept, not dropped
     expect(totals.byKind.RISK_ACCEPTED).toBe(1)
     expect(totals.byKind.COMPENSATING_CONTROL).toBe(1)
+  })
+
+  it('byLifecycle splits the live set; base ledger is all unreviewed SYSTEM ⇒ pending', () => {
+    const { totals } = aggregateLedger(LEDGER)
+    // 4 live findings, all SYSTEM+null ⇒ pending; none confirmed yet.
+    expect(totals.byLifecycle).toEqual({ confirmed: 0, pending: 4 })
+    expect(totals.byLifecycle.confirmed + totals.byLifecycle.pending).toBe(totals.live)
+  })
+
+  it('an AFFIRMED finding is live (in live[], byLifecycle.confirmed), not in byKind', () => {
+    const { totals, groups } = aggregateLedger([
+      {
+        id: 'z', name: 'Affirmed el', type: 'Component',
+        findings: [
+          finding({ name: 'confirmed risk', score: 8, dispositionKind: 'AFFIRMED', dispositionedBy: 'alice@x', dispositionReason: 'Confirmed as a live risk.' }),
+          finding({ name: 'spoofed affirm', score: 6, dispositionKind: 'AFFIRMED', dispositionedBy: null }),
+        ],
+        supportingControls: [],
+      },
+    ])
+    const g = groups[0]
+    expect(g.live.map((f) => f.name)).toEqual(['confirmed risk', 'spoofed affirm'])
+    expect(g.dispositioned).toHaveLength(0)
+    expect(totals.live).toBe(2)
+    expect(totals.dispositioned).toBe(0)
+    expect(totals.byKind.AFFIRMED).toBeUndefined() // never counted as a disposition
+    // attributed ⇒ confirmed; unattributed affirm ⇒ pending (forensic guard)
+    expect(totals.byLifecycle).toEqual({ confirmed: 1, pending: 1 })
   })
 
   it('makes Data and SecurityBoundary findings first-class groups', () => {
@@ -238,5 +297,34 @@ describe('reachability export', () => {
     const out = JSON.parse(buildJsonExport(DOC))
     expect(out.reachability).toBeNull()
     expect(buildHtmlExport(DOC)).not.toContain('Crown-Jewel Reachability')
+  })
+})
+
+describe('dedupeLedgerElements', () => {
+  it('keeps the first occurrence per element id (duplicate source nodes)', () => {
+    const led = [
+      { id: 'a', name: 'A', findings: [finding(), finding()] },
+      { id: 'b', name: 'B', findings: [finding()] },
+      { id: 'a', name: 'A (dup node)', findings: [finding(), finding()] },
+      { id: 'a', name: 'A (dup node 2)', findings: [finding()] },
+    ]
+    const out = dedupeLedgerElements(led)
+    expect(out.map((e) => e.id)).toEqual(['a', 'b'])
+    expect(out[0].name).toBe('A') // first wins
+  })
+
+  it('does not double-count findings from a duplicated element', () => {
+    // One element duplicated 3× would otherwise count its 2 findings 3× (=6).
+    const dup = { id: 'x', name: 'X', type: 'DataFlow', findings: [finding(), finding()], supportingControls: [] }
+    const led = [dup, { ...dup }, { ...dup }]
+    const { totals } = aggregateLedger(dedupeLedgerElements(led))
+    expect(totals.findings).toBe(2)
+  })
+
+  it('is a no-op on already-unique ledgers and tolerates id-less / non-array input', () => {
+    const led = [{ id: 'a', findings: [] }, { id: 'b', findings: [] }]
+    expect(dedupeLedgerElements(led)).toEqual(led)
+    expect(dedupeLedgerElements([{ findings: [] }, { findings: [] }]).length).toBe(2) // no id ⇒ both kept
+    expect(dedupeLedgerElements(null)).toEqual([])
   })
 })

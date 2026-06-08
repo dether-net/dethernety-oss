@@ -49,7 +49,7 @@
         </div>
         <p v-else class="trd-none">
           No open exposures.
-          <span v-if="summary.hasAnyFindings">All {{ summary.disposition.reviewed }} finding(s) are dispositioned — see the review trail in Residual Risk.</span>
+          <span v-if="summary.hasAnyFindings">All {{ summary.disposition.dispositioned }} finding(s) are dispositioned — see the review trail in Residual Risk.</span>
           <span v-else>No exposures are modeled on any in-scope element (this is a modeling state, not an all-clear).</span>
         </p>
       </section>
@@ -87,10 +87,10 @@
         </button>
         <span class="trd-stat-sep">·</span>
         <button type="button" class="trd-stat" @click="emitView('residual')" title="Open the Residual Risk ledger">
-          <strong>{{ summary.disposition.reviewed }}</strong> reviewed
+          <strong>{{ summary.disposition.dispositioned }}</strong> dispositioned
         </button>
         <span v-if="summary.disposition.stale > 0" class="trd-stale">· ⚠ {{ summary.disposition.stale }} stale</span>
-        <span v-if="summary.disposition.open > 0 && summary.disposition.reviewed === 0" class="trd-untriaged">· none reviewed yet</span>
+        <span v-if="summary.disposition.open > 0 && summary.disposition.dispositioned === 0" class="trd-untriaged">· none dispositioned yet</span>
         <span v-if="summary.disposition.compensatingNoControl > 0" class="trd-hollow" :title="'A disposition claims a compensating control, but no control is present on the element'">
           · ⚠ {{ summary.disposition.compensatingNoControl }} compensating-control claim{{ summary.disposition.compensatingNoControl === 1 ? '' : 's' }} with no control present
         </span>

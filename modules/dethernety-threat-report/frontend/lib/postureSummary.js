@@ -120,7 +120,7 @@ export function computePostureSummary(ledger, opts = {}) {
     liveTotal,
     disposition: {
       open: totals.live,
-      reviewed: totals.dispositioned,
+      dispositioned: totals.dispositioned,
       stale: totals.stale,
       byKind: totals.byKind,
       compensatingNoControl,

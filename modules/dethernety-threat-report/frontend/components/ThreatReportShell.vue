@@ -50,10 +50,31 @@
           {{ snapshot.componentCount }} components · {{ snapshot.boundaryCount }} boundaries
         </span>
         <span class="trd-export">
-          <button type="button" class="trd-export-btn" @click="handleExport('json')">Export JSON</button>
-          <button type="button" class="trd-export-btn" @click="handleExport('html')">Export HTML</button>
+          <button
+            type="button"
+            class="trd-export-btn"
+            :disabled="liveEditCount > 0"
+            :title="liveEditCount > 0 ? `Recreate to include your ${liveEditCount} pending change${liveEditCount === 1 ? '' : 's'} in the export` : ''"
+            @click="handleExport('json')"
+          >Export JSON</button>
+          <button
+            type="button"
+            class="trd-export-btn"
+            :disabled="liveEditCount > 0"
+            :title="liveEditCount > 0 ? `Recreate to include your ${liveEditCount} pending change${liveEditCount === 1 ? '' : 's'} in the export` : ''"
+            @click="handleExport('html')"
+          >Export HTML</button>
         </span>
       </div>
+
+      <!-- Honesty cue: rows reflect live edits made AFTER this snapshot was generated
+           (optimistic in-place). The snapshot's own provenance is unchanged; Recreate
+           folds them in and refreshes the derived views (coverage / reachability). -->
+      <p v-if="liveEditCount > 0" class="trd-edited-note" role="status">
+        Reflecting {{ liveEditCount }} change{{ liveEditCount === 1 ? '' : 's' }} made since this snapshot was generated.
+        <button type="button" class="trd-edited-recreate" :disabled="generating" @click="handleGenerate">Recreate</button>
+        to fold them in and refresh the derived views.
+      </p>
 
       <!-- Segmented control across the report's views. -->
       <nav class="trd-tabs" role="tablist" aria-label="Report views">
@@ -126,6 +147,11 @@
           :technique-index="techniqueIndex"
           :can-dispose="canDispose"
           @dispose="handleDispose"
+          @affirm="handleAffirm"
+          @supersede="handleSupersede"
+          @add-note="handleAddNote"
+          @delete="handleDelete"
+          @issue="handleIssue"
           @drill="onDrill"
           @navigate="onNavigate"
         />
@@ -152,10 +178,29 @@
               :technique-index="techniqueIndex"
               @drill="onDrill"
               @dispose="handleDispose"
+              @affirm="handleAffirm"
+              @supersede="handleSupersede"
+              @add-note="handleAddNote"
+              @delete="handleDelete"
+              @issue="handleIssue"
             />
           </v-card-text>
         </v-card>
       </v-dialog>
+
+      <!-- Action feedback (affirm Undo, supersede Retry, errors). Vuetify is
+           available in the module runtime; mirrors the dt-ui exposures-tab snackbar. -->
+      <v-snackbar
+        v-model="snackBar.show"
+        :color="snackBar.color"
+        :timeout="snackBar.timeout ?? (snackBar.action ? -1 : 5000)"
+        location="top"
+      >
+        <span>{{ snackBar.message }}</span>
+        <template v-if="snackBar.action" #actions>
+          <v-btn variant="text" @click="snackBar.action.handler()">{{ snackBar.action.label }}</v-btn>
+        </template>
+      </v-snackbar>
     </div>
   </div>
 </template>
@@ -171,6 +216,7 @@
   import ComponentProfile from './ComponentProfile.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint, fetchGradedCoverage } from '../composables/useThreatReportData.js'
+  import { dedupeLedgerElements } from '../lib/aggregateLedger.js'
   import { modeAReachability } from '../lib/reachability.js'
   import { buildExposureTechniqueIndex, buildCoverageView } from '../lib/coverageMatrix.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
@@ -203,11 +249,24 @@
   const host = window.__HOST_DEPENDENCIES__?.useHostContext?.() ?? {}
   const analysisStore = host.stores?.analysisStore
   const dtUtils = host.utils?.dtUtils
-  // Reusable platform disposition opener (added to useHostContext for module use).
-  const openDispositionDialog = host.services?.openDispositionDialog
-  // Only offer the Review/Edit affordance when the host actually exposes the
-  // opener (older host builds won't) — avoids a silently-inert button.
+  // Reusable platform finding-action services (added to useHostContext for module
+  // use). These wrap the SAME flowStore→dt-core mutations the dt-ui exposures tab
+  // calls, so the report's actions can't drift from the platform's.
+  const hostServices = host.services ?? {}
+  const openDispositionDialog = hostServices.openDispositionDialog
+  const affirmFinding = hostServices.affirmFinding
+  const clearFindingDisposition = hostServices.clearFindingDisposition
+  const supersedeFinding = hostServices.supersedeFinding
+  const deleteFinding = hostServices.deleteFinding
+  // Full finding→issue workflow (board copy + per-class create), host-owned.
+  const openFindingIssueSelector = hostServices.openFindingIssueSelector
+  // Only offer the action affordances when the host actually exposes the services
+  // (older host builds won't) — avoids silently-inert buttons.
   const canDispose = Boolean(openDispositionDialog)
+
+  // Action feedback (affirm Undo, supersede Retry, errors). Optional finite timeout
+  // overrides the actioned-snackbar default of -1 so the Undo snackbar auto-dismisses.
+  const snackBar = ref({ show: false, color: 'success', message: '', timeout: undefined, action: null })
 
   const { generating, liveFingerprint } = useThreatReportState()
   const errorMessage = ref('')
@@ -218,6 +277,48 @@
   // snapshot — drift vs the snapshot ledger is owned by the staleness banner.
   const coverageData = ref(null)
 
+  // ---- Optimistic in-place reflect ----------------------------------------------
+  // The report is a point-in-time snapshot, so a disposition/affirm made from it
+  // would otherwise leave the snapshot stale (dimmed) until a manual Recreate —
+  // brutal for triaging many exposures in a row. Instead we OVERLAY the just-made
+  // change onto the in-memory ledger from the mutation's own result envelope (the
+  // authoritative persisted disposition), so the row updates instantly (Confirmed
+  // chip / partition move) with no stale dim and no Recreate. This reflects the
+  // user's own decisions on the live model — accurate, not fabricated; the snapshot
+  // metadata (generatedAt/fingerprint) is untouched and a non-blocking note (below)
+  // keeps the "as of generation" provenance honest. Overlays clear when a fresh
+  // snapshot lands (the generatedAt watcher), which already includes them.
+  const editedFindings = reactive(new Map()) // exposureId → partial disposition patch
+  const deletedFindingIds = reactive(new Set()) // optimistically-removed finding ids
+  const liveEditCount = computed(() => editedFindings.size + deletedFindingIds.size)
+
+  const clearOverlays = () => { editedFindings.clear(); deletedFindingIds.clear() }
+
+  // Patch a finding from a DispositionMutationResult (affirm / dispose / add-note /
+  // edit / undo) — the envelope carries the full persisted disposition.
+  const applyDispositionResult = (result) => {
+    if (!result || !result.exposureId) return
+    deletedFindingIds.delete(result.exposureId)
+    editedFindings.set(result.exposureId, {
+      dispositionKind: result.dispositionKind ?? null,
+      dispositionReason: result.dispositionReason ?? null,
+      dispositionedBy: result.dispositionedBy ?? null,
+      dispositionedAt: result.dispositionedAt ?? null,
+      dispositionStale: result.dispositionStale ?? false,
+    })
+  }
+
+  // Merge the overlays onto the snapshot's ledger (drop deleted, patch edited).
+  const applyEdits = (ledger) => {
+    if (editedFindings.size === 0 && deletedFindingIds.size === 0) return ledger
+    return ledger.map((el) => ({
+      ...el,
+      findings: (el.findings ?? [])
+        .filter((f) => !deletedFindingIds.has(f.id))
+        .map((f) => (editedFindings.has(f.id) ? { ...f, ...editedFindings.get(f.id) } : f)),
+    }))
+  }
+
   const snapshot = computed(() => {
     const doc = props.content?.threat_report_dashboard ?? {}
     return {
@@ -227,7 +328,9 @@
       componentCount: doc.componentCount ?? 0,
       boundaryCount: doc.boundaryCount ?? 0,
       modelId: doc.modelId ?? props.scopeId ?? '',
-      ledger: doc.ledger ?? [],
+      // dedupe defends every downstream view + total against duplicate element
+      // nodes in the source model; applyEdits then overlays optimistic edits.
+      ledger: applyEdits(dedupeLedgerElements(doc.ledger ?? [])),
       // Always present the four graph keys so the pure libs never see undefined;
       // dataNodes may be absent on an older snapshot — default it.
       modelGraph: { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) },
@@ -323,6 +426,7 @@
       if (f.type === 'live') out.live = f.value
       if (f.type === 'provenance') out.provenance = f.value
       if (f.type === 'type') out.elementType = f.value
+      if (f.type === 'lifecycle') out.lifecycle = f.value
     }
     return Object.keys(out).length ? out : null
   })
@@ -418,6 +522,9 @@
   watch(
     () => snapshot.value.generatedAt,
     async () => {
+      // A fresh snapshot supersedes any optimistic overlays (it already includes the
+      // dispositions they reflected) — drop them so we don't double-apply.
+      clearOverlays()
       if (generating.value) {
         await refreshLiveFingerprint()
         // The model changed; refresh coverage too so the coverage matrix + posture block
@@ -428,29 +535,134 @@
     },
   )
 
-  // Export the current snapshot (JSON or self-contained HTML).
+  // Export the current snapshot (JSON or self-contained HTML). Dedupe elements so a
+  // duplicated source node never inflates the exported artefact's totals either.
   const handleExport = (format) => {
-    const doc = props.content?.threat_report_dashboard ?? {}
+    // The export is the pristine point-in-time snapshot AS GENERATED. While optimistic
+    // edits are pending (liveEditCount > 0) the on-screen ledger diverges from it, so
+    // exporting would silently disagree with the screen under the same generatedAt /
+    // fingerprint. Gate it behind Recreate (the buttons are disabled too) rather than
+    // bake un-generated edits into a shareable artefact.
+    if (liveEditCount.value > 0) return
+    const raw = props.content?.threat_report_dashboard ?? {}
+    const doc = { ...raw, ledger: dedupeLedgerElements(raw.ledger ?? []) }
     if (format === 'json') exportJson(doc, coverageData.value)
     else exportHtml(doc, coverageData.value)
   }
 
-  // Dispose a finding via the platform's REAL dialog (the reusable host opener).
-  // The module owns no write path; on a successful disposition the model has
-  // changed, so we re-check the live fingerprint — the ledger then reads Stale
-  // and the user Recreates to fold the disposition into a fresh snapshot.
-  const handleDispose = async (finding) => {
+  // ---- Finding lifecycle actions -------------------------------------------------
+  // The module owns no write path: each action routes through a centralized host
+  // service (the SAME flowStore→dt-core mutation the dt-ui exposures tab calls, so
+  // behaviour can't drift). A successful mutation changes the model, so we re-check
+  // the live fingerprint — the ledger then reads Stale and the user Recreates to
+  // fold the change into a fresh snapshot. findingType is always 'EXPOSURE' (every
+  // ledger finding is an Exposure via HAS_EXPOSURE, regardless of host element).
+
+  const notify = (color, message, opts = {}) => {
+    snackBar.value = { show: true, color, message, timeout: opts.timeout, action: opts.action ?? null }
+  }
+
+  // Dispose (and Edit-disposition / stale Review-as-dispose) via the platform dialog.
+  const handleDispose = async ({ finding } = {}) => {
     if (!openDispositionDialog || !finding) return
     try {
-      // findingType is 'EXPOSURE' regardless of which element class hosts it:
-      // every finding in the ledger is an Exposure (HAS_EXPOSURE), whether on a
-      // Component, DataFlow, SecurityBoundary, or Data node — so the host element
-      // class never changes the disposition routing.
       const result = await openDispositionDialog({ finding, findingType: 'EXPOSURE' })
-      if (result && result.success) await refreshLiveFingerprint()
+      if (result && result.success) applyDispositionResult(result)
     } catch (err) {
       console.error('[threat-report] dispose failed:', err)
     }
+  }
+
+  // Add-note / re-affirm via the affirm-locked dialog (kind pinned to AFFIRMED).
+  const handleAddNote = async ({ finding } = {}) => {
+    if (!openDispositionDialog || !finding) return
+    try {
+      const result = await openDispositionDialog({ finding, findingType: 'EXPOSURE', mode: 'affirm' })
+      if (result && result.success) applyDispositionResult(result)
+    } catch (err) {
+      console.error('[threat-report] affirm-edit failed:', err)
+    }
+  }
+
+  // One-click affirm: confirm a pending finding is a real, live risk. Awaits the
+  // mutation and only refreshes on success — a success:false stays pending (no false
+  // confirmation). Undo clears back to pending.
+  const handleAffirm = async ({ finding } = {}) => {
+    if (!affirmFinding || !finding) return
+    try {
+      const result = await affirmFinding({ finding })
+      if (!result?.success) {
+        notify('error', `Couldn't affirm "${finding.name}".`)
+        return
+      }
+      applyDispositionResult(result)
+      notify('success', `Affirmed "${finding.name}" as a live risk.`, {
+        timeout: 6000,
+        action: {
+          label: 'Undo',
+          handler: async () => {
+            const undo = await clearFindingDisposition?.({ finding })
+            if (undo?.success) applyDispositionResult(undo)
+            else notify('error', `Couldn't undo — "${finding.name}" is still affirmed.`)
+          },
+        },
+      })
+    } catch (err) {
+      console.error('[threat-report] affirm failed:', err)
+      notify('error', `Couldn't affirm "${finding.name}".`)
+    }
+  }
+
+  // Supersede: create a USER-editable copy + mark the SYSTEM original SUPERSEDED.
+  // Unlike the re-disposition actions, this INTRODUCES a new finding (the copy), which
+  // can't be synthesised into the ledger locally — so we optimistically move the
+  // original to its SUPERSEDED state (out of the open list) but DO mark the snapshot
+  // stale so the user Recreates to see + edit the new copy.
+  const handleSupersede = async ({ finding, elementId } = {}) => {
+    if (!supersedeFinding || !finding) return
+    try {
+      const { systemDispositionResult } = await supersedeFinding({ finding, elementId })
+      if (!systemDispositionResult?.success) {
+        notify('warning', `Created your editable copy of "${finding.name}", but marking the original superseded failed — dispose it manually from its actions.`, { timeout: 8000 })
+      } else {
+        applyDispositionResult(systemDispositionResult)
+        notify('success', `Created your editable copy of "${finding.name}". Recreate to see and edit it.`)
+      }
+      await refreshLiveFingerprint()
+    } catch (err) {
+      console.error('[threat-report] supersede failed:', err)
+      notify('error', `Supersede failed: ${err instanceof Error ? err.message : 'unknown error'}`)
+    }
+  }
+
+  // Delete a USER-authored finding (the leaf confirmed in place first). Optimistically
+  // drop the row — no stale dim.
+  const handleDelete = async ({ finding } = {}) => {
+    if (!deleteFinding || !finding) return
+    try {
+      const ok = await deleteFinding({ finding })
+      if (ok) {
+        deletedFindingIds.add(finding.id)
+        notify('success', `Deleted "${finding.name}".`)
+      } else {
+        notify('error', `Couldn't delete "${finding.name}".`)
+      }
+    } catch (err) {
+      console.error('[threat-report] delete failed:', err)
+      notify('error', `Couldn't delete "${finding.name}".`)
+    }
+  }
+
+  // Open the full finding→issue workflow: the host shows the IssueSelector menu —
+  // "Add to Issue board" (copy + navigate) AND one entry per issue class that creates
+  // a real issue attached to the element. The host owns all issue logic (no drift);
+  // we only resolve the element label for the "<Finding> Issue on <label>" name.
+  const handleIssue = ({ finding, elementId } = {}) => {
+    if (!finding) return
+    if (!openFindingIssueSelector) return // host doesn't expose the workflow (older build)
+    const el = (snapshot.value.ledger ?? []).find((e) => e?.id === elementId)
+    const elementLabel = el?.name ?? ''
+    openFindingIssueSelector({ finding, elementId, modelId: modelId.value, elementLabel })
   }
 
   onMounted(() => {
@@ -520,6 +732,29 @@
   .trd-snapshot--stale {
     opacity: 0.55;
   }
+  /* Non-blocking "live edits since generation" note — informative, not alarming. */
+  .trd-edited-note {
+    font-size: 0.78rem;
+    opacity: 0.85;
+    margin: 0 0 0.75rem;
+    padding: 0.4rem 0.7rem;
+    border-left: 3px solid #0892ad;
+    background: rgba(0, 184, 212, 0.07);
+    border-radius: 3px;
+    line-height: 1.4;
+  }
+  .trd-edited-recreate {
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 7px;
+    font: inherit;
+    font-size: 0.74rem;
+    cursor: pointer;
+    color: #0892ad;
+  }
+  .trd-edited-recreate:hover:not(:disabled) { background: rgba(0, 184, 212, 0.12); }
+  .trd-edited-recreate:disabled { opacity: 0.5; cursor: default; }
   .trd-actions {
     display: flex;
     align-items: center;
@@ -545,8 +780,12 @@
     cursor: pointer;
     opacity: 0.8;
   }
-  .trd-export-btn:hover {
+  .trd-export-btn:hover:not(:disabled) {
     opacity: 1;
+  }
+  .trd-export-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
 
   /* Segmented control */

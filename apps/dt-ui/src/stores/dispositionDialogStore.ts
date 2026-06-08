@@ -20,6 +20,8 @@ import { ref } from 'vue'
 import type { DispositionMutationResult } from '@dethernety/dt-core'
 import {
   emptyDispositionDialogState,
+  dispositionStateFor,
+  affirmDialogStateFor,
   type DispositionDialogState,
   type DispositionableFinding,
   type FindingType,
@@ -28,6 +30,9 @@ import {
 export interface OpenDispositionArgs {
   finding: DispositionableFinding
   findingType?: FindingType // defaults to 'EXPOSURE'
+  // 'affirm' opens the affirm-edit variant (kind locked to AFFIRMED, reason editable)
+  // so module-rendered rows can affirm, not only dispose. Defaults to 'dispose'.
+  mode?: 'dispose' | 'affirm'
 }
 
 export const useDispositionDialogStore = defineStore('dispositionDialog', () => {
@@ -55,17 +60,9 @@ export const useDispositionDialogStore = defineStore('dispositionDialog', () => 
     }
     const f = args.finding
     findingType.value = args.findingType ?? 'EXPOSURE'
-    state.value = {
-      show: true,
-      findingId: f.id,
-      findingName: f.name ?? '',
-      initialKind: f.dispositionKind ?? null,
-      initialReason: f.dispositionReason ?? '',
-      isStale: Boolean(f.dispositionStale),
-      lockKind: false,
-      initialDispositionedBy: f.dispositionedBy ?? '',
-      initialDispositionedAt: f.dispositionedAt ?? '',
-    }
+    // Reuse the shared builders so the open-state shape can't drift from the
+    // host-component dispose/affirm paths.
+    state.value = args.mode === 'affirm' ? affirmDialogStateFor(f) : dispositionStateFor(f)
     return new Promise((resolve) => {
       resolver = resolve
     })
