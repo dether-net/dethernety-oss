@@ -152,7 +152,7 @@
             <td class="trd-c-band"><span class="trd-band" :class="`trd-band--${f.band}`">{{ f.band }}</span></td>
             <td class="trd-c-score">{{ f.score == null ? '—' : f.score }}</td>
             <td class="trd-c-name">
-              {{ f.name }}
+              <button type="button" class="trd-finding-name" @click="openDetail(f, g)" :title="`Open ${f.name} detail`">{{ f.name }}</button>
               <span v-if="chipFor(f)" class="trd-confirmed" :title="chipFor(f).title">{{ chipFor(f).text }}</span>
               <TechniqueChips
                 v-if="techsFor(f.id).length"
@@ -191,7 +191,7 @@
               <td class="trd-c-band"><span class="trd-band" :class="`trd-band--${f.band}`">{{ f.band }}</span></td>
               <td class="trd-c-score">{{ f.score == null ? '—' : f.score }}</td>
               <td class="trd-c-name">
-                {{ f.name }}
+                <button type="button" class="trd-finding-name" @click="openDetail(f, g)" :title="`Open ${f.name} detail`">{{ f.name }}</button>
                 <TechniqueChips
                   v-if="techsFor(f.id).length"
                   class="trd-tech-inline"
@@ -238,6 +238,12 @@
 
     <!-- Shared ATT&CK technique dialog (same as Coverage & Gaps and Component Profile) — opened by a chip. -->
     <TechniqueInfoDialog :technique="infoTech" @close="infoTech = null" />
+    <!-- Shared Exposure Detail dialog — opened by clicking a finding name. -->
+    <ExposureDetailDialog
+      :exposure="detailExposure"
+      @close="detailExposure = null"
+      @drill="(id) => { detailExposure = null; $emit('drill', id) }"
+    />
   </div>
 </template>
 
@@ -246,8 +252,10 @@
   import { aggregateLedger, dispositionKindLabel } from '../lib/aggregateLedger.js'
   import { lifecycleChipFor } from '../lib/findingActions.js'
   import { buildCoverageView } from '../lib/coverageMatrix.js'
+  import { buildExposureDetail } from '../lib/exposureDetail.js'
   import TechniqueChips from './TechniqueChips.vue'
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
+  import ExposureDetailDialog from './ExposureDetailDialog.vue'
   import FindingActions from './FindingActions.vue'
 
   const props = defineProps({
@@ -368,6 +376,17 @@
   // Resolved ATT&CK techniques for a finding (by exposure id) + the shared dialog.
   const techsFor = (id) => props.techniqueIndex[id] ?? []
   const infoTech = ref(null)
+
+  // The shared Exposure Detail dialog — click a finding name to open its full
+  // detail (description, mitigations, detection, refs, techniques, disposition).
+  const detailExposure = ref(null)
+  const openDetail = (f, g) => {
+    detailExposure.value = buildExposureDetail(f, {
+      techniques: techsFor(f.id),
+      element: { id: g.id, name: g.name, type: g.type },
+      routeJewels: routeJewels(g.id),
+    })
+  }
 
   // Apply the active filter (Posture Summary deep-link AND/OR the in-view facet bar): band +
   // provenance + lifecycle match individual findings; `live: true` hides the
@@ -529,6 +548,22 @@
   /* The Finding column takes the remaining width (table-layout:fixed); long names
      + chips wrap inside it rather than widening the column. */
   .trd-c-name { overflow-wrap: anywhere; }
+  /* The finding name is a button that opens the Exposure Detail dialog — styled as
+     a text link so it reads as a name, not a control. */
+  .trd-finding-name {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: rgba(127, 127, 127, 0.45);
+    text-underline-offset: 2px;
+  }
+  .trd-finding-name:hover { text-decoration-color: #00b8d4; color: #00b8d4; }
+  .trd-finding-name:focus-visible { outline: 2px solid #00b8d4; outline-offset: 2px; }
   /* Inline "Confirmed" lifecycle chip on a live row — risk-toned (an affirmed
      finding is still an open risk), outlined, never a solid stoplight, never green. */
   .trd-confirmed {

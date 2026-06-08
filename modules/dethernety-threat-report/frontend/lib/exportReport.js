@@ -11,6 +11,7 @@
 import { aggregateLedger, dispositionKindLabel, lifecycleStatus } from './aggregateLedger.js'
 import { buildCoverageView } from './coverageMatrix.js'
 import { modeAReachability } from './reachability.js'
+import { cleanProse } from './exposureDetail.js'
 
 // The Coverage & Gaps view for export, or null when coverage-tools wasn't deployed (the
 // matrix simply doesn't appear in the export). Built from the LIVE coverage facts
@@ -169,10 +170,16 @@ function findingRowHtml(f, muted) {
     !muted && lifecycleStatus(f) === 'confirmed'
       ? ' <span class="confirmed">Confirmed</span>'
       : ''
+  // The exposure's own description, baked into the snapshot, rendered as a muted
+  // sub-line so the flat HTML report carries the same narrative the dialog shows.
+  // (The full structured detail — mitigations / detection / references / tags —
+  // travels in the complete JSON export, which serialises the raw snapshot.)
+  const desc = cleanProse(f.description)
+  const descLine = desc ? `<div class="fdesc">${esc(desc)}</div>` : ''
   return `<tr class="${muted ? 'disposed' : ''}">
     <td><span class="band" style="background:${color}">${esc(f.band)}</span></td>
     <td class="score">${f.score == null ? '—' : esc(f.score)}</td>
-    <td>${esc(f.name)}${confirmedTag}${liveNote}</td>
+    <td>${esc(f.name)}${confirmedTag}${liveNote}${descLine}</td>
     <td class="vector">${esc(f.attackVector ?? '')}</td>
     <td class="prov">${prov}</td>
     ${disp}
@@ -298,6 +305,7 @@ export function buildHtmlExport(doc, coverage = null) {
   .prov, .vector { font-size: .75rem; color: #555; }
   tr.disposed { opacity: .6; }
   .reason { font-size: .75rem; color: #666; font-style: italic; }
+  .fdesc { font-size: .78rem; color: #555; margin: .25rem 0 0; white-space: pre-wrap; }
   .stale { color: #c77700; font-weight: 600; }
   .confirmed { font-size: .7rem; color: #0892ad; border: 1px solid #0892ad; border-radius: 3px; padding: 0 .3rem; margin-left: .35rem; vertical-align: middle; }
   .controls { font-size: .8rem; color: #2c7; margin: .2rem 0; }

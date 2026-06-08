@@ -79,6 +79,13 @@ interface LedgerFinding {
   name: string;
   score: number | null;
   attackVector: string | null;
+  description: string | null; // the exposure's own free-text description
+  type: string | null; // exposure type classifier
+  category: string | null; // exposure category classifier
+  references: string | null; // external refs (URLs, CVE IDs) — free text
+  mitigationSuggestions: string[]; // class-authored SUGGESTIONS, not applied controls
+  detectionMethods: string[]; // how this exposure would be detected
+  tags: string[]; // filtering/grouping labels
   createdBy: string | null; // 'USER' | 'SYSTEM'
   authoredBy: string | null;
   dispositionKind: string | null; // null OR 'AFFIRMED' = live (confirmed real); any other kind = muted
@@ -406,6 +413,9 @@ class DethernetyThreatReportModule implements DTModule {
          OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(ex:Exposure)
          WITH el, elType, collect(DISTINCT CASE WHEN ex IS NULL THEN NULL ELSE {
            id: ex.id, name: ex.name, score: ex.score, attackVector: ex.attackVector,
+           description: ex.description, type: ex.type, category: ex.category,
+           references: ex.references, mitigationSuggestions: ex.mitigationSuggestions,
+           detectionMethods: ex.detectionMethods, tags: ex.tags,
            createdBy: ex.createdBy, authoredBy: ex.authoredBy,
            dispositionKind: ex.dispositionKind, dispositionReason: ex.dispositionReason,
            dispositionedBy: ex.dispositionedBy, dispositionedAt: toString(ex.dispositionedAt),
@@ -427,6 +437,13 @@ class DethernetyThreatReportModule implements DTModule {
           name: f.name ?? '',
           score: toNum(f.score),
           attackVector: f.attackVector ?? null,
+          description: f.description ?? null,
+          type: f.type ?? null,
+          category: f.category ?? null,
+          references: f.references ?? null,
+          mitigationSuggestions: Array.isArray(f.mitigationSuggestions) ? f.mitigationSuggestions : [],
+          detectionMethods: Array.isArray(f.detectionMethods) ? f.detectionMethods : [],
+          tags: Array.isArray(f.tags) ? f.tags : [],
           createdBy: f.createdBy ?? null,
           authoredBy: f.authoredBy ?? null,
           dispositionKind: f.dispositionKind ?? null,
