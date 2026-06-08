@@ -151,7 +151,7 @@ The design intent is **accurate staleness**: a re-disposition, re-classification
 
 For each element it collects:
 
-- **Findings** — every `Exposure` (`HAS_EXPOSURE`) with the fields a residual-risk reviewer needs: `score`, `attackVector`, provenance (`createdBy`, `authoredBy`), and the full disposition block (`dispositionKind`, `dispositionReason`, `dispositionedBy`, `dispositionedAt`, `dispositionStale`).
+- **Findings** — every `Exposure` (`HAS_EXPOSURE`) with the fields a residual-risk reviewer needs: `score`, `attackVector`, the descriptive set (`description`, `type`, `category`, `references`, `mitigationSuggestions`, `detectionMethods`, `tags`) that drives the exposure detail dialog, provenance (`createdBy`, `authoredBy`), and the full disposition block (`dispositionKind`, `dispositionReason`, `dispositionedBy`, `dispositionedAt`, `dispositionStale`). The list-valued properties (`mitigationSuggestions` / `detectionMethods` / `tags`) are normalised to arrays; the descriptive fields are baked into the snapshot point-in-time and sit deliberately **outside** the structural fingerprint above.
 - **Supporting controls** — every `(:Control)-[:SUPPORTS]->(element)`, captured as muted "controls present" context (id, name, type, category), never as a coverage claim.
 
 The query is written for **JSON-safe, engine-portable** output:
