@@ -104,6 +104,13 @@ One finding (an exposure) on an element — the fields a residual-risk reviewer 
 | `name` | `string` | Display name (empty string when unnamed). |
 | `score` | `number \| null` | The platform's 0–10 (CVSS-like) exposure score. `null` means unknown — the report treats it as `unknown`, never as low. A presentation sort/group aid only, never a single risk verdict. |
 | `attackVector` | `string \| null` | The finding's attack vector, when recorded. |
+| `description` | `string \| null` | The exposure's own free-text description. Surfaced in the exposure detail dialog (see [frontend.md](./frontend.md)); `null` when the model records none. |
+| `type` | `string \| null` | Exposure type classifier, when recorded. |
+| `category` | `string \| null` | Exposure category classifier, when recorded. |
+| `references` | `string \| null` | External references (URLs, CVE IDs) as free text, when recorded. Rendered as plain text, never as a clickable link. |
+| `mitigationSuggestions` | `string[]` | Class-authored *suggested* mitigations for the exposure **type** — **not** controls applied to this element, and never a coverage claim. Empty array when none. |
+| `detectionMethods` | `string[]` | Suggested ways this exposure would be detected. Empty array when none. |
+| `tags` | `string[]` | Filtering/grouping labels. Empty array when none. |
 | `createdBy` | `string \| null` | Provenance: `'USER'` or `'SYSTEM'`. **`null` is treated as `SYSTEM`** (legacy-data rule): any value other than `'USER'` resolves to `SYSTEM`. |
 | `authoredBy` | `string \| null` | Identifier of the author, when recorded. |
 | `dispositionKind` | `string \| null` | The structured disposition decision. **`null` means the finding is *live*** (undispositioned). Non-null values name the kind (see below). |
@@ -128,6 +135,8 @@ One finding (an exposure) on an element — the fields a residual-risk reviewer 
 An unrecognized kind is shown verbatim rather than dropped.
 
 **Score bands.** The report buckets `score` into presentation bands as a sort/group aid only: `critical` (≥ 9), `high` (≥ 7), `medium` (≥ 4), `low` (below 4), and `unknown` (`null` or not a number).
+
+**Descriptive fields are snapshot-baked.** `description` / `type` / `category` / `references` / `mitigationSuggestions` / `detectionMethods` / `tags` are captured into the snapshot at generation time alongside the rest of the ledger — so the exposure detail they drive is frozen point-in-time with the report and travels into the export, rather than being fetched live. A snapshot generated before these fields existed simply carries `null`/empty values for them; the detail dialog degrades gracefully. These fields are **not** part of the structural-staleness [fingerprint](./backend.md) (they are descriptive metadata, not a structural signal), so editing an exposure's description does not by itself flag the snapshot stale.
 
 ### LedgerControl
 

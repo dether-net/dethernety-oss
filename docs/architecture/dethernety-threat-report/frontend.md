@@ -379,6 +379,32 @@ matrix, the Component Profile, and the Residual Risk ledger so the affordance is
 identical everywhere. It is a Vuetify `v-dialog` so it stacks correctly above the
 Component Profile dialog.
 
+### The shared exposure detail dialog
+
+A residual-risk row shows only an exposure's name, score band, and ATT&CK chips.
+[`ExposureDetailDialog.vue`](../../../modules/dethernety-threat-report/frontend/components/ExposureDetailDialog.vue)
+opens its **full** detail when a finding name is clicked: description,
+type/category, suggested mitigations, detection methods, references, tags, the
+element it sits on (with a drill-through), resolved ATT&CK techniques (its own
+nested `TechniqueChips` → `TechniqueInfoDialog`, stacked one higher again),
+provenance, and the disposition history. It is **read-only** — disposition
+*actions* stay on the [per-finding action grid](#the-per-finding-action-grid);
+this surfaces the frozen-snapshot detail only. Like the technique dialog it is one
+shared component, launched from both the Residual Risk ledger and the Component
+Profile (live and dispositioned rows); the Reachability strip reaches it via
+drill-to-profile.
+
+The view-model is built by the pure, unit-tested
+[`exposureDetail.js`](../../../modules/dethernety-threat-report/frontend/lib/exposureDetail.js)
+(`buildExposureDetail`), keeping the `.vue` a thin presentational shell. The same
+`cleanProse` helper there strips citation/markdown/tag noise (a fixpoint tag-strip
+as defense-in-depth on top of mustache escaping). Honesty: suggested mitigations
+are framed as class-authored suggestions for the exposure **type** — never controls
+applied to this element and never a coverage claim. The detail fields are
+snapshot-baked (see [data-model.md](./data-model.md)), so an exposure detail is
+frozen point-in-time with the report and travels into the export; a snapshot taken
+before the fields existed degrades gracefully to empty sections.
+
 ### The per-finding action grid
 
 [`FindingActions.vue`](../../../modules/dethernety-threat-report/frontend/components/FindingActions.vue)

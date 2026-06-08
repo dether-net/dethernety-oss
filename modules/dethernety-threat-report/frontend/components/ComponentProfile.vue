@@ -73,7 +73,7 @@
                 <td class="trd-c-band"><span class="trd-band" :class="`trd-band--${f.band}`">{{ f.band }}</span></td>
                 <td class="trd-c-score">{{ f.score == null ? '—' : f.score }}</td>
                 <td class="trd-c-name">
-                  {{ f.name }}
+                  <button type="button" class="trd-finding-name" @click="openDetail(f)" :title="`Open ${f.name} detail`">{{ f.name }}</button>
                   <span v-if="f.attackVector" class="trd-vec">{{ f.attackVector }}</span>
                   <span v-if="chipFor(f)" class="trd-confirmed" :title="chipFor(f).title">{{ chipFor(f).text }}</span>
                   <span v-if="profile.ownExposures.uncovered" class="trd-uncovered" title="no supporting control present on this element">⛉ uncovered</span>
@@ -107,7 +107,7 @@
                 <tr v-for="f in profile.ownExposures.dispositioned" :key="f.id" :class="{ 'trd-row-stale': f.stale }">
                   <td class="trd-c-band"><span class="trd-band" :class="`trd-band--${f.band}`">{{ f.band }}</span></td>
                   <td class="trd-c-name">
-                    {{ f.name }}
+                    <button type="button" class="trd-finding-name" @click="openDetail(f)" :title="`Open ${f.name} detail`">{{ f.name }}</button>
                     <span class="trd-disp">{{ kindLabel(f.dispositionKind) }}<span v-if="f.stale" class="trd-stale"> · ⚠ stale</span></span>
                     <div v-if="techsFor(f.id).length" class="trd-tech-row">
                       <span class="trd-tech-label">ATT&amp;CK</span>
@@ -219,6 +219,12 @@
 
     <!-- Shared ATT&CK technique dialog (same as Coverage & Gaps and Residual Risk) — opened by a chip. -->
     <TechniqueInfoDialog :technique="infoTech" @close="infoTech = null" />
+    <!-- Shared Exposure Detail dialog — opened by clicking a finding name. -->
+    <ExposureDetailDialog
+      :exposure="detailExposure"
+      @close="detailExposure = null"
+      @drill="(id) => { detailExposure = null; $emit('drill', id) }"
+    />
   </div>
 </template>
 
@@ -227,8 +233,10 @@
   import ModelMinimap from './ModelMinimap.vue'
   import TechniqueChips from './TechniqueChips.vue'
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
+  import ExposureDetailDialog from './ExposureDetailDialog.vue'
   import FindingActions from './FindingActions.vue'
   import { computeComponentProfile } from '../lib/componentProfile.js'
+  import { buildExposureDetail } from '../lib/exposureDetail.js'
   import { dispositionKindLabel } from '../lib/aggregateLedger.js'
   import { lifecycleChipFor } from '../lib/findingActions.js'
   import { dataItemSensitivity } from '../lib/boundaryCrossings.js'
@@ -255,6 +263,17 @@
   // Resolved techniques for a finding (by exposure id) + the shared info dialog.
   const techsFor = (id) => props.techniqueIndex[id] ?? []
   const infoTech = ref(null)
+
+  // The shared Exposure Detail dialog — click a finding name for its full detail.
+  // The element is this profile's own element (exposures here are its ownExposures).
+  const detailExposure = ref(null)
+  const openDetail = (f) => {
+    const e = profile.value.element
+    detailExposure.value = buildExposureDetail(f, {
+      techniques: techsFor(f.id),
+      element: { id: e.id, name: e.name, type: e.type },
+    })
+  }
   const crownJewelIds = computed(() =>
     (props.modelGraph?.components ?? []).filter((c) => c.crownJewel).map((c) => c.id),
   )
@@ -335,6 +354,14 @@
   .trd-inconsistent { font-size: 0.8rem; color: #c77700; margin: 0.2rem 0; }
   .trd-note { font-size: 0.76rem; opacity: 0.7; margin: 0.2rem 0; line-height: 1.4; }
   .trd-vec { font-size: 0.68rem; opacity: 0.6; text-transform: lowercase; border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; margin-left: 0.3rem; }
+  /* Finding name → opens the Exposure Detail dialog; styled as a text link. */
+  .trd-finding-name {
+    background: none; border: none; padding: 0; font: inherit; color: inherit;
+    text-align: left; cursor: pointer; text-decoration: underline;
+    text-decoration-color: rgba(127, 127, 127, 0.45); text-underline-offset: 2px;
+  }
+  .trd-finding-name:hover { text-decoration-color: #00b8d4; color: #00b8d4; }
+  .trd-finding-name:focus-visible { outline: 2px solid #00b8d4; outline-offset: 2px; }
   /* ATT&CK technique chips under a finding — a muted "ATT&CK" label + the chips. */
   .trd-tech-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.25rem; }
   .trd-tech-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.45; font-weight: 600; }
