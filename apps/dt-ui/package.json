@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@apollo/client": "^4.1.9",
+    "@apollo/client": "^4.2.2",
     "@dethernety/dt-core": "workspace:*",
     "@jsonforms/core": "3.7.0",
     "@jsonforms/vue": "3.7.0",
@@ -56,7 +56,7 @@
     "eslint-plugin-vue": "^10.9.2",
     "happy-dom": "^20.10.2",
     "pinia": "^3.0.4",
-    "sass": "1.99.0",
+    "sass": "1.100.0",
     "typescript": "^5.9.3",
     "unplugin-auto-import": "^21.0.0",
     "unplugin-fonts": "^2.0.0",
