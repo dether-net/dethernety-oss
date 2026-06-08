@@ -573,6 +573,8 @@ export type DispositionKind =
   | 'RISK_ACCEPTED'
   | 'WAIVED'
   | 'SUPERSEDED'
+  // The one kind that keeps a finding LIVE (reviewed + confirmed real), not muted.
+  | 'AFFIRMED'
 
 export type DispositionErrorCode =
   | 'VALIDATION_ERROR'

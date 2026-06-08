@@ -108,6 +108,36 @@ describe('buildHtmlExport — esc() escapes model/finding text (XSS sink)', () =
   })
 })
 
+// --- 1b. Live-confirmed (AFFIRMED) inline render ----------------------------
+describe('buildHtmlExport — a live AFFIRMED finding surfaces its reason + stale flag inline', () => {
+  const AFF_DOC = doc({
+    ledger: [
+      ledgerEl({
+        findings: [
+          finding({
+            id: 'e1',
+            name: 'confirmed live risk',
+            dispositionKind: 'AFFIRMED',
+            dispositionedBy: 'alice@x',
+            dispositionReason: 'Confirmed as a live risk.',
+            dispositionStale: true,
+          }),
+        ],
+      }),
+    ],
+  })
+  const html = buildHtmlExport(AFF_DOC, null)
+
+  it('renders the affirmed finding in the live table (no Dispositioned section)', () => {
+    expect(html).toContain('confirmed live risk')
+    expect(html).not.toContain('Dispositioned (') // it is live, not muted
+  })
+  it('carries the affirmation reason and the ⚠ stale badge inline (not silently dropped)', () => {
+    expect(html).toContain('Confirmed as a live risk.')
+    expect(html).toContain('⚠ stale')
+  })
+})
+
 // --- 2. No coverage percentage / honesty contract in JSON -------------------
 describe('buildJsonExport — honesty contract (no percentage, no rolled-up "covered")', () => {
   it('the JSON string leaks no coverage percentage / single "covered" total', () => {

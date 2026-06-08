@@ -98,6 +98,7 @@ The structured decision a user records on a SYSTEM-generated finding (`Exposure`
 
 ```graphql
 enum DispositionKind {
+  AFFIRMED
   NOT_APPLICABLE
   FALSE_POSITIVE
   COMPENSATING_CONTROL
@@ -107,7 +108,9 @@ enum DispositionKind {
 }
 ```
 
-`COMPENSATING_CONTROL` and `RISK_ACCEPTED` are exposure-only; `WAIVED` is countermeasure-only; `SUPERSEDED` is system-set by the Supersede flow. The resolver gates the kind per node type — see [`DispositionResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#8-dispositionresolverservice).
+`AFFIRMED` is the **only** kind that keeps the finding **live** — it records that the user reviewed and confirmed a real risk (Exposure) or confirmed a countermeasure is in place (Countermeasure). Every other kind **mutes** the finding. `COMPENSATING_CONTROL` and `RISK_ACCEPTED` are exposure-only; `WAIVED` is countermeasure-only; `SUPERSEDED` is system-set by the Supersede flow. The resolver gates the kind per node type — see [`DispositionResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#8-dispositionresolverservice).
+
+A derived finding lifecycle (`pending` | `confirmed` | `disposed`) is computed at view time from `dispositionKind` plus provenance — it is **not** a stored schema field. See [ADR-010 — finding affirmation lifecycle](../../decisions/010-finding-affirmation-lifecycle.md), which extends [ADR-007](../../decisions/007-finding-disposition-lifecycle.md).
 
 ---
 

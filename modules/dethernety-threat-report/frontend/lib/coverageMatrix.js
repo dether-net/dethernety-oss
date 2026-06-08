@@ -9,9 +9,9 @@
 // They join on exposureId === ledger.findings[].id.
 //
 // This layer is where the honesty rules live:
-//   - LIVE-ONLY disposition filter — only `dispositionKind == null` exposures enter
-//     the live grid/counts; dispositioned ones are excluded but COUNTED (never
-//     silently dropped — they still render in the Residual Risk view).
+//   - LIVE-ONLY disposition filter — only live exposures (`dispositionKind == null`
+//     OR `AFFIRMED`) enter the live grid/counts; muted/dispositioned ones are excluded
+//     but COUNTED (never silently dropped — they still render in the Residual Risk view).
 //   - Data exposures OFF the grid (controls can't SUPPORTS Data → permanent-UNCOVERED
 //     would be a false catastrophe); ATT&CK-mapped Data feeds the completeness count.
 //   - SecurityBoundary exposures fold into the Posture Summary counts, NOT matrix rows.
@@ -24,6 +24,8 @@
 // Drift: coverage is live, the ledger is the snapshot. When in sync (the common,
 // non-stale case) the join is exact; an exposure present live but absent from the
 // snapshot ledger defaults to live (the staleness banner owns that drift).
+
+import { isLiveKind } from './aggregateLedger.js'
 
 export const TIER_RANK = { DIRECT: 3, INDIRECT_MITIGATION: 2, INDIRECT_D3FEND: 1 }
 export const TIER_LABEL = {
@@ -120,7 +122,9 @@ export function buildCoverageView(coverage, ledger) {
       if (f && f.id) dispositionById.set(f.id, f.dispositionKind ?? null)
     }
   }
-  const isLive = (exposureId) => (dispositionById.get(exposureId) ?? null) == null
+  // Route through the shared predicate so AFFIRMED counts as live in the grid too
+  // (single source of truth with aggregateLedger — never re-encode "non-null ⇒ muted").
+  const isLive = (exposureId) => isLiveKind(dispositionById.get(exposureId) ?? null)
 
   // --- per-technique accumulation over the GRID universe (live, Component/DataFlow) ---
   // techniqueId -> { tactics:Set, elementsTotal:Set, elementsCovered:Set,

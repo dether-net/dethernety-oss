@@ -6,6 +6,7 @@ import { DefaultApolloClient } from '@/plugins/apolloComposable'
 import apolloClient, { initializeApolloClient } from '@/plugins/apolloClient'
 import * as VueRuntime from 'vue'
 import { moduleLoader, ModuleLoader } from './services/ModuleLoader'
+import { useAuthStore } from '@/stores/authStore'
 
 // CSS imports
 import '@vue-flow/core/dist/style.css'
@@ -33,6 +34,18 @@ const initializeApp = async () => {
       console.log('Initializing Apollo client...')
     }
     await initializeApolloClient()
+
+    // Resolve auth mode (incl. no-auth / demo) BEFORE loading modules. Module
+    // loading issues authenticated GraphQL queries via the Apollo authLink, which
+    // skips token handling only once authStore.authDisabled is set. The router
+    // guard also initialises auth mode, but that runs after mount() — too late for
+    // the startup module load, which would otherwise fail with a spurious
+    // "Invalid authentication token" and never retry. initializeAuthMode is
+    // idempotent (config is cached), so the later guard call is a no-op.
+    if (import.meta.env.DEV) {
+      console.log('Initializing auth mode...')
+    }
+    await useAuthStore().initializeAuthMode()
 
     if (import.meta.env.DEV) {
       console.log('Exposing host dependencies...')

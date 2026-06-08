@@ -55,7 +55,7 @@
         <section class="trd-prof-section">
           <h4 class="trd-prof-sec-head">
             Exposures
-            <span class="trd-muted">{{ profile.ownExposures.liveCount }} open · {{ profile.ownExposures.dispositionedCount }} reviewed</span>
+            <span class="trd-muted">{{ profile.ownExposures.liveCount }} open · {{ profile.ownExposures.dispositionedCount }} dispositioned</span>
           </h4>
           <p v-if="profile.ownExposures.compensatingClaimNoControl" class="trd-inconsistent">
             ⚠ Compensating-control disposition on an element with no control present.
@@ -75,6 +75,7 @@
                 <td class="trd-c-name">
                   {{ f.name }}
                   <span v-if="f.attackVector" class="trd-vec">{{ f.attackVector }}</span>
+                  <span v-if="chipFor(f)" class="trd-confirmed" :title="chipFor(f).title">{{ chipFor(f).text }}</span>
                   <span v-if="profile.ownExposures.uncovered" class="trd-uncovered" title="no supporting control present on this element">⛉ uncovered</span>
                   <div v-if="techsFor(f.id).length" class="trd-tech-row">
                     <span class="trd-tech-label">ATT&amp;CK</span>
@@ -83,13 +84,24 @@
                 </td>
                 <td class="trd-c-prov">{{ f.provenance }}</td>
                 <td class="trd-c-act">
-                  <button v-if="canDispose" type="button" class="trd-review" @click="$emit('dispose', f)">Review →</button>
+                  <FindingActions
+                    v-if="canDispose"
+                    :finding="f"
+                    :element-id="elementId"
+                    :can-dispose="canDispose"
+                    @affirm="$emit('affirm', $event)"
+                    @dispose="$emit('dispose', $event)"
+                    @supersede="$emit('supersede', $event)"
+                    @add-note="$emit('add-note', $event)"
+                    @delete="$emit('delete', $event)"
+                    @issue="$emit('issue', $event)"
+                  />
                 </td>
               </tr>
             </tbody>
           </table>
           <details v-if="profile.ownExposures.dispositioned.length" class="trd-disposed">
-            <summary>{{ profile.ownExposures.dispositionedCount }} reviewed</summary>
+            <summary>{{ profile.ownExposures.dispositionedCount }} dispositioned</summary>
             <table class="trd-table trd-table--muted">
               <tbody>
                 <tr v-for="f in profile.ownExposures.dispositioned" :key="f.id" :class="{ 'trd-row-stale': f.stale }">
@@ -103,7 +115,18 @@
                     </div>
                   </td>
                   <td class="trd-c-act">
-                    <button v-if="canDispose" type="button" class="trd-review" @click="$emit('dispose', f)">Edit →</button>
+                    <FindingActions
+                      v-if="canDispose"
+                      :finding="f"
+                      :element-id="elementId"
+                      :can-dispose="canDispose"
+                      @affirm="$emit('affirm', $event)"
+                      @dispose="$emit('dispose', $event)"
+                      @supersede="$emit('supersede', $event)"
+                      @add-note="$emit('add-note', $event)"
+                      @delete="$emit('delete', $event)"
+                      @issue="$emit('issue', $event)"
+                    />
                   </td>
                 </tr>
               </tbody>
@@ -119,7 +142,7 @@
               <button type="button" class="trd-drill-mini" @click="$emit('drill', d.id)" :title="`Open ${d.name} profile`">{{ d.name }}</button>
               <span class="trd-sens" :class="`trd-sens--${dataSens(d.sensitivity).key}`">{{ dataSens(d.sensitivity).label }}</span>
               <span v-if="d.liveCount > 0" class="trd-weaken">{{ d.liveCount }} open exposure(s)</span>
-              <span v-if="d.dispositionedCount > 0" class="trd-muted">· {{ d.dispositionedCount }} reviewed</span>
+              <span v-if="d.dispositionedCount > 0" class="trd-muted">· {{ d.dispositionedCount }} dispositioned</span>
               <span v-if="d.liveCount === 0 && d.dispositionedCount === 0" class="trd-muted">· no exposures</span>
             </li>
           </ul>
@@ -204,8 +227,10 @@
   import ModelMinimap from './ModelMinimap.vue'
   import TechniqueChips from './TechniqueChips.vue'
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
+  import FindingActions from './FindingActions.vue'
   import { computeComponentProfile } from '../lib/componentProfile.js'
   import { dispositionKindLabel } from '../lib/aggregateLedger.js'
+  import { lifecycleChipFor } from '../lib/findingActions.js'
   import { dataItemSensitivity } from '../lib/boundaryCrossings.js'
 
   const props = defineProps({
@@ -218,7 +243,10 @@
     techniqueIndex: { type: Object, default: () => ({}) },
   })
 
-  defineEmits(['drill', 'dispose'])
+  defineEmits(['drill', 'dispose', 'affirm', 'supersede', 'add-note', 'delete', 'issue'])
+
+  // Inline lifecycle chip for a live row (only an AFFIRMED-confirmed finding earns one).
+  const chipFor = lifecycleChipFor
 
   const profile = computed(() =>
     computeComponentProfile(props.elementId, { ledger: props.ledger, modelGraph: props.modelGraph }),
@@ -357,6 +385,20 @@
   .trd-c-score { width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
   .trd-c-prov { font-size: 0.72rem; opacity: 0.7; width: 4rem; }
   .trd-c-act { width: 5rem; text-align: right; }
+  /* Inline "Confirmed" lifecycle chip on a live row — risk-toned, outlined, never a
+     solid stoplight, never green (an affirmed finding is still an open risk). */
+  .trd-confirmed {
+    display: inline-block;
+    border: 1px solid #0892ad;
+    color: #0892ad;
+    border-radius: 10px;
+    padding: 0 7px;
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
   .trd-disp { font-size: 0.75rem; opacity: 0.85; display: block; margin-top: 0.1rem; }
   .trd-band {
     display: inline-block; border: 1px solid currentColor; border-radius: 10px;

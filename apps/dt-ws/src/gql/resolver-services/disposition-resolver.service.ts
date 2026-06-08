@@ -17,7 +17,8 @@ type DispositionKind =
   | 'COMPENSATING_CONTROL'
   | 'RISK_ACCEPTED'
   | 'WAIVED'
-  | 'SUPERSEDED';
+  | 'SUPERSEDED'
+  | 'AFFIRMED';
 
 type DispositionErrorCode =
   | 'VALIDATION_ERROR'
@@ -46,6 +47,7 @@ const EXPOSURE_PICKABLE: ReadonlySet<DispositionKind> = new Set([
   'COMPENSATING_CONTROL',
   'RISK_ACCEPTED',
   'SUPERSEDED',
+  'AFFIRMED',
 ]);
 
 const COUNTERMEASURE_PICKABLE: ReadonlySet<DispositionKind> = new Set([
@@ -53,6 +55,7 @@ const COUNTERMEASURE_PICKABLE: ReadonlySet<DispositionKind> = new Set([
   'FALSE_POSITIVE',
   'WAIVED',
   'SUPERSEDED',
+  'AFFIRMED',
 ]);
 
 const REASON_MAX_LENGTH = 2000;
@@ -179,6 +182,35 @@ export class DispositionResolverService {
       const msg = `reason exceeds ${REASON_MAX_LENGTH} chars`;
       this.logFailure('dispose', opName, operationId, actor, findingId, kind, msg, 'VALIDATION_ERROR', startedAt);
       return failureEnvelope(findingId, 'VALIDATION_ERROR', msg);
+    }
+
+    // ===== SUPERSEDED -> AFFIRMED guard =====
+    // Affirming a superseded finding would resurrect a retired row into a second
+    // live (confirmed) finding for one risk, double-counting it. The UI never
+    // offers affirm on a disposed row; this rejects the direct-GraphQL /
+    // programmatic path. AFFIRMED-only pre-read keeps the common dispose path
+    // unchanged. Plain MATCH/RETURN (Memgraph-safe); a missing node returns null
+    // here and falls through to the not-found path in the write block below.
+    if (kind === 'AFFIRMED') {
+      const guardSession = this.neo4jDriver.session({
+        database: this.configService.get('database.name') || 'neo4j',
+      });
+      try {
+        const current = await guardSession.executeRead(async (tx: any) => {
+          const r = await tx.run(
+            `MATCH (n:${label} {id: $id}) RETURN n.dispositionKind AS k`,
+            { id: findingId },
+          );
+          return r.records.length === 0 ? null : (r.records[0].get('k') ?? null);
+        });
+        if (current === 'SUPERSEDED') {
+          const msg = `Cannot affirm a superseded ${label.toLowerCase()}`;
+          this.logFailure('dispose', opName, operationId, actor, findingId, kind, msg, 'VALIDATION_ERROR', startedAt);
+          return failureEnvelope(findingId, 'VALIDATION_ERROR', msg);
+        }
+      } finally {
+        await guardSession.close();
+      }
     }
 
     // ===== Cypher =====

@@ -85,6 +85,12 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     // for Countermeasure under HAS_COUNTERMEASURE.
     { label: 'Exposure', property: 'name' },
     { label: 'Countermeasure', property: 'name' },
+    // Back the per-label id match in the `addElementsToIssue` @cypher mutation —
+    // a finding (Exposure) or countermeasure linked to an issue is matched by id.
+    // These two were the only allowed element labels without an id index, so their
+    // OPTIONAL MATCH branch would fall back to a label scan per UNWIND row.
+    { label: 'Exposure', property: 'id' },
+    { label: 'Countermeasure', property: 'id' },
   ];
 
   constructor(private readonly databaseService: DatabaseService) {}

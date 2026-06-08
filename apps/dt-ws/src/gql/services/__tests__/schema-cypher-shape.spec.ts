@@ -39,18 +39,36 @@ describe('schema.graphql — Cypher depth-bound shape snapshot', () => {
     expect(matches.length).toBe(1);
   });
 
-  it('contains the expected number of `:BELONGS_TO*0..50` sites (allDescendantComponents/DataFlows + shared-ownership branches)', () => {
+  it('contains the expected number of `:BELONGS_TO*0..50` sites (allDescendantComponents/DataFlows + shared-ownership branches + issue element→model resolution)', () => {
     const matches = schema.match(/:BELONGS_TO\*0\.\.50/g) ?? [];
-    // L285 + L296 (allDescendantComponents / allDescendantDataFlows) +
-    // L1399 + L1403 (shared-ownership query, getControlsAssignedModels
-    // branches). Exact count guards against an inadvertent partial
-    // revert (e.g. missing one of the four sites).
-    expect(matches.length).toBe(4);
+    // 4 pre-existing: allDescendantComponents / allDescendantDataFlows +
+    // the two getControlsAssignedModels shared-ownership branches.
+    // 4 added by Issue.elementsWithExtendedInfo's directed model-resolution
+    // routes — element→boundary→model, the element's DataFlow→component leg,
+    // and the same two again for an exposure's host element. Exact count guards
+    // against an inadvertent partial revert AND against the undirected
+    // multi-relationship expansion (the issue create/update hang) creeping back.
+    expect(matches.length).toBe(8);
   });
 
   it('contains zero remaining `:BELONGS_TO*0..10` or `*1..10` patterns (all sites raised)', () => {
     expect(schema).not.toMatch(/:BELONGS_TO\*0\.\.10/);
     expect(schema).not.toMatch(/:BELONGS_TO\*1\.\.10/);
+  });
+
+  it('contains no undirected multi-relationship variable-length expansion (the issue create/update hang) and no fully-unbounded `*1..`', () => {
+    // Regression guard for the elementsWithExtendedInfo timeout: an undirected
+    // six-relationship variable-length walk to (:Model) exploded on hub
+    // elements (e.g. a busy DataFlow) and aborted at the transaction timeout.
+    // These assertions are intentionally broader than the :BELONGS_TO-only
+    // checks above — which that relationship-type union slipped straight past.
+    expect(schema).not.toMatch(
+      /CONTAINS\|BELONGS_TO\|FLOWS\|HANDLES\|HAS_EXPOSURE\|ANALYZED_BY/,
+    );
+    // No `*1..10` on ANY relationship, not just :BELONGS_TO.
+    expect(schema).not.toMatch(/\*1\.\.10/);
+    // No fully-unbounded upper bound (e.g. getNotRepreseningModels' prior `*1..`).
+    expect(schema).not.toMatch(/\*1\.\.\]/);
   });
 
   it('every named-target variable-length :BELONGS_TO traversal is anchored to a single labelled node', () => {
@@ -67,7 +85,9 @@ describe('schema.graphql — Cypher depth-bound shape snapshot', () => {
     //     e:SecurityBoundary` predicate, not by inline label syntax.
     //   - L1403 `:BELONGS_TO*0..50]->(:SecurityBoundary)` — anonymous-
     //     node right side with explicit traversal direction (`->`).
-    // Both are safe by construction; if a future rewrite re-shapes them,
+    //   - Issue.elementsWithExtendedInfo's four model-resolution routes —
+    //     same anonymous-directed `]->(:SecurityBoundary)` shape as L1403.
+    // These are safe by construction; if a future rewrite re-shapes them,
     // the count assertion above will catch it.
     const namedTargetExpands =
       schema.match(/:BELONGS_TO\*\d+\.\.\d+\]-\(\w+:\w+\)/g) ?? [];

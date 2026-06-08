@@ -9,6 +9,9 @@
   import AttributesDialog from '@/components/DataFlow/AttributesDialog.vue'
   import ClassPicker from '@/components/DataFlow/ClassPicker/ClassPicker.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
+  import SettingsExposuresTab from '@/components/DataFlow/SettingsTabs/SettingsExposuresTab.vue'
+  import StaleBadge from '@/components/Disposition/StaleBadge.vue'
+  import PendingBadge from '@/components/Disposition/PendingBadge.vue'
   import { useRouter } from 'vue-router'
   import { Class } from '@dethernety/dt-core'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
@@ -67,13 +70,9 @@
   const dataId = ref(props.id)
   const action = ref(props.action)
   const exposures = ref<Exposure[]>([])
-  const exposureDialogAction = ref<'create' | 'edit'>('create')
-  const showExposureDialog = ref(false)
-  const attackTechniqueId = ref('')
-  const showAttackTechniqueDialog = ref(false)
-  const exposureToDelete = ref('')
-  const showExposureDeleteDialog = ref(false)
-  const exposureToEdit = ref('')
+  // Per-tab badge counts emitted by the reused <SettingsExposuresTab>.
+  const exposureStaleCount = ref(0)
+  const exposurePendingCount = ref(0)
   const attributesDialogUseExpansionPanels = ref(true)
   const showAttributesDialog = ref(false)
   const showIssueDialog = ref(false)
@@ -319,56 +318,13 @@
     }
   }
 
-  const itemsPerPage = [
-    { value: 5, title: '5' },
-    { value: 10, title: '10' },
-    { value: 25, title: '25' },
-    { value: 50, title: '50' },
-    { value: -1, title: '$vuetify.dataFooter.itemsPerPageAll' },
-  ]
-
-  const exposureTableHeaders = [
-    { title: 'Name', key: 'name' },
-    { title: 'Description', key: 'description' },
-    { title: 'Exploited By', key: 'exploitedBy' },
-    { title: '', key: 'actions' },
-  ]
-
-  const openAttackTechniqueDialog = (techniqueId: string) => {
-    attackTechniqueId.value = techniqueId
-    showAttackTechniqueDialog.value = true
-  }
-
-  const deleteExposure = (exposureId: string) => {
-    exposureToDelete.value = exposureId
-    showExposureDeleteDialog.value = true
-  }
-
-  const editExposure = (exposureId: string) => {
-    exposureToEdit.value = exposureId
-    exposureDialogAction.value = 'edit'
-    showExposureDialog.value = true
-  }
-
-  const onExposureDelete = () => {
-    if (exposureToDelete.value) {
-      flowStore.deleteExposure({ exposureId: exposureToDelete.value })
-        .then(deleted => {
-          if (deleted) {
-            showExposureDeleteDialog.value = false
-            exposureToDelete.value = ''
-            getCurrentDataItem()
-            emit('update:snackBar', { show: true, message: 'Exposure deleted successfully', color: 'success' })
-          } else {
-            emit('update:snackBar', { show: true, message: 'Failed to delete exposure', color: 'error' })
-          }
-        })
-        .catch(error => {
-          console.error('Failed to delete exposure', error)
-          emit('update:snackBar', { show: true, message: 'Failed to delete exposure', color: 'error' })
-        })
-    }
-  }
+  // The host element passed to the reused <SettingsExposuresTab>. A Data entity
+  // surfaces exposures the same way a component does; only `id` (the supersede/create
+  // target) and the display name are read. Exposure CRUD + the full disposition /
+  // affirmation lifecycle now live in that shared component.
+  const dataExposureHost = computed(() =>
+    dataId.value ? { id: dataId.value, data: { label: name.value } } : null,
+  )
 
   const onSubmit = async () => {
     if (!name.value || flowStore.selectedItem === null) {
@@ -616,7 +572,9 @@
                 >
                   <v-tab prepend-icon="mdi-cog-outline" text="General" value="general" />
                   <v-tab prepend-icon="mdi-tune-vertical" text="Attributes" value="attributes" />
-                  <v-tab prepend-icon="mdi-bug-outline" text="Exposures" value="exposures" />
+                  <v-tab prepend-icon="mdi-bug-outline" value="exposures">
+                    Exposures<StaleBadge :count="exposureStaleCount" /><PendingBadge :count="exposurePendingCount" />
+                  </v-tab>
                 </v-tabs>
               </v-col>
               <v-col cols="10">
@@ -739,66 +697,18 @@
                   </v-tabs-window-item>
 
                   <v-tabs-window-item value="exposures">
-                    <div>
-                      <v-data-table
-                        v-if="dataId"
-                        class="exposures-table"
-                        :headers="exposureTableHeaders"
-                        :items="exposures"
-                        items-per-page="5"
-                        :items-per-page-options="itemsPerPage"
-                      >
-                        <template #top>
-                          <div class="d-flex justify-end mt-1 mr-5">
-                            <v-btn
-                              class="mx-2 my-0"
-                              color="secondary"
-                              icon="mdi-plus"
-                              variant="outlined"
-                              @click="exposureDialogAction = 'create'; showExposureDialog = true"
-                            />
-                          </div>
-                        </template>
-
-                        <template #item.exploitedBy="{ item }">
-                          <div>
-                            <v-chip
-                              v-for="templ in item.exploitedBy || []"
-                              :key="templ.id"
-                              class="ma-1"
-                              small
-                              @click="openAttackTechniqueDialog(templ.attack_id)"
-                            >
-                              {{ templ.name + ' (' + templ.attack_id + ')' }}
-                            </v-chip>
-                          </div>
-                        </template>
-                        <template #item.actions="{ item }">
-                          <div class="d-flex flex-column justify-end">
-                            <IssueSelector
-                              :id="item.id || ''"
-                              :name="item.name || ''"
-                              :description="'Exposure: ' + (item.description || '')"
-                              @add:issue="onAddIssue"
-                              @copy:issue="onCopyToIssue"
-                            />
-                            <v-btn
-                              class="ma-1"
-                              color="primary"
-                              icon="mdi-pencil"
-                              variant="plain"
-                              @click="editExposure(item.id)"
-                            />
-                            <v-btn
-                              color="error"
-                              icon="mdi-trash-can"
-                              variant="plain"
-                              @click="deleteExposure(item.id)"
-                            />
-                          </div>
-                        </template>
-                      </v-data-table>
-                    </div>
+                    <!-- Reuse the shared exposures component so a Data entity's
+                         exposures get the same disposition / affirmation lifecycle
+                         (provenance, affirm, dispose, supersede, lifecycle badge,
+                         2×2 actions, pending/stale badges) as component exposures. -->
+                    <SettingsExposuresTab
+                      :selected-item="dataExposureHost"
+                      :exposures="exposures"
+                      @updateForm="getCurrentDataItem"
+                      @redirect:issue="emit('redirect:issue')"
+                      @update:staleCount="exposureStaleCount = $event"
+                      @update:pendingCount="exposurePendingCount = $event"
+                    />
                   </v-tabs-window-item>
                 </v-tabs-window>
               </v-col>
@@ -842,30 +752,6 @@
     </v-form>
   </v-dialog>
 
-  <AttackTechniqueDialog
-    v-if="showAttackTechniqueDialog"
-    :attack-id="attackTechniqueId"
-    :show="showAttackTechniqueDialog"
-    @close="showAttackTechniqueDialog = false; attackTechniqueId = ''"
-  />
-  <ExposureDialog
-    v-if="showExposureDialog"
-    :action="exposureDialogAction"
-    :element-id="dataId || undefined"
-    :exposure-id="exposureToEdit || undefined"
-    :show-dialog="showExposureDialog"
-    @update:element-id="dataId = $event"
-    @update:exposure-created="getCurrentDataItem"
-    @update:exposure-updated="getCurrentDataItem"
-    @update:show-dialog="showExposureDialog = $event"
-  />
-  <ConfirmDeleteDialog
-    v-if="showExposureDeleteDialog"
-    :message="`Are you sure you want to delete this Exposure: ${exposures.find(exposure => exposure.id === exposureToDelete)?.name ?? ''}?`"
-    :show="showExposureDeleteDialog"
-    @delete:canceled="showExposureDeleteDialog = false"
-    @delete:confirmed="onExposureDelete"
-  />
   <ConfirmDeleteDialog
     v-if="showDiscardChangesDialog"
     confirm-color="warning"

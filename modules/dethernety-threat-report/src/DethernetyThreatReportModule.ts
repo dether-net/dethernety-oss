@@ -81,7 +81,7 @@ interface LedgerFinding {
   attackVector: string | null;
   createdBy: string | null; // 'USER' | 'SYSTEM'
   authoredBy: string | null;
-  dispositionKind: string | null; // null = live (no disposition)
+  dispositionKind: string | null; // null OR 'AFFIRMED' = live (confirmed real); any other kind = muted
   dispositionReason: string | null;
   dispositionedBy: string | null;
   dispositionedAt: string | null;

@@ -118,6 +118,8 @@ enum DispositionKind {
   WAIVED
   "Finding has been replaced by a user-authored exposure that better fits the model"
   SUPERSEDED
+  "Finding reviewed and confirmed as a real, live risk. The one disposition kind that keeps the finding live (not muted)."
+  AFFIRMED
 }
 
 """Error taxonomy for disposeExposure / clearDisposition mutations."""
@@ -835,7 +837,7 @@ type Exposure implements Element  @authentication @node {
     @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
     @settable(onUpdate: false)
 
-  "Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeExposure / Supersede flows; cleared via clearDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises."
+  "Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeExposure / Supersede flows; cleared via clearDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises. AFFIRMED is the one kind that keeps the finding live (reviewed and confirmed a real risk) rather than muting it."
   dispositionKind: DispositionKind
   "Free-text justification authored by the user. Mandatory (non-empty after trim) when dispositionKind is non-null. Captured at dispose time and on every modification / re-affirm. For SUPERSEDED dispositions populated via the frontend Supersede flow, defaults to \"Superseded by user-authored exposure '<name>'\" — user-editable after. The single-quote wrapping around the clone's name is load-bearing for the USER-copy-delete companion staleness flip."
   dispositionReason: String
@@ -1027,7 +1029,7 @@ type Countermeasure implements Element  @authentication @node {
     @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
     @settable(onUpdate: false)
 
-  "Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeCountermeasure / Supersede flows; cleared via clearCountermeasureDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises."
+  "Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeCountermeasure / Supersede flows; cleared via clearCountermeasureDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises. AFFIRMED is the one kind that keeps the finding live (reviewed and confirmed in place) rather than muting it."
   dispositionKind: DispositionKind
   "Free-text justification authored by the user. Mandatory (non-empty after trim) when dispositionKind is non-null. Captured at dispose time and on every modification / re-affirm. For SUPERSEDED dispositions populated via the frontend Supersede flow, defaults to \"Superseded by user-authored countermeasure '<name>'\" — user-editable after. The single-quote wrapping around the clone's name is load-bearing for the USER-copy-delete companion staleness flip."
   dispositionReason: String
@@ -1240,7 +1242,20 @@ type Issue implements Element  @authentication @node {
   elementsWithExtendedInfo: [IssueElement!]! @cypher(
     statement: """
     MATCH (this)-[:HAS_ISSUE]-(e)
-    OPTIONAL MATCH (e)-[:CONTAINS|BELONGS_TO|FLOWS|HANDLES|HAS_EXPOSURE|ANALYZED_BY*1..10]-(m:Model)
+    // Resolve the owning Model via DIRECTED, depth-bounded routes (mirrors
+    // getControlsAssignedModels). The prior undirected six-relationship
+    // variable-length expansion to (:Model) exploded on hub elements (e.g. a
+    // busy DataFlow) and aborted at the Memgraph transaction timeout; directed
+    // bounded containment walks stay tree-bounded.
+    OPTIONAL MATCH (e)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(mA:Model)
+    OPTIONAL MATCH (e)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(mB:Model)
+    OPTIONAL MATCH (e)<-[:CONTAINS]-(mC:Model)
+    OPTIONAL MATCH (e)<-[:HAS_EXPOSURE]-(hx)
+    OPTIONAL MATCH (hx)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(mD:Model)
+    OPTIONAL MATCH (hx)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(mE:Model)
+    OPTIONAL MATCH (hx)<-[:CONTAINS]-(mF:Model)
+    OPTIONAL MATCH (e)<-[:ANALYZED_BY]-(mG:Model)
+    WITH e, coalesce(mA, mB, mC, mD, mE, mF, mG) AS m
     OPTIONAL MATCH (e)<-[:HAS_EXPOSURE]-(c)
     RETURN DISTINCT {
       id: e.id,
@@ -1346,11 +1361,26 @@ type Mutation {
       statement: """
       MATCH (issue:Issue {id: $issueId})
       UNWIND $elementIds as elementId
-      MATCH (element {id: elementId})
-      WHERE any(label IN labels(element) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Analysis','Exposure','Countermeasure'])
+      // Per-label id lookups so each branch hits the :Label(id) index. A single
+      // label-less MATCH (element {id}) cannot use any index (indexes are
+      // per-label) and degrades to a full all-nodes scan per UNWIND row — which
+      // on a graph with the full MITRE ATT&CK/D3FEND ingested stalls indefinitely.
+      OPTIONAL MATCH (mdl:Model {id: elementId})
+      OPTIONAL MATCH (cmp:Component {id: elementId})
+      OPTIONAL MATCH (df:DataFlow {id: elementId})
+      OPTIONAL MATCH (sb:SecurityBoundary {id: elementId})
+      OPTIONAL MATCH (ctl:Control {id: elementId})
+      OPTIONAL MATCH (dat:Data {id: elementId})
+      OPTIONAL MATCH (ana:Analysis {id: elementId})
+      OPTIONAL MATCH (exp:Exposure {id: elementId})
+      OPTIONAL MATCH (cm:Countermeasure {id: elementId})
+      WITH issue, coalesce(mdl, cmp, df, sb, ctl, dat, ana, exp, cm) AS element
+      WHERE element IS NOT NULL
       MERGE (issue)<-[:HAS_ISSUE]-(element)
-      RETURN DISTINCT {
-        elementsAdded: size(collect(element))
+      // DISTINCT so a repeated id in $elementIds isn't double-counted (MERGE is
+      // idempotent); toString because the elementsAdded field is String!.
+      RETURN {
+        elementsAdded: toString(size(collect(DISTINCT element)))
       } AS result
       """
       columnName: "result"
@@ -2028,7 +2058,7 @@ type Query {
       statement: """
       MATCH (src:Model {id:$modelId})
       MATCH (src)<-[:REPRESENTS_MODEL]-(comp)
-      MATCH (comp)-[:BELONGS_TO|CONTAINS*1..]-(mod:Model)
+      MATCH (comp)-[:BELONGS_TO|CONTAINS*1..50]-(mod:Model)
       WITH COLLECT(DISTINCT mod) AS connectedModels
       MATCH (m:Model)
       WHERE m.id <> $modelId

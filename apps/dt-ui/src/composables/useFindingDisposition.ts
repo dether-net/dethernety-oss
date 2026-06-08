@@ -56,12 +56,20 @@ export interface SnackBarState {
   color: 'success' | 'error' | 'warning' | 'info'
   message: string
   action?: { label: string; handler: () => Promise<void> | void } | null
+  // Explicit auto-dismiss window (ms). When set it overrides the default
+  // `action ? -1 : 5000` rule, so an actioned snackbar (e.g. affirm + Undo) can
+  // still auto-dismiss instead of lingering forever.
+  timeout?: number
 }
 
 // Icon pinned to mdi-shield-off-outline for both finding types — most direct
 // semantic match for "this finding is dispositioned"; glyph parity with the
 // exposure side preserves the recognition cue.
 const DISPOSE_ICON = 'mdi-shield-off-outline'
+
+// One-click affirm action — an icon (no text label) so the row's action cluster
+// stays a compact grid of equal-size icon buttons.
+const AFFIRM_ICON = 'mdi-check-circle-outline'
 
 // User-language snackbar copy. Raw errorCode enum values stay in the console /
 // monitoring path, never in user-facing copy. EXPOSURE_NOT_FOUND is reused as
@@ -80,18 +88,109 @@ const KIND_LABELS: Record<DispositionKind, string> = {
   RISK_ACCEPTED: 'Risk Accepted',
   WAIVED: 'Waived',
   SUPERSEDED: 'Superseded',
+  AFFIRMED: 'Affirmed',
 }
 
 export function dispositionKindLabel(kind: DispositionKind | null | undefined): string {
   return kind ? KIND_LABELS[kind] ?? '' : ''
 }
 
-/** Active (undisposed) findings first, disposed at the bottom; intra-group order preserved. */
+// ===== Lifecycle derivation =====
+// `pending` / `confirmed` / `disposed` are DERIVED from dispositionKind + provenance,
+// never stored. AFFIRMED is the one kind that keeps a finding LIVE; every other kind
+// mutes it. A USER-authored undisposed finding is born `confirmed`; a SYSTEM (or
+// legacy-null) one is `pending` until reviewed.
+
+export type LifecycleStatus = 'pending' | 'confirmed' | 'disposed'
+
+/** A finding is live (not muted) when it has no disposition, or is explicitly AFFIRMED. */
+export function isLiveKind(kind: DispositionKind | null | undefined): boolean {
+  return kind == null || kind === 'AFFIRMED'
+}
+
+export function isLive(item: DispositionableFinding): boolean {
+  return isLiveKind(item.dispositionKind)
+}
+
+export function lifecycleStatus(item: DispositionableFinding): LifecycleStatus {
+  const k = item.dispositionKind ?? null
+  // Forensic guard: an AFFIRMED write with no server-stamped actor (an unattributed
+  // direct-GraphQL spoof) is NOT a real confirmation — derive `pending`, not `confirmed`.
+  if (k === 'AFFIRMED') return item.dispositionedBy ? 'confirmed' : 'pending'
+  if (k != null) return 'disposed'
+  return item.createdBy === 'USER' ? 'confirmed' : 'pending'
+}
+
+/** Default affirm reason, branched by finding type — satisfies the mandatory-reason contract. */
+export function affirmReasonFor(findingType: FindingType): string {
+  return findingType === 'COUNTERMEASURE'
+    ? 'Confirmed this countermeasure is in place.'
+    : 'Confirmed as a live risk.'
+}
+
+export interface LifecycleBadge {
+  kind: LifecycleStatus
+  text: string
+  color: string
+  variant: 'flat' | 'outlined'
+}
+
+/**
+ * Presentation descriptor for a finding's lifecycle badge, or `null` when the row
+ * should carry NO per-row chip (pending — surfaced by the per-tab PendingBadge so a
+ * fresh model's backlog doesn't make every row look alarming). Type-asymmetric:
+ *  - confirmed → a FILLED chip. Exposure = "Confirmed risk", risk-toned (NEVER green —
+ *    a confirmed exposure is bad news). Countermeasure = "In place", green/success
+ *    (the one place green is right — a present control is good news).
+ *  - disposed → the existing outlined kind chip.
+ *  - pending → null. An AFFIRMED finding with a null `dispositionedBy` derives pending
+ *    (forensic guard), so no "Confirmed" badge is ever manufactured for an unattributed affirm.
+ */
+export function lifecycleBadgeFor(
+  item: DispositionableFinding,
+  findingType: FindingType,
+): LifecycleBadge | null {
+  const status = lifecycleStatus(item)
+  if (status === 'pending') return null
+  if (status === 'confirmed') {
+    return findingType === 'COUNTERMEASURE'
+      ? { kind: 'confirmed', text: 'In place', color: 'success', variant: 'flat' }
+      // 'error' (not 'warning'): risk-toned and distinct from the stale-row warning
+      // border / Review button, so a confirmed risk doesn't read as "needs review".
+      : { kind: 'confirmed', text: 'Confirmed risk', color: 'error', variant: 'flat' }
+  }
+  return {
+    kind: 'disposed',
+    text: dispositionKindLabel(item.dispositionKind),
+    // No explicit colour — a muted/disposed chip stays the quiet outlined default
+    // (matches the pre-lifecycle chip; '' → undefined at the binding site).
+    color: '',
+    variant: 'outlined',
+  }
+}
+
+/** Affirm-edit dialog title — lifecycle-aware, never "Dispose". */
+export function affirmDialogTitleFor(findingType: FindingType, isStale: boolean): string {
+  const noun = findingType === 'COUNTERMEASURE' ? 'Countermeasure' : 'Exposure'
+  return isStale ? `Review ${noun}` : `Re-affirm ${noun}`
+}
+
+/** Save-button label: affirm-aware when the dialog is locked to AFFIRMED, else the dispose default. */
+export function saveLabelFor(
+  lockKind: boolean,
+  initialKind: DispositionKind | null,
+  isStale: boolean,
+): string {
+  if (lockKind && initialKind === 'AFFIRMED') return isStale ? 'Re-affirm' : 'Affirm'
+  return isStale ? 'Re-affirm' : 'Save'
+}
+
+/** Active (undisposed OR affirmed) findings first, disposed at the bottom; intra-group order preserved. */
 export function partitionAndSort<T extends { dispositionKind?: DispositionKind | null }>(items: T[]): T[] {
   const active: T[] = []
   const disposed: T[] = []
   for (const item of items) {
-    if (item.dispositionKind) disposed.push(item)
+    if (item.dispositionKind && item.dispositionKind !== 'AFFIRMED') disposed.push(item)
     else active.push(item)
   }
   return [...active, ...disposed]
@@ -125,6 +224,25 @@ export function dispositionStateFor(item: DispositionableFinding): DispositionDi
     initialReason: item.dispositionReason ?? '',
     isStale: Boolean(item.dispositionStale),
     lockKind: false,
+    initialDispositionedBy: item.dispositionedBy ?? '',
+    initialDispositionedAt: item.dispositionedAt ?? '',
+  }
+}
+
+/**
+ * Build the open-dialog state for the affirm-edit path (stale re-affirm / "Add note…").
+ * The kind is locked to AFFIRMED so the dialog never converts a confirmed finding into a
+ * disposal; only the reason is editable. Consumed by the affirm-edit dialog variant.
+ */
+export function affirmDialogStateFor(item: DispositionableFinding): DispositionDialogState {
+  return {
+    show: true,
+    findingId: item.id,
+    findingName: item.name ?? '',
+    initialKind: 'AFFIRMED',
+    initialReason: item.dispositionReason ?? '',
+    isStale: Boolean(item.dispositionStale),
+    lockKind: true,
     initialDispositionedBy: item.dispositionedBy ?? '',
     initialDispositionedAt: item.dispositionedAt ?? '',
   }
@@ -164,11 +282,18 @@ export function useFindingDisposition() {
     provenanceInfo,
     isUserAuthored,
     dispositionKindLabel,
+    isLiveKind,
+    isLive,
+    lifecycleStatus,
+    lifecycleBadgeFor,
+    affirmReasonFor,
     partitionAndSort,
     rowClass,
     emptyDispositionDialogState,
     dispositionStateFor,
+    affirmDialogStateFor,
     DISPOSE_ICON,
+    AFFIRM_ICON,
     ERROR_MESSAGES,
   }
 }

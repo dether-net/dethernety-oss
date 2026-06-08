@@ -43,6 +43,20 @@ describe('buildCoverageView — live-only disposition filter', () => {
     const v = buildCoverageView(cov, []) // empty ledger
     expect(v.rows.map((r) => r.techniqueId).sort()).toEqual(['T1059', 'T1190'])
   })
+  it('an AFFIRMED exposure stays in the live grid (not excluded)', () => {
+    const affCov = coverage([
+      exposure({ exposureId: 'aff1', techniques: [technique('T1078', ['Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ exposureId: 'disp1', techniques: [technique('T1059', ['Execution'], [tier('DIRECT', 'PREVENT')])] }),
+    ])
+    const v = buildCoverageView(affCov, [ledgerEl({
+      findings: [
+        { id: 'aff1', dispositionKind: 'AFFIRMED', dispositionedBy: 'alice@x' },
+        { id: 'disp1', dispositionKind: 'WAIVED' },
+      ],
+    })])
+    expect(v.rows.map((r) => r.techniqueId)).toEqual(['T1078']) // affirmed kept, waived excluded
+    expect(v.offGrid.dispositionedExcluded).toBe(1)
+  })
 })
 
 describe('buildCoverageView — element-scope routing', () => {

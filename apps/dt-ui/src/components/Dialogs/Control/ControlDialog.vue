@@ -9,10 +9,13 @@
   import ClassPickerSheet from '@/components/DataFlow/ClassPicker/ClassPickerSheet.vue'
   import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
   import StaleBadge from '@/components/Disposition/StaleBadge.vue'
+  import PendingBadge from '@/components/Disposition/PendingBadge.vue'
+  import LifecycleBadge from '@/components/Disposition/LifecycleBadge.vue'
   import {
     useFindingDisposition,
     emptyDispositionDialogState,
     dispositionStateFor,
+    affirmDialogStateFor,
     type SnackBarState,
   } from '@/composables/useFindingDisposition'
 
@@ -42,9 +45,13 @@
     provenanceInfo,
     isUserAuthored,
     dispositionKindLabel,
+    lifecycleStatus,
+    isLive,
+    affirmReasonFor,
     partitionAndSort,
     rowClass,
     DISPOSE_ICON,
+    AFFIRM_ICON,
     ERROR_MESSAGES,
   } = useFindingDisposition()
 
@@ -358,6 +365,11 @@
     () => countermeasures.value.filter(cm => cm.dispositionStale === true).length,
   )
 
+  // Pending (unreviewed) backlog count for the per-tab PendingBadge.
+  const countermeasurePendingCount = computed(
+    () => countermeasures.value.filter(cm => lifecycleStatus(cm) === 'pending').length,
+  )
+
   const getControl = async () => {
     controlsStore.getControl({ controlId: props.id }).then(async controlData => {
       control.value = controlData
@@ -444,6 +456,62 @@
   // Dispose / re-affirm a SYSTEM countermeasure.
   const openDisposition = (item: Countermeasure) => {
     dispositionDialog.value = dispositionStateFor(item)
+  }
+
+  // One-click affirm a pending countermeasure as "in place". Awaits the mutation and
+  // refreshes only on success, so a `success:false` leaves it pending (never a false
+  // "in place"). Undo clears back to pending; "Add note…" is the affirm-edit dialog on
+  // the now-confirmed row.
+  const onAffirmCountermeasure = async (item: Countermeasure) => {
+    const result = await controlsStore.disposeCountermeasure({
+      countermeasureId: item.id,
+      kind: 'AFFIRMED',
+      reason: affirmReasonFor('COUNTERMEASURE'),
+    })
+    if (!result.success) {
+      const reason = ERROR_MESSAGES[result.errorCode ?? ''] ?? 'an unexpected error'
+      snackBar.value = {
+        show: true, color: 'error',
+        message: `Couldn't affirm "${item.name}" (${reason}).`,
+        action: null,
+      }
+      return
+    }
+    fetchCountermeasures()
+    snackBar.value = {
+      show: true,
+      color: 'success',
+      message: `Affirmed "${item.name}" as in place.`,
+      timeout: 6000,
+      action: {
+        label: 'Undo',
+        handler: async () => {
+          const undo = await controlsStore.clearCountermeasureDisposition({ countermeasureId: item.id })
+          if (undo.success) {
+            fetchCountermeasures()
+          } else {
+            const reason = ERROR_MESSAGES[undo.errorCode ?? ''] ?? 'an unexpected error'
+            snackBar.value = {
+              show: true, color: 'error',
+              message: `Couldn't undo — "${item.name}" is still affirmed (${reason}).`,
+              action: null,
+            }
+          }
+        },
+      },
+    }
+  }
+
+  // Affirm-edit (re-affirm / "Add note…") — opens the dialog locked to AFFIRMED.
+  const onAffirmEditCountermeasure = (item: Countermeasure) => {
+    dispositionDialog.value = affirmDialogStateFor(item)
+  }
+
+  // A stale live row's Review re-affirms via the affirm-edit dialog when confirmed,
+  // or the normal dispose dialog when it's a (stale) disposition.
+  const onReviewCountermeasure = (item: Countermeasure) => {
+    if (lifecycleStatus(item) === 'confirmed') onAffirmEditCountermeasure(item)
+    else openDisposition(item)
   }
 
   const onDispositionSaved = (_result: DispositionMutationResult) => {
@@ -738,11 +806,11 @@
             <v-container class="pa-5 px-10" fluid>
               <!-- Tabs -->
               <v-row>
-                <v-tabs v-model="tab" color="primary">
+                <v-tabs v-model="tab" color="secondary">
                   <v-tab prepend-icon="mdi-cog-outline" value="general">General</v-tab>
                   <v-tab prepend-icon="mdi-shield-sword-outline" value="classes">Control Classes</v-tab>
                   <v-tab prepend-icon="mdi-shield-check-outline" value="countermeasures">
-                    Countermeasures<StaleBadge :count="countermeasureStaleCount" />
+                    Countermeasures<StaleBadge :count="countermeasureStaleCount" /><PendingBadge :count="countermeasurePendingCount" />
                   </v-tab>
                 </v-tabs>
               </v-row>
@@ -826,7 +894,7 @@
                       <template #top>
                         <v-btn
                           class="ma-3"
-                          color="primary"
+                          color="secondary"
                           icon="mdi-plus"
                           size="large"
                           variant="outlined"
@@ -853,16 +921,7 @@
                             </v-tooltip>
                             <span>{{ item.name }}</span>
                           </div>
-                          <div
-                            v-if="item.dispositionKind"
-                            role="img"
-                            :aria-label="`Disposition: ${dispositionKindLabel(item.dispositionKind)}`"
-                            class="mt-1"
-                          >
-                            <v-chip size="x-small" variant="outlined">
-                              {{ dispositionKindLabel(item.dispositionKind) }}
-                            </v-chip>
-                          </div>
+                          <LifecycleBadge :item="item" finding-type="COUNTERMEASURE" />
                         </div>
                       </template>
                       <template #item.mitigations="{ item }">
@@ -886,16 +945,17 @@
                         </v-chip>
                       </template>
                       <template #item.actions="{ item }">
-                        <div class="d-flex flex-row align-center justify-end">
+                        <!-- Compact 2-col grid (mirrors the exposures tab): the triage
+                             pair leads, then structural. Pending → [Affirm Dispose] /
+                             [Supersede]; fewer-action states degrade cleanly. -->
+                        <div class="actions-grid">
                           <!-- USER: edit + delete (forked copies are freely editable) -->
                           <template v-if="isUserAuthored(item)">
                             <v-tooltip text="Edit countermeasure" location="top">
                               <template #activator="{ props: tProps }">
                                 <v-btn
                                   v-bind="tProps"
-                                  class="mr-2"
                                   aria-label="Edit countermeasure"
-                                  color="primary"
                                   icon="mdi-pencil"
                                   variant="plain"
                                   @click="showCountermeasure(item.id)"
@@ -906,7 +966,6 @@
                               <template #activator="{ props: tProps }">
                                 <v-btn
                                   v-bind="tProps"
-                                  class="mr-2"
                                   aria-label="Delete countermeasure"
                                   color="error"
                                   icon="mdi-trash-can"
@@ -916,23 +975,10 @@
                               </template>
                             </v-tooltip>
                           </template>
-                          <!-- SYSTEM: dispose / supersede; managed via disposition, not direct edit/delete -->
+                          <!-- SYSTEM: lifecycle (leads) then supersede -->
                           <template v-else>
-                            <!-- Slot 2: customise (only when no active disposition) -->
-                            <v-tooltip v-if="!item.dispositionKind" text="Customize as an editable copy" location="top">
-                              <template #activator="{ props: tProps }">
-                                <v-btn
-                                  v-bind="tProps"
-                                  class="mr-2"
-                                  aria-label="Customize as an editable copy"
-                                  color="secondary"
-                                  icon="mdi-content-duplicate"
-                                  variant="plain"
-                                  @click="onSupersedeCountermeasure(item)"
-                                />
-                              </template>
-                            </v-tooltip>
-                            <!-- Slot 3: Review (stale) | Dispose / Edit-disposition -->
+                            <!-- Lifecycle — Review (stale) | Affirm + Dispose (pending) |
+                                 Add note (confirmed) | Edit disposition (disposed). -->
                             <v-tooltip
                               v-if="item.dispositionStale"
                               text="Model changed — review and re-affirm this disposition"
@@ -945,24 +991,78 @@
                                   color="warning"
                                   variant="text"
                                   prepend-icon="mdi-refresh"
-                                  @click="openDisposition(item)"
+                                  @click="onReviewCountermeasure(item)"
                                 >Review</v-btn>
                               </template>
                             </v-tooltip>
+                            <template v-else-if="lifecycleStatus(item) === 'pending'">
+                              <v-tooltip text="Affirm — confirm this countermeasure is in place" location="top">
+                                <template #activator="{ props: tProps }">
+                                  <v-btn
+                                    v-bind="tProps"
+                                    aria-label="Affirm countermeasure"
+                                    :icon="AFFIRM_ICON"
+                                    color="info"
+                                    variant="plain"
+                                    @click="onAffirmCountermeasure(item)"
+                                  />
+                                </template>
+                              </v-tooltip>
+                              <v-tooltip text="Dispose" location="top">
+                                <template #activator="{ props: tProps }">
+                                  <v-btn
+                                    v-bind="tProps"
+                                    aria-label="Dispose"
+                                    :icon="DISPOSE_ICON"
+                                    color="secondary"
+                                    variant="plain"
+                                    @click="openDisposition(item)"
+                                  />
+                                </template>
+                              </v-tooltip>
+                            </template>
                             <v-tooltip
-                              v-else
-                              :text="item.dispositionKind ? `Edit disposition (${dispositionKindLabel(item.dispositionKind)})` : 'Dispose'"
+                              v-else-if="lifecycleStatus(item) === 'confirmed'"
+                              text="Add a note to this confirmation"
                               location="top"
                             >
                               <template #activator="{ props: tProps }">
                                 <v-btn
                                   v-bind="tProps"
-                                  class="mr-2"
-                                  :aria-label="item.dispositionKind ? 'Edit disposition' : 'Dispose'"
+                                  aria-label="Add a note to this confirmation"
+                                  icon="mdi-note-edit-outline"
+                                  color="tertiary"
+                                  variant="plain"
+                                  @click="onAffirmEditCountermeasure(item)"
+                                />
+                              </template>
+                            </v-tooltip>
+                            <v-tooltip
+                              v-else
+                              :text="`Edit disposition (${dispositionKindLabel(item.dispositionKind)})`"
+                              location="top"
+                            >
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  aria-label="Edit disposition"
                                   :icon="DISPOSE_ICON"
-                                  :color="item.dispositionKind ? 'tertiary' : 'secondary'"
+                                  color="tertiary"
                                   variant="plain"
                                   @click="openDisposition(item)"
+                                />
+                              </template>
+                            </v-tooltip>
+                            <!-- Structural: customise — live rows only. -->
+                            <v-tooltip v-if="isLive(item)" text="Customize as an editable copy" location="top">
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  aria-label="Customize as an editable copy"
+                                  color="secondary"
+                                  icon="mdi-content-duplicate"
+                                  variant="plain"
+                                  @click="onSupersedeCountermeasure(item)"
                                 />
                               </template>
                             </v-tooltip>
@@ -1007,7 +1107,7 @@
         </v-form>
 
         <!-- Snackbar (optional Retry action on supersede partial-failure) -->
-        <v-snackbar v-model="snackBar.show" :color="snackBar.color" :timeout="snackBar.action ? -1 : 5000" top>
+        <v-snackbar v-model="snackBar.show" :color="snackBar.color" :timeout="snackBar.timeout ?? (snackBar.action ? -1 : 5000)" top>
           <span>{{ snackBar.message }}</span>
           <template v-if="snackBar.action" #actions>
             <v-btn variant="text" @click="snackBar.action?.handler()">{{ snackBar.action.label }}</v-btn>
@@ -1146,5 +1246,14 @@
      rows — mirrors the exposure-side .row-stale treatment. */
   :deep(.row-stale) {
     border-left: 4px solid rgb(var(--v-theme-warning));
+  }
+  /* Row actions as a compact, right-aligned 2-column grid — mirrors the exposures
+     tab. Pending → [Affirm Dispose] / [Supersede]; fewer actions degrade cleanly. */
+  .actions-grid {
+    display: inline-grid;
+    grid-template-columns: repeat(2, min-content);
+    align-items: center;
+    justify-items: center;
+    float: right;
   }
 </style>

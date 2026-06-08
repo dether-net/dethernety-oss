@@ -5,6 +5,10 @@
   import { useAuthStore } from '@/stores/authStore'
   import { useDispositionDialogStore } from '@/stores/dispositionDialogStore'
   import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
+  // App-level home for the finding→issue workflow (the IssueSelector menu + IssueDialog
+  // create path), openable from module-loaded report surfaces via
+  // useHostContext().services.openFindingIssueSelector. Self-subscribes to its store.
+  import FindingIssueDialog from '@/components/Dialogs/Issues/FindingIssueDialog.vue'
   import { getConfig, getConfigSync, FrontendConfig } from '@/config/environment'
 
   const drawer = ref(true)
@@ -150,6 +154,11 @@
       @cleared="dispositionDialogStore.onCleared"
       @close="dispositionDialogStore.onClose"
     />
+
+    <!-- App-level finding→issue workflow (IssueSelector menu + IssueDialog create
+         path), openable from anywhere incl. module-loaded report surfaces — see
+         issueDialogStore. Self-driven from the store; no props. -->
+    <FindingIssueDialog />
   </v-app>
 </template>
 
