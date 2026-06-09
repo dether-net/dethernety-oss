@@ -128,12 +128,15 @@ The radius is **forward only**: it follows flow direction outward from the node 
 
 ### Reading the radius
 
-A summary line reports the reach — for example `Storefront reaches 5 of 6 other components · ⬢ 3 crown jewels in radius · worst on reachable: Critical`. Below it, each reachable node is a row, ordered nearest-first:
+A summary line reports the reach — for example `Storefront reaches 5 of 6 other components · ⬢ 3 crown jewels in radius · worst on reachable: Critical · crosses 2 trust boundaries: DMZ, App`. That last part is the **containment headline**: the distinct trust boundaries the blast crosses into. If the radius stays inside the origin's own boundary, it reads `stays within its boundary` instead — a containment signal (not a safety guarantee). Each boundary name is clickable into its profile.
+
+Below the summary, each reachable node is a row, ordered nearest-first:
 
 | You see | It means |
 |---|---|
 | `⬢` before the name | This reachable node is a crown jewel — a high-value asset caught in the radius. |
-| `N hops · M crossings` | The fewest flow steps to reach it from the origin, and how many security boundaries that shortest path crosses. |
+| `N hops` | The fewest flow steps to reach it from the origin. |
+| `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. No chips means the node sits in the origin's own boundary. |
 | A severity dot + band | The worst live threat sitting on that reachable node. |
 | A sensitivity chip | Sensitive data that node handles. |
 | `▸ set as origin` | Re-anchor the radius to *that* node — trace its own blast radius, step by step outward. |

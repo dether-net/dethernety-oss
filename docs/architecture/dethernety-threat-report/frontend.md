@@ -252,8 +252,11 @@ of crown-jewel mode: same assumed-breach origin, but the *entire forward cone*
 instead of just the jewels). Blast radius carries a **scope toggle** — *full*
 forward closure (the BFS `closure`, the true blast radius) vs *direct* 1-hop
 neighbours — and is forward-only; each reachable node is annotated with its
-min-hops, boundary crossings, worst live band, crown-jewel flag and carried data,
-and an onward-pivot ("set as origin") re-anchors to trace any reachable node's own
+min-hops, the **net** origin→node boundary crossings (EXIT/ENTER, drillable, the
+Boundary Crossings vocabulary — not the per-hop path sum), worst live band,
+crown-jewel flag and carried data, plus a radius-level "crosses N trust
+boundaries" containment headline (or "stays within its boundary"). An
+onward-pivot ("set as origin") re-anchors to trace any reachable node's own
 radius. The engine is strictly topological and bounded — simple paths enforced by
 a visited-set, hop/route/step ceilings to keep the synchronous compute cheap — and
 is careful in its language: these are *flow routes*; an unreachable crown jewel, or
