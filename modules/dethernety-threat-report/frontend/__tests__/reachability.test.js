@@ -6,6 +6,7 @@ import {
   annotateRoute,
   modeBRoutes,
   modeAReachability,
+  blastRadius,
   crownJewelRouteElements,
   externalEntryIds,
   crownJewelIds,
@@ -308,5 +309,79 @@ describe('honest empty states', () => {
     const a = modeAReachability(mg, LEDGER, { kind: 'external' })
     expect(a.hasOrigin).toBe(false)
     expect(a.reachableCount).toBe(0)
+  })
+})
+
+describe('blastRadius — forward flow-reachable set from a node', () => {
+  it('full closure from ext reaches the whole forward cone with correct min-hops', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    expect(b.hasOrigin).toBe(true)
+    expect(b.scope).toBe('full')
+    expect(b.componentTotal).toBe(8)
+    // ext ▶ web,web2 ▶ api ▶ db,cyc ▶ leaf  (cycle cyc→api dedups; vault unreachable)
+    expect(b.nodes.map((n) => n.id).sort()).toEqual(['api', 'cyc', 'db', 'leaf', 'web', 'web2'])
+    expect(b.reachableCount).toBe(6)
+    const hops = Object.fromEntries(b.nodes.map((n) => [n.id, n.minHops]))
+    expect(hops).toMatchObject({ web: 1, web2: 1, api: 2, db: 3, cyc: 3, leaf: 4 })
+  })
+
+  it('flags crown jewels caught in the radius and aggregates the worst LIVE band', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    expect(b.jewelsInRadius).toEqual(['DB'])
+    expect(b.jewelCountInRadius).toBe(1)
+    expect(b.nodes.find((n) => n.id === 'db')).toMatchObject({ crownJewel: true, worstBand: 'critical' })
+    // worst across reachable: DB exfil 9.5 (critical); API RCE 8 live (high); SQLi is risk-accepted (muted).
+    expect(b.worstInRadius).toEqual({ band: 'critical', liveCount: 2 })
+  })
+
+  it('carries per-node boundary crossings + handled data', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    // shortest ext→api = ext→web→api: Web→API crosses EXIT DMZ + ENTER App = 2.
+    expect(b.nodes.find((n) => n.id === 'api').crossingCount).toBe(2)
+    expect(b.nodes.find((n) => n.id === 'db').dataHandled.map((d) => d.name)).toEqual(['PAN'])
+  })
+
+  it('direct (1-hop) scope collapses to immediate downstream neighbours', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'direct' })
+    expect(b.scope).toBe('direct')
+    expect(b.nodes.map((n) => n.id).sort()).toEqual(['web', 'web2'])
+    expect(b.nodes.every((n) => n.minHops === 1)).toBe(true)
+    expect(b.jewelCountInRadius).toBe(0)
+  })
+
+  it('defaults to full scope', () => {
+    expect(blastRadius(MG, LEDGER, 'ext').scope).toBe('full')
+    expect(blastRadius(MG, LEDGER, 'ext').reachableCount).toBe(6)
+  })
+
+  it('is forward-only: from DB the radius is just its downstream Leaf (no reverse leakage)', () => {
+    // DB has many things that can REACH it (ext, web, api…) but only Leaf downstream.
+    const b = blastRadius(MG, LEDGER, 'db', { scope: 'full' })
+    expect(b.nodes.map((n) => n.id)).toEqual(['leaf'])
+    expect(b.reachableCount).toBe(1)
+  })
+
+  it('a sink node reaches nothing — honest empty (not a throw, not "safe")', () => {
+    const b = blastRadius(MG, LEDGER, 'leaf', { scope: 'full' })
+    expect(b.hasOrigin).toBe(true)
+    expect(b.reachableCount).toBe(0)
+    expect(b.nodes).toEqual([])
+    expect(b.radiusNodeIds).toEqual(['leaf']) // origin still paints
+  })
+
+  it('an unknown origin id ⇒ hasOrigin false (no throw)', () => {
+    const b = blastRadius(MG, LEDGER, 'nope')
+    expect(b.hasOrigin).toBe(false)
+    expect(b.reachableCount).toBe(0)
+  })
+
+  it('exposes the minimap paint sets (cone nodes + internal edges) per scope', () => {
+    const full = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    expect(full.radiusNodeIds.sort()).toEqual(['api', 'cyc', 'db', 'ext', 'leaf', 'web', 'web2'])
+    // every flow whose BOTH endpoints sit in the cone (dangling fdangle excluded)
+    expect(full.radiusEdgeIds.sort()).toEqual(['f1', 'f2', 'f2b', 'f2c', 'f3', 'f4', 'f5', 'f6'])
+    const direct = blastRadius(MG, LEDGER, 'ext', { scope: 'direct' })
+    expect(direct.radiusNodeIds.sort()).toEqual(['ext', 'web', 'web2'])
+    expect(direct.radiusEdgeIds.sort()).toEqual(['f1', 'f2b']) // origin's outgoing only
   })
 })

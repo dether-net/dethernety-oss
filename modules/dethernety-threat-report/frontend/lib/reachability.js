@@ -241,6 +241,16 @@ function crossingsForHop(stackOfComponent, boundaryById, srcId, dstId) {
  * sensitivity + on-flow posture + EXIT/ENTER crossings. Pure join over
  * `modelGraph` + `ledger`.
  */
+/** The Data nodes a given element handles, shaped for the per-node data chips and
+ *  sorted most-sensitive-first then by name. Shared by annotateRoute (per route
+ *  node) and blastRadius (per reachable node). */
+function dataHandledByNode(dataNodes, id) {
+  return (Array.isArray(dataNodes) ? dataNodes : [])
+    .filter((d) => Array.isArray(d.handledBy) && d.handledBy.includes(id))
+    .map((d) => ({ id: d.id, name: d.name, sensitivity: d.sensitivity ?? null, sensitivityLabel: sensitivityLabel(d.sensitivity ?? null) }))
+    .sort((a, b) => (SENSITIVITY_RANK[b.sensitivity] ?? 0) - (SENSITIVITY_RANK[a.sensitivity] ?? 0) || String(a.name).localeCompare(String(b.name)))
+}
+
 export function annotateRoute(modelGraph, ledger, route) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
   const components = Array.isArray(mg.components) ? mg.components : []
@@ -253,11 +263,7 @@ export function annotateRoute(modelGraph, ledger, route) {
   const routeNodes = Array.isArray(route?.nodes) ? route.nodes : []
   const routeEdges = Array.isArray(route?.edges) ? route.edges : []
 
-  const dataByHandler = (id) =>
-    dataNodes
-      .filter((d) => Array.isArray(d.handledBy) && d.handledBy.includes(id))
-      .map((d) => ({ id: d.id, name: d.name, sensitivity: d.sensitivity ?? null, sensitivityLabel: sensitivityLabel(d.sensitivity ?? null) }))
-      .sort((a, b) => (SENSITIVITY_RANK[b.sensitivity] ?? 0) - (SENSITIVITY_RANK[a.sensitivity] ?? 0) || String(a.name).localeCompare(String(b.name)))
+  const dataByHandler = (id) => dataHandledByNode(dataNodes, id)
 
   const nodes = routeNodes.map((id) => {
     const c = componentById.get(id)
@@ -496,6 +502,121 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
  *  cross-ref join. Convenience accessor over a mode-A result. */
 export function crownJewelRouteElements(modeAResult) {
   return modeAResult?.routeElementToJewels ?? new Map()
+}
+
+// ─── Blast radius: forward flow-reachable set from one node ───────────────────
+
+/**
+ * The forward flow-reachable set from a single node — the containment lens:
+ * "if THIS node is compromised, how much of the modeled system is exposed?"
+ * The inverse framing of mode-A's assumed-breach origin: same node, but the
+ * ENTIRE forward cone instead of just the crown jewels.
+ *
+ * `scope: 'full'` → the full transitive forward closure (the true blast radius).
+ * `scope: 'direct'` → the immediate downstream neighbours only (1 hop).
+ *
+ * Forward direction only (downstream — an attacker pivoting OUT from the
+ * foothold). Cheap: a BFS closure + one bfsShortest per reachable node, NO route
+ * enumeration. Honesty: a node OUTSIDE the radius is NOT "safe/isolated" (it may
+ * be reachable via unmodeled flows or non-flow vectors); the count is a
+ * reachability measure, NEVER a risk score.
+ *
+ * @param {object} modelGraph
+ * @param {Array}  ledger
+ * @param {string} originId   the assumed-breached node
+ * @param {{ scope?: 'full'|'direct' }} [opts]
+ * @returns {object} the blast-radius view-model (see fields below)
+ */
+export function blastRadius(modelGraph, ledger, originId, opts = {}) {
+  const scope = opts.scope === 'direct' ? 'direct' : 'full'
+  const proj = buildProjection(modelGraph)
+  const dataNodes = Array.isArray(modelGraph?.dataNodes) ? modelGraph.dataNodes : []
+  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const { stackOfComponent, boundaryById } = makeStackResolver(modelGraph || {})
+
+  const componentTotal = proj.components.length
+  const origin = proj.componentById.get(originId)
+  const empty = {
+    originId: originId ?? null,
+    originName: origin?.name ?? null,
+    hasOrigin: Boolean(origin),
+    scope,
+    componentTotal,
+    reachableCount: 0,
+    nodes: [],
+    jewelsInRadius: [],
+    jewelCountInRadius: 0,
+    worstInRadius: { band: null, liveCount: 0 },
+    radiusNodeIds: origin ? [originId] : [],
+    radiusEdgeIds: [],
+  }
+  if (!origin) return { ...empty, hasOrigin: false }
+
+  // The reachable component set (INCLUDING origin).
+  const reachableSet =
+    scope === 'direct'
+      ? new Set([originId, ...(proj.forward.get(originId) ?? []).map((e) => e.to)])
+      : closure(proj.forward, new Set([originId]), (e) => e.to)
+
+  const reachableIds = [...reachableSet].filter((id) => id !== originId)
+  if (reachableIds.length === 0) return empty
+
+  const originIds = new Set([originId])
+  const nodes = reachableIds
+    .map((id) => {
+      const c = proj.componentById.get(id)
+      const p = postureOf(ledgerById.get(id))
+      const sp = bfsShortest(proj.forward, originIds, id)
+      let crossingCount = 0
+      for (let i = 0; i < sp.edges.length; i++) {
+        crossingCount += crossingsForHop(stackOfComponent, boundaryById, sp.nodes[i], sp.nodes[i + 1]).length
+      }
+      return {
+        id,
+        name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
+        type: c?.type ?? null,
+        minHops: sp.hops,
+        worstBand: p.worstBand,
+        liveCount: p.liveCount,
+        crownJewel: c?.crownJewel === true,
+        hasControl: p.hasControl,
+        crossingCount,
+        dataHandled: dataHandledByNode(dataNodes, id),
+      }
+    })
+    .sort((a, b) => {
+      const h = (a.minHops ?? Infinity) - (b.minHops ?? Infinity)
+      if (h !== 0) return h
+      const w = (BAND_RANK[b.worstBand] ?? -1) - (BAND_RANK[a.worstBand] ?? -1)
+      if (w !== 0) return w
+      return String(a.name).localeCompare(String(b.name))
+    })
+
+  const jewelsInRadius = nodes.filter((n) => n.crownJewel).map((n) => n.name)
+  const worstInRadius = worstBandOf(reachableIds, ledgerById)
+
+  // Flows inside the cone, for the minimap edge paint.
+  const radiusEdgeIds =
+    scope === 'direct'
+      ? (proj.forward.get(originId) ?? []).map((e) => e.flowId)
+      : proj.flows
+          .filter((f) => f.sourceId && f.targetId && reachableSet.has(f.sourceId) && reachableSet.has(f.targetId))
+          .map((f) => f.id)
+
+  return {
+    originId,
+    originName: origin.name ?? '',
+    hasOrigin: true,
+    scope,
+    componentTotal,
+    reachableCount: reachableIds.length,
+    nodes,
+    jewelsInRadius,
+    jewelCountInRadius: jewelsInRadius.length,
+    worstInRadius, // { band, liveCount }
+    radiusNodeIds: [originId, ...reachableIds],
+    radiusEdgeIds,
+  }
 }
 
 /** Band label helper (presentation aid; never a verdict). */

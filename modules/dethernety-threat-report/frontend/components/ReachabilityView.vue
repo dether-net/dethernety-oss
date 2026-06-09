@@ -48,6 +48,12 @@
         :aria-selected="subMode === 'B'"
         @click="setSubMode('B')"
       >Pick two</button>
+      <button
+        type="button" role="tab" class="trd-reach-mode"
+        :class="{ 'trd-reach-mode--active': subMode === 'C' }"
+        :aria-selected="subMode === 'C'"
+        @click="setSubMode('C')"
+      >Blast radius</button>
     </nav>
 
     <div class="trd-reach-body">
@@ -71,6 +77,7 @@
           <span v-if="subMode === 'B' && !mbTarget && mbOrigin">Pick the <strong>target</strong> node — enlarge the map (⤢) to click it, or choose below.</span>
           <span v-else-if="subMode === 'B' && !mbOrigin">Pick the <strong>origin</strong> node — enlarge the map (⤢) to click it, or choose below.</span>
           <span v-else-if="subMode === 'B'"><button type="button" class="trd-linkbtn" @click="resetPicks">reset selection</button></span>
+          <span v-else-if="subMode === 'C'">The <strong>blast radius</strong> from the selected node is highlighted on the model.</span>
           <span v-else>Crown jewels are <span class="trd-key-jewel">red</span>, external entry-points <span class="trd-key-entry">amber</span>. Highlight a route from the list.</span>
         </p>
 
@@ -165,7 +172,7 @@
       </div>
 
       <!-- ───────────────────── Mode B ───────────────────── -->
-      <div v-else class="trd-reach-main">
+      <div v-else-if="subMode === 'B'" class="trd-reach-main">
         <div class="trd-reach-pickers">
           <v-autocomplete
             v-model="mbOrigin" :items="componentItems" item-title="title" item-value="value"
@@ -244,6 +251,84 @@
           </ul>
         </template>
       </div>
+
+      <!-- ───────────────────── Blast radius (Mode C) ───────────────────── -->
+      <div v-else class="trd-reach-main">
+        <div class="trd-reach-origin">
+          <!-- :key forces a remount when brOrigin changes from OUTSIDE the field
+               (the "set as origin" onward-pivot) so the displayed selection stays
+               in sync — Vuetify keeps its own search text otherwise. Mode A gets
+               this for free via its B→A v-if remount; mode C pivots in place. -->
+          <v-autocomplete
+            :key="brOrigin"
+            v-model="brOrigin"
+            :items="componentItems"
+            item-title="title"
+            item-value="value"
+            label="Assume breached"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+            :menu-props="{ maxHeight: 320 }"
+          />
+          <!-- scope toggle: full forward closure vs the 1-hop ring -->
+          <div class="trd-br-scope" role="group" aria-label="Blast radius scope">
+            <button
+              type="button" class="trd-br-scope-btn"
+              :class="{ 'trd-br-scope-btn--on': brScope === 'full' }"
+              :aria-pressed="brScope === 'full'"
+              @click="brScope = 'full'"
+            >Full radius</button>
+            <button
+              type="button" class="trd-br-scope-btn"
+              :class="{ 'trd-br-scope-btn--on': brScope === 'direct' }"
+              :aria-pressed="brScope === 'direct'"
+              @click="brScope = 'direct'"
+            >Direct (1-hop)</button>
+          </div>
+        </div>
+
+        <!-- empty states (honest, never green) -->
+        <p v-if="!brOrigin" class="trd-empty">
+          Select a node to see its blast radius — the set of components reachable from it by
+          modeled flows (if that node were compromised).
+        </p>
+        <p v-else-if="blast && blast.reachableCount === 0" class="trd-empty">
+          <strong>{{ blast.originName }}</strong> reaches nothing downstream in the modeled flow graph —
+          a containment result, or a modeling gap (see the scope banner). <strong>Not</strong> a proof of
+          isolation: unmodeled flows or non-flow vectors are out of scope.
+        </p>
+
+        <template v-else-if="blast">
+          <div class="trd-reach-summary">
+            <strong>{{ blast.originName }}</strong> reaches <strong>{{ blast.reachableCount }}</strong>
+            of {{ blast.componentTotal - 1 }} other component{{ blast.componentTotal - 1 === 1 ? '' : 's' }}
+            <span v-if="blast.scope === 'direct'" class="trd-muted">· direct neighbours only</span>
+            <span v-if="blast.jewelCountInRadius" class="trd-jewel-ra">
+              · <span aria-hidden="true">⬢</span> {{ blast.jewelCountInRadius }} crown jewel{{ blast.jewelCountInRadius === 1 ? '' : 's' }} in radius
+            </span>
+            <span v-if="blast.worstInRadius.band" class="trd-band" :class="`trd-band--${blast.worstInRadius.band}`">
+              <span class="trd-dot" :class="`trd-dot--${blast.worstInRadius.band}`" aria-hidden="true">⬤</span> worst on reachable: {{ bandLabel(blast.worstInRadius.band) }}
+            </span>
+          </div>
+
+          <ul class="trd-jewels">
+            <li v-for="n in blast.nodes" :key="n.id" class="trd-jewel">
+              <div class="trd-jewel-head">
+                <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': n.crownJewel }" aria-hidden="true">{{ n.crownJewel ? '⬢' : '◉' }}</span>
+                <button type="button" class="trd-drill-mini trd-jewel-name" @click="$emit('drill', n.id)" :title="`Open ${n.name} profile`">{{ n.name }}</button>
+                <span class="trd-jewel-metric">{{ n.minHops }} hop{{ n.minHops === 1 ? '' : 's' }}<span v-if="n.crossingCount"> · {{ n.crossingCount }} crossing{{ n.crossingCount === 1 ? '' : 's' }}</span></span>
+                <span v-if="n.worstBand" class="trd-band" :class="`trd-band--${n.worstBand}`" :title="`worst live threat on this node`">
+                  <span class="trd-dot" :class="`trd-dot--${n.worstBand}`" aria-hidden="true">⬤</span> {{ bandLabel(n.worstBand) }}
+                </span>
+                <span v-for="d in n.dataHandled" :key="d.id" class="trd-sens" :class="`trd-sens--${dataSens(d.sensitivity).key}`" :title="`handles ${d.name}`">{{ dataSens(d.sensitivity).label }}</span>
+                <button type="button" class="trd-onward" @click="brOrigin = n.id" title="trace this node's own blast radius">▸ set as origin</button>
+              </div>
+            </li>
+          </ul>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -254,6 +339,7 @@
   import {
     modeAReachability,
     modeBRoutes,
+    blastRadius,
     externalEntryIds,
     crownJewelIds,
     bandLabel,
@@ -279,6 +365,9 @@
   const mbTarget = ref(null)
   const selectedRouteIdx = ref(0)
   const highlightedJewelId = ref(null)
+  // Blast radius (mode C): a concrete origin node + the full/direct scope toggle.
+  const brOrigin = ref(null)
+  const brScope = ref('full')
 
   // Component pick lists (sorted by name) for the autocompletes.
   const componentItems = computed(() =>
@@ -314,6 +403,11 @@
   // Keep the selected route index in range as the route set changes.
   watch(modeB, () => { selectedRouteIdx.value = 0 })
 
+  // Mode C — the forward blast radius of the chosen node (full closure or 1-hop).
+  const blast = computed(() =>
+    brOrigin.value ? blastRadius(props.modelGraph, props.ledger, brOrigin.value, { scope: brScope.value }) : null,
+  )
+
   // Minimap highlight: mode A = a chosen jewel's shortest route; mode B = the
   // selected route's nodes (or just the picks before a route exists).
   const mapHighlightIds = computed(() => {
@@ -322,6 +416,7 @@
       const j = modeA.value.jewels.find((x) => x.jewelId === highlightedJewelId.value)
       return j?.shortestPath?.nodes ?? []
     }
+    if (subMode.value === 'C') return blast.value?.radiusNodeIds ?? []
     const r = modeB.value?.routes?.[selectedRouteIdx.value]
     if (r) return r.nodes.map((n) => n.id)
     return [mbOrigin.value, mbTarget.value].filter(Boolean)
@@ -334,6 +429,7 @@
       const j = modeA.value.jewels.find((x) => x.jewelId === highlightedJewelId.value)
       return j?.shortestPath?.edges ?? []
     }
+    if (subMode.value === 'C') return blast.value?.radiusEdgeIds ?? []
     const r = modeB.value?.routes?.[selectedRouteIdx.value]
     return r ? r.hops.map((h) => h.flowId) : []
   })
@@ -422,11 +518,19 @@
   .trd-key-jewel { color: #c62828; font-weight: 600; }
   .trd-key-entry { color: #b9651b; font-weight: 600; }
 
-  .trd-reach-origin, .trd-reach-pickers { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; }
-  .trd-reach-origin { max-width: 420px; }
-  .trd-reach-origin :deep(.v-input), .trd-reach-pickers :deep(.v-input) { flex: 1 1 auto; }
+  .trd-reach-origin, .trd-reach-pickers { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; flex-wrap: wrap; }
+  .trd-reach-origin { max-width: 480px; }
+  .trd-reach-origin :deep(.v-input), .trd-reach-pickers :deep(.v-input) { flex: 1 1 220px; }
   .trd-reach-originlabel { font-size: 0.74rem; opacity: 0.6; white-space: nowrap; }
   .trd-reach-arrow { opacity: 0.5; }
+
+  /* Blast-radius scope toggle (full forward closure vs the 1-hop ring). */
+  .trd-br-scope { display: inline-flex; flex: 0 0 auto; border: 1px solid rgba(127, 127, 127, 0.3); border-radius: 4px; overflow: hidden; }
+  .trd-br-scope-btn { background: none; border: none; border-right: 1px solid rgba(127, 127, 127, 0.3); font: inherit; font-size: 0.76rem; padding: 0.3rem 0.6rem; color: inherit; opacity: 0.7; cursor: pointer; }
+  .trd-br-scope-btn:last-child { border-right: none; }
+  .trd-br-scope-btn:hover { background: rgba(127, 127, 127, 0.08); opacity: 1; }
+  .trd-br-scope-btn--on { background: rgba(0, 184, 212, 0.12); opacity: 1; font-weight: 600; box-shadow: inset 0 -2px 0 0 #00b8d4; }
+  .trd-br-scope-btn:focus-visible { outline: 2px solid #00b8d4; outline-offset: -2px; }
 
   .trd-reach-summary {
     display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center;
