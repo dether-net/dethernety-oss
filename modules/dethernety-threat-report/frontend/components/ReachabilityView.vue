@@ -69,7 +69,7 @@
           :highlight-ids="mapHighlightIds"
           :highlight-edge-ids="mapHighlightEdgeIds"
           :pending-ids="mapPendingIds"
-          :selectable="subMode === 'B'"
+          :selectable="subMode === 'B' || subMode === 'C'"
           variant="sidebar"
           @pick="onMapPick"
         />
@@ -77,7 +77,8 @@
           <span v-if="subMode === 'B' && !mbTarget && mbOrigin">Pick the <strong>target</strong> node — enlarge the map (⤢) to click it, or choose below.</span>
           <span v-else-if="subMode === 'B' && !mbOrigin">Pick the <strong>origin</strong> node — enlarge the map (⤢) to click it, or choose below.</span>
           <span v-else-if="subMode === 'B'"><button type="button" class="trd-linkbtn" @click="resetPicks">reset selection</button></span>
-          <span v-else-if="subMode === 'C'">The <strong>blast radius</strong> from the selected node is highlighted on the model.</span>
+          <span v-else-if="subMode === 'C' && !brOrigin"><strong>Click a node</strong> on the map (or choose below) to set the assumed-breached origin — enlarge (⤢) for easier clicks.</span>
+          <span v-else-if="subMode === 'C'">The <strong>blast radius</strong> from <strong>{{ blast && blast.originName }}</strong> is highlighted. Click another node to re-anchor.</span>
           <span v-else>Crown jewels are <span class="trd-key-jewel">red</span>, external entry-points <span class="trd-key-entry">amber</span>. Highlight a route from the list.</span>
         </p>
 
@@ -462,8 +463,10 @@
     subMode.value = 'A'
   }
 
-  // Mode B minimap click-to-pick: fill origin, then target, then reset.
+  // Minimap click-to-pick. Mode C (blast radius): a click sets the assumed-breach
+  // origin directly. Mode B (pick-two): fill origin, then target, then reset.
   const onMapPick = (id) => {
+    if (subMode.value === 'C') { brOrigin.value = id; return }
     if (subMode.value !== 'B') return
     if (!mbOrigin.value) mbOrigin.value = id
     else if (!mbTarget.value) mbTarget.value = id
