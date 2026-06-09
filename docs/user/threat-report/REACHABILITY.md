@@ -117,7 +117,7 @@ Where the first two modes ask *"can the attacker reach a specific target?"*, **B
 
 ### Choosing the node and the scope
 
-The **Assume breached** selector picks the origin node. A two-button toggle sets how far the radius extends:
+The **Assume breached** selector picks the origin node — or click any node directly on the minimap (enlarge it with ⤢ for easier clicks); clicking another node re-anchors the radius. A two-button toggle sets how far the radius extends:
 
 | Scope | What it shows |
 |---|---|
