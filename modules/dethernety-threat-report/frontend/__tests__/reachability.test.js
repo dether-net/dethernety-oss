@@ -6,6 +6,7 @@ import {
   annotateRoute,
   modeBRoutes,
   modeAReachability,
+  blastRadius,
   crownJewelRouteElements,
   externalEntryIds,
   crownJewelIds,
@@ -308,5 +309,124 @@ describe('honest empty states', () => {
     const a = modeAReachability(mg, LEDGER, { kind: 'external' })
     expect(a.hasOrigin).toBe(false)
     expect(a.reachableCount).toBe(0)
+  })
+})
+
+describe('blastRadius — forward flow-reachable set from a node', () => {
+  it('full closure from ext reaches the whole forward cone with correct min-hops', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    expect(b.hasOrigin).toBe(true)
+    expect(b.scope).toBe('full')
+    expect(b.componentTotal).toBe(8)
+    // ext ▶ web,web2 ▶ api ▶ db,cyc ▶ leaf  (cycle cyc→api dedups; vault unreachable)
+    expect(b.nodes.map((n) => n.id).sort()).toEqual(['api', 'cyc', 'db', 'leaf', 'web', 'web2'])
+    expect(b.reachableCount).toBe(6)
+    const hops = Object.fromEntries(b.nodes.map((n) => [n.id, n.minHops]))
+    expect(hops).toMatchObject({ web: 1, web2: 1, api: 2, db: 3, cyc: 3, leaf: 4 })
+  })
+
+  it('flags crown jewels caught in the radius and aggregates the worst LIVE band', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    expect(b.jewelsInRadius).toEqual(['DB'])
+    expect(b.jewelCountInRadius).toBe(1)
+    expect(b.nodes.find((n) => n.id === 'db')).toMatchObject({ crownJewel: true, worstBand: 'critical' })
+    // worst across the blast: DB exfil 9.5 (critical); API RCE 8 live (high); the
+    // in-cone flow f2/mitm (medium, live) also counts — SQLi is risk-accepted (muted).
+    // band = critical; liveCount = API(1) + DB(1) + f2(1) = 3.
+    expect(b.worstInRadius).toEqual({ band: 'critical', liveCount: 3 })
+  })
+
+  it('carries per-node NET origin→node boundary crossings (EXIT/ENTER chips) + handled data', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    // net ext(DMZ)→api(App): EXIT DMZ + ENTER App = 2 (not the per-hop path sum).
+    const api = b.nodes.find((n) => n.id === 'api')
+    expect(api.crossingCount).toBe(2)
+    expect(api.crossings.map((c) => `${c.direction}:${c.boundaryName}`)).toEqual(['EXIT:DMZ', 'ENTER:App'])
+    // web sits in the SAME boundary as ext ⇒ no crossing to reach it.
+    expect(b.nodes.find((n) => n.id === 'web').crossings).toEqual([])
+    expect(b.nodes.find((n) => n.id === 'db').dataHandled.map((d) => d.name)).toEqual(['PAN'])
+  })
+
+  it('summarises the distinct trust boundaries the blast crosses into', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    // reachable App-tier nodes are reached by EXIT DMZ + ENTER App ⇒ {App, DMZ}.
+    expect(b.boundariesCrossed.map((x) => x.boundaryName)).toEqual(['App', 'DMZ'])
+  })
+
+  it('a radius contained within the origin’s boundary crosses nothing (containment signal)', () => {
+    // From API: db, cyc, leaf are all in App with API ⇒ no boundary crossed.
+    const b = blastRadius(MG, LEDGER, 'api', { scope: 'full' })
+    expect(b.reachableCount).toBeGreaterThan(0)
+    expect(b.boundariesCrossed).toEqual([])
+    expect(b.nodes.every((n) => n.crossingCount === 0)).toBe(true)
+  })
+
+  it('net crossings are correct for NESTED boundaries (descendant = ENTER-only, ancestor = EXIT-only)', () => {
+    // Outer ⊃ Inner; `out` sits in Outer, `in` sits in Inner; flows both ways.
+    const nested = {
+      boundaries: [
+        { id: 'outer', name: 'Outer', parentBoundaryId: null },
+        { id: 'inner', name: 'Inner', parentBoundaryId: 'outer' },
+      ],
+      components: [
+        { id: 'out', name: 'Out', type: 'process', boundaryId: 'outer', crownJewel: false },
+        { id: 'in', name: 'In', type: 'process', boundaryId: 'inner', crownJewel: false },
+      ],
+      flows: [
+        { id: 'fd', name: 'down', sourceId: 'out', targetId: 'in', sensitivities: [], dataItemCount: 0 },
+        { id: 'fu', name: 'up', sourceId: 'in', targetId: 'out', sensitivities: [], dataItemCount: 0 },
+      ],
+      dataNodes: [],
+    }
+    // origin Outer → node Inner (descendant): ENTER Inner only, no spurious EXIT Outer.
+    const down = blastRadius(nested, [], 'out', { scope: 'direct' })
+    expect(down.nodes.find((n) => n.id === 'in').crossings.map((c) => `${c.direction}:${c.boundaryName}`)).toEqual(['ENTER:Inner'])
+    // origin Inner → node Outer (ancestor): EXIT Inner only, no spurious ENTER Outer.
+    const up = blastRadius(nested, [], 'in', { scope: 'direct' })
+    expect(up.nodes.find((n) => n.id === 'out').crossings.map((c) => `${c.direction}:${c.boundaryName}`)).toEqual(['EXIT:Inner'])
+  })
+
+  it('direct (1-hop) scope collapses to immediate downstream neighbours', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'direct' })
+    expect(b.scope).toBe('direct')
+    expect(b.nodes.map((n) => n.id).sort()).toEqual(['web', 'web2'])
+    expect(b.nodes.every((n) => n.minHops === 1)).toBe(true)
+    expect(b.jewelCountInRadius).toBe(0)
+  })
+
+  it('defaults to full scope', () => {
+    expect(blastRadius(MG, LEDGER, 'ext').scope).toBe('full')
+    expect(blastRadius(MG, LEDGER, 'ext').reachableCount).toBe(6)
+  })
+
+  it('is forward-only: from DB the radius is just its downstream Leaf (no reverse leakage)', () => {
+    // DB has many things that can REACH it (ext, web, api…) but only Leaf downstream.
+    const b = blastRadius(MG, LEDGER, 'db', { scope: 'full' })
+    expect(b.nodes.map((n) => n.id)).toEqual(['leaf'])
+    expect(b.reachableCount).toBe(1)
+  })
+
+  it('a sink node reaches nothing — honest empty (not a throw, not "safe")', () => {
+    const b = blastRadius(MG, LEDGER, 'leaf', { scope: 'full' })
+    expect(b.hasOrigin).toBe(true)
+    expect(b.reachableCount).toBe(0)
+    expect(b.nodes).toEqual([])
+    expect(b.radiusNodeIds).toEqual(['leaf']) // origin still paints
+  })
+
+  it('an unknown origin id ⇒ hasOrigin false (no throw)', () => {
+    const b = blastRadius(MG, LEDGER, 'nope')
+    expect(b.hasOrigin).toBe(false)
+    expect(b.reachableCount).toBe(0)
+  })
+
+  it('exposes the minimap paint sets (cone nodes + internal edges) per scope', () => {
+    const full = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    expect(full.radiusNodeIds.sort()).toEqual(['api', 'cyc', 'db', 'ext', 'leaf', 'web', 'web2'])
+    // every flow whose BOTH endpoints sit in the cone (dangling fdangle excluded)
+    expect(full.radiusEdgeIds.sort()).toEqual(['f1', 'f2', 'f2b', 'f2c', 'f3', 'f4', 'f5', 'f6'])
+    const direct = blastRadius(MG, LEDGER, 'ext', { scope: 'direct' })
+    expect(direct.radiusNodeIds.sort()).toEqual(['ext', 'web', 'web2'])
+    expect(direct.radiusEdgeIds.sort()).toEqual(['f1', 'f2b']) // origin's outgoing only
   })
 })

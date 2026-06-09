@@ -15,16 +15,17 @@ Before you read any of that, read this once: **these are flow routes, not attack
 
 ---
 
-## Two Ways to Trace
+## Three Ways to Trace
 
-The tab opens on a short caveat line and a two-button toggle:
+The tab opens on a short caveat line and a three-button toggle:
 
 | Mode | Button | Use it to |
 |---|---|---|
 | **Crown-jewel reachability** | `Crown-jewel reachability` | Rank your crown jewels by whether — and how directly — they can be reached from a chosen origin. |
 | **Pick two** | `Pick two` | Trace and read the individual flow routes between any two elements you select. |
+| **Blast radius** | `Blast radius` | Pick one node and see *everything* it can reach by modeled flows — the containment question: "if this were compromised, how far does it spread?" |
 
-A faithful minimap of your model sits alongside both modes. It paints the active route so you can see it in the shape of your real diagram, and in **Pick two** it doubles as a way to choose your endpoints by clicking nodes.
+A faithful minimap of your model sits alongside all three modes. It paints the active route — or, in **Blast radius**, the whole reachable cone — so you can see it in the shape of your real diagram, and in **Pick two** it doubles as a way to choose your endpoints by clicking nodes.
 
 > **Crown jewels come first.** A crown jewel is a component you have flagged as a high-value asset (the crown toggle on a component's settings). If no component in the model is flagged, **Crown-jewel reachability** has nothing to rank — it tells you so and points you to **Pick two**, which traces routes between any elements regardless of flagging.
 
@@ -110,6 +111,42 @@ This banner is persistent — it stays on screen and travels into exports. The t
 
 ---
 
+## Blast Radius
+
+Where the first two modes ask *"can the attacker reach a specific target?"*, **Blast radius** asks the **containment** question: *if this one node were compromised, how much of the model is exposed?* You pick a node — its assumed-breach origin — and the tab shows every component reachable from it by following modeled flows downstream.
+
+### Choosing the node and the scope
+
+The **Assume breached** selector picks the origin node — or click any node directly on the minimap (enlarge it with ⤢ for easier clicks); clicking another node re-anchors the radius. A two-button toggle sets how far the radius extends:
+
+| Scope | What it shows |
+|---|---|
+| **Full radius** (default) | Every component transitively reachable downstream — the complete blast radius. Each node is labelled with how many hops away it is. |
+| **Direct (1-hop)** | Only the immediate downstream neighbours — the nodes one flow away. |
+
+The radius is **forward only**: it follows flow direction outward from the node (where an attacker could pivot *to*), never backward toward it.
+
+### Reading the radius
+
+A summary line reports the triage signals — for example `Storefront reaches 5 of 6 other components · ⬢ 3 crown jewels in radius · worst in radius: Critical`. Directly below it, a **containment row** lists the distinct trust boundaries the blast crosses — `Crosses 2 trust boundaries: DMZ, App` (each name clickable into its profile). If no modeled flow leaves the origin's own boundary, that row reads `No modeled flow leaves its boundary — a containment signal, not a segmentation guarantee` instead.
+
+Below that, each reachable node is a row, ordered nearest-first:
+
+| You see | It means |
+|---|---|
+| `⬢` before the name | This reachable node is a crown jewel — a high-value asset caught in the radius. |
+| `N hops` | The fewest flow steps to reach it from the origin. |
+| `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. This is the *net* origin→node delta, not a per-hop tally — so a node that sits back in the origin's own zone shows `· same zone as origin` rather than chips, even if it is several hops away. |
+| A severity dot + band | The worst live threat sitting on that reachable node. |
+| A sensitivity chip | Sensitive data that node handles. |
+| `▸ set as origin` | Re-anchor the radius to *that* node — trace its own blast radius, step by step outward. |
+
+The whole reachable cone is painted on the minimap at once, so you can see the spread in the shape of your real diagram.
+
+> **An empty radius is a containment result, not a clean bill of health.** If a node reaches nothing downstream, the tab says so plainly — and immediately adds that this is **not** a proof of isolation. Unmodeled flows, shared credentials, and non-flow vectors are all outside what this view can see. Read it as "no *modeled flow* spreads from here," never as "this node is safely contained." The blast radius is a reachability count, never a risk score.
+
+---
+
 ## The Minimap and the Route Legend
 
 The minimap is a small, faithful copy of your hand-laid diagram — it uses your real layout, not an auto-generated one. It serves both modes:
@@ -164,7 +201,8 @@ Within those limits, the tab earns its place in a review:
 - **Validate segmentation intent.** You believe a sensitive store should only be reachable through a gateway. Set the store as a **Pick two** target (or check it in crown-jewel mode) and confirm every route passes through the boundary and node you expect. A route that skips them is a modeling finding worth investigating — either the model is wrong, or your segmentation is.
 - **Spot unexpectedly short routes to crown jewels.** A crown jewel reachable from external entry in one hop is worth a second look. The hop count won't tell you it's exploitable, but a surprisingly direct *modeled* connection is exactly the kind of thing a design review should question.
 - **Find sensitive data crossing boundaries.** Read the sensitivity chips and `EXIT`/`ENTER` signs along a route to see where `Restricted` or `Confidential` data leaves one boundary and enters another. That tells you where to focus controls and where to look harder in [Boundary Crossings](./READING_THE_REPORT.md).
-- **Walk an assumed-breach what-if.** Pick a node as the origin and use **onward** to step through what the topology connects to from there — a structured way to explore blast-radius *in the model*, framed honestly as topology rather than prediction.
+- **Walk an assumed-breach what-if.** Pick a node as the origin and use **onward** to step through what the topology connects to from there — a structured way to explore reach *in the model*, framed honestly as topology rather than prediction.
+- **Size a node's blast radius.** Use **Blast radius** to ask the containment question directly: if this node fell, how many components — and which crown jewels — does a modeled flow reach from it? A surprisingly wide radius is a segmentation prompt; a narrow one is a containment signal (not a safety guarantee). Use **set as origin** to walk the spread node by node.
 
 ---
 

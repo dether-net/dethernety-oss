@@ -131,7 +131,7 @@ given and describes where they are enforced.
 | [`aggregateLedger.js`](../../../modules/dethernety-threat-report/frontend/lib/aggregateLedger.js) | The base aggregation over the snapshot `ledger`: per-element live/dispositioned partition, score-band annotation, USER/SYSTEM provenance, control-consistency audit. Also **derives each finding's lifecycle** (`pending \| confirmed \| disposed`) from `dispositionKind` + provenance — never stored, recomputed at view time, mirroring the dt-ui `useFindingDisposition` composable so report and editor agree. The rules: `AFFIRMED` with an attributed actor → **confirmed**; `AFFIRMED` with a null actor → **pending** (an unattributed affirm is not a real confirmation); no disposition + USER-authored → **confirmed**; no disposition + SYSTEM-authored (or null) → **pending**; any muting kind → **disposed**. **AFFIRMED is treated as live** (`isLive` = `dispositionKind` is null **or** `=== 'AFFIRMED'`). The shared substrate the other engines reuse. |
 | [`postureSummary.js`](../../../modules/dethernety-threat-report/frontend/lib/postureSummary.js) | Composes the ledger aggregation plus the boundary-crossing counts into the Posture Summary roll-up. The only aggregating surface; introduces no new analysis. |
 | [`coverageMatrix.js`](../../../modules/dethernety-threat-report/frontend/lib/coverageMatrix.js) | The MITRE ATT&CK coverage presentation/honesty layer: joins live coverage facts to the ledger for disposition, buckets by tactic × tier × prevent/detect, and accounts for everything held off the grid. |
-| [`reachability.js`](../../../modules/dethernety-threat-report/frontend/lib/reachability.js) | The flow-route engine: a pure, bounded, simple-path traversal over the snapshot topology for crown-jewel reachability and origin→target route enumeration. |
+| [`reachability.js`](../../../modules/dethernety-threat-report/frontend/lib/reachability.js) | The flow-route engine: a pure, bounded, simple-path traversal over the snapshot topology for crown-jewel reachability, origin→target route enumeration, and a node's forward blast radius (`blastRadius()`). |
 | [`boundaryCrossings.js`](../../../modules/dethernety-threat-report/frontend/lib/boundaryCrossings.js) | The structural boundary-crossing engine: ancestor-stack resolution, the EXIT/ENTER symmetric-difference crossing model, on-flow and crossed-boundary posture. |
 | [`componentProfile.js`](../../../modules/dethernety-threat-report/frontend/lib/componentProfile.js) | Synthesises a single element's residual-risk profile: boundary context, handled data, exposures, controls, and 1-hop neighbours. |
 | [`completenessFlags.js`](../../../modules/dethernety-threat-report/frontend/lib/completenessFlags.js) | Model-wide "silent-green" guards: under-analyzed high-value elements, orphan components outside any boundary. Surfaced banner-first. |
@@ -241,15 +241,27 @@ a single completeness line instead of N empty cells. When the coverage module is
 not deployed the view renders a no-coverage affordance rather than an empty grid.
 
 **Reachability** is the flow-route view over the pure `reachability.js` engine. It
-offers two modes sharing one engine and one minimap: a crown-jewel mode that, from
-a selectable origin (external entry points by default, or any node as an
+offers three modes sharing one engine and one minimap: a **crown-jewel** mode that,
+from a selectable origin (external entry points by default, or any node as an
 assumed-breach origin), reports which crown jewels are reachable, in how few hops,
-and what threats sit on the route; and a pick-two mode where two pickers (or the
+and what threats sit on the route; a **pick-two** mode where two pickers (or the
 expanded minimap as a click-to-pick surface) drive origin→target route
-enumeration. The engine is strictly topological and bounded — simple paths
-enforced by a visited-set, hop/route/step ceilings to keep the synchronous
-compute cheap — and is careful in its language: these are *flow routes*, an
-unreachable crown jewel is reported as a modeling gap, never as "safe".
+enumeration; and a **blast-radius** mode (`blastRadius()`) — the containment lens —
+that takes one node and shows its forward flow-reachable set (the inverse framing
+of crown-jewel mode: same assumed-breach origin, but the *entire forward cone*
+instead of just the jewels). Blast radius carries a **scope toggle** — *full*
+forward closure (the BFS `closure`, the true blast radius) vs *direct* 1-hop
+neighbours — and is forward-only; each reachable node is annotated with its
+min-hops, the **net** origin→node boundary crossings (EXIT/ENTER, drillable, the
+Boundary Crossings vocabulary — not the per-hop path sum), worst live band,
+crown-jewel flag and carried data, plus a radius-level "crosses N trust
+boundaries" containment row (or "no modeled flow leaves its boundary"). The
+worst-in-radius band counts threats on in-cone flows too (not just components),
+matching mode A. An onward-pivot ("set as origin") re-anchors to trace any
+reachable node's own radius. The engine is strictly topological and bounded — simple paths enforced by
+a visited-set, hop/route/step ceilings to keep the synchronous compute cheap — and
+is careful in its language: these are *flow routes*; an unreachable crown jewel, or
+a node outside a blast radius, is a modeling gap, **never** "safe" or "isolated".
 
 **Boundary Crossings** renders the structural crossings from `computeCrossings`.
 A crossing is the symmetric difference of the two flow endpoints' ancestor-
