@@ -334,11 +334,29 @@ describe('blastRadius — forward flow-reachable set from a node', () => {
     expect(b.worstInRadius).toEqual({ band: 'critical', liveCount: 2 })
   })
 
-  it('carries per-node boundary crossings + handled data', () => {
+  it('carries per-node NET origin→node boundary crossings (EXIT/ENTER chips) + handled data', () => {
     const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
-    // shortest ext→api = ext→web→api: Web→API crosses EXIT DMZ + ENTER App = 2.
-    expect(b.nodes.find((n) => n.id === 'api').crossingCount).toBe(2)
+    // net ext(DMZ)→api(App): EXIT DMZ + ENTER App = 2 (not the per-hop path sum).
+    const api = b.nodes.find((n) => n.id === 'api')
+    expect(api.crossingCount).toBe(2)
+    expect(api.crossings.map((c) => `${c.direction}:${c.boundaryName}`)).toEqual(['EXIT:DMZ', 'ENTER:App'])
+    // web sits in the SAME boundary as ext ⇒ no crossing to reach it.
+    expect(b.nodes.find((n) => n.id === 'web').crossings).toEqual([])
     expect(b.nodes.find((n) => n.id === 'db').dataHandled.map((d) => d.name)).toEqual(['PAN'])
+  })
+
+  it('summarises the distinct trust boundaries the blast crosses into', () => {
+    const b = blastRadius(MG, LEDGER, 'ext', { scope: 'full' })
+    // reachable App-tier nodes are reached by EXIT DMZ + ENTER App ⇒ {App, DMZ}.
+    expect(b.boundariesCrossed.map((x) => x.boundaryName)).toEqual(['App', 'DMZ'])
+  })
+
+  it('a radius contained within the origin’s boundary crosses nothing (containment signal)', () => {
+    // From API: db, cyc, leaf are all in App with API ⇒ no boundary crossed.
+    const b = blastRadius(MG, LEDGER, 'api', { scope: 'full' })
+    expect(b.reachableCount).toBeGreaterThan(0)
+    expect(b.boundariesCrossed).toEqual([])
+    expect(b.nodes.every((n) => n.crossingCount === 0)).toBe(true)
   })
 
   it('direct (1-hop) scope collapses to immediate downstream neighbours', () => {

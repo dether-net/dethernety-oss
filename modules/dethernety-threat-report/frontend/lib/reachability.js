@@ -547,6 +547,7 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
     jewelsInRadius: [],
     jewelCountInRadius: 0,
     worstInRadius: { band: null, liveCount: 0 },
+    boundariesCrossed: [],
     radiusNodeIds: origin ? [originId] : [],
     radiusEdgeIds: [],
   }
@@ -567,10 +568,12 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
       const c = proj.componentById.get(id)
       const p = postureOf(ledgerById.get(id))
       const sp = bfsShortest(proj.forward, originIds, id)
-      let crossingCount = 0
-      for (let i = 0; i < sp.edges.length; i++) {
-        crossingCount += crossingsForHop(stackOfComponent, boundaryById, sp.nodes[i], sp.nodes[i + 1]).length
-      }
+      // The NET boundary delta from the breached origin to this node (the
+      // trust-zone crossing) — EXIT the origin's boundaries, ENTER the node's —
+      // NOT the per-hop path sum. The containment-relevant "which zones the blast
+      // crosses into to reach this asset", drillable like the Boundary Crossings
+      // tab. crossingsForHop is direction-agnostic structural (origin↔node here).
+      const crossings = crossingsForHop(stackOfComponent, boundaryById, originId, id)
       return {
         id,
         name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
@@ -580,7 +583,8 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
         liveCount: p.liveCount,
         crownJewel: c?.crownJewel === true,
         hasControl: p.hasControl,
-        crossingCount,
+        crossings, // [{ boundaryId, boundaryName, direction: 'EXIT'|'ENTER' }]
+        crossingCount: crossings.length,
         dataHandled: dataHandledByNode(dataNodes, id),
       }
     })
@@ -594,6 +598,20 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
 
   const jewelsInRadius = nodes.filter((n) => n.crownJewel).map((n) => n.name)
   const worstInRadius = worstBandOf(reachableIds, ledgerById)
+
+  // The distinct trust boundaries the blast crosses into — the union of every
+  // node's net origin→node crossings. Empty ⇒ the blast stays within the origin's
+  // own boundary (a containment signal, never proof of safety).
+  const boundariesCrossed = []
+  const seenBoundary = new Set()
+  for (const n of nodes) {
+    for (const cx of n.crossings) {
+      if (seenBoundary.has(cx.boundaryId)) continue
+      seenBoundary.add(cx.boundaryId)
+      boundariesCrossed.push({ boundaryId: cx.boundaryId, boundaryName: cx.boundaryName })
+    }
+  }
+  boundariesCrossed.sort((a, b) => String(a.boundaryName).localeCompare(String(b.boundaryName)))
 
   // Flows inside the cone, for the minimap edge paint.
   const radiusEdgeIds =
@@ -614,6 +632,7 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
     jewelsInRadius,
     jewelCountInRadius: jewelsInRadius.length,
     worstInRadius, // { band, liveCount }
+    boundariesCrossed, // distinct trust boundaries the blast crosses into
     radiusNodeIds: [originId, ...reachableIds],
     radiusEdgeIds,
   }

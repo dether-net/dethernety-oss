@@ -312,6 +312,16 @@
             <span v-if="blast.worstInRadius.band" class="trd-band" :class="`trd-band--${blast.worstInRadius.band}`">
               <span class="trd-dot" :class="`trd-dot--${blast.worstInRadius.band}`" aria-hidden="true">⬤</span> worst on reachable: {{ bandLabel(blast.worstInRadius.band) }}
             </span>
+            <!-- containment headline: which trust zones the blast crosses into, or stays within one -->
+            <span v-if="blast.boundariesCrossed.length" class="trd-br-zones">
+              · crosses {{ blast.boundariesCrossed.length }} trust boundar{{ blast.boundariesCrossed.length === 1 ? 'y' : 'ies' }}:
+              <button
+                v-for="b in blast.boundariesCrossed" :key="b.boundaryId"
+                type="button" class="trd-drill-mini trd-br-zone"
+                @click="$emit('drill', b.boundaryId)" :title="`Open ${b.boundaryName} profile`"
+              >{{ b.boundaryName }}</button>
+            </span>
+            <span v-else-if="blast.reachableCount" class="trd-muted">· stays within its boundary</span>
           </div>
 
           <ul class="trd-jewels">
@@ -319,7 +329,13 @@
               <div class="trd-jewel-head">
                 <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': n.crownJewel }" aria-hidden="true">{{ n.crownJewel ? '⬢' : '◉' }}</span>
                 <button type="button" class="trd-drill-mini trd-jewel-name" @click="$emit('drill', n.id)" :title="`Open ${n.name} profile`">{{ n.name }}</button>
-                <span class="trd-jewel-metric">{{ n.minHops }} hop{{ n.minHops === 1 ? '' : 's' }}<span v-if="n.crossingCount"> · {{ n.crossingCount }} crossing{{ n.crossingCount === 1 ? '' : 's' }}</span></span>
+                <span class="trd-jewel-metric">{{ n.minHops }} hop{{ n.minHops === 1 ? '' : 's' }}</span>
+                <!-- net boundary crossings from the breached origin to this node (EXIT ◂ / ENTER ▸), drillable -->
+                <button
+                  v-for="(c, ci) in n.crossings" :key="ci"
+                  type="button" class="trd-cross trd-cross-btn" :class="`trd-cross--${c.direction.toLowerCase()}`"
+                  @click="$emit('drill', c.boundaryId)" :title="`Open ${c.boundaryName} profile (${c.direction})`"
+                >{{ c.direction === 'EXIT' ? '◂' : '▸' }} {{ c.boundaryName }}</button>
                 <span v-if="n.worstBand" class="trd-band" :class="`trd-band--${n.worstBand}`" :title="`worst live threat on this node`">
                   <span class="trd-dot" :class="`trd-dot--${n.worstBand}`" aria-hidden="true">⬤</span> {{ bandLabel(n.worstBand) }}
                 </span>
@@ -534,6 +550,14 @@
   .trd-br-scope-btn:hover { background: rgba(127, 127, 127, 0.08); opacity: 1; }
   .trd-br-scope-btn--on { background: rgba(0, 184, 212, 0.12); opacity: 1; font-weight: 600; box-shadow: inset 0 -2px 0 0 #00b8d4; }
   .trd-br-scope-btn:focus-visible { outline: 2px solid #00b8d4; outline-offset: -2px; }
+
+  /* Radius-level "crosses N trust boundaries" chips (drill into the boundary). */
+  .trd-br-zones { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+  .trd-br-zone {
+    font-size: 0.74rem; border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 10px;
+    padding: 0 8px; background: transparent; color: inherit; cursor: pointer; opacity: 0.85;
+  }
+  .trd-br-zone:hover { border-color: #00b8d4; color: #00b8d4; opacity: 1; }
 
   .trd-reach-summary {
     display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center;
