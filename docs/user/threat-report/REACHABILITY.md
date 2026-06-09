@@ -128,15 +128,15 @@ The radius is **forward only**: it follows flow direction outward from the node 
 
 ### Reading the radius
 
-A summary line reports the reach — for example `Storefront reaches 5 of 6 other components · ⬢ 3 crown jewels in radius · worst on reachable: Critical · crosses 2 trust boundaries: DMZ, App`. That last part is the **containment headline**: the distinct trust boundaries the blast crosses into. If the radius stays inside the origin's own boundary, it reads `stays within its boundary` instead — a containment signal (not a safety guarantee). Each boundary name is clickable into its profile.
+A summary line reports the triage signals — for example `Storefront reaches 5 of 6 other components · ⬢ 3 crown jewels in radius · worst in radius: Critical`. Directly below it, a **containment row** lists the distinct trust boundaries the blast crosses — `Crosses 2 trust boundaries: DMZ, App` (each name clickable into its profile). If no modeled flow leaves the origin's own boundary, that row reads `No modeled flow leaves its boundary — a containment signal, not a segmentation guarantee` instead.
 
-Below the summary, each reachable node is a row, ordered nearest-first:
+Below that, each reachable node is a row, ordered nearest-first:
 
 | You see | It means |
 |---|---|
 | `⬢` before the name | This reachable node is a crown jewel — a high-value asset caught in the radius. |
 | `N hops` | The fewest flow steps to reach it from the origin. |
-| `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. No chips means the node sits in the origin's own boundary. |
+| `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. This is the *net* origin→node delta, not a per-hop tally — so a node that sits back in the origin's own zone shows `· same zone as origin` rather than chips, even if it is several hops away. |
 | A severity dot + band | The worst live threat sitting on that reachable node. |
 | A sensitivity chip | Sensitive data that node handles. |
 | `▸ set as origin` | Re-anchor the radius to *that* node — trace its own blast radius, step by step outward. |

@@ -255,9 +255,10 @@ neighbours — and is forward-only; each reachable node is annotated with its
 min-hops, the **net** origin→node boundary crossings (EXIT/ENTER, drillable, the
 Boundary Crossings vocabulary — not the per-hop path sum), worst live band,
 crown-jewel flag and carried data, plus a radius-level "crosses N trust
-boundaries" containment headline (or "stays within its boundary"). An
-onward-pivot ("set as origin") re-anchors to trace any reachable node's own
-radius. The engine is strictly topological and bounded — simple paths enforced by
+boundaries" containment row (or "no modeled flow leaves its boundary"). The
+worst-in-radius band counts threats on in-cone flows too (not just components),
+matching mode A. An onward-pivot ("set as origin") re-anchors to trace any
+reachable node's own radius. The engine is strictly topological and bounded — simple paths enforced by
 a visited-set, hop/route/step ceilings to keep the synchronous compute cheap — and
 is careful in its language: these are *flow routes*; an unreachable crown jewel, or
 a node outside a blast radius, is a modeling gap, **never** "safe" or "isolated".
