@@ -597,11 +597,25 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
     })
 
   const jewelsInRadius = nodes.filter((n) => n.crownJewel).map((n) => n.name)
-  const worstInRadius = worstBandOf(reachableIds, ledgerById)
 
-  // The distinct trust boundaries the blast crosses into — the union of every
-  // node's net origin→node crossings. Empty ⇒ the blast stays within the origin's
-  // own boundary (a containment signal, never proof of safety).
+  // Flows inside the cone (both endpoints reachable), for the minimap edge paint
+  // AND the worst-in-radius band — the blast traverses these flows, so a live
+  // threat ON a flow counts toward the worst threat in the blast (mode A does the
+  // same with its on-route flows; component-only would understate it).
+  const radiusEdgeIds =
+    scope === 'direct'
+      ? (proj.forward.get(originId) ?? []).map((e) => e.flowId)
+      : proj.flows
+          .filter((f) => f.sourceId && f.targetId && reachableSet.has(f.sourceId) && reachableSet.has(f.targetId))
+          .map((f) => f.id)
+
+  const worstInRadius = worstBandOf([...reachableIds, ...radiusEdgeIds], ledgerById)
+
+  // The distinct trust boundaries separating the origin from the reached assets —
+  // the union of every node's NET origin→node crossings (not the per-hop path).
+  // Empty ⇒ no modeled flow leaves the origin's own boundary (a containment
+  // signal, never proof of safety: unmodeled flows / non-flow vectors are out of
+  // scope).
   const boundariesCrossed = []
   const seenBoundary = new Set()
   for (const n of nodes) {
@@ -612,14 +626,6 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
     }
   }
   boundariesCrossed.sort((a, b) => String(a.boundaryName).localeCompare(String(b.boundaryName)))
-
-  // Flows inside the cone, for the minimap edge paint.
-  const radiusEdgeIds =
-    scope === 'direct'
-      ? (proj.forward.get(originId) ?? []).map((e) => e.flowId)
-      : proj.flows
-          .filter((f) => f.sourceId && f.targetId && reachableSet.has(f.sourceId) && reachableSet.has(f.targetId))
-          .map((f) => f.id)
 
   return {
     originId,

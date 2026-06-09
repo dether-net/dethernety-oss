@@ -2,7 +2,7 @@
   ReachabilityView.vue — the Flow-Route / Reachability view.
 
   Presentational over the pure `reachability.js` engine (client-side, simple-path,
-  bounded). TWO modes share one engine + one minimap:
+  bounded). THREE modes share one engine + one minimap:
 
     • Mode A — Crown-Jewel Reachability: from a SELECTABLE origin (default
       External entry-points; or any node as an assumed-breach origin) → which
@@ -15,6 +15,12 @@
       route enumeration; the expanded minimap is a co-equal click-to-pick surface
       (first click = pending dashed, second = commit, third = reset). The selected
       route renders as a linearised "subway strip".
+
+    • Mode C — Blast radius: ONE node (autocomplete or a minimap click) as the
+      assumed-breach origin → its forward flow-reachable set (the containment
+      lens). A Full/Direct scope toggle (full forward closure vs the 1-hop ring);
+      each reachable node carries hops, NET origin→node boundary crossings, worst
+      band, crown-jewel flag and carried data; "set as origin" re-anchors.
 
   HONESTY: these are FLOW ROUTES and the threats on them — NEVER
   "attack paths". The model is TOPOLOGICAL (hop count is proximity, not effort; it
@@ -297,11 +303,12 @@
         </p>
         <p v-else-if="blast && blast.reachableCount === 0" class="trd-empty">
           <strong>{{ blast.originName }}</strong> reaches nothing downstream in the modeled flow graph —
-          a containment result, or a modeling gap (see the scope banner). <strong>Not</strong> a proof of
+          a modeling gap, or a genuine containment result (see the scope banner). <strong>Not</strong> a proof of
           isolation: unmodeled flows or non-flow vectors are out of scope.
         </p>
 
         <template v-else-if="blast">
+          <!-- The triage signals first (reach · crown jewels · worst band) … -->
           <div class="trd-reach-summary">
             <strong>{{ blast.originName }}</strong> reaches <strong>{{ blast.reachableCount }}</strong>
             of {{ blast.componentTotal - 1 }} other component{{ blast.componentTotal - 1 === 1 ? '' : 's' }}
@@ -310,19 +317,23 @@
               · <span aria-hidden="true">⬢</span> {{ blast.jewelCountInRadius }} crown jewel{{ blast.jewelCountInRadius === 1 ? '' : 's' }} in radius
             </span>
             <span v-if="blast.worstInRadius.band" class="trd-band" :class="`trd-band--${blast.worstInRadius.band}`">
-              <span class="trd-dot" :class="`trd-dot--${blast.worstInRadius.band}`" aria-hidden="true">⬤</span> worst on reachable: {{ bandLabel(blast.worstInRadius.band) }}
+              <span class="trd-dot" :class="`trd-dot--${blast.worstInRadius.band}`" aria-hidden="true">⬤</span> worst in radius: {{ bandLabel(blast.worstInRadius.band) }}
             </span>
-            <!-- containment headline: which trust zones the blast crosses into, or stays within one -->
-            <span v-if="blast.boundariesCrossed.length" class="trd-br-zones">
-              · crosses {{ blast.boundariesCrossed.length }} trust boundar{{ blast.boundariesCrossed.length === 1 ? 'y' : 'ies' }}:
+          </div>
+
+          <!-- … then the containment detail on its own row, so a long boundary list
+               can't bury the triage signals above. -->
+          <p class="trd-br-cross">
+            <template v-if="blast.boundariesCrossed.length">
+              Crosses {{ blast.boundariesCrossed.length }} trust boundar{{ blast.boundariesCrossed.length === 1 ? 'y' : 'ies' }}:
               <button
                 v-for="b in blast.boundariesCrossed" :key="b.boundaryId"
                 type="button" class="trd-drill-mini trd-br-zone"
                 @click="$emit('drill', b.boundaryId)" :title="`Open ${b.boundaryName} profile`"
               >{{ b.boundaryName }}</button>
-            </span>
-            <span v-else-if="blast.reachableCount" class="trd-muted">· stays within its boundary</span>
-          </div>
+            </template>
+            <span v-else class="trd-muted">No modeled flow leaves its boundary <span class="trd-br-cross-note">— a containment signal, not a segmentation guarantee</span></span>
+          </p>
 
           <ul class="trd-jewels">
             <li v-for="n in blast.nodes" :key="n.id" class="trd-jewel">
@@ -336,6 +347,8 @@
                   type="button" class="trd-cross trd-cross-btn" :class="`trd-cross--${c.direction.toLowerCase()}`"
                   @click="$emit('drill', c.boundaryId)" :title="`Open ${c.boundaryName} profile (${c.direction})`"
                 >{{ c.direction === 'EXIT' ? '◂' : '▸' }} {{ c.boundaryName }}</button>
+                <!-- 0 NET crossings ≠ "never left a boundary" — it sits in the origin's zone -->
+                <span v-if="!n.crossings.length" class="trd-muted trd-br-samezone" title="this node sits in the origin's own boundary (net of the path)">· same zone as origin</span>
                 <span v-if="n.worstBand" class="trd-band" :class="`trd-band--${n.worstBand}`" :title="`worst live threat on this node`">
                   <span class="trd-dot" :class="`trd-dot--${n.worstBand}`" aria-hidden="true">⬤</span> {{ bandLabel(n.worstBand) }}
                 </span>
@@ -551,8 +564,11 @@
   .trd-br-scope-btn--on { background: rgba(0, 184, 212, 0.12); opacity: 1; font-weight: 600; box-shadow: inset 0 -2px 0 0 #00b8d4; }
   .trd-br-scope-btn:focus-visible { outline: 2px solid #00b8d4; outline-offset: -2px; }
 
-  /* Radius-level "crosses N trust boundaries" chips (drill into the boundary). */
-  .trd-br-zones { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+  /* Radius-level containment row: "crosses N trust boundaries: [chips]" — on its
+     own line so a long boundary list doesn't bury the triage summary above. */
+  .trd-br-cross { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.8rem; margin: 0 0 0.6rem; opacity: 0.9; }
+  .trd-br-cross-note { opacity: 0.7; font-style: italic; }
+  .trd-br-samezone { font-size: 0.74rem; }
   .trd-br-zone {
     font-size: 0.74rem; border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 10px;
     padding: 0 8px; background: transparent; color: inherit; cursor: pointer; opacity: 0.85;

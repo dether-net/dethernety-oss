@@ -330,8 +330,10 @@ describe('blastRadius — forward flow-reachable set from a node', () => {
     expect(b.jewelsInRadius).toEqual(['DB'])
     expect(b.jewelCountInRadius).toBe(1)
     expect(b.nodes.find((n) => n.id === 'db')).toMatchObject({ crownJewel: true, worstBand: 'critical' })
-    // worst across reachable: DB exfil 9.5 (critical); API RCE 8 live (high); SQLi is risk-accepted (muted).
-    expect(b.worstInRadius).toEqual({ band: 'critical', liveCount: 2 })
+    // worst across the blast: DB exfil 9.5 (critical); API RCE 8 live (high); the
+    // in-cone flow f2/mitm (medium, live) also counts — SQLi is risk-accepted (muted).
+    // band = critical; liveCount = API(1) + DB(1) + f2(1) = 3.
+    expect(b.worstInRadius).toEqual({ band: 'critical', liveCount: 3 })
   })
 
   it('carries per-node NET origin→node boundary crossings (EXIT/ENTER chips) + handled data', () => {
@@ -357,6 +359,31 @@ describe('blastRadius — forward flow-reachable set from a node', () => {
     expect(b.reachableCount).toBeGreaterThan(0)
     expect(b.boundariesCrossed).toEqual([])
     expect(b.nodes.every((n) => n.crossingCount === 0)).toBe(true)
+  })
+
+  it('net crossings are correct for NESTED boundaries (descendant = ENTER-only, ancestor = EXIT-only)', () => {
+    // Outer ⊃ Inner; `out` sits in Outer, `in` sits in Inner; flows both ways.
+    const nested = {
+      boundaries: [
+        { id: 'outer', name: 'Outer', parentBoundaryId: null },
+        { id: 'inner', name: 'Inner', parentBoundaryId: 'outer' },
+      ],
+      components: [
+        { id: 'out', name: 'Out', type: 'process', boundaryId: 'outer', crownJewel: false },
+        { id: 'in', name: 'In', type: 'process', boundaryId: 'inner', crownJewel: false },
+      ],
+      flows: [
+        { id: 'fd', name: 'down', sourceId: 'out', targetId: 'in', sensitivities: [], dataItemCount: 0 },
+        { id: 'fu', name: 'up', sourceId: 'in', targetId: 'out', sensitivities: [], dataItemCount: 0 },
+      ],
+      dataNodes: [],
+    }
+    // origin Outer → node Inner (descendant): ENTER Inner only, no spurious EXIT Outer.
+    const down = blastRadius(nested, [], 'out', { scope: 'direct' })
+    expect(down.nodes.find((n) => n.id === 'in').crossings.map((c) => `${c.direction}:${c.boundaryName}`)).toEqual(['ENTER:Inner'])
+    // origin Inner → node Outer (ancestor): EXIT Inner only, no spurious ENTER Outer.
+    const up = blastRadius(nested, [], 'in', { scope: 'direct' })
+    expect(up.nodes.find((n) => n.id === 'out').crossings.map((c) => `${c.direction}:${c.boundaryName}`)).toEqual(['EXIT:Inner'])
   })
 
   it('direct (1-hop) scope collapses to immediate downstream neighbours', () => {
