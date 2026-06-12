@@ -194,9 +194,49 @@
           />
         </div>
 
+        <!-- CHOKE POINTS — the dominators every origin→target route must pass through.
+             A summary OF the routes (the "where to place one control" lever), computed by
+             a vertex-cut test rather than route-intersection, so it stays complete even
+             when route enumeration below is hop/count-capped. -->
+        <div v-if="chokes && chokes.reachable" class="trd-choke" role="group" aria-label="Choke points — nodes on every modeled route">
+          <template v-if="chokes.chokePoints.length">
+            <p class="trd-choke-head">
+              Every modeled route passes through<template v-if="chokes.chokePoints.length > 1">, in order</template>:
+            </p>
+            <div class="trd-choke-chain">
+              <template v-for="(c, ci) in chokes.chokePoints" :key="c.id">
+                <span v-if="ci > 0" class="trd-choke-arrow" aria-hidden="true">▸</span>
+                <span class="trd-strip-node">
+                  <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': c.crownJewel }" aria-hidden="true">{{ c.crownJewel ? '⬢' : '◉' }}</span>
+                  <button type="button" class="trd-drill-mini trd-strip-name" @click="$emit('drill', c.id)" :title="`Open ${c.name} profile`">{{ c.name }}</button>
+                  <span v-if="c.worstBand" class="trd-dot" :class="`trd-dot--${c.worstBand}`" :title="`worst live: ${bandLabel(c.worstBand)}`" aria-hidden="true">⬤</span>
+                  <button v-for="(x, xi) in c.crossings" :key="xi" type="button" class="trd-cross trd-cross-btn" :class="`trd-cross--${x.direction.toLowerCase()}`" @click="$emit('drill', x.boundaryId)" :title="`Open ${x.boundaryName} profile (${x.direction})`">{{ x.direction === 'EXIT' ? '◂' : '▸' }} {{ x.boundaryName }}</button>
+                </span>
+              </template>
+            </div>
+            <p class="trd-choke-note">
+              Controlling any one severs every <em>modeled</em> flow route between them — not unmodeled
+              flows, shared credentials, or non-flow lateral movement.<template v-if="modeB && modeB.capped"> The route list below is capped, but this choke-point analysis is complete.</template>
+            </p>
+          </template>
+          <p v-else-if="chokes.hasDirectFlow" class="trd-choke-note">
+            A direct modeled flow connects <strong>{{ nameOf(mbOrigin) }}</strong> →
+            <strong>{{ nameOf(mbTarget) }}</strong> — no intermediary to control.
+          </p>
+          <p v-else class="trd-choke-note">
+            No single choke point — at least two internally disjoint routes exist; controlling one node
+            won't sever modeled flow. Not a segmentation guarantee.
+          </p>
+        </div>
+
         <p v-if="!mbOrigin || !mbTarget" class="trd-empty">
           Choose an origin and a target — above or by clicking nodes on the map — to
           enumerate the flow routes between them.
+        </p>
+        <p v-else-if="modeB && modeB.routes.length === 0 && chokes && chokes.reachable" class="trd-empty">
+          No routes within {{ DEFAULT_MAX_HOPS }} hops were enumerated between <strong>{{ nameOf(mbOrigin) }}</strong> →
+          <strong>{{ nameOf(mbTarget) }}</strong> — they connect only by longer routes. The choke-point
+          analysis above covers every route, of any length.
         </p>
         <p v-else-if="modeB && modeB.routes.length === 0" class="trd-empty">
           No routes within {{ DEFAULT_MAX_HOPS }} hops connect <strong>{{ nameOf(mbOrigin) }}</strong> →
@@ -341,6 +381,15 @@
                 <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': n.crownJewel }" aria-hidden="true">{{ n.crownJewel ? '⬢' : '◉' }}</span>
                 <button type="button" class="trd-drill-mini trd-jewel-name" @click="$emit('drill', n.id)" :title="`Open ${n.name} profile`">{{ n.name }}</button>
                 <span class="trd-jewel-metric">{{ n.minHops }} hop{{ n.minHops === 1 ? '' : 's' }}</span>
+                <!-- the FIRST hop out of the breached origin toward this node — the flow the attacker
+                     rides first + the data it carries in motion (drillable into the flow's profile) -->
+                <span v-if="n.firstFlow" class="trd-br-firstflow">
+                  <span class="trd-br-firstlabel">first</span>
+                  <span class="trd-br-flowarrow" aria-hidden="true">→</span>
+                  <button type="button" class="trd-drill-mini trd-strip-flow" @click="$emit('drill', n.firstFlow.flowId)" :title="`Open ${n.firstFlow.flowName || 'flow'} profile`">{{ n.firstFlow.flowName || '(flow)' }}</button>
+                  <span v-if="n.firstFlow.maxSensitivity" class="trd-sens" :class="`trd-sens--${String(n.firstFlow.maxSensitivity).toLowerCase()}`" :title="`carries ${n.firstFlow.sensitivityLabel}`">{{ n.firstFlow.sensitivityLabel }}</span>
+                  <span v-else-if="n.firstFlow.unclassifiedInMotion" class="trd-sens trd-sens--unclassified" title="carries data with no sensitivity set">unclassified</span>
+                </span>
                 <!-- net boundary crossings from the breached origin to this node (EXIT ◂ / ENTER ▸), drillable -->
                 <button
                   v-for="(c, ci) in n.crossings" :key="ci"
@@ -369,6 +418,7 @@
   import {
     modeAReachability,
     modeBRoutes,
+    chokePoints,
     blastRadius,
     externalEntryIds,
     crownJewelIds,
@@ -432,6 +482,15 @@
 
   // Keep the selected route index in range as the route set changes.
   watch(modeB, () => { selectedRouteIdx.value = 0 })
+
+  // Choke points — the dominators every origin→target route must pass through.
+  // A summary OF the Mode-B routes (vertex-cut test, not route-intersection), so
+  // it answers even when enumeration is hop-capped. Distinct endpoints only.
+  const chokes = computed(() =>
+    mbOrigin.value && mbTarget.value && mbOrigin.value !== mbTarget.value
+      ? chokePoints(props.modelGraph, props.ledger, mbOrigin.value, mbTarget.value)
+      : null,
+  )
 
   // Mode C — the forward blast radius of the chosen node (full closure or 1-hop).
   const blast = computed(() =>
@@ -526,7 +585,19 @@
   .trd-reach-mode--active { background: rgba(0, 184, 212, 0.12); opacity: 1; font-weight: 600; box-shadow: inset 0 -2px 0 0 #00b8d4; }
 
   .trd-reach-body { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
-  .trd-reach-map { flex: 0 0 340px; max-width: 420px; min-width: 260px; }
+  /* The minimap is the spatial home — keep it visible while the list (jewels /
+     routes / blast cone) scrolls, in all three modes (the map sidebar is shared,
+     outside the mode panels). The shell's .trd-view is the scroll container, so a
+     sticky pane pins to its top (align-self:flex-start so the flex item isn't
+     stretched, which would leave no room to stick). A surface background keeps it
+     clean if a wide row ever underlaps during momentum scroll. Mirrors the
+     Boundary Crossings .trd-minimap-pane treatment. */
+  .trd-reach-map {
+    flex: 0 0 340px; max-width: 420px; min-width: 260px;
+    position: sticky; top: 0; align-self: flex-start; z-index: 1;
+    background: rgb(var(--v-theme-surface, 33 33 33));
+    padding-bottom: 0.4rem;
+  }
   /* The sidebar variant sizes its own svg (≈180px) — no forced container height
      (that was only needed by the full-height 'expanded' variant). The ⤢ button
      opens the big modal where the real navigation/picking happens. */
@@ -574,6 +645,10 @@
     padding: 0 8px; background: transparent; color: inherit; cursor: pointer; opacity: 0.85;
   }
   .trd-br-zone:hover { border-color: #00b8d4; color: #00b8d4; opacity: 1; }
+  /* first hop out of the breach toward a node — the flow + data-in-motion */
+  .trd-br-firstflow { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; }
+  .trd-br-firstlabel { opacity: 0.6; }
+  .trd-br-flowarrow { opacity: 0.5; }
 
   .trd-reach-summary {
     display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center;
@@ -621,6 +696,17 @@
   .trd-dot--low { color: #5f6a6a; }
   .trd-dot--unknown { color: #95a5a6; }
   .trd-band { font-size: 0.78rem; }
+
+  /* Mode B choke points — the dominator chain (a summary of the routes) */
+  .trd-choke {
+    border: 1px solid rgba(0, 184, 212, 0.4); border-left-width: 3px;
+    border-radius: 4px; padding: 0.5rem 0.7rem; margin-bottom: 0.6rem;
+    background: rgba(0, 184, 212, 0.06);
+  }
+  .trd-choke-head { font-size: 0.84rem; font-weight: 600; margin: 0 0 0.4rem; }
+  .trd-choke-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
+  .trd-choke-arrow { opacity: 0.5; }
+  .trd-choke-note { font-size: 0.76rem; opacity: 0.75; line-height: 1.5; margin: 0.45rem 0 0; }
 
   /* Mode B routes + subway strip */
   .trd-routes { list-style: none; margin: 0; padding: 0; }

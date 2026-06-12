@@ -332,6 +332,135 @@ export function modeBRoutes(modelGraph, ledger, originId, targetId, opts = {}) {
   return { routes: annotated, displayed, total, capped, ceilingHit, originId, targetId }
 }
 
+// ─── Choke points: the dominators every origin→target route must pass ─────────
+
+/** Can `targetId` be reached from `originId` over `forward` with node `skipId`
+ *  excised (every edge INTO skipId dropped)? The exact reachability test behind
+ *  dominator detection: `v` is a choke point iff t is NOT reachable without it.
+ *  (`skipId` is always a candidate in R\{s,t}, so skipId !== targetId — dropping
+ *  in-edges is equivalent to full node deletion for this verdict.) */
+function reachableSkipping(forward, originId, targetId, skipId) {
+  if (originId === skipId) return false
+  const seen = new Set([originId])
+  const queue = [originId]
+  while (queue.length) {
+    const cur = queue.shift()
+    for (const e of forward.get(cur) ?? []) {
+      if (e.to === skipId) continue // node excised — never traverse into it
+      if (e.to === targetId) return true
+      if (!seen.has(e.to)) {
+        seen.add(e.to)
+        queue.push(e.to)
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * The CHOKE POINTS between two chosen nodes — the s-rooted dominators of the
+ * target: nodes every directed origin→target flow route must pass through.
+ * Controlling one severs every MODELED flow route between them (the defender's
+ * "where to place one control" lever). A summary OF the pick-two routes, not a
+ * replacement — and computed by a VERTEX-CUT test, not by intersecting the
+ * (depth/count/step-capped, hence incomplete) enumerated routes; so it is
+ * complete even when route enumeration caps out.
+ *
+ * Honesty: a choke point sits on every modeled route ONLY — controlling it does
+ * NOT address unmodeled flows, shared credentials, or non-flow lateral movement.
+ * "No choke point" is NOT "well-segmented". The count is never a risk score.
+ * Vertex-disjoint semantics only (edge-disjoint count would overstate resilience).
+ *
+ * @param {object} modelGraph
+ * @param {Array}  ledger
+ * @param {string} originId
+ * @param {string} targetId
+ * @returns {object} the choke-point view-model (see fields below)
+ */
+export function chokePoints(modelGraph, ledger, originId, targetId) {
+  const proj = buildProjection(modelGraph)
+  const dataNodes = Array.isArray(modelGraph?.dataNodes) ? modelGraph.dataNodes : []
+  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const { stackOfComponent, boundaryById } = makeStackResolver(modelGraph || {})
+
+  const origin = proj.componentById.get(originId)
+  const target = proj.componentById.get(targetId)
+  const base = {
+    originId: originId ?? null,
+    originName: origin?.name ?? null,
+    hasOrigin: Boolean(origin),
+    targetId: targetId ?? null,
+    targetName: target?.name ?? null,
+    hasTarget: Boolean(target),
+    sameNode: false,
+    reachable: false,
+    hasDirectFlow: false,
+    chokePoints: [],
+  }
+
+  if (!origin || !target) return base
+  // Same node: trivially reachable, but no intermediary to dominate. Distinct
+  // from every other branch so the view can suppress the strip.
+  if (originId === targetId) return { ...base, sameNode: true, reachable: true }
+
+  const fwd = closure(proj.forward, new Set([originId]), (e) => e.to)
+  if (!fwd.has(targetId)) return base // target not forward-reachable — no routes
+
+  // A direct origin→target edge survives excising ANY intermediary, so a direct
+  // flow precludes every choke point. Short-circuit: report it and skip the cut
+  // tests (this is also why a direct flow and a choke point can never coexist).
+  if ((proj.forward.get(originId) ?? []).some((e) => e.to === targetId)) {
+    return { ...base, reachable: true, hasDirectFlow: true }
+  }
+
+  // Relevant subgraph: nodes on at least one origin→target path (a node on NO
+  // such path can never be on EVERY such path). Candidates exclude the endpoints.
+  const bwd = closure(proj.backward, new Set([targetId]), (e) => e.from)
+  const candidates = [...fwd].filter((id) => bwd.has(id) && id !== originId && id !== targetId)
+
+  // Membership: candidate v is a choke point iff excising it disconnects target.
+  const chokeSet = new Set(candidates.filter((v) => !reachableSkipping(proj.forward, originId, targetId, v)))
+
+  // Chain order: every dominator lies on EVERY origin→target path, including the
+  // shortest — so order by index along that shortest path, the exact dominator-chain
+  // order. (A node's own min-hops from the origin is a separate per-node measure,
+  // reported below but never used as the ordering key.)
+  const sp = bfsShortest(proj.forward, new Set([originId]), targetId)
+  const orderIndex = new Map(sp.nodes.map((id, i) => [id, i]))
+  const chokeIds = [...chokeSet].sort(
+    (a, b) => (orderIndex.get(a) ?? Infinity) - (orderIndex.get(b) ?? Infinity),
+  )
+
+  const chokePointsView = chokeIds.map((id) => {
+    const c = proj.componentById.get(id)
+    const p = postureOf(ledgerById.get(id))
+    const hop = bfsShortest(proj.forward, new Set([originId]), id)
+    // NET origin→choke boundary delta (EXIT origin's zones, ENTER the choke's) —
+    // the same direction-agnostic structural crossing the Boundary Crossings and
+    // Blast Radius surfaces use; drillable.
+    const crossings = crossingsForHop(stackOfComponent, boundaryById, originId, id)
+    return {
+      id,
+      name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
+      type: c?.type ?? null,
+      minHops: hop.hops,
+      worstBand: p.worstBand,
+      liveCount: p.liveCount,
+      hasControl: p.hasControl,
+      crownJewel: c?.crownJewel === true,
+      crossings,
+      crossingCount: crossings.length,
+      dataHandled: dataHandledByNode(dataNodes, id),
+    }
+  })
+
+  return {
+    ...base,
+    reachable: true,
+    chokePoints: chokePointsView,
+  }
+}
+
 // ─── Mode A: crown-jewel reachability from a (selectable) origin ─────────────
 
 function worstBandOf(ids, ledgerById) {
@@ -568,6 +697,24 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
       const c = proj.componentById.get(id)
       const p = postureOf(ledgerById.get(id))
       const sp = bfsShortest(proj.forward, originIds, id)
+      // The FIRST hop out of the breached origin on the shortest path to this node
+      // — the flow the attacker rides FIRST when pivoting toward it, plus the data
+      // that flow carries IN MOTION (distinct from the data the node handles at
+      // rest, below). For a direct (1-hop) node this IS the origin→node flow.
+      const firstFlowId = sp.edges[0] ?? null
+      const ff = firstFlowId ? proj.flowById.get(firstFlowId) : null
+      const ffSens = Array.isArray(ff?.sensitivities) ? ff.sensitivities : []
+      const ffTop = maxSensitivity(ffSens)
+      const firstFlow = firstFlowId
+        ? {
+            flowId: firstFlowId,
+            flowName: ff?.name ?? '',
+            sensitivities: ffSens,
+            maxSensitivity: ffTop,
+            sensitivityLabel: sensitivityLabel(ffTop),
+            unclassifiedInMotion: ffTop == null && (ff?.dataItemCount ?? 0) > 0,
+          }
+        : null
       // The NET boundary delta from the breached origin to this node (the
       // trust-zone crossing) — EXIT the origin's boundaries, ENTER the node's —
       // NOT the per-hop path sum. The containment-relevant "which zones the blast
@@ -579,6 +726,7 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
         name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
         type: c?.type ?? null,
         minHops: sp.hops,
+        firstFlow, // { flowId, flowName, sensitivities, maxSensitivity, sensitivityLabel, unclassifiedInMotion } | null
         worstBand: p.worstBand,
         liveCount: p.liveCount,
         crownJewel: c?.crownJewel === true,

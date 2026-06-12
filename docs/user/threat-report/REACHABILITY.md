@@ -109,6 +109,18 @@ Route enumeration is **bounded**: routes are simple paths (no node is visited tw
 
 This banner is persistent — it stays on screen and travels into exports. The tab never silently truncates a route list.
 
+### Choke points — the node every route must pass through
+
+Above the route list, whenever the target is reachable, **Pick two** answers the question the routes only imply: *of all the ways from origin to target, which node does **every** one of them go through?* That node is a **choke point** — controlling it severs every modeled flow route between the two. It is the defender's "where do I place one control" lever.
+
+| You see | It means |
+|---|---|
+| `Every modeled route passes through: <node>` (a chain when there are several) | Each listed node sits on *every* origin→target route — an ordered sequence the routes share. Each chip opens its profile and shows its worst-threat band and the boundaries crossed to reach it. |
+| `A direct modeled flow connects them — no intermediary to control` | The origin flows straight to the target; there is no in-between node to harden. |
+| `No single choke point — at least two internally disjoint routes exist` | The routes fan out enough that no one node is on all of them; controlling any single node leaves another route open. |
+
+Two things make this trustworthy. First, it is computed by testing whether removing a node disconnects the target — **not** by intersecting the route list above — so it stays **complete even when route enumeration is capped** (the strip says so when that happens). Second, the honesty line stays attached: a choke point sits on every *modeled* flow route only. Controlling it does **not** address unmodeled flows, shared credentials, or non-flow lateral movement, and "no single choke point" is **not** a verdict that the path is well-segmented. The number of choke points is never a risk score.
+
 ---
 
 ## Blast Radius
@@ -136,6 +148,7 @@ Below that, each reachable node is a row, ordered nearest-first:
 |---|---|
 | `⬢` before the name | This reachable node is a crown jewel — a high-value asset caught in the radius. |
 | `N hops` | The fewest flow steps to reach it from the origin. |
+| `first → <flow> [sensitivity]` | The **first hop out of the breached origin** on the shortest path to this node — the flow the attacker rides first, and the data that flow carries *in motion* (distinct from the data the node handles at rest). The flow name opens its profile. For a direct (1-hop) neighbour this is simply the origin→node flow. `unclassified` means the flow carries data with no sensitivity set (not the same as Public). |
 | `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. This is the *net* origin→node delta, not a per-hop tally — so a node that sits back in the origin's own zone shows `· same zone as origin` rather than chips, even if it is several hops away. |
 | A severity dot + band | The worst live threat sitting on that reachable node. |
 | A sensitivity chip | Sensitive data that node handles. |
