@@ -327,6 +327,8 @@ The multi-class evaluation is **deterministic scoring**, not a judgment call. Th
 - `sameDomain` = control class module matches element class module (local + query)
 - `alreadyAssigned` = element ID in assigned element list (local + query)
 
+> **Implementation status:** the shipped `rank` action implements `compatible` + `configured` scoring only. The `sameDomain` and element-class inputs are **not implemented** — the tool's input schema accepts `element_types` and `module_id`, not element class ids. The control pass compensates by pre-populating proposals from attribute evidence (see controls-enrichment.md Step 1 prerequisites) rather than per-element class context.
+
 Scoring formula:
 
 ```
@@ -824,18 +826,25 @@ type Query {
   ): [ControlCandidate!]!
     @authentication
     @cypher(statement: """
-      MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
-      WHERE ANY(et IN $elementTypes WHERE et IN cc.supportedTypes)
-        AND ($moduleIds IS NULL OR m.id IN $moduleIds)
+      // Two-pass: prune to eligible controls first, THEN collect ALL of
+      // each eligible control's classes. Filtering classes by
+      // supportedTypes before the collect would make `compatible`
+      // tautologically true and the incompatible-configured penalty
+      // (§6.3) unreachable.
+      MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc0:ControlClass)<-[:HAS_CLASS]-(m0:Module)
+      WHERE ANY(et IN $elementTypes WHERE et IN coalesce(cc0.supportedTypes, []))
+        AND ($moduleIds IS NULL OR m0.id IN $moduleIds)
+      WITH DISTINCT ctrl
+      MATCH (ctrl)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
       OPTIONAL MATCH (ctrl)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)
                      -[:IS_COUNTERMEASURE_OF]->(cmClass:ControlClass)
       WHERE cmClass.id = cc.id
-      WITH ctrl, cc, m, count(DISTINCT cm) AS cmCount
+      WITH ctrl, cc, head(collect(DISTINCT m)) AS m, count(DISTINCT cm) AS cmCount
       WITH ctrl,
            collect({
              classId: cc.id, className: cc.name,
              moduleId: m.id, moduleName: m.name,
-             compatible: ANY(et IN $elementTypes WHERE et IN cc.supportedTypes),
+             compatible: ANY(et IN $elementTypes WHERE et IN coalesce(cc.supportedTypes, [])),
              countermeasureCount: cmCount
            }) AS classes,
            sum(cmCount) AS totalCm

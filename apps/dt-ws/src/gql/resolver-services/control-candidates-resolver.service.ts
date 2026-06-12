@@ -76,19 +76,39 @@ export class ControlCandidatesResolverService {
       // Orphan-aware: :HAS_CLASS implicitly excludes orphans
       // (HAS_ORPHANED_CLASS) — control candidate discovery should not
       // suggest controls bound to retired classes.
+      //
+      // Two-pass shape: pass 1 prunes to controls with at least one
+      // compatible class in an allowed module; pass 2 collects ALL of an
+      // eligible control's classes (no supportedTypes/module filter) so the
+      // per-class compatible flag is real. Filtering classes before the
+      // collect would make compatible tautologically true and the CI §6.3
+      // incompatible-configured penalty unreachable — totalClasses must be
+      // the control's true class count for honest relevance scoring.
+      //
+      // coalesce(supportedTypes, []): the property is optional on
+      // ControlClass; Memgraph raises on membership against a null list
+      // (same guard as control-gaps-resolver). Null/absent means the class
+      // supports nothing.
+      //
+      // head(collect(DISTINCT m)): module ingestion MERGEs each class under
+      // a single Module, so one HAS_CLASS parent is the invariant — the
+      // deterministic pick keeps a stray second edge from duplicating the
+      // class entry and double-counting countermeasures in totalCm.
       const query = `
-        MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
-        WHERE ANY(et IN $elementTypes WHERE et IN cc.supportedTypes)
-          AND (size($moduleIds) = 0 OR m.id IN $moduleIds)
+        MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc0:ControlClass)<-[:HAS_CLASS]-(m0:Module)
+        WHERE ANY(et IN $elementTypes WHERE et IN coalesce(cc0.supportedTypes, []))
+          AND (size($moduleIds) = 0 OR m0.id IN $moduleIds)
+        WITH DISTINCT ctrl
+        MATCH (ctrl)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
         OPTIONAL MATCH (ctrl)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)
                        -[:IS_COUNTERMEASURE_OF]->(cmClass:ControlClass)
         WHERE cmClass.id = cc.id
-        WITH ctrl, cc, m, count(DISTINCT cm) AS cmCount
+        WITH ctrl, cc, head(collect(DISTINCT m)) AS m, count(DISTINCT cm) AS cmCount
         WITH ctrl,
              collect({
                classId: cc.id, className: cc.name,
                moduleId: m.id, moduleName: m.name,
-               compatible: ANY(et IN $elementTypes WHERE et IN cc.supportedTypes),
+               compatible: ANY(et IN $elementTypes WHERE et IN coalesce(cc.supportedTypes, [])),
                countermeasureCount: cmCount
              }) AS classes,
              sum(cmCount) AS totalCm
