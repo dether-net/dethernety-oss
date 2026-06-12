@@ -452,6 +452,20 @@ describe('blastRadius — forward flow-reachable set from a node', () => {
     expect(b.boundariesCrossed.map((x) => x.boundaryName)).toEqual(['App', 'DMZ'])
   })
 
+  it('annotates each node with the FIRST hop out of the breach + its data in motion', () => {
+    // From web: api is 1 hop via f2 (web-api, carries INTERNAL); db is 2 hops but
+    // its FIRST hop is still f2 (web→api), so the carried sensitivity is INTERNAL.
+    const b = blastRadius(MG, LEDGER, 'web', { scope: 'full' })
+    const api = b.nodes.find((n) => n.id === 'api')
+    expect(api.firstFlow).toMatchObject({ flowId: 'f2', flowName: 'web-api', maxSensitivity: 'INTERNAL' })
+    const db = b.nodes.find((n) => n.id === 'db')
+    expect(db.minHops).toBe(2)
+    expect(db.firstFlow.flowId).toBe('f2') // the FIRST hop, not the inbound api→db (f3)
+    // From ext, the first hop to web is f1 (ext-web), which carries nothing classified.
+    const web = blastRadius(MG, LEDGER, 'ext', { scope: 'direct' }).nodes.find((n) => n.id === 'web')
+    expect(web.firstFlow).toMatchObject({ flowId: 'f1', maxSensitivity: null, unclassifiedInMotion: false })
+  })
+
   it('a radius contained within the origin’s boundary crosses nothing (containment signal)', () => {
     // From API: db, cyc, leaf are all in App with API ⇒ no boundary crossed.
     const b = blastRadius(MG, LEDGER, 'api', { scope: 'full' })

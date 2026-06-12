@@ -697,6 +697,24 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
       const c = proj.componentById.get(id)
       const p = postureOf(ledgerById.get(id))
       const sp = bfsShortest(proj.forward, originIds, id)
+      // The FIRST hop out of the breached origin on the shortest path to this node
+      // — the flow the attacker rides FIRST when pivoting toward it, plus the data
+      // that flow carries IN MOTION (distinct from the data the node handles at
+      // rest, below). For a direct (1-hop) node this IS the origin→node flow.
+      const firstFlowId = sp.edges[0] ?? null
+      const ff = firstFlowId ? proj.flowById.get(firstFlowId) : null
+      const ffSens = Array.isArray(ff?.sensitivities) ? ff.sensitivities : []
+      const ffTop = maxSensitivity(ffSens)
+      const firstFlow = firstFlowId
+        ? {
+            flowId: firstFlowId,
+            flowName: ff?.name ?? '',
+            sensitivities: ffSens,
+            maxSensitivity: ffTop,
+            sensitivityLabel: sensitivityLabel(ffTop),
+            unclassifiedInMotion: ffTop == null && (ff?.dataItemCount ?? 0) > 0,
+          }
+        : null
       // The NET boundary delta from the breached origin to this node (the
       // trust-zone crossing) — EXIT the origin's boundaries, ENTER the node's —
       // NOT the per-hop path sum. The containment-relevant "which zones the blast
@@ -708,6 +726,7 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
         name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
         type: c?.type ?? null,
         minHops: sp.hops,
+        firstFlow, // { flowId, flowName, sensitivities, maxSensitivity, sensitivityLabel, unclassifiedInMotion } | null
         worstBand: p.worstBand,
         liveCount: p.liveCount,
         crownJewel: c?.crownJewel === true,

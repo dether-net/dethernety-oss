@@ -381,6 +381,15 @@
                 <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': n.crownJewel }" aria-hidden="true">{{ n.crownJewel ? '⬢' : '◉' }}</span>
                 <button type="button" class="trd-drill-mini trd-jewel-name" @click="$emit('drill', n.id)" :title="`Open ${n.name} profile`">{{ n.name }}</button>
                 <span class="trd-jewel-metric">{{ n.minHops }} hop{{ n.minHops === 1 ? '' : 's' }}</span>
+                <!-- the FIRST hop out of the breached origin toward this node — the flow the attacker
+                     rides first + the data it carries in motion (drillable into the flow's profile) -->
+                <span v-if="n.firstFlow" class="trd-br-firstflow">
+                  <span class="trd-br-firstlabel">first</span>
+                  <span class="trd-br-flowarrow" aria-hidden="true">→</span>
+                  <button type="button" class="trd-drill-mini trd-strip-flow" @click="$emit('drill', n.firstFlow.flowId)" :title="`Open ${n.firstFlow.flowName || 'flow'} profile`">{{ n.firstFlow.flowName || '(flow)' }}</button>
+                  <span v-if="n.firstFlow.maxSensitivity" class="trd-sens" :class="`trd-sens--${String(n.firstFlow.maxSensitivity).toLowerCase()}`" :title="`carries ${n.firstFlow.sensitivityLabel}`">{{ n.firstFlow.sensitivityLabel }}</span>
+                  <span v-else-if="n.firstFlow.unclassifiedInMotion" class="trd-sens trd-sens--unclassified" title="carries data with no sensitivity set">unclassified</span>
+                </span>
                 <!-- net boundary crossings from the breached origin to this node (EXIT ◂ / ENTER ▸), drillable -->
                 <button
                   v-for="(c, ci) in n.crossings" :key="ci"
@@ -636,6 +645,10 @@
     padding: 0 8px; background: transparent; color: inherit; cursor: pointer; opacity: 0.85;
   }
   .trd-br-zone:hover { border-color: #00b8d4; color: #00b8d4; opacity: 1; }
+  /* first hop out of the breach toward a node — the flow + data-in-motion */
+  .trd-br-firstflow { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; }
+  .trd-br-firstlabel { opacity: 0.6; }
+  .trd-br-flowarrow { opacity: 0.5; }
 
   .trd-reach-summary {
     display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center;
