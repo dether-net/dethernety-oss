@@ -1,4 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { ToolContext } from '../base-tool.js'
+
+const { mockGetControl, mockUpdateControl } = vi.hoisted(() => ({
+  mockGetControl: vi.fn(),
+  mockUpdateControl: vi.fn(),
+}))
+
+vi.mock('@dethernety/dt-core', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+    DtControl: class MockDtControl {
+      constructor(_apolloClient: unknown) {}
+      getControl = mockGetControl
+      updateControl = mockUpdateControl
+    },
+  }
+})
+
 import { manageControlsTool } from '../manage-controls.tool.js'
 
 describe('ManageControlsTool', () => {
@@ -119,5 +138,124 @@ describe('ManageControlsTool', () => {
       module_id: 'mod-1',
     })
     expect(result.success).toBe(true)
+  })
+
+  // Multi-class bindings — a Control may bind several ControlClasses
+  it('should accept create action with multiple class_ids', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'create',
+      name: 'DB Encryption',
+      class_ids: ['class-a', 'class-b'],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('should accept update action with multiple class_ids', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'update',
+      control_id: 'ctrl-1',
+      class_ids: ['class-a', 'class-b'],
+    })
+    expect(result.success).toBe(true)
+  })
+})
+
+describe('ManageControlsTool.execute — update merge-defaults', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+
+  const currentControl = {
+    id: 'ctrl-1',
+    name: 'DB Encryption',
+    description: 'Encryption at rest for payment-db',
+    folder: { id: 'folder-9' },
+    controlClasses: [{ id: 'class-a' }, { id: 'class-b' }],
+  }
+
+  beforeEach(() => {
+    mockGetControl.mockReset()
+    mockUpdateControl.mockReset()
+  })
+
+  it('preserves name, class bindings, and folder on a description-only update', async () => {
+    mockGetControl.mockResolvedValueOnce(currentControl)
+    mockUpdateControl.mockResolvedValueOnce({
+      control: { ...currentControl, description: 'Updated' },
+      bindingResult: null,
+      residualOk: true,
+    })
+
+    const result = await manageControlsTool.execute(
+      { action: 'update', control_id: 'ctrl-1', description: 'Updated' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(true)
+    expect(mockUpdateControl).toHaveBeenCalledWith({
+      controlId: 'ctrl-1',
+      name: 'DB Encryption',
+      description: 'Updated',
+      controlClasses: ['class-a', 'class-b'],
+      folderId: 'folder-9',
+    })
+  })
+
+  it('passes explicitly provided values through unchanged', async () => {
+    mockGetControl.mockResolvedValueOnce(currentControl)
+    mockUpdateControl.mockResolvedValueOnce({
+      control: { ...currentControl, name: 'Renamed' },
+      bindingResult: null,
+      residualOk: true,
+    })
+
+    const result = await manageControlsTool.execute(
+      {
+        action: 'update',
+        control_id: 'ctrl-1',
+        name: 'Renamed',
+        description: 'New desc',
+        class_ids: ['class-c'],
+        folder_id: 'folder-2',
+      } as never,
+      context,
+    )
+
+    expect(result.success).toBe(true)
+    expect(mockUpdateControl).toHaveBeenCalledWith({
+      controlId: 'ctrl-1',
+      name: 'Renamed',
+      description: 'New desc',
+      controlClasses: ['class-c'],
+      folderId: 'folder-2',
+    })
+  })
+
+  it('fails without calling updateControl when the control does not exist', async () => {
+    mockGetControl.mockResolvedValueOnce(null)
+
+    const result = await manageControlsTool.execute(
+      { action: 'update', control_id: 'ctrl-missing', description: 'x' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('not found')
+    expect(mockUpdateControl).not.toHaveBeenCalled()
+  })
+
+  it('reports failure when updateControl returns control: null / residualOk: false', async () => {
+    mockGetControl.mockResolvedValueOnce(currentControl)
+    mockUpdateControl.mockResolvedValueOnce({
+      control: null,
+      bindingResult: null,
+      residualOk: false,
+    })
+
+    const result = await manageControlsTool.execute(
+      { action: 'update', control_id: 'ctrl-1', description: 'x' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Failed to update control')
   })
 })

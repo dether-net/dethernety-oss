@@ -89,7 +89,7 @@ const InputSchema = z.object({
     // WAL repair recovery
     'inspect-wal', 'clear-wal',
   ]).describe('Action to perform'),
-  folder_id: z.string().optional().describe('Folder ID for listing or creating controls'),
+  folder_id: z.string().optional().describe('Folder ID for listing or creating controls. For update: omitted = current folder preserved'),
   // Security: control_id is interpolated into filesystem paths
   // (controls/<id>.json) by the engine. Restrict to characters that cannot
   // form path traversal — letters, digits, underscore, hyphen. UUIDs and
@@ -97,9 +97,9 @@ const InputSchema = z.object({
   // or backslash is rejected at the MCP boundary so it never reaches
   // getControlFilePath.
   control_id: z.string().regex(/^[A-Za-z0-9_-]+$/, 'control_id must contain only [A-Za-z0-9_-] (no path separators or .. segments)').optional().describe('Control ID (required for get, update, delete, assign, push-*, tombstone, set-local-edited)'),
-  class_ids: z.array(z.string()).optional().describe('Control class IDs for filtering (list) or assignment (create/update)'),
-  name: z.string().optional().describe('Control name — required for create, substring filter for list'),
-  description: z.string().optional().describe('Control description'),
+  class_ids: z.array(z.string()).optional().describe('Control class IDs for filtering (list) or assignment (create/update). For update: omitted = current class bindings preserved; pass the FULL desired list to change bindings (it replaces, not appends)'),
+  name: z.string().optional().describe('Control name — required for create, substring filter for list. For update: omitted = unchanged'),
+  description: z.string().optional().describe('Control description. For update: omitted = unchanged'),
   class_type: z.string().optional().describe('Control class type filter (for list action)'),
   element_ids: z.array(z.string()).optional().describe('Element IDs — for list: filter controls supporting these elements; for assign: elements to link'),
   module_id: z.string().optional().describe('Module ID filter (for list action)'),
@@ -325,17 +325,32 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'update': {
-          const control = await dtControl.updateControl({
-            controlId: input.control_id!,
-            name: input.name || '',
-            description: input.description || '',
-            controlClasses: input.class_ids || [],
-            folderId: input.folder_id
-          })
-          if (!control) {
-            return { success: false, error: `Failed to update control ${input.control_id}` }
+          // updateControl is full-replace on the platform side: an empty name/
+          // description blanks the field, an empty controlClasses list unbinds
+          // EVERY class (kind: 'NONE'), and an undefined folderId disconnects
+          // the folder. Controls are shared across models, so omitted inputs
+          // must preserve the current values — fetch them first and merge.
+          const current = await dtControl.getControl({ controlId: input.control_id! })
+          if (!current) {
+            return { success: false, error: `Control ${input.control_id} not found` }
           }
-          return { success: true, data: { control } }
+          const result = await dtControl.updateControl({
+            controlId: input.control_id!,
+            name: input.name ?? current.name ?? '',
+            description: input.description ?? current.description ?? '',
+            controlClasses: input.class_ids
+              ?? current.controlClasses?.map(c => c.id).filter((id): id is string => !!id)
+              ?? [],
+            folderId: input.folder_id ?? current.folder?.id
+          })
+          if (!result.control || !result.residualOk) {
+            return {
+              success: false,
+              error: `Failed to update control ${input.control_id}`,
+              data: { residualOk: result.residualOk }
+            }
+          }
+          return { success: true, data: { control: result.control } }
         }
 
         case 'delete': {
