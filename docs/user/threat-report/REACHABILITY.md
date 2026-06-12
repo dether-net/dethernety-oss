@@ -152,6 +152,7 @@ Below that, each reachable node is a row, ordered nearest-first:
 | `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. This is the *net* origin→node delta, not a per-hop tally — so a node that sits back in the origin's own zone shows `· same zone as origin` rather than chips, even if it is several hops away. |
 | A severity dot + band | The worst live threat sitting on that reachable node. |
 | A sensitivity chip | Sensitive data that node handles. |
+| **view strip** | Open the route(s) from the breached origin to this node in **Pick two** — the full flow-by-flow strip, with every hop's data and boundary crossings. |
 | `▸ set as origin` | Re-anchor the radius to *that* node — trace its own blast radius, step by step outward. |
 
 The whole reachable cone is painted on the minimap at once, so you can see the spread in the shape of your real diagram.

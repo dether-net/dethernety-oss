@@ -402,7 +402,10 @@
                   <span class="trd-dot" :class="`trd-dot--${n.worstBand}`" aria-hidden="true">⬤</span> {{ bandLabel(n.worstBand) }}
                 </span>
                 <span v-for="d in n.dataHandled" :key="d.id" class="trd-sens" :class="`trd-sens--${dataSens(d.sensitivity).key}`" :title="`handles ${d.name}`">{{ dataSens(d.sensitivity).label }}</span>
-                <button type="button" class="trd-onward" @click="brOrigin = n.id" title="trace this node's own blast radius">▸ set as origin</button>
+                <span class="trd-jewel-actions">
+                  <button type="button" class="trd-linkbtn" @click="viewStripFromBlast(n)" title="open the route(s) from the breached origin to this node in Pick two">view strip</button>
+                  <button type="button" class="trd-onward" @click="brOrigin = n.id" title="trace this node's own blast radius">▸ set as origin</button>
+                </span>
               </div>
             </li>
           </ul>
@@ -540,6 +543,15 @@
     if (!origin) return
     mbOrigin.value = origin
     mbTarget.value = j.jewelId
+    subMode.value = 'B'
+  }
+
+  // Mode C action: jump to pick-two anchored on the breached origin → this
+  // reachable node, to read the full route strip(s) the blast travels.
+  const viewStripFromBlast = (n) => {
+    if (!brOrigin.value) return
+    mbOrigin.value = brOrigin.value
+    mbTarget.value = n.id
     subMode.value = 'B'
   }
 
