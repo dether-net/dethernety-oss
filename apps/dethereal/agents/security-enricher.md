@@ -255,7 +255,7 @@ For each boundary-crossing flow without classified data items:
 1. Prompt: "What data types flow across this boundary? (PII, credentials, financial data, health data, etc.)"
 2. Create data items in `data-items.json` with sensitivity classification
 3. Classify each data item against platform DATA classes: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`, confirm matches (auto-accept `exact_name`), and write confirmed `classData` onto the items in `data-items.json`. If no suitable DATA class exists, leave the item unclassified and note the gap
-4. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write `attributes/dataItems/<id>.json` template stubs for the newly classified items — these are then filled by the template-driven enrichment pass, exactly like component stubs
+4. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write `attributes/dataItems/<id>.json` template stubs for the newly classified items — fill them in the same session via the template-driven enrichment loop (class guide, discover, ask, no `null` left), exactly like component stubs; do not leave fresh stubs unfilled
 5. Link to flows and components via `dataItemIds`
 
 ### Sensitivity Levels
