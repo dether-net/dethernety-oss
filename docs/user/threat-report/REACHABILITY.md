@@ -109,6 +109,18 @@ Route enumeration is **bounded**: routes are simple paths (no node is visited tw
 
 This banner is persistent — it stays on screen and travels into exports. The tab never silently truncates a route list.
 
+### Choke points — the node every route must pass through
+
+Above the route list, whenever the target is reachable, **Pick two** answers the question the routes only imply: *of all the ways from origin to target, which node does **every** one of them go through?* That node is a **choke point** — controlling it severs every modeled flow route between the two. It is the defender's "where do I place one control" lever.
+
+| You see | It means |
+|---|---|
+| `Every modeled route passes through: <node>` (a chain when there are several) | Each listed node sits on *every* origin→target route — an ordered sequence the routes share. Each chip opens its profile and shows its worst-threat band and the boundaries crossed to reach it. |
+| `A direct modeled flow connects them — no intermediary to control` | The origin flows straight to the target; there is no in-between node to harden. |
+| `No single choke point — at least two internally disjoint routes exist` | The routes fan out enough that no one node is on all of them; controlling any single node leaves another route open. |
+
+Two things make this trustworthy. First, it is computed by testing whether removing a node disconnects the target — **not** by intersecting the route list above — so it stays **complete even when route enumeration is capped** (the strip says so when that happens). Second, the honesty line stays attached: a choke point sits on every *modeled* flow route only. Controlling it does **not** address unmodeled flows, shared credentials, or non-flow lateral movement, and "no single choke point" is **not** a verdict that the path is well-segmented. The number of choke points is never a risk score.
+
 ---
 
 ## Blast Radius
