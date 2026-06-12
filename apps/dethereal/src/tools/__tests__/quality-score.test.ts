@@ -101,6 +101,40 @@ describe('Quality Score', () => {
     }
   })
 
+  it('counts data items in attribute_completion_rate', async () => {
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'DI', defaultBoundaryId: 'b-1' } }
+    const structure = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [{ id: 'c-1', name: 'API', classData: { id: 'cls-1', name: 'API' } }]
+      }
+    }
+    const dataItems = [{ id: 'di-1', name: 'PII', classData: { id: 'cls-data', name: 'Personal Data' }, sensitivity: 'confidential' }]
+    await writeModel(manifest, structure, [], dataItems)
+
+    // Component enriched, data item NOT — factor must reflect the gap (1/2)
+    await fs.writeFile(
+      path.join(tmpDir, 'attributes', 'components', 'c-1.json'),
+      JSON.stringify({ elementId: 'c-1', elementType: 'component', attributes: { auth: true } })
+    )
+
+    let result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    expect(result.success).toBe(true)
+    let data = result.data as any
+    expect(data.factors.attribute_completion_rate.value).toBeCloseTo(0.5)
+
+    // After the data item is enriched too, the factor reaches 1.0
+    await fs.writeFile(
+      path.join(tmpDir, 'attributes', 'dataItems', 'di-1.json'),
+      JSON.stringify({ elementId: 'di-1', elementType: 'dataItem', attributes: { tls_only_transport: true } })
+    )
+
+    result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    expect(result.success).toBe(true)
+    data = result.data as any
+    expect(data.factors.attribute_completion_rate.value).toBeCloseTo(1.0)
+  })
+
   it('should compute boundary hierarchy quality with three conditions', async () => {
     // Depth 1 only (no nested boundaries) — should get at most 0.67
     await writeModel(

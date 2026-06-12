@@ -78,7 +78,7 @@ If `sync.json` **does not exist** but `manifest.model.id` is set (model was sync
 Detect whether the platform has elements not present locally (C1 — platform additions that would be deleted on push).
 
 **Step 1 — Get platform element IDs:**
-Call `mcp__plugin_dethereal_dethereal__export_model` with `model_id` to a temporary directory (or reuse the P3 export if it was just performed). Read the exported files to collect platform element IDs **and element names** by type (boundaries, components, flows, dataItems). Retain the names so the conflict UX (P4a) can display human-readable labels, not UUIDs.
+If P3 just exported the model to a temporary directory, **reuse that export — do not call `export_model` again** (a full platform-model serialization is the most expensive call on the push path). Only call `mcp__plugin_dethereal_dethereal__export_model` with `model_id` here when P3 was skipped (sync.json existed). Read the exported files to collect platform element IDs **and element names** by type (boundaries, components, flows, dataItems). Retain the names so the conflict UX (P4a) can display human-readable labels, not UUIDs.
 
 **Step 2 — Collect element inventories:**
 - `local_ids` — IDs from local `structure.json`, `dataflows.json`, `data-items.json`

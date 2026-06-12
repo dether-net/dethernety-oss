@@ -86,8 +86,10 @@ Gate 3 (Analysis):    FAIL — 2 components unclassified, attribute completion a
 - 100% of components classified
 - ≥80% of components have attribute files with content
 - All trust boundary crossings reviewed
-- Data items classified for sensitive flows
+- Data items on sensitive flows have `classData` (DATA class assigned) — the field that drives template enrichment and OPA, not just a `sensitivity` tag
 - ≥1 cross-boundary data flow exists
+
+**Red-flag surfacing (always shown with Gate 3, regardless of score):** list any flow with `auth_failure_mode: fail_open` or `fallback`, and any Tier-1 (crown jewel) component with zero controls. The quality score measures completeness, not posture — a 95/100 model can carry both; the gate must at least NAME them.
 
 ### 5. Common Gaps Checklist
 
@@ -105,7 +107,7 @@ Check the model for frequently missing elements:
 - [ ] Error/fallback paths
 ```
 
-Determine presence by scanning structure.json and dataflows.json for relevant patterns. These checks are heuristic — results may vary between runs. Detection guidance per item:
+Determine presence by scanning structure.json and dataflows.json for relevant patterns. These checks are heuristic — to keep the findings list stable across reviews of an unchanged model, run the gap detection once and cache the results to `.dethereal/quality.json` (keyed by the model content hash); reuse the cached list while the model is unchanged. Detection guidance per item:
 
 1. **Admin access**: flows with "SSH", "RDP", "admin", "management", "console" in name/description
 2. **Monitoring/logging**: flows with "monitor", "log", "SIEM", "metric" in name/description

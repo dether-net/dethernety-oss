@@ -36,6 +36,7 @@ export {
   loadStoredTokens,
   saveTokens,
   clearTokens,
+  clearAllTokens,
   isTokenExpired,
   isRefreshTokenValid,
   getTokenStoragePath

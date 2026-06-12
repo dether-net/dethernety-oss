@@ -76,7 +76,8 @@ For remaining unclassified elements:
 Match free-text crown jewel names from `scope.json` to actual components:
 
 1. For each entry in `scope.json.crown_jewels[]`, fuzzy-match against component names
-2. Present matches for confirmation:
+2. **If no component matches, also fuzzy-match against data-item names** — crown jewels are often data ("payment data"), not component names; a data-item match resolves to the components that store/process that data item (via `dataItemIds`) plus the data item itself
+3. Present matches for confirmation:
    ```
    Crown jewel mapping:
    | Scope Declaration | Matched Component | Type | Confirm? |
@@ -84,8 +85,8 @@ Match free-text crown jewel names from `scope.json` to actual components:
    | "Payment Database" | payment-db | STORE | Y |
    | "User PII" | user-service | PROCESS | ? |
    ```
-3. Set `crownJewel: true` on confirmed components in `structure.json`
-4. If a crown jewel declaration doesn't match any component, flag it: "Crown jewel 'X' does not match any discovered component. Add it with `/dethereal:add`?"
+4. Set `crownJewel: true` on confirmed components in `structure.json`
+5. If a crown jewel declaration matches neither a component nor a data item, flag it: "Crown jewel 'X' does not match any discovered component or data item. Add it with `/dethereal:add`?" An unresolved crown jewel silently drops to Tier 4 in every downstream pass (enrichment priority, surface report, control pass) — do not let the user skip this without an explicit decision
 
 This is the lightweight Phase 3 tagging. Full `asset_criticality` enrichment happens during `/dethereal:enrich`.
 
@@ -133,8 +134,8 @@ If the user skips, proceed with a warning but do not block.
 
 ### 8. Write Changes
 
-- Update `classData` on elements in `structure.json`
-- Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved). This replaces manual template fetching — one tool call instead of per-element schema extraction.
+- Update `classData` on elements in their home files — `structure.json` (components/boundaries), `dataflows.json` (data flows), `data-items.json` (data items)
+- Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, `dataflows.json`, and `data-items.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved). This replaces manual template fetching — one tool call instead of per-element schema extraction.
 - Write `crownJewel: true` onto the confirmed crown jewel components in `structure.json` (first-class field, not an attribute bag)
 
 ### 9. State — No Transition

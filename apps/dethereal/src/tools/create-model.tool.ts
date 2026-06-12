@@ -108,6 +108,14 @@ export class CreateModelTool extends ClientDependentTool<CreateInput, CreateOutp
 
       debugLog(config, `Creating model: ${modelData.manifest.model.name}`)
 
+      // Validate the output path BEFORE the platform import — failing the
+      // confinement check after importSplitModel succeeds would report
+      // failure on a model that now exists server-side (and invite a
+      // duplicate-creating retry).
+      if (input.directory_path) {
+        await validatePathConfinement(input.directory_path)
+      }
+
       // Use DtImportSplit from dt-core
       const dtImportSplit = new DtImportSplit(context.apolloClient)
 
@@ -133,9 +141,9 @@ export class CreateModelTool extends ClientDependentTool<CreateInput, CreateOutp
       let directoryWritten: string | undefined
       const idMappingsCount = result.idMapping.size
 
-      // Write to directory if path provided
+      // Write to directory if path provided (path already confinement-checked
+      // before the import above)
       if (input.directory_path) {
-        await validatePathConfinement(input.directory_path)
         try {
           // Ensure directory structure exists
           await ensureModelDirectoryStructure(input.directory_path)

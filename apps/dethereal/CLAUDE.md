@@ -12,6 +12,8 @@ pnpm test      # Vitest (src/**/*.test.ts)
 
 Bin entry: `dethereal` (CLI executable via shebang)
 
+**Release discipline:** `.mcp.json` pins the npx invocation to the exact package version (`@dether.net/dethereal@<version>`); the plugin's skills/agents/hooks and the MCP server ship together in one npm package, so an unpinned invocation lets installed users run a stale server against newer instructions. Bumping the version in `package.json` requires updating the pin (enforced by `src/__tests__/mcp-config.test.ts`) and publishing to npm.
+
 ### Plugin Testing
 
 ```bash

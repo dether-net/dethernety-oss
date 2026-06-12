@@ -48,17 +48,21 @@ Assign each component to its **highest-priority** (lowest-numbered) matching tie
 
 Present tier summary before enrichment: "Found N crown jewels, M cross-boundary, K internet-facing, J internal-only."
 
-## Security Attributes — Components
+## Security Attributes — Components and Data Items
 
-For each classified component, populate the attributes defined by its assigned class template. Attribute files created by `generate_attribute_stubs` contain template fields with null values — these null fields ARE the enrichment checklist:
+For each classified component **and classified data item**, populate the attributes defined by its assigned class template. Attribute files created by `generate_attribute_stubs` contain template fields with null values — these null fields ARE the enrichment checklist (component stubs in `attributes/components/`, data-item stubs in `attributes/dataItems/`):
 
 1. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
 2. **Use the guide to discover values** — the guide's `how_to_obtain` entries specify where to find each attribute value (config files, CLI commands, IaC keys). Search code, IaC, and configuration files systematically before asking the user
 3. **Ask the user for undiscoverable attributes** — use the guide's `option_description` and `security_impact` to frame targeted questions. Group by component to minimize round-trips
 4. **Full coverage required** — every field defined by the class template must be set. Partial coverage produces unreliable OPA results (policies may fire with incomplete input, generating inaccurate exposures)
 5. **Merge, never overwrite** — read the existing attribute file before writing. Merge template field values into the file, preserving plugin-enrichment fields (`credential_scope`, `monitoring_tools`)
+6. **Per-tier persistence** — write each tier's confirmed attributes to disk before starting the next tier (crash boundary; completed tiers survive an interrupted run)
+7. **Declined fields** — when the user explicitly declines a field, write the template's documented unknown/default instead of leaving `null`, so a resumed pass doesn't re-prompt
+8. **Offline fallback** — if both the class-cache read and `get_classes` fail, skip template enrichment for that class and note "platform-unreachable — template unavailable" (same disposition as unclassified)
+9. **Six-attribute floor** — after template enrichment, verify the Six Key Attributes (authentication, encryption in transit, encryption at rest, logging, access control, log telemetry — OPERATIONAL_REQUIREMENTS.md §2) are set on every in-scope component regardless of template coverage; prompt via the batch table in THREAT_MODELING_WORKFLOW.md §"Six Key Attributes Per Component" for any the template omitted
 
-For unclassified components (no assigned class), skip template-driven enrichment. Note in the summary: "N components skipped — unclassified."
+For unclassified components and data items (no assigned class), skip template-driven enrichment (the six-attribute floor still applies to unclassified components). Note in the summary: "N elements skipped — unclassified."
 
 ## Security Attributes — Data Flows
 
@@ -117,9 +121,10 @@ When a module is added to `activeModules` after initial classification:
 ### Crown Jewel Tagging (Phase 3 — Lightweight)
 
 During classification, match free-text crown jewel names from `.dethereal/scope.json` to actual components:
-1. Fuzzy-match `crown_jewels[]` entries from scope against component names
+1. Fuzzy-match `crown_jewels[]` entries from scope against component names; on no match, also fuzzy-match against data-item names (crown jewels are often data — a data-item match resolves to the components that store/process it via `dataItemIds`)
 2. Set `crownJewel: true` on the matched components in `structure.json`
 3. Present matches for confirmation: "You declared 'Payment Database' as a crown jewel. Matching component: 'payment-db' [STORE]. Confirm?"
+4. An unresolved crown-jewel declaration is a blocking confirm, not an advisory — unmatched, it silently drops to Tier 4 in every downstream pass
 
 This is the lightweight Phase 3 tagging. Full `asset_criticality` enrichment happens during the enrich workflow (Phase 7).
 
@@ -135,27 +140,29 @@ If unclassified elements exist and `activeModules` is set, check if broadening w
 
 ### Classification Output
 
-- Update `classData` on elements in `structure.json`
+- Update `classData` on elements in their home files — `structure.json` (components/boundaries), `dataflows.json` (data flows), `data-items.json` (data items)
 - Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved).
 - Write `crownJewel: true` onto the matched crown jewel components in `structure.json`
 
 ## Credential Enrichment Protocol (D22, D62)
 
-Batch-first approach — inventory all credentials before mapping to flows.
+Flow-anchored approach — every cross-boundary flow forces a credential question instead of relying on user recall. Credentials are the single highest-impact enrichment for analysis quality; a cold global "list your credentials" prompt reliably misses the shared service accounts that are the lateral-movement story.
 
-### Phase 1 — Credential Inventory
+### Phase 1 — Flow-Anchored Credential Capture
 
-Present a single batch prompt:
+Enumerate the cross-boundary flows (already computed during tiering) and ask per flow, batched in one table:
 
 ```
-What credentials and service accounts does your system use?
-List all: service accounts, API keys, database credentials, certificates, shared secrets.
+For each of these cross-boundary flows: what credential authenticates it,
+and what ELSE does that credential reach?
 
-Example format:
-- db-admin-account (PostgreSQL service account, used by API Server and Worker)
-- api-gateway-key (API key for external gateway)
-- tls-cert-internal (mTLS certificate for service-to-service)
+| # | Flow | Credential (id or "none"/"unknown") | Also used by |
+|---|------|--------------------------------------|--------------|
+| 1 | API Server → PostgreSQL | db-admin-account | Worker → PostgreSQL |
+| 2 | Client → API Gateway | api-gateway-key | — |
 ```
+
+Then sweep for credentials no flow surfaced: "Any service accounts, API keys, certificates, or shared secrets not tied to the flows above? (e.g. break-glass accounts, CI deploy keys)"
 
 ### Phase 2 — Map Credentials to Flows
 
@@ -247,7 +254,9 @@ Emit flags **exactly as written** — the platform's `dataInRegulatoryScope` que
 For each boundary-crossing flow without classified data items:
 1. Prompt: "What data types flow across this boundary? (PII, credentials, financial data, health data, etc.)"
 2. Create data items in `data-items.json` with sensitivity classification
-3. Link to flows and components via `dataItemIds`
+3. Classify each data item against platform DATA classes: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`, confirm matches (auto-accept `exact_name`), and write confirmed `classData` onto the items in `data-items.json`. If no suitable DATA class exists, leave the item unclassified and note the gap
+4. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write `attributes/dataItems/<id>.json` template stubs for the newly classified items — fill them in the same session via the template-driven enrichment loop (class guide, discover, ask, no `null` left), exactly like component stubs; do not leave fresh stubs unfilled
+5. Link to flows and components via `dataItemIds`
 
 ### Sensitivity Levels
 
@@ -259,6 +268,8 @@ Regulatory labels (e.g. `PII`, `PHI`, `PCI cardholder`) are captured as separate
 
 - Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item
 - Crown jewel data stores must have classified data items
+- Every PROCESS that reads, transforms, or caches a sensitive data item references it via `dataItemIds` (the "in use" lifecycle stage — first to drop under time pressure, and an unlinked process carries no sensitivity signal)
+- The boundary containing a crown-jewel data item references it
 
 ## Crown Jewel Enrichment (D21, D41)
 
@@ -343,7 +354,7 @@ The decision tree below should be read alongside the path selection table in [co
 | Scenario | Steps |
 |----------|-------|
 | **`rank` returned candidates** (brownfield from `manage_controls` rank) | Use the candidate's `controlId` field: `{ id: "<controlId>", name: "<controlName>", source: "declared" }`. Never use `controlClassId` here. |
-| **`rank` returned empty AND the element has an assigned class** (greenfield with class binding) | **Default:** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
+| **`rank` returned empty AND the element has an assigned class** (greenfield with class binding) | **Default:** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, one `classes[]` entry per applicable ControlClass, and let `/dethereal:sync push` create the platform Control. Discover ControlClasses via `match_classes(elements: [{name: "<control idea>", ...}], classLabel: 'CONTROL', moduleIds)` — the element's own class assignment is a ComponentClass and is never valid here. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId-1>", "<controlClassId-2>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
 | **`rank` returned empty AND the element has no assigned class**, OR platform unreachable (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. The platform's `resolveControls()` will create a Control by name on next sync, but it will not be bound to any ControlClass. |
 
 **Rules:**
@@ -360,7 +371,7 @@ Per-instance ControlClass attributes live in `controls/<id>.json` files, NOT inl
 
 When creating a Control that does not exist on the platform and you want ControlClass bindings so the platform auto-generates countermeasures:
 
-1. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populate `classes[]` with the bound ControlClass(es), fill `attributes` from observed evidence (empty `{}` valid).
+1. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populate `classes[]` with **one entry per applicable ControlClass**, fill `attributes` from observed evidence (empty `{}` valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup), create ONE Control with one `classes[]` entry per class — never one Control per class. Discover candidates via `match_classes(classLabel: 'CONTROL')`; the element's own class assignment is a ComponentClass, never a ControlClass.
 2. Write `{ "id": "<temp-id>", "name": "...", "source": "declared" }` to the element's `controls[]`.
 3. On `/dethereal:sync push`: pipeline creates the Control, pushes attributes, assigns SUPPORTS edges, writes the server id back, flips `lifecycle: "brownfield"`.
 

@@ -276,9 +276,15 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       ? Math.min(classifiedComponents / totalComponents, 1.0) : 0
 
     // Factor 2: attribute_completion_rate (weight 20)
+    // Data items are first-class enrichable elements (DATA class templates →
+    // attributes/dataItems/<id>.json), so they count in the same factor —
+    // otherwise a model with fully unenriched data items still scores 100%
+    // here. Component-only models are unaffected (dataItems.length adds 0).
     const componentAttrCount = Object.keys(attributes.components || {}).length
-    const attributeCompletionRate = totalComponents > 0
-      ? Math.min(componentAttrCount / totalComponents, 1.0) : 0
+    const dataItemAttrCount = Object.keys(attributes.dataItems || {}).length
+    const attributeDenominator = totalComponents + dataItems.length
+    const attributeCompletionRate = attributeDenominator > 0
+      ? Math.min((componentAttrCount + dataItemAttrCount) / attributeDenominator, 1.0) : 0
 
     // Factor 3: boundary_hierarchy_quality (weight 15)
     // Three conditions, each +0.33:
@@ -454,6 +460,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         let formal_coverage: FormalTierBreakdown | undefined
         let source_breakdown: SourceBreakdown | undefined
         if (input.directory_path && await pathExists(input.directory_path) && await isModelDirectory(input.directory_path)) {
+          await validatePathConfinement(input.directory_path)
           const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
           inferred_coverage = localData.inferred_coverage
           formal_coverage = localData.formal_coverage

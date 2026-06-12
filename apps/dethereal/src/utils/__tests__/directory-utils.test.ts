@@ -533,6 +533,26 @@ describe('asset-context round-trip + scope strip', () => {
     } as unknown as SplitModel
   }
 
+  it('writeModelDirectory removes stale attribute files for elements no longer in the model', async () => {
+    // Orphan from a previous write — e.g. the element was deleted
+    // platform-side and a re-export no longer carries it.
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'components'), { recursive: true })
+    await fs.writeFile(
+      path.join(tmpDir, 'attributes', 'components', 'ghost.json'),
+      JSON.stringify({ elementId: 'ghost', elementType: 'component', attributes: {} })
+    )
+
+    await writeModelDirectory(tmpDir, buildModel())
+
+    await expect(
+      fs.access(path.join(tmpDir, 'attributes', 'components', 'ghost.json'))
+    ).rejects.toThrow()
+    // The current element's attribute file survives.
+    await expect(
+      fs.access(path.join(tmpDir, 'attributes', 'components', 'c1.json'))
+    ).resolves.toBeUndefined()
+  })
+
   it('writeModelDirectory→readModelDirectory preserves data-item sensitivity/regulatory_flags, component crownJewel (structure.json), and the attribute bag', async () => {
     await writeModelDirectory(tmpDir, buildModel())
     const read = await readModelDirectory(tmpDir)

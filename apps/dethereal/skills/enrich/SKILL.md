@@ -64,6 +64,11 @@ Show: "N elements added since last enrichment. These will be enriched first."
 
 After enrichment of stale elements is confirmed and written, remove their IDs from `staleElements[]` in `state.json`.
 
+**Adversary-driven prompt gating.** Read `adversary_classes` and `trust_assumptions` from `.dethereal/scope.json`. These scope inputs change which prompts are skippable in this run:
+- `insider` declared → the admin-access-path prompts and the shared-credential questions (Step 5) are REQUIRED — do not let the user skip them; an insider review without admin/credential coverage is mislabeled.
+- `supply_chain` declared → the CI/CD pipeline and dependency/registry prompts are REQUIRED.
+- Echo `trust_assumptions` once at the start of enrichment ("Per scope, trusting: …") so deliberately-excluded areas are visible in the session record.
+
 ### 3. Compute Enrichment Tiers (D43)
 
 Analyze model structure to assign each component to a tier:
@@ -88,7 +93,7 @@ Processing: all tiers in order. Confirm? (yes / tier1 only / pick)
 
 ### 4. Class-Template-Driven Attribute Enrichment
 
-For each classified component in scope (batched by tier):
+For each classified component **and classified data item** in scope (batched by tier — a data item inherits the highest tier of the elements that handle it):
 
 1. **Read existing attribute file** — the stub created by `generate_attribute_stubs` during classification contains template field names with null values (or schema defaults). These null fields ARE the enrichment checklist — every null field must be resolved to a concrete value
 2. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
@@ -116,27 +121,37 @@ Present as a batch confirmation table per tier:
 Apply these changes? (yes / modify / skip)
 ```
 
-Write confirmed attributes to `attributes/components/<id>.json` using read → merge → write.
+Write confirmed attributes to `attributes/components/<id>.json` (or `attributes/dataItems/<id>.json` for data items) using read → merge → write.
 
-**For unclassified components:** If a component has no assigned class (classification was skipped or no suitable class exists), skip template-driven enrichment for that component. Note it in the summary: "N components skipped — unclassified (no class template available)."
+**Per-tier persistence (crash boundary):** write each tier's confirmed attributes to disk before starting the next tier — never batch all tiers into one terminal write. If this run is interrupted, completed tiers survive and a resumed pass picks up from the null fields that remain.
+
+**Declined fields:** when the user explicitly declines to answer a field, write the template's documented unknown/default value instead of leaving `null` — a resumed pass treats `null` as "not yet asked" and would re-prompt.
+
+**Offline fallback:** if both the class-cache read and the `get_classes` fallback fail (platform down, no cache), skip template-driven enrichment for that class and note it in the summary: "platform-unreachable — template unavailable" (same disposition as unclassified).
+
+**Six-attribute floor:** after template-driven enrichment, verify the Six Key Attributes (authentication, encryption in transit, encryption at rest, logging, access control, log telemetry — OPERATIONAL_REQUIREMENTS.md §2) are set on every in-scope component regardless of what its class template covers. For any the template did not cover, prompt using the per-component batch table from THREAT_MODELING_WORKFLOW.md §"Six Key Attributes Per Component". Surface reports (encryption/auth coverage) assume these are universally captured — a template that omits one must not silently produce a blind spot.
+
+**For unclassified components and data items:** If an element has no assigned class (classification was skipped or no suitable class exists), skip template-driven enrichment for that element (the six-attribute floor above still applies to unclassified components). Note it in the summary: "N elements skipped — unclassified (no class template available)."
 
 ### 5. Credential Enrichment (D22, D62)
 
-Follow the batch-first credential protocol:
+Follow the flow-anchored credential protocol. Credentials are the single highest-impact enrichment for analysis quality (`required_credentials` drives `can_traverse()`), and a cold "list all your credentials" brain-dump reliably misses the shared service accounts that ARE the lateral-movement story — so anchor the questions to the flows.
 
-**Step 4a — Credential inventory prompt:**
+**Step 4a — Flow-anchored credential capture:**
+Enumerate the cross-boundary flows (already computed during tiering) and ask per flow, batched in one table:
 ```
-What credentials and service accounts does your system use?
-List all: service accounts, API keys, database credentials, certificates, shared secrets.
+For each of these cross-boundary flows: what credential authenticates it,
+and what ELSE does that credential reach?
 
-Example format:
-- db-admin-account (PostgreSQL service account, used by API Server and Worker)
-- api-gateway-key (API key for external gateway)
-- tls-cert-internal (mTLS certificate for service-to-service)
+| # | Flow | Credential (id or "none"/"unknown") | Also used by |
+|---|------|--------------------------------------|--------------|
+| 1 | API Server → PostgreSQL | db-admin-account | Worker → PostgreSQL |
+| 2 | Client → API Gateway | api-gateway-key | — |
 ```
+Then sweep for credentials no flow surfaced: "Any service accounts, API keys, certificates, or shared secrets not tied to the flows above? (e.g. break-glass accounts, CI deploy keys)"
 
 **Step 4b — Map credentials to flows:**
-For each credential, identify which data flows use it. Present mapping as batch table:
+Consolidate the per-flow answers into the credential → flows mapping. Present as batch table:
 
 ```
 ## Credential Mapping
@@ -186,9 +201,11 @@ For each sensitive data type not yet classified and fully linked:
    - `SOX financial` → `confidential`
    - `CCPA personal` → `confidential`
 3. Create data items in `data-items.json` with `sensitivity` and `regulatory_flags` fields
-4. Link each data item via `dataItemIds` on **every** handling element — its origin external entity/process, the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
+4. **Classify the data items against platform DATA classes** — for every new or still-unclassified data item, call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`. Auto-accept `exact_name` matches; present `fuzzy`/`vector`/`type` matches for confirmation. Write confirmed `classData` onto the items in `data-items.json`. If no suitable DATA class exists in active modules, leave the item unclassified and note it in the summary
+5. **Generate attribute stubs** — call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)`. It writes `attributes/dataItems/<id>.json` template stubs for the newly classified data items. Step 4 has already run by this point, so fill these new stubs **now**, applying the same template-driven loop (class guide from cache or `get_classes`, discover from code, ask for the rest, no `null` left) — do not defer them to a future enrich run
+6. Link each data item via `dataItemIds` on **every** handling element — its origin external entity/process, the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
 
-**Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; and every data origin (the external entity or process where sensitive data enters the system) must reference its data item.
+**Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; every data origin (the external entity or process where sensitive data enters the system) must reference its data item; every PROCESS that reads, transforms, or caches a sensitive data item must reference it via `dataItemIds`; and the boundary containing a crown-jewel data item must reference it. The gate covers all five lifecycle stages — under time pressure the "in use" process links are the first to drop, and an unlinked process carries no sensitivity signal for information-disclosure analysis.
 
 If the quality gate fails:
 ```
@@ -297,6 +314,8 @@ During enrichment, identify relevant ATT&CK techniques for components based on t
 3. **Persist** — only write verified IDs to the model. For each technique, check D3FEND countermeasures via `mcp__plugin_dethereal_dethereal__get_mitre_defend`.
 
 Present techniques in batch table for confirmation before persisting.
+
+**Offline:** if `search_mitre_attack` is unreachable, skip technique annotation silently and continue — it is optional (D30), and tactic coverage is derived server-side from analysis exposures.
 
 ### 13. State Transition
 
@@ -462,9 +481,9 @@ If platform reachability was confirmed during this pass (any `manage_controls` a
 [warn] N control references written as {id: null} despite the platform being reachable
        and elements having assigned classes. These will be created as name-only Controls
        (no ControlClass binding) on the next /dethereal:sync push, and the analysis engine
-       cannot derive countermeasures from them. To bind them to a ControlClass, use the
+       cannot derive countermeasures from them. To bind them to ControlClasses, use the
        file-first greenfield path: write controls/<temp-id>.json with lifecycle: "greenfield"
-       and a classes[] entry referencing the ControlClass id.
+       and one classes[] entry per applicable ControlClass id.
 ```
 
 This is advisory, not blocking — the operator may have legitimate reasons (e.g. a control without a matching ControlClass in any active module). Skip silently when the count condition is not met.
