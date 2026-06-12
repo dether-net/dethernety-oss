@@ -258,6 +258,7 @@ Connect components with data flows to complete the structural model.
    - Administrative access paths (SSH, RDP, management consoles → components)
    - Monitoring/logging flows (components → log aggregators, SIEM)
    - Backup/recovery flows (databases → backup destinations)
+   - Privilege/auth transitions — flows where the caller and callee operate at different authorization levels even within one network zone (e.g. an authenticated service calling an unauthenticated internal admin endpoint). Boundaries placed by network topology miss these; surface confirmed transitions as candidate sub-boundaries during Step 4 refinement
 4. For each new flow:
    - Determine source/target handles based on relative position (use layout guidelines)
    - Avoid handle conflicts with existing flows
@@ -323,7 +324,7 @@ Delegate classification to `Agent(security-enricher)` per the classify skill wor
    - Consider connected data flows — protocols, data types
    - Peer inference — siblings in the same boundary likely have similar classes
    - If no match in active modules, broaden search to all modules and suggest adding the matched module
-4. Crown jewel tagging: match free-text crown jewel names from `scope.json` to components
+4. Crown jewel tagging: match free-text crown jewel names from `scope.json` to components; on no component match, also match against data-item names. An unresolved crown-jewel declaration is a **blocking confirm** — unmatched, it silently drops to Tier 4 in every downstream pass (enrichment priority, surface, control pass), which is the one gap worth stopping the guided flow for
 5. Present batch confirmation table (same format as `/dethereal:classify`)
 6. Quality gate: 100% STORE classification, 80% overall classification
 6. Write classifications and crown jewel tags to model files. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write class template attribute stubs for all classified elements

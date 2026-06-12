@@ -20,7 +20,8 @@ Before starting the control pass:
 1. Read `structure.json` — count boundaries (B), extract element types per boundary
 2. Read existing `controls[]` arrays on boundaries, components, and data flows
 3. Read component attribute files — collect `monitoring_tools` values (seeds detection controls)
-4. Check platform connectivity: attempt `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')`. If it succeeds, use the **brownfield** path. If it fails, use the **greenfield** path.
+4. **Harvest control-implying attribute evidence** — before prompting each boundary, Grep `attributes/` for evidence the main enrichment already captured (`tls_enabled`, `encryption_at_rest`, `encryption_in_transit`, `implicit_deny_enabled`, `authentication_type`, `waf_*`, …) and pre-populate that boundary's proposal table with `source: "discovered"` rows. This is the same pattern Step 2 uses for `monitoring_tools` — evidence gathered during enrichment must not be re-asked or thrown away at control time.
+5. Check platform connectivity: attempt `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')`. If it succeeds, use the **brownfield** path. If it fails, use the **greenfield** path.
 
 ## Step 1: Enforcement Controls (Category 2)
 
@@ -81,6 +82,8 @@ N boundaries have no enforcement controls.
 Review: (1) crown-jewel boundaries only, (2) all boundaries, (3) skip.
 ```
 If option 1: identify crown-jewel boundaries (those containing components with `crownJewel: true` in `structure.json`). Process these first (reduces effective B to ~3-4). After completing crown-jewel boundaries, offer to continue with remaining boundaries.
+
+**Crown-jewel component sweep.** After the per-boundary enforcement pass, for each `crownJewel: true` component confirm at least one **component-scoped** control beyond the controls inherited from its boundary, or record (one line) why boundary-level protection suffices. The surface report measures coverage per component per tier — a crown jewel that merely inherits the boundary firewall otherwise looks "covered" without anything protecting it specifically.
 
 ### Brownfield Batch Table Format
 
@@ -204,6 +207,7 @@ Additional detection controls? (SOC monitoring, NDR, automated response, or "non
 3. For confirmed tools from attribute files: `source: "discovered"`
 4. For user-added detection tools: `source: "declared"`
 5. Write detection controls to the appropriate element's `controls[]` field in `structure.json` (boundary or component) or `dataflows.json` (data flow). Same destination as enforcement controls — see the Persistence note in Step 1. Detection controls do NOT go in `attributes/<...>/<id>.json`.
+6. **Class binding:** apply the same Path Selection as Step 1 — when a matching ControlClass exists in active modules (e.g. a SIEM/monitoring/EDR class, discovered via `match_classes(classLabel: 'CONTROL')`), bind the detection Control via Path 1/Path 2 so the platform can derive countermeasures. Fall back to name-only (`{ id: null, ... }`) only when no class matches — a name-only detection Control generates no countermeasures.
 
 ## Step 3: Governance Placeholder (Category 4)
 
@@ -354,7 +358,9 @@ When the `rank` action returns candidates, the scoring is pre-computed:
 
 Present relevance labels in the batch table. The user can always override by choosing a `weak` candidate or rejecting a `strong` one.
 
-## Turn Budget
+## Turn Budget (control pass only)
+
+This table budgets ONLY the `--focus controls` invocation. The main enrichment flow (enrich Steps 4-14) is a SEPARATE `Agent(security-enricher)` invocation with its own 40-turn budget, whose dominant cost is `tiers × (read + evidence + confirm + write)` — do not read this table as covering the full enrichment run.
 
 The control pass runs within a 40-turn agent budget:
 

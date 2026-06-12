@@ -57,8 +57,12 @@ For each classified component **and classified data item**, populate the attribu
 3. **Ask the user for undiscoverable attributes** — use the guide's `option_description` and `security_impact` to frame targeted questions. Group by component to minimize round-trips
 4. **Full coverage required** — every field defined by the class template must be set. Partial coverage produces unreliable OPA results (policies may fire with incomplete input, generating inaccurate exposures)
 5. **Merge, never overwrite** — read the existing attribute file before writing. Merge template field values into the file, preserving plugin-enrichment fields (`credential_scope`, `monitoring_tools`)
+6. **Per-tier persistence** — write each tier's confirmed attributes to disk before starting the next tier (crash boundary; completed tiers survive an interrupted run)
+7. **Declined fields** — when the user explicitly declines a field, write the template's documented unknown/default instead of leaving `null`, so a resumed pass doesn't re-prompt
+8. **Offline fallback** — if both the class-cache read and `get_classes` fail, skip template enrichment for that class and note "platform-unreachable — template unavailable" (same disposition as unclassified)
+9. **Six-attribute floor** — after template enrichment, verify the Six Key Attributes (authentication, encryption in transit, encryption at rest, logging, access control, log telemetry — OPERATIONAL_REQUIREMENTS.md §2) are set on every in-scope component regardless of template coverage; prompt via the batch table in THREAT_MODELING_WORKFLOW.md §"Six Key Attributes Per Component" for any the template omitted
 
-For unclassified components and data items (no assigned class), skip template-driven enrichment. Note in the summary: "N elements skipped — unclassified."
+For unclassified components and data items (no assigned class), skip template-driven enrichment (the six-attribute floor still applies to unclassified components). Note in the summary: "N elements skipped — unclassified."
 
 ## Security Attributes — Data Flows
 
@@ -117,9 +121,10 @@ When a module is added to `activeModules` after initial classification:
 ### Crown Jewel Tagging (Phase 3 — Lightweight)
 
 During classification, match free-text crown jewel names from `.dethereal/scope.json` to actual components:
-1. Fuzzy-match `crown_jewels[]` entries from scope against component names
+1. Fuzzy-match `crown_jewels[]` entries from scope against component names; on no match, also fuzzy-match against data-item names (crown jewels are often data — a data-item match resolves to the components that store/process it via `dataItemIds`)
 2. Set `crownJewel: true` on the matched components in `structure.json`
 3. Present matches for confirmation: "You declared 'Payment Database' as a crown jewel. Matching component: 'payment-db' [STORE]. Confirm?"
+4. An unresolved crown-jewel declaration is a blocking confirm, not an advisory — unmatched, it silently drops to Tier 4 in every downstream pass
 
 This is the lightweight Phase 3 tagging. Full `asset_criticality` enrichment happens during the enrich workflow (Phase 7).
 
@@ -141,21 +146,23 @@ If unclassified elements exist and `activeModules` is set, check if broadening w
 
 ## Credential Enrichment Protocol (D22, D62)
 
-Batch-first approach — inventory all credentials before mapping to flows.
+Flow-anchored approach — every cross-boundary flow forces a credential question instead of relying on user recall. Credentials are the single highest-impact enrichment for analysis quality; a cold global "list your credentials" prompt reliably misses the shared service accounts that are the lateral-movement story.
 
-### Phase 1 — Credential Inventory
+### Phase 1 — Flow-Anchored Credential Capture
 
-Present a single batch prompt:
+Enumerate the cross-boundary flows (already computed during tiering) and ask per flow, batched in one table:
 
 ```
-What credentials and service accounts does your system use?
-List all: service accounts, API keys, database credentials, certificates, shared secrets.
+For each of these cross-boundary flows: what credential authenticates it,
+and what ELSE does that credential reach?
 
-Example format:
-- db-admin-account (PostgreSQL service account, used by API Server and Worker)
-- api-gateway-key (API key for external gateway)
-- tls-cert-internal (mTLS certificate for service-to-service)
+| # | Flow | Credential (id or "none"/"unknown") | Also used by |
+|---|------|--------------------------------------|--------------|
+| 1 | API Server → PostgreSQL | db-admin-account | Worker → PostgreSQL |
+| 2 | Client → API Gateway | api-gateway-key | — |
 ```
+
+Then sweep for credentials no flow surfaced: "Any service accounts, API keys, certificates, or shared secrets not tied to the flows above? (e.g. break-glass accounts, CI deploy keys)"
 
 ### Phase 2 — Map Credentials to Flows
 

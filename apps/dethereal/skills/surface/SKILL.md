@@ -151,6 +151,8 @@ Run /dethereal:enrich --focus controls to assign controls.
 
 If no classified components have controls: "No formal controls assigned. Run `/dethereal:enrich --focus controls` to assign controls."
 
+When presenting gap recommendations (from `get_control_gaps`): the rows are per-(Control, ControlClass) — multiple rows naming related ControlClasses for the same mechanism may be satisfied by ONE multi-class Control (one `classes[]` entry per class), not one Control per row. See the grouping rule in controls-enrichment.md.
+
 #### 4d. Control Source Breakdown (when populated)
 
 If any controls have a `source` field, present the verification status:

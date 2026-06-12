@@ -77,7 +77,7 @@ Discovery found [confirmed list]. Code analysis systematically misses certain el
 Are any of these relevant to your system?
 
 1. Shared infrastructure — IdP, DNS, CA, log aggregator, SIEM, secret manager
-2. Side-channel data flows — Logging pipelines, metrics, DNS resolution, backups
+2. Side-channel data flows — Logging pipelines, metrics, DNS resolution, backup destinations
 3. Deployment pipeline — CI/CD platform, container registries, artifact stores
 4. Third-party SaaS — OAuth providers, payment processors, CDN, email/SMS
 5. Human actors with privileged access — System admins, DBA, on-call engineers
@@ -87,7 +87,7 @@ Are any of these relevant to your system?
 List anything else I missed, or say "none" to continue.
 ```
 
-Add any user-provided elements to the confirmed list.
+Add any user-provided elements to the confirmed list. **Backup destinations and CI/CD registries/artifact stores enter as COMPONENTS** (STORE or EXTERNAL_ENTITY), not merely as flows — a backup store holds the same crown-jewel data at rest (usually with weaker controls) and must carry its own data-item links (inherited from the source store) and enrichment; "DB → backup" as a bare flow leaves the backup copy invisible to data classification and control-gap analysis.
 
 ### 7. Complexity Check
 
