@@ -571,7 +571,19 @@
   .trd-reach-mode--active { background: rgba(0, 184, 212, 0.12); opacity: 1; font-weight: 600; box-shadow: inset 0 -2px 0 0 #00b8d4; }
 
   .trd-reach-body { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
-  .trd-reach-map { flex: 0 0 340px; max-width: 420px; min-width: 260px; }
+  /* The minimap is the spatial home — keep it visible while the list (jewels /
+     routes / blast cone) scrolls, in all three modes (the map sidebar is shared,
+     outside the mode panels). The shell's .trd-view is the scroll container, so a
+     sticky pane pins to its top (align-self:flex-start so the flex item isn't
+     stretched, which would leave no room to stick). A surface background keeps it
+     clean if a wide row ever underlaps during momentum scroll. Mirrors the
+     Boundary Crossings .trd-minimap-pane treatment. */
+  .trd-reach-map {
+    flex: 0 0 340px; max-width: 420px; min-width: 260px;
+    position: sticky; top: 0; align-self: flex-start; z-index: 1;
+    background: rgb(var(--v-theme-surface, 33 33 33));
+    padding-bottom: 0.4rem;
+  }
   /* The sidebar variant sizes its own svg (≈180px) — no forced container height
      (that was only needed by the full-height 'expanded' variant). The ⤢ button
      opens the big modal where the real navigation/picking happens. */
