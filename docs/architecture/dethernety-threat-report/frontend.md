@@ -259,7 +259,9 @@ of crown-jewel mode: same assumed-breach origin, but the *entire forward cone*
 instead of just the jewels). Blast radius carries a **scope toggle** — *full*
 forward closure (the BFS `closure`, the true blast radius) vs *direct* 1-hop
 neighbours — and is forward-only; each reachable node is annotated with its
-min-hops, the **net** origin→node boundary crossings (EXIT/ENTER, drillable, the
+min-hops, the **first hop** out of the breach toward it (`firstFlow` — the
+shortest path's first edge, with the data it carries *in motion*), the **net**
+origin→node boundary crossings (EXIT/ENTER, drillable, the
 Boundary Crossings vocabulary — not the per-hop path sum), worst live band,
 crown-jewel flag and carried data, plus a radius-level "crosses N trust
 boundaries" containment row (or "no modeled flow leaves its boundary"). The

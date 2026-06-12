@@ -148,6 +148,7 @@ Below that, each reachable node is a row, ordered nearest-first:
 |---|---|
 | `⬢` before the name | This reachable node is a crown jewel — a high-value asset caught in the radius. |
 | `N hops` | The fewest flow steps to reach it from the origin. |
+| `first → <flow> [sensitivity]` | The **first hop out of the breached origin** on the shortest path to this node — the flow the attacker rides first, and the data that flow carries *in motion* (distinct from the data the node handles at rest). The flow name opens its profile. For a direct (1-hop) neighbour this is simply the origin→node flow. `unclassified` means the flow carries data with no sensitivity set (not the same as Public). |
 | `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. This is the *net* origin→node delta, not a per-hop tally — so a node that sits back in the origin's own zone shows `· same zone as origin` rather than chips, even if it is several hops away. |
 | A severity dot + band | The worst live threat sitting on that reachable node. |
 | A sensitivity chip | Sensitive data that node handles. |
