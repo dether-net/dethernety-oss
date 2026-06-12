@@ -464,9 +464,9 @@ If platform reachability was confirmed during this pass (any `manage_controls` a
 [warn] N control references written as {id: null} despite the platform being reachable
        and elements having assigned classes. These will be created as name-only Controls
        (no ControlClass binding) on the next /dethereal:sync push, and the analysis engine
-       cannot derive countermeasures from them. To bind them to a ControlClass, use the
+       cannot derive countermeasures from them. To bind them to ControlClasses, use the
        file-first greenfield path: write controls/<temp-id>.json with lifecycle: "greenfield"
-       and a classes[] entry referencing the ControlClass id.
+       and one classes[] entry per applicable ControlClass id.
 ```
 
 This is advisory, not blocking — the operator may have legitimate reasons (e.g. a control without a matching ControlClass in any active module). Skip silently when the count condition is not met.

@@ -345,7 +345,7 @@ The decision tree below should be read alongside the path selection table in [co
 | Scenario | Steps |
 |----------|-------|
 | **`rank` returned candidates** (brownfield from `manage_controls` rank) | Use the candidate's `controlId` field: `{ id: "<controlId>", name: "<controlName>", source: "declared" }`. Never use `controlClassId` here. |
-| **`rank` returned empty AND the element has an assigned class** (greenfield with class binding) | **Default:** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
+| **`rank` returned empty AND the element has an assigned class** (greenfield with class binding) | **Default:** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, one `classes[]` entry per applicable ControlClass, and let `/dethereal:sync push` create the platform Control. Discover ControlClasses via `match_classes(elements: [{name: "<control idea>", ...}], classLabel: 'CONTROL', moduleIds)` — the element's own class assignment is a ComponentClass and is never valid here. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId-1>", "<controlClassId-2>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
 | **`rank` returned empty AND the element has no assigned class**, OR platform unreachable (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. The platform's `resolveControls()` will create a Control by name on next sync, but it will not be bound to any ControlClass. |
 
 **Rules:**
@@ -362,7 +362,7 @@ Per-instance ControlClass attributes live in `controls/<id>.json` files, NOT inl
 
 When creating a Control that does not exist on the platform and you want ControlClass bindings so the platform auto-generates countermeasures:
 
-1. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populate `classes[]` with the bound ControlClass(es), fill `attributes` from observed evidence (empty `{}` valid).
+1. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populate `classes[]` with **one entry per applicable ControlClass**, fill `attributes` from observed evidence (empty `{}` valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup), create ONE Control with one `classes[]` entry per class — never one Control per class. Discover candidates via `match_classes(classLabel: 'CONTROL')`; the element's own class assignment is a ComponentClass, never a ControlClass.
 2. Write `{ "id": "<temp-id>", "name": "...", "source": "declared" }` to the element's `controls[]`.
 3. On `/dethereal:sync push`: pipeline creates the Control, pushes attributes, assigns SUPPORTS edges, writes the server id back, flips `lifecycle: "brownfield"`.
 

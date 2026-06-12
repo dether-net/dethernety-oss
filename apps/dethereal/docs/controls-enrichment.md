@@ -47,9 +47,10 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 
 **Path 2 procedure (file-first greenfield with class binding):**
 1. Pick a temporary local id: `greenfield-<short-uuid>`.
-2. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, a `classes[]` entry referencing the ControlClass id discovered from the element's class assignment, and `attributes` populated from observed code/IaC (empty `{}` is valid).
-3. Write `{ id: "<temp-id>", name: "...", source: "declared" }` to the element's `controls[]` in `structure.json` / `dataflows.json`.
-4. Full layout in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) below.
+2. Discover candidate ControlClasses. An element's own class assignment is a **ComponentClass**, NOT a ControlClass — never write it into `classes[]`. Instead, use the control idea (and the element's class/type/category as context) as search input: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name: "<control idea>", description: "<mechanism / what it protects>"}], classLabel: 'CONTROL', moduleIds: [...], topN: 3)`. Fallback when matching is unavailable: browse `mcp__plugin_dethereal_dethereal__get_classes(class_type: 'CONTROL')` for the active modules.
+3. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, **one `classes[]` entry per applicable ControlClass**, and `attributes` populated from observed code/IaC (empty `{}` is valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup), create ONE Control with one `classes[]` entry per class — never one Control per class.
+4. Write `{ id: "<temp-id>", name: "...", source: "declared" }` to the element's `controls[]` in `structure.json` / `dataflows.json`.
+5. Full layout in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) below.
 
 **Path 3 procedure (name-only):**
 1. Present the greenfield prompt (see format below). User describes controls as free-text.
@@ -123,7 +124,7 @@ The `id` in a `controls[]` entry is a **Control ID** (instance from the org's co
 | Path | What you have | What to write to `controls[]` |
 |------|---------------|-------------------------------|
 | Path 1 — Brownfield (`rank` returned candidates) | `controlId` from a candidate row | `{ id: "<controlId>", name: "<controlName>", source: "declared" }` |
-| Path 2 — Greenfield with class binding (`rank` empty AND element has assigned class) | `controlClassId` from the element's class assignment | **Default:** use the file-first path documented in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "<descriptive name>", class_ids: ["<controlClassId>"], element_ids: ["<element-id>"])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "<descriptive name>", source: "declared" }` to `structure.json`. The legacy path skips the file-first benefits (local iteration on attributes before commit) but works for non-attribute use cases. |
+| Path 2 — Greenfield with class binding (`rank` empty AND element has assigned class) | `controlClassId`s discovered via `match_classes(classLabel: 'CONTROL')` (the element's own class is a ComponentClass — never valid here) | **Default:** use the file-first path documented in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, one `classes[]` entry per applicable ControlClass, and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "<descriptive name>", class_ids: ["<controlClassId-1>", "<controlClassId-2>"], element_ids: ["<element-id>"])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "<descriptive name>", source: "declared" }` to `structure.json`. The legacy path skips the file-first benefits (local iteration on attributes before commit) but works for non-attribute use cases. |
 | Path 3 — Greenfield name-only (`rank` empty AND element has no class, OR platform unreachable) | Nothing | `{ id: null, name: "<descriptive name>", source: "declared" }`. Platform creates a Control by name on next sync but it will not be bound to any ControlClass. |
 
 **Never** write `{ id: "<controlClassId>", name: "..." }` — the ID lookup will fail.
@@ -243,6 +244,8 @@ See [CONTROL_LIBRARY.md §3](../../../docs/architecture/dethereal/CONTROL_LIBRAR
 
 When you need a Control that does not exist in the org's control library and that you want bound to one or more ControlClasses (so the platform auto-generates countermeasures):
 
+**Grouping rule.** A Control models one real-world mechanism, and one mechanism is often described by several ControlClasses. When multiple ControlClasses apply to the same mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup, or WAF + Rate Limiting for one edge policy), create **ONE Control with one `classes[]` entry per class — never one Control per class**. Discover the candidate classes via `match_classes(classLabel: 'CONTROL')` as described in Path 2 above.
+
 1. Choose a temporary local id: `greenfield-<short-uuid>`.
 2. Write `controls/<temp-id>.json`:
    ```json
@@ -253,12 +256,20 @@ When you need a Control that does not exist in the org's control library and tha
      "lifecycle": "greenfield",
      "classes": [
        {
-         "classId": "<controlClass-uuid>",
+         "classId": "<controlClass-uuid-1>",
          "className": "Web Application Firewall",
          "moduleId": "<module-uuid>",
          "attributes": {
            "inbound_firewall_enabled": true,
            "default_inbound_policy": "log_only"
+         }
+       },
+       {
+         "classId": "<controlClass-uuid-2>",
+         "className": "Rate Limiting",
+         "moduleId": "<module-uuid>",
+         "attributes": {
+           "rate_limit_enabled": true
          }
        }
      ]
