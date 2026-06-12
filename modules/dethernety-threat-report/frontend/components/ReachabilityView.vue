@@ -194,6 +194,41 @@
           />
         </div>
 
+        <!-- CHOKE POINTS — the dominators every origin→target route must pass through.
+             A summary OF the routes (the "where to place one control" lever), computed by
+             a vertex-cut test rather than route-intersection, so it stays complete even
+             when route enumeration below is hop/count-capped. -->
+        <div v-if="chokes && chokes.reachable" class="trd-choke">
+          <template v-if="chokes.chokePoints.length">
+            <p class="trd-choke-head">
+              Every modeled route passes through<template v-if="chokes.chokePoints.length > 1">, in order</template>:
+            </p>
+            <div class="trd-choke-chain">
+              <template v-for="(c, ci) in chokes.chokePoints" :key="c.id">
+                <span v-if="ci > 0" class="trd-choke-arrow" aria-hidden="true">▸</span>
+                <span class="trd-strip-node">
+                  <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': c.crownJewel }" aria-hidden="true">{{ c.crownJewel ? '⬢' : '◉' }}</span>
+                  <button type="button" class="trd-drill-mini trd-strip-name" @click="$emit('drill', c.id)" :title="`Open ${c.name} profile`">{{ c.name }}</button>
+                  <span v-if="c.worstBand" class="trd-dot" :class="`trd-dot--${c.worstBand}`" :title="`worst live: ${bandLabel(c.worstBand)}`" aria-hidden="true">⬤</span>
+                  <button v-for="(x, xi) in c.crossings" :key="xi" type="button" class="trd-cross trd-cross-btn" :class="`trd-cross--${x.direction.toLowerCase()}`" @click="$emit('drill', x.boundaryId)" :title="`Open ${x.boundaryName} profile (${x.direction})`">{{ x.direction === 'EXIT' ? '◂' : '▸' }} {{ x.boundaryName }}</button>
+                </span>
+              </template>
+            </div>
+            <p class="trd-choke-note">
+              Controlling any one severs every <em>modeled</em> flow route between them — not unmodeled
+              flows, shared credentials, or non-flow lateral movement.<template v-if="modeB && modeB.capped"> The route list below is capped, but this choke-point analysis is complete.</template>
+            </p>
+          </template>
+          <p v-else-if="chokes.hasDirectFlow" class="trd-choke-note">
+            A direct modeled flow connects <strong>{{ nameOf(mbOrigin) }}</strong> →
+            <strong>{{ nameOf(mbTarget) }}</strong> — no intermediary to control.
+          </p>
+          <p v-else class="trd-choke-note">
+            No single choke point — at least two internally disjoint routes exist; controlling one node
+            won't sever modeled flow. Not a segmentation guarantee.
+          </p>
+        </div>
+
         <p v-if="!mbOrigin || !mbTarget" class="trd-empty">
           Choose an origin and a target — above or by clicking nodes on the map — to
           enumerate the flow routes between them.
@@ -369,6 +404,7 @@
   import {
     modeAReachability,
     modeBRoutes,
+    chokePoints,
     blastRadius,
     externalEntryIds,
     crownJewelIds,
@@ -432,6 +468,15 @@
 
   // Keep the selected route index in range as the route set changes.
   watch(modeB, () => { selectedRouteIdx.value = 0 })
+
+  // Choke points — the dominators every origin→target route must pass through.
+  // A summary OF the Mode-B routes (vertex-cut test, not route-intersection), so
+  // it answers even when enumeration is hop-capped. Distinct endpoints only.
+  const chokes = computed(() =>
+    mbOrigin.value && mbTarget.value && mbOrigin.value !== mbTarget.value
+      ? chokePoints(props.modelGraph, props.ledger, mbOrigin.value, mbTarget.value)
+      : null,
+  )
 
   // Mode C — the forward blast radius of the chosen node (full closure or 1-hop).
   const blast = computed(() =>
@@ -621,6 +666,17 @@
   .trd-dot--low { color: #5f6a6a; }
   .trd-dot--unknown { color: #95a5a6; }
   .trd-band { font-size: 0.78rem; }
+
+  /* Mode B choke points — the dominator chain (a summary of the routes) */
+  .trd-choke {
+    border: 1px solid rgba(0, 184, 212, 0.4); border-left-width: 3px;
+    border-radius: 4px; padding: 0.5rem 0.7rem; margin-bottom: 0.6rem;
+    background: rgba(0, 184, 212, 0.06);
+  }
+  .trd-choke-head { font-size: 0.84rem; font-weight: 600; margin: 0 0 0.4rem; }
+  .trd-choke-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
+  .trd-choke-arrow { opacity: 0.5; }
+  .trd-choke-note { font-size: 0.76rem; opacity: 0.75; line-height: 1.5; margin: 0.45rem 0 0; }
 
   /* Mode B routes + subway strip */
   .trd-routes { list-style: none; margin: 0; padding: 0; }

@@ -5,6 +5,7 @@ import {
   enumerateRoutes,
   annotateRoute,
   modeBRoutes,
+  chokePoints,
   modeAReachability,
   blastRadius,
   crownJewelRouteElements,
@@ -213,6 +214,89 @@ describe('modeBRoutes', () => {
 
   it('directed: no routes leaf→db', () => {
     expect(modeBRoutes(MG, LEDGER, 'leaf', 'db').routes).toHaveLength(0)
+  })
+})
+
+describe('chokePoints — s→t dominators (every route must pass through)', () => {
+  it('finds the sole dominator on a fan-in (api on every ext→db route)', () => {
+    const c = chokePoints(MG, LEDGER, 'ext', 'db')
+    expect(c.hasOrigin).toBe(true)
+    expect(c.hasTarget).toBe(true)
+    expect(c.reachable).toBe(true)
+    expect(c.hasDirectFlow).toBe(false)
+    expect(c.chokePoints.map((p) => p.id)).toEqual(['api'])
+    const api = c.chokePoints[0]
+    expect(api.worstBand).toBe('high') // RCE 8 live; SQLi 9 is RISK_ACCEPTED → muted
+    expect(api.liveCount).toBe(1)
+    expect(api.hasControl).toBe(false)
+    expect(api.crownJewel).toBe(false)
+    expect(api.crossingCount).toBe(2) // EXIT DMZ + ENTER App
+    expect(api.crossings.map((x) => x.direction)).toEqual(['EXIT', 'ENTER'])
+    expect(api.dataHandled).toEqual([]) // PAN is handled by db, not api
+  })
+
+  it('excludes nodes on only SOME routes (web, web2) and cycle detours (cyc)', () => {
+    const ids = chokePoints(MG, LEDGER, 'ext', 'db').chokePoints.map((p) => p.id)
+    expect(ids).not.toContain('web') // only on the ext→web→api→db route
+    expect(ids).not.toContain('web2') // only on the ext→web2→api→db route
+    expect(ids).not.toContain('cyc') // in R via the cycle, but removing it leaves a route
+  })
+
+  it('orders the dominator chain origin→…→target (api before db for ext→leaf)', () => {
+    const c = chokePoints(MG, LEDGER, 'ext', 'leaf')
+    expect(c.reachable).toBe(true)
+    expect(c.chokePoints.map((p) => p.id)).toEqual(['api', 'db'])
+    const db = c.chokePoints.find((p) => p.id === 'db')
+    expect(db.crownJewel).toBe(true)
+    expect(c.chokeNodeIds).toEqual(['ext', 'api', 'db', 'leaf'])
+  })
+
+  it('no choke point when ≥2 internally vertex-disjoint routes exist (ext→api via web/web2)', () => {
+    const c = chokePoints(MG, LEDGER, 'ext', 'api')
+    expect(c.reachable).toBe(true)
+    expect(c.hasDirectFlow).toBe(false)
+    expect(c.chokePoints).toEqual([])
+  })
+
+  it('no choke point but flags a direct flow (ext→web)', () => {
+    const c = chokePoints(MG, LEDGER, 'ext', 'web')
+    expect(c.reachable).toBe(true)
+    expect(c.hasDirectFlow).toBe(true)
+    expect(c.chokePoints).toEqual([])
+  })
+
+  it('unreachable target → reachable false, no choke points, no direct flow (leaf→db)', () => {
+    const c = chokePoints(MG, LEDGER, 'leaf', 'db')
+    expect(c.reachable).toBe(false)
+    expect(c.hasDirectFlow).toBe(false)
+    expect(c.chokePoints).toEqual([])
+  })
+
+  it('same node → sameNode flag, trivially reachable, no intermediaries', () => {
+    const c = chokePoints(MG, LEDGER, 'api', 'api')
+    expect(c.sameNode).toBe(true)
+    expect(c.reachable).toBe(true)
+    expect(c.chokePoints).toEqual([])
+  })
+
+  it('invalid origin id → hasOrigin false, empty', () => {
+    const c = chokePoints(MG, LEDGER, 'nope', 'db')
+    expect(c.hasOrigin).toBe(false)
+    expect(c.reachable).toBe(false)
+    expect(c.chokePoints).toEqual([])
+  })
+
+  it('invariant: a direct flow and choke points never coexist', () => {
+    for (const [s, t] of [
+      ['ext', 'db'],
+      ['ext', 'leaf'],
+      ['ext', 'api'],
+      ['ext', 'web'],
+      ['web', 'db'],
+    ]) {
+      const c = chokePoints(MG, LEDGER, s, t)
+      expect(c.hasDirectFlow && c.chokePoints.length > 0).toBe(false)
+    }
   })
 })
 
