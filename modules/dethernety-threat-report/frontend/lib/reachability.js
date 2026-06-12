@@ -395,9 +395,7 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
     sameNode: false,
     reachable: false,
     hasDirectFlow: false,
-    relevantCount: 0,
     chokePoints: [],
-    chokeNodeIds: [],
   }
 
   if (!origin || !target) return base
@@ -407,7 +405,13 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
 
   const fwd = closure(proj.forward, new Set([originId]), (e) => e.to)
   if (!fwd.has(targetId)) return base // target not forward-reachable — no routes
-  const hasDirectFlow = (proj.forward.get(originId) ?? []).some((e) => e.to === targetId)
+
+  // A direct origin→target edge survives excising ANY intermediary, so a direct
+  // flow precludes every choke point. Short-circuit: report it and skip the cut
+  // tests (this is also why a direct flow and a choke point can never coexist).
+  if ((proj.forward.get(originId) ?? []).some((e) => e.to === targetId)) {
+    return { ...base, reachable: true, hasDirectFlow: true }
+  }
 
   // Relevant subgraph: nodes on at least one origin→target path (a node on NO
   // such path can never be on EVERY such path). Candidates exclude the endpoints.
@@ -418,19 +422,14 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
   const chokeSet = new Set(candidates.filter((v) => !reachableSkipping(proj.forward, originId, targetId, v)))
 
   // Chain order: every dominator lies on EVERY origin→target path, including the
-  // shortest — so order by index along the shortest path (tie-free; min-hops is
-  // NOT a safe ordering key — a dominator's own shortest distance can tie/invert).
+  // shortest — so order by index along that shortest path, the exact dominator-chain
+  // order. (A node's own min-hops from the origin is a separate per-node measure,
+  // reported below but never used as the ordering key.)
   const sp = bfsShortest(proj.forward, new Set([originId]), targetId)
   const orderIndex = new Map(sp.nodes.map((id, i) => [id, i]))
   const chokeIds = [...chokeSet].sort(
     (a, b) => (orderIndex.get(a) ?? Infinity) - (orderIndex.get(b) ?? Infinity),
   )
-
-  // Invariant: a direct origin→target edge survives excising any intermediary,
-  // so a direct flow and choke points can never coexist.
-  if (hasDirectFlow && chokeIds.length) {
-    throw new Error('chokePoints invariant violated: direct flow with choke points')
-  }
 
   const chokePointsView = chokeIds.map((id) => {
     const c = proj.componentById.get(id)
@@ -458,10 +457,7 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
   return {
     ...base,
     reachable: true,
-    hasDirectFlow,
-    relevantCount: candidates.length,
     chokePoints: chokePointsView,
-    chokeNodeIds: [originId, ...chokeIds, targetId],
   }
 }
 

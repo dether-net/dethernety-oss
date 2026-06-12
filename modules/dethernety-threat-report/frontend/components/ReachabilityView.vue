@@ -198,7 +198,7 @@
              A summary OF the routes (the "where to place one control" lever), computed by
              a vertex-cut test rather than route-intersection, so it stays complete even
              when route enumeration below is hop/count-capped. -->
-        <div v-if="chokes && chokes.reachable" class="trd-choke">
+        <div v-if="chokes && chokes.reachable" class="trd-choke" role="group" aria-label="Choke points — nodes on every modeled route">
           <template v-if="chokes.chokePoints.length">
             <p class="trd-choke-head">
               Every modeled route passes through<template v-if="chokes.chokePoints.length > 1">, in order</template>:
@@ -232,6 +232,11 @@
         <p v-if="!mbOrigin || !mbTarget" class="trd-empty">
           Choose an origin and a target — above or by clicking nodes on the map — to
           enumerate the flow routes between them.
+        </p>
+        <p v-else-if="modeB && modeB.routes.length === 0 && chokes && chokes.reachable" class="trd-empty">
+          No routes within {{ DEFAULT_MAX_HOPS }} hops were enumerated between <strong>{{ nameOf(mbOrigin) }}</strong> →
+          <strong>{{ nameOf(mbTarget) }}</strong> — they connect only by longer routes. The choke-point
+          analysis above covers every route, of any length.
         </p>
         <p v-else-if="modeB && modeB.routes.length === 0" class="trd-empty">
           No routes within {{ DEFAULT_MAX_HOPS }} hops connect <strong>{{ nameOf(mbOrigin) }}</strong> →

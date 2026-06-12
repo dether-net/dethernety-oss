@@ -248,7 +248,22 @@ describe('chokePoints — s→t dominators (every route must pass through)', () 
     expect(c.chokePoints.map((p) => p.id)).toEqual(['api', 'db'])
     const db = c.chokePoints.find((p) => p.id === 'db')
     expect(db.crownJewel).toBe(true)
-    expect(c.chokeNodeIds).toEqual(['ext', 'api', 'db', 'leaf'])
+  })
+
+  it('diamond-within-chain: chain nodes are chokes, branch nodes are not', () => {
+    // s → a → {b, c} → d → t : every route passes a then d; b and c are each on
+    // only one branch. Hardens membership (b/c excluded) + ordering (a before d).
+    const DIAMOND = {
+      boundaries: [],
+      components: ['s', 'a', 'b', 'c', 'd', 't'].map((id) => ({ id, name: id.toUpperCase(), type: 'process', crownJewel: false })),
+      flows: [
+        ['fa', 's', 'a'], ['fb', 'a', 'b'], ['fc', 'a', 'c'],
+        ['fd', 'b', 'd'], ['fe', 'c', 'd'], ['ff', 'd', 't'],
+      ].map(([id, sourceId, targetId]) => ({ id, name: id, sourceId, targetId, sensitivities: [] })),
+      dataNodes: [],
+    }
+    const c = chokePoints(DIAMOND, [], 's', 't')
+    expect(c.chokePoints.map((p) => p.id)).toEqual(['a', 'd'])
   })
 
   it('no choke point when ≥2 internally vertex-disjoint routes exist (ext→api via web/web2)', () => {
