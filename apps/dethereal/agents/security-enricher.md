@@ -268,6 +268,8 @@ Regulatory labels (e.g. `PII`, `PHI`, `PCI cardholder`) are captured as separate
 
 - Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item
 - Crown jewel data stores must have classified data items
+- Every PROCESS that reads, transforms, or caches a sensitive data item references it via `dataItemIds` (the "in use" lifecycle stage — first to drop under time pressure, and an unlinked process carries no sensitivity signal)
+- The boundary containing a crown-jewel data item references it
 
 ## Crown Jewel Enrichment (D21, D41)
 

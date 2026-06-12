@@ -205,7 +205,7 @@ For each sensitive data type not yet classified and fully linked:
 5. **Generate attribute stubs** — call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)`. It writes `attributes/dataItems/<id>.json` template stubs for the newly classified data items; these stubs are then filled by the Step 4 template-driven enrichment pass, exactly like component stubs
 6. Link each data item via `dataItemIds` on **every** handling element — its origin external entity/process, the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
 
-**Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; and every data origin (the external entity or process where sensitive data enters the system) must reference its data item.
+**Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; every data origin (the external entity or process where sensitive data enters the system) must reference its data item; every PROCESS that reads, transforms, or caches a sensitive data item must reference it via `dataItemIds`; and the boundary containing a crown-jewel data item must reference it. The gate covers all five lifecycle stages — under time pressure the "in use" process links are the first to drop, and an unlinked process carries no sensitivity signal for information-disclosure analysis.
 
 If the quality gate fails:
 ```

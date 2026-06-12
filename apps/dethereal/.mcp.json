@@ -5,8 +5,7 @@
       "command": "npx",
       "args": ["@dether.net/dethereal@0.3.0"],
       "env": {
-        "DETHERNETY_URL": "${DETHERNETY_URL}",
-        "CLAUDE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
+        "DETHERNETY_URL": "${DETHERNETY_URL}"
       }
     }
   }
