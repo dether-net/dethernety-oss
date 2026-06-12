@@ -5,7 +5,7 @@
  * Tokens are stored in ~/.dethernety/tokens.json
  */
 
-import { readFile, writeFile, mkdir, unlink } from 'fs/promises'
+import { readFile, writeFile, mkdir, unlink, rename, chmod } from 'fs/promises'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -31,8 +31,16 @@ export interface StoredTokens {
   expiresAt: number
   /** Base URL of the platform these tokens are for */
   baseUrl: string
-  /** Timestamp when tokens were stored */
+  /** Timestamp when tokens were stored (reset on every save) */
   storedAt: number
+  /**
+   * Timestamp when the CURRENT refresh token was issued. Preserved across
+   * saves that keep the same refresh token (Cognito does not rotate by
+   * default), reset when the refresh token value changes. Refresh-token
+   * validity is measured from issuance, not from the last save — measuring
+   * from storedAt let the window slide forever.
+   */
+  issuedAt?: number
 }
 
 /**
@@ -67,12 +75,17 @@ async function readTokenFile(): Promise<TokenFile> {
 }
 
 /**
- * Write the token file
+ * Write the token file atomically: tmp + rename so a crash mid-write can
+ * never leave a truncated tokens.json (readTokenFile's catch would silently
+ * discard every stored refresh token). chmod after rename also tightens a
+ * pre-existing file that was created with looser permissions.
  */
 async function writeTokenFile(tokenFile: TokenFile): Promise<void> {
   await ensureConfigDir()
-  // Write with restrictive permissions (owner read/write only)
-  await writeFile(TOKENS_FILE, JSON.stringify(tokenFile, null, 2), { mode: 0o600 })
+  const tmpFile = `${TOKENS_FILE}.tmp`
+  await writeFile(tmpFile, JSON.stringify(tokenFile, null, 2), { mode: 0o600 })
+  await rename(tmpFile, TOKENS_FILE)
+  await chmod(TOKENS_FILE, 0o600)
 }
 
 /**
@@ -125,9 +138,18 @@ export async function saveTokens(tokens: StoredTokens): Promise<void> {
     const tokenFile = await readTokenFile()
     const key = getTokenKey(tokens.baseUrl)
 
+    // Refresh-token issuance tracking: carry issuedAt forward while the
+    // refresh token value is unchanged (non-rotating refresh); reset it
+    // when a new refresh token arrives.
+    const existing = tokenFile.tokens[key]
+    const issuedAt = existing && existing.refreshToken === tokens.refreshToken
+      ? existing.issuedAt ?? existing.storedAt ?? Date.now()
+      : Date.now()
+
     tokenFile.tokens[key] = {
       ...tokens,
-      storedAt: Date.now()
+      storedAt: Date.now(),
+      issuedAt
     }
 
     await writeTokenFile(tokenFile)
@@ -205,12 +227,16 @@ export function isTokenExpired(tokens: StoredTokens, bufferMs: number = 60000): 
  */
 export function isRefreshTokenValid(tokens: StoredTokens): boolean {
   const now = Date.now()
-  const storedAt = tokens.storedAt || 0
+  // Measure from issuance — Cognito refresh tokens (non-rotating by
+  // default) expire 30 days from when they were ISSUED, not from the last
+  // save. issuedAt falls back to storedAt for entries written before the
+  // field existed.
+  const issuedAt = tokens.issuedAt ?? tokens.storedAt ?? 0
 
   // Assume refresh token is valid for 29 days (buffer before 30 day default)
   const refreshTokenValidFor = 29 * 24 * 60 * 60 * 1000
 
-  return now - storedAt < refreshTokenValidFor
+  return now - issuedAt < refreshTokenValidFor
 }
 
 /**

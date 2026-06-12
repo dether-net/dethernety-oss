@@ -181,27 +181,54 @@ export async function startCallbackServer(options: {
   return new Promise((resolve, reject) => {
     // eslint-disable-next-line prefer-const
     let server: Server
+
+    // Callback outcome buffering — the handler settles EAGERLY so a redirect
+    // that lands before the caller invokes waitForCallback() (cached IdP
+    // session → near-instant callback, browser is opened before the wait
+    // starts) is captured instead of dropped. Previously the deferred was
+    // created lazily inside waitForCallback(); a callback arriving in that
+    // gap showed the success page while the tool hung to the timeout.
+    let settled = false
+    let bufferedOutcome: { result?: CallbackResult; error?: Error } | undefined
     let callbackPromise: {
       resolve: (result: CallbackResult) => void
       reject: (error: Error) => void
+    } | undefined
+
+    const settleCallback = (outcome: { result?: CallbackResult; error?: Error }) => {
+      if (settled) return
+      settled = true
+      bufferedOutcome = outcome
+      if (callbackPromise) {
+        if (outcome.result) callbackPromise.resolve(outcome.result)
+        else callbackPromise.reject(outcome.error!)
+      }
     }
 
-    // Create the callback promise that will be resolved when we receive the callback
     const waitForCallback = (): Promise<CallbackResult> => {
       return new Promise((res, rej) => {
-        callbackPromise = { resolve: res, reject: rej }
+        // Callback already arrived before the wait started — deliver it now.
+        if (settled && bufferedOutcome) {
+          if (bufferedOutcome.result) res(bufferedOutcome.result)
+          else rej(bufferedOutcome.error!)
+          return
+        }
 
-        // Set up timeout
+        // Arm the timeout only once someone is actually waiting.
         const timeoutId = setTimeout(() => {
-          rej(new Error(`OAuth callback timeout after ${timeout}ms`))
+          settleCallback({ error: new Error(`OAuth callback timeout after ${timeout}ms`) })
           server.close()
         }, timeout)
 
-        // Clear timeout when callback is received
-        const originalResolve = callbackPromise.resolve
-        callbackPromise.resolve = (result: CallbackResult) => {
-          clearTimeout(timeoutId)
-          originalResolve(result)
+        callbackPromise = {
+          resolve: (result: CallbackResult) => {
+            clearTimeout(timeoutId)
+            res(result)
+          },
+          reject: (error: Error) => {
+            clearTimeout(timeoutId)
+            rej(error)
+          }
         }
       })
     }
@@ -228,9 +255,7 @@ export async function startCallbackServer(options: {
         res.writeHead(400, { 'Content-Type': 'text/html' })
         res.end(ERROR_HTML(error, errorDescription || undefined))
 
-        if (callbackPromise) {
-          callbackPromise.reject(new Error(`OAuth error: ${error}${errorDescription ? ` - ${errorDescription}` : ''}`))
-        }
+        settleCallback({ error: new Error(`OAuth error: ${error}${errorDescription ? ` - ${errorDescription}` : ''}`) })
         server.close()
         return
       }
@@ -243,9 +268,7 @@ export async function startCallbackServer(options: {
         res.writeHead(400, { 'Content-Type': 'text/html' })
         res.end(ERROR_HTML('missing_code', 'Authorization code not received'))
 
-        if (callbackPromise) {
-          callbackPromise.reject(new Error('Authorization code not received'))
-        }
+        settleCallback({ error: new Error('Authorization code not received') })
         server.close()
         return
       }
@@ -256,10 +279,8 @@ export async function startCallbackServer(options: {
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(SUCCESS_HTML)
 
-      // Resolve the callback promise
-      if (callbackPromise) {
-        callbackPromise.resolve({ code, state: state || '' })
-      }
+      // Settle the callback outcome (buffered if no one is waiting yet)
+      settleCallback({ result: { code, state: state || '' } })
 
       // Close the server after a short delay to ensure response is sent
       setTimeout(() => server.close(), 100)
