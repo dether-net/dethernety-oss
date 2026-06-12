@@ -31,6 +31,7 @@ import { flattenStructure } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   validatePathConfinement,
+  validateElementId,
   readStructure,
   readDataFlows,
   readDataItems,
@@ -85,7 +86,7 @@ const ELEMENT_TYPE_CONFIG: Record<string, { subdir: string; classType: string }>
 
 export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStubsInput, GenerateStubsResult> {
   readonly name = 'generate_attribute_stubs'
-  readonly description = 'Deterministically write class template attribute stubs to disk for classified elements. Auto-scans structure.json, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values always preserved). Call after classification to ensure attribute files contain the exact field names OPA policies evaluate.'
+  readonly description = 'Deterministically write class template attribute stubs to disk for classified elements. Auto-scans structure.json, dataflows.json, and data-items.json, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values always preserved). Call after classification to ensure attribute files contain the exact field names OPA policies evaluate.'
   readonly inputSchema = InputSchema
 
   async execute(input: GenerateStubsInput, context: ToolContext): Promise<ToolResult<GenerateStubsResult>> {
@@ -147,6 +148,19 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
       await fs.mkdir(templateFieldsDir, { recursive: true })
 
       for (const [classId, { classType, elementIds }] of uniqueClassIds) {
+        // classId comes from agent-writable model files and is interpolated
+        // into class-cache paths — reject anything path-unsafe up front.
+        try {
+          validateElementId(classId)
+        } catch (err) {
+          for (const eid of elementIds) {
+            failed.push({
+              element_id: eid,
+              reason: err instanceof Error ? err.message : `Invalid classId "${classId}"`,
+            })
+          }
+          continue
+        }
         // Try platform fetch first
         try {
           const cls = await dtClass.getClassById({ classId, classType })
@@ -193,6 +207,18 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
       for (const el of classifiedElements) {
         // Skip elements whose class fetch failed
         if (failed.some(f => f.element_id === el.id)) continue
+
+        // el.id comes from agent-writable model files and is interpolated
+        // into attribute/template-manifest paths — reject path-unsafe ids.
+        try {
+          validateElementId(el.id)
+        } catch (err) {
+          failed.push({
+            element_id: el.id,
+            reason: err instanceof Error ? err.message : `Invalid element id "${el.id}"`,
+          })
+          continue
+        }
 
         const cls = classMap.get(el.classData.id)
         if (!cls) continue

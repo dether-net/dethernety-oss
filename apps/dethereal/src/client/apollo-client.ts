@@ -75,16 +75,25 @@ export function createApolloClient(idToken?: string): ApolloClientType {
     defaultOptions: {
       query: {
         fetchPolicy: 'no-cache',
-        errorPolicy: 'all'
+        // 'none' makes GraphQL errors reject with an ApolloError carrying
+        // graphQLErrors[].message. With 'all', calls resolve as
+        // { data: null, errors } and dt-core's null-data check collapses
+        // every backend failure (expired token, authz denial, validation)
+        // into an opaque "No data returned for <action>".
+        errorPolicy: 'none'
       },
       mutate: {
         fetchPolicy: 'no-cache',
-        errorPolicy: 'all'
+        errorPolicy: 'none'
       }
     }
   })
 
-  // Cache the client
+  // Cache the client. A long-lived MCP process refreshes tokens many times —
+  // each refresh mints a new key, and stale clients would pin their old
+  // bearer token in closure forever. Keep exactly one client: reaching this
+  // point means the key was a miss, so evict whatever came before.
+  clientCache.clear()
   clientCache.set(cacheKey, client)
 
   return client

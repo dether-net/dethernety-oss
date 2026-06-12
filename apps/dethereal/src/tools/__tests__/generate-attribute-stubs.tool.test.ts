@@ -960,4 +960,54 @@ describe('GenerateAttributeStubsTool', () => {
       expect(attrs.attributes.wal_level).toBe('replica')
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Path traversal — ids from model files are interpolated into paths
+  // -------------------------------------------------------------------------
+
+  describe('path-unsafe ids', () => {
+    it('rejects a traversal element id instead of writing outside the model dir', async () => {
+      const classId = 'class-safe'
+      await writeModel(tmpDir, makeStructure([
+        { id: '../../evil', name: 'Evil', type: 'PROCESS', classData: { id: classId, name: 'Safe' } },
+      ]))
+
+      mockGetClassById.mockResolvedValue({
+        id: classId,
+        name: 'Safe',
+        template: makeClassTemplate({ some_field: { type: 'boolean' } }),
+        guide: [],
+      })
+
+      const result = await generateAttributeStubsTool.run(
+        { directory_path: tmpDir }, contextWithClient,
+      )
+
+      expect(result.success).toBe(true)
+      expect(result.data!.generated).toBe(0)
+      expect(result.data!.failed).toHaveLength(1)
+      expect(result.data!.failed[0].element_id).toBe('../../evil')
+      expect(result.data!.failed[0].reason).toContain('disallowed characters')
+
+      // attributes/components/../../evil.json would land at <tmpDir>/evil.json
+      await expect(fs.access(path.join(tmpDir, 'evil.json'))).rejects.toThrow()
+    })
+
+    it('rejects a traversal classId before fetching or caching it', async () => {
+      await writeModel(tmpDir, makeStructure([
+        { id: 'c-ok', name: 'OK', type: 'PROCESS', classData: { id: '../../../evil-class', name: 'Evil' } },
+      ]))
+
+      const result = await generateAttributeStubsTool.run(
+        { directory_path: tmpDir }, contextWithClient,
+      )
+
+      expect(result.success).toBe(true)
+      expect(result.data!.generated).toBe(0)
+      expect(result.data!.failed).toHaveLength(1)
+      expect(result.data!.failed[0].element_id).toBe('c-ok')
+      expect(result.data!.failed[0].reason).toContain('disallowed characters')
+      expect(mockGetClassById).not.toHaveBeenCalled()
+    })
+  })
 })

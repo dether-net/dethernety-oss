@@ -291,7 +291,15 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             return { success: true, data: { controls, total: controls.length } }
           }
 
-          // Advanced path: server-side filtering via findControls
+          // Advanced path: server-side filtering via findControls.
+          // findControls accepts a single classId — surface the truncation
+          // instead of silently dropping ids past the first.
+          const listWarnings: string[] = []
+          if (input.class_ids && input.class_ids.length > 1) {
+            listWarnings.push(
+              `Advanced list filters by class_ids[0] only — ${input.class_ids.length} ids passed, using "${input.class_ids[0]}". Run one list per class id, or use the legacy folder_id path which filters client-side across all ids.`
+            )
+          }
           const controls = await dtControl.findControls({
             controlId: input.control_id,
             name: input.name,
@@ -301,7 +309,14 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             moduleId: input.module_id,
             moduleName: input.module_name,
           })
-          return { success: true, data: { controls, total: controls.length } }
+          return {
+            success: true,
+            data: {
+              controls,
+              total: controls.length,
+              ...(listWarnings.length > 0 ? { warnings: listWarnings } : {})
+            }
+          }
         }
 
         case 'get': {

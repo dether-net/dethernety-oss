@@ -168,6 +168,21 @@ export async function clearTokens(baseUrl: string): Promise<void> {
 }
 
 /**
+ * Clear all cached tokens for every platform (logout clear_all)
+ */
+export async function clearAllTokens(): Promise<void> {
+  try {
+    if (existsSync(TOKENS_FILE)) {
+      await unlink(TOKENS_FILE)
+      debug('Cleared all tokens (deleted token file)')
+    }
+  } catch (error) {
+    debug(`Error clearing all tokens: ${error}`)
+    throw new Error(`Failed to clear all tokens: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error })
+  }
+}
+
+/**
  * Check if stored tokens are expired
  *
  * @param tokens - Stored tokens to check

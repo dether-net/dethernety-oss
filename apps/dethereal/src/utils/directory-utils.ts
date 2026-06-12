@@ -102,8 +102,11 @@ export interface AttributeNormalizationContext {
 /**
  * Validate that an element ID is safe for use in filesystem paths.
  * Element IDs should be UUIDs or similar safe identifiers.
+ * Exported for tools that interpolate element/class ids into paths
+ * (e.g. generate_attribute_stubs) — ids originate from agent-writable
+ * model files and must never be able to escape the model directory.
  */
-function validateElementId(elementId: string): void {
+export function validateElementId(elementId: string): void {
   if (!/^[\w-]+$/.test(elementId)) {
     throw new Error(`Invalid elementId "${elementId}": contains disallowed characters`)
   }
@@ -613,6 +616,12 @@ export async function writeModelDirectory(
   await writeDataFlows(dirPath, model.dataFlows)
   await writeDataItems(dirPath, model.dataItems)
   await writeAttributes(dirPath, model.attributes)
+
+  // writeAttributes only writes the current bags — attribute files for
+  // elements deleted since the last write would otherwise survive forever
+  // (and update_model's local-merge resurrects them). Idempotent; also runs
+  // on the applyIdMapping path.
+  await cleanupStaleAttributeFiles(dirPath, model.attributes)
 }
 
 // =============================================================================

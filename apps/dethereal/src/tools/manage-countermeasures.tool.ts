@@ -14,15 +14,15 @@ const InputSchema = z.object({
   action: z.enum(['list', 'get', 'create', 'update', 'delete']).describe('CRUD action to perform'),
   control_id: z.string().optional().describe('Control ID (required for "list" and "create")'),
   countermeasure_id: z.string().optional().describe('Countermeasure ID (required for "get", "update", "delete")'),
-  name: z.string().optional().describe('Countermeasure name'),
-  type: z.enum(['preventive', 'detective', 'corrective']).optional().describe('Countermeasure type'),
-  category: z.string().optional().describe('Category (e.g., "access-control", "encryption", "monitoring")'),
-  description: z.string().optional().describe('Description'),
-  score: z.number().min(0).max(100).optional().describe('Effectiveness score (0-100, default 50)'),
-  exposure_ids: z.array(z.string()).optional().describe('IDs of exposures this countermeasure addresses'),
-  defend_technique_ids: z.array(z.string()).optional().describe('D3FEND technique IDs'),
-  mitigations: z.array(z.object({ id: z.string() })).optional().describe('ATT&CK mitigation references'),
-  references: z.string().optional().describe('External references')
+  name: z.string().optional().describe('Countermeasure name. For update: omitted = unchanged'),
+  type: z.enum(['preventive', 'detective', 'corrective']).optional().describe('Countermeasure type. For update: omitted = unchanged'),
+  category: z.string().optional().describe('Category (e.g., "access-control", "encryption", "monitoring"). For update: omitted = unchanged'),
+  description: z.string().optional().describe('Description. For update: omitted = unchanged'),
+  score: z.number().min(0).max(100).optional().describe('Effectiveness score (0-100, default 50 on create). For update: omitted = unchanged'),
+  exposure_ids: z.array(z.string()).optional().describe('IDs of exposures this countermeasure addresses. For update: omitted = current links preserved; provided list REPLACES them'),
+  defend_technique_ids: z.array(z.string()).optional().describe('D3FEND technique IDs. For update: omitted = current links preserved; provided list REPLACES them'),
+  mitigations: z.array(z.object({ id: z.string() })).optional().describe('ATT&CK mitigation references. For update: omitted = current links preserved; provided list REPLACES them'),
+  references: z.string().optional().describe('External references. For update: omitted = unchanged')
 }).superRefine((data, ctx) => {
   if (data.action === 'list' && !data.control_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "list" action', path: ['control_id'] })
@@ -99,10 +99,36 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
         }
 
         case 'update': {
-          const cmInput = this.buildCountermeasureInput(input) as Countermeasure
+          // updateCountermeasure is full-replace on the platform side: every
+          // scalar is set, and mitigations/defendedTechniques are
+          // disconnect-all + reconnect. Omitted inputs must preserve the
+          // current values — fetch them first and merge. Provided lists
+          // REPLACE the stored ones.
+          const current = await dtCountermeasure.getCountermeasure({
+            countermeasureId: input.countermeasure_id!
+          })
+          if (!current) {
+            return { success: false, error: `Countermeasure ${input.countermeasure_id} not found` }
+          }
+          const merged = {
+            name: input.name ?? current.name ?? '',
+            description: input.description ?? current.description ?? '',
+            type: input.type ?? current.type ?? 'preventive',
+            category: input.category ?? current.category ?? '',
+            score: input.score ?? current.score ?? 50,
+            references: input.references ?? current.references ?? '',
+            addressedExposures: input.exposure_ids ?? current.addressedExposures ?? [],
+            tags: current.tags ?? [],
+            defendedTechniques: input.defend_technique_ids
+              ? input.defend_technique_ids.map(id => ({ id } as any))
+              : current.defendedTechniques ?? [],
+            mitigations: input.mitigations
+              ? (input.mitigations as any[])
+              : current.mitigations ?? []
+          } as Countermeasure
           const countermeasure = await dtCountermeasure.updateCountermeasure({
             countermeasureId: input.countermeasure_id!,
-            countermeasure: cmInput
+            countermeasure: merged
           })
           if (!countermeasure) {
             return { success: false, error: `Failed to update countermeasure ${input.countermeasure_id}` }

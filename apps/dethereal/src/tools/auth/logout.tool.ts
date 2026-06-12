@@ -7,7 +7,7 @@
 import { z } from 'zod'
 import { ClientFreeTool, ToolContext, ToolResult } from '../base-tool.js'
 import { getConfig } from '../../config.js'
-import { clearTokens, getTokenStoragePath, isAuthDisabled } from '../../auth/index.js'
+import { clearTokens, clearAllTokens, getTokenStoragePath, isAuthDisabled } from '../../auth/index.js'
 import { clearClientCache } from '../../client/apollo-client.js'
 
 /**
@@ -60,7 +60,11 @@ you may also want to sign out from the Cognito hosted UI.`
       const config = getConfig()
 
       // Clear tokens from storage
-      await clearTokens(config.baseUrl)
+      if (input.clear_all) {
+        await clearAllTokens()
+      } else {
+        await clearTokens(config.baseUrl)
+      }
 
       // Clear Apollo client cache
       clearClientCache()
@@ -68,7 +72,9 @@ you may also want to sign out from the Cognito hosted UI.`
       return {
         success: true,
         data: {
-          message: 'Successfully logged out. Cached tokens have been cleared.',
+          message: input.clear_all
+            ? 'Successfully logged out. Cached tokens for ALL platforms have been cleared.'
+            : 'Successfully logged out. Cached tokens have been cleared.',
           tokenStoragePath: getTokenStoragePath()
         }
       }
