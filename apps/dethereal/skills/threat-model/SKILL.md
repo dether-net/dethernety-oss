@@ -339,19 +339,20 @@ Model each sensitive data type once, then associate it with **every element that
 1. Identify the elements that handle sensitive data without classified data items — origins, cross-boundary flows, processing/storing components, and containing boundaries
 2. For each data item, propose its classification and handling elements:
    - Use `compliance_drivers` from scope.json for regulatory mapping
-   - Apply sensitivity tiers: Tier 1 (regulated PII, credentials), Tier 2 (internal business data), Tier 3 (public/declared data)
+   - Apply the canonical four-level `sensitivity` scale — `restricted` | `confidential` | `internal` | `public` — via the regulatory flag → sensitivity-floor mapping (e.g. `PCI cardholder`/`PHI` → restricted, `PII`/`GDPR personal` → confidential). Regulatory labels go in `regulatory_flags`, never in the `sensitivity` field
 3. Present proposals:
    ```
    Data item associations:
    | Element (type) | Data Item | Sensitivity | Compliance | Confirm? |
    |----------------|-----------|-------------|------------|----------|
-   | User (external entity) | User credentials | Tier 1 | SOC2, GDPR | Y |
-   | User Login → Auth (flow) | User credentials | Tier 1 | SOC2, GDPR | Y |
-   | payment-db (store) | Customer records | Tier 1 | GDPR | Y |
-   | API → DB (flow) | Customer records | Tier 1 | GDPR | Y |
-   | Cache (process) | Session tokens | Tier 2 | SOC2 | Y |
+   | User (external entity) | User credentials | confidential | SOC2, GDPR | Y |
+   | User Login → Auth (flow) | User credentials | confidential | SOC2, GDPR | Y |
+   | payment-db (store) | Customer records | confidential | GDPR | Y |
+   | API → DB (flow) | Customer records | confidential | GDPR | Y |
+   | Cache (process) | Session tokens | internal | SOC2 | Y |
    ```
 4. Write confirmed data items to `data-items.json` and link them via `dataItemIds` on each handling element
+5. Classify the confirmed data items against platform DATA classes: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`, confirm matches (auto-accept `exact_name`), write confirmed `classData` onto the items in `data-items.json`, then call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` so `attributes/dataItems/<id>.json` stubs exist before Step 8 enrichment. If no suitable DATA class exists, leave the item unclassified and note the gap
 
 State: no transition — already at ENRICHING.
 
@@ -363,7 +364,7 @@ Delegate to `Agent(security-enricher)` for comprehensive security attribute enri
 
 1. Pass model directory path to `Agent(security-enricher)`
 2. The enricher handles:
-   - Class-specific template attributes per element — template stubs are already on disk from `generate_attribute_stubs` (run during classification). The enricher reads the configuration guide from `.dethereal/class-cache/<classId>.json`, discovers values from code/IaC, asks the user for undiscoverable attributes, and sets all template fields (100% coverage)
+   - Class-specific template attributes per element (components **and classified data items**) — template stubs are already on disk from `generate_attribute_stubs` (run during classification and Step 7). The enricher reads the configuration guide from `.dethereal/class-cache/<classId>.json`, discovers values from code/IaC, asks the user for undiscoverable attributes, and sets all template fields (100% coverage)
    - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `monitoring_tools`)
    - Credential enrichment (inventory → map to flows → STORE credential scope)
    - Auth failure mode capture (`deny`, `fallback`, `fail_open`)

@@ -88,7 +88,7 @@ Processing: all tiers in order. Confirm? (yes / tier1 only / pick)
 
 ### 4. Class-Template-Driven Attribute Enrichment
 
-For each classified component in scope (batched by tier):
+For each classified component **and classified data item** in scope (batched by tier — a data item inherits the highest tier of the elements that handle it):
 
 1. **Read existing attribute file** — the stub created by `generate_attribute_stubs` during classification contains template field names with null values (or schema defaults). These null fields ARE the enrichment checklist — every null field must be resolved to a concrete value
 2. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
@@ -116,9 +116,9 @@ Present as a batch confirmation table per tier:
 Apply these changes? (yes / modify / skip)
 ```
 
-Write confirmed attributes to `attributes/components/<id>.json` using read → merge → write.
+Write confirmed attributes to `attributes/components/<id>.json` (or `attributes/dataItems/<id>.json` for data items) using read → merge → write.
 
-**For unclassified components:** If a component has no assigned class (classification was skipped or no suitable class exists), skip template-driven enrichment for that component. Note it in the summary: "N components skipped — unclassified (no class template available)."
+**For unclassified components and data items:** If an element has no assigned class (classification was skipped or no suitable class exists), skip template-driven enrichment for that element. Note it in the summary: "N elements skipped — unclassified (no class template available)."
 
 ### 5. Credential Enrichment (D22, D62)
 
@@ -186,7 +186,9 @@ For each sensitive data type not yet classified and fully linked:
    - `SOX financial` → `confidential`
    - `CCPA personal` → `confidential`
 3. Create data items in `data-items.json` with `sensitivity` and `regulatory_flags` fields
-4. Link each data item via `dataItemIds` on **every** handling element — its origin external entity/process, the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
+4. **Classify the data items against platform DATA classes** — for every new or still-unclassified data item, call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`. Auto-accept `exact_name` matches; present `fuzzy`/`vector`/`type` matches for confirmation. Write confirmed `classData` onto the items in `data-items.json`. If no suitable DATA class exists in active modules, leave the item unclassified and note it in the summary
+5. **Generate attribute stubs** — call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)`. It writes `attributes/dataItems/<id>.json` template stubs for the newly classified data items; these stubs are then filled by the Step 4 template-driven enrichment pass, exactly like component stubs
+6. Link each data item via `dataItemIds` on **every** handling element — its origin external entity/process, the flows that carry it, the components that process or store it, and the boundaries that contain it. `dataItemIds` is valid on components (all types), data flows, and boundaries.
 
 **Quality gate**: Every flow carrying sensitive data crossing a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; and every data origin (the external entity or process where sensitive data enters the system) must reference its data item.
 

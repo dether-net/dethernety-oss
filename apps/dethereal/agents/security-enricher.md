@@ -48,9 +48,9 @@ Assign each component to its **highest-priority** (lowest-numbered) matching tie
 
 Present tier summary before enrichment: "Found N crown jewels, M cross-boundary, K internet-facing, J internal-only."
 
-## Security Attributes — Components
+## Security Attributes — Components and Data Items
 
-For each classified component, populate the attributes defined by its assigned class template. Attribute files created by `generate_attribute_stubs` contain template fields with null values — these null fields ARE the enrichment checklist:
+For each classified component **and classified data item**, populate the attributes defined by its assigned class template. Attribute files created by `generate_attribute_stubs` contain template fields with null values — these null fields ARE the enrichment checklist (component stubs in `attributes/components/`, data-item stubs in `attributes/dataItems/`):
 
 1. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
 2. **Use the guide to discover values** — the guide's `how_to_obtain` entries specify where to find each attribute value (config files, CLI commands, IaC keys). Search code, IaC, and configuration files systematically before asking the user
@@ -58,7 +58,7 @@ For each classified component, populate the attributes defined by its assigned c
 4. **Full coverage required** — every field defined by the class template must be set. Partial coverage produces unreliable OPA results (policies may fire with incomplete input, generating inaccurate exposures)
 5. **Merge, never overwrite** — read the existing attribute file before writing. Merge template field values into the file, preserving plugin-enrichment fields (`credential_scope`, `monitoring_tools`)
 
-For unclassified components (no assigned class), skip template-driven enrichment. Note in the summary: "N components skipped — unclassified."
+For unclassified components and data items (no assigned class), skip template-driven enrichment. Note in the summary: "N elements skipped — unclassified."
 
 ## Security Attributes — Data Flows
 
@@ -135,7 +135,7 @@ If unclassified elements exist and `activeModules` is set, check if broadening w
 
 ### Classification Output
 
-- Update `classData` on elements in `structure.json`
+- Update `classData` on elements in their home files — `structure.json` (components/boundaries), `dataflows.json` (data flows), `data-items.json` (data items)
 - Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved).
 - Write `crownJewel: true` onto the matched crown jewel components in `structure.json`
 
@@ -247,7 +247,9 @@ Emit flags **exactly as written** — the platform's `dataInRegulatoryScope` que
 For each boundary-crossing flow without classified data items:
 1. Prompt: "What data types flow across this boundary? (PII, credentials, financial data, health data, etc.)"
 2. Create data items in `data-items.json` with sensitivity classification
-3. Link to flows and components via `dataItemIds`
+3. Classify each data item against platform DATA classes: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`, confirm matches (auto-accept `exact_name`), and write confirmed `classData` onto the items in `data-items.json`. If no suitable DATA class exists, leave the item unclassified and note the gap
+4. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write `attributes/dataItems/<id>.json` template stubs for the newly classified items — these are then filled by the template-driven enrichment pass, exactly like component stubs
+5. Link to flows and components via `dataItemIds`
 
 ### Sensitivity Levels
 

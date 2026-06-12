@@ -133,8 +133,8 @@ If the user skips, proceed with a warning but do not block.
 
 ### 8. Write Changes
 
-- Update `classData` on elements in `structure.json`
-- Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved). This replaces manual template fetching — one tool call instead of per-element schema extraction.
+- Update `classData` on elements in their home files — `structure.json` (components/boundaries), `dataflows.json` (data flows), `data-items.json` (data items)
+- Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, `dataflows.json`, and `data-items.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved). This replaces manual template fetching — one tool call instead of per-element schema extraction.
 - Write `crownJewel: true` onto the confirmed crown jewel components in `structure.json` (first-class field, not an attribute bag)
 
 ### 9. State — No Transition
