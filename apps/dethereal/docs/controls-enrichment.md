@@ -367,7 +367,7 @@ When the `rank` action returns candidates, the scoring is pre-computed:
 
 Present relevance labels in the batch table. The user can always override by choosing a `weak` candidate or rejecting a `strong` one.
 
-**Class-selection audit (report contract).** A Control binding exactly one class is legitimate (one mechanism, one good-fit class), but the *reasoning* must be observable. For each control, the control-pass report (and the relay table the orchestrator renders before confirmation) names the **other candidate ControlClasses considered and why they were not bound** — e.g. "bound Identity & Access Management; considered MFA Enforcement and RBAC but the chart shows neither mechanism". This keeps the multi-class grouping rule auditable without changing behavior: a single-class binding made after weighing alternatives reads differently from one made by never looking.
+**Class-selection audit (report contract).** A Control binding exactly one class is legitimate (one mechanism, one good-fit class), but the *reasoning* must be observable. For each control, the control-pass report (and the relay table the orchestrator renders before confirmation) names the **other candidate ControlClasses considered and why they were not bound** — e.g. "bound Identity & Access Management; considered MFA Enforcement and RBAC but the evidence shows neither mechanism". This keeps the multi-class grouping rule auditable without changing behavior: a single-class binding made after weighing alternatives reads differently from one made by never looking.
 
 ## Turn Budget (control pass only)
 

@@ -338,7 +338,7 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
     ])
 
     const result = await manageControlsTool.execute(
-      { action: 'create', name: 'web-netpol', class_ids: ['comp-class'] } as never,
+      { action: 'create', name: 'example-control', class_ids: ['comp-class'] } as never,
       context,
     )
 
@@ -352,10 +352,10 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
 
   it('proceeds with create when every class id is a CONTROL class', async () => {
     mockGetClassById.mockImplementation(asControlClass)
-    mockCreateControl.mockResolvedValueOnce({ id: 'new-ctrl', name: 'web-netpol' })
+    mockCreateControl.mockResolvedValueOnce({ id: 'new-ctrl', name: 'example-control' })
 
     const result = await manageControlsTool.execute(
-      { action: 'create', name: 'web-netpol', class_ids: ['ctrl-class'] } as never,
+      { action: 'create', name: 'example-control', class_ids: ['ctrl-class'] } as never,
       context,
     )
 
@@ -364,10 +364,10 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
   })
 
   it('does not look up class kinds when create omits class_ids', async () => {
-    mockCreateControl.mockResolvedValueOnce({ id: 'new-ctrl', name: 'web-netpol' })
+    mockCreateControl.mockResolvedValueOnce({ id: 'new-ctrl', name: 'example-control' })
 
     const result = await manageControlsTool.execute(
-      { action: 'create', name: 'web-netpol' } as never,
+      { action: 'create', name: 'example-control' } as never,
       context,
     )
 
