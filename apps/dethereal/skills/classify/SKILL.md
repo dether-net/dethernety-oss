@@ -85,7 +85,7 @@ Match free-text crown jewel names from `scope.json` to actual components:
    | "Payment Database" | payment-db | STORE | Y |
    | "User PII" | user-service | PROCESS | ? |
    ```
-4. Set `crownJewel: true` on confirmed components in `structure.json`
+4. Set `crownJewel: true` on confirmed components in `structure.json`. **`structure.json` `crownJewel` is the single source of truth** — the surface report and the control-pass tier-1 sweep read crown-jewel status from this field only. The snake_case `crown_jewel` that may appear in a component's attribute file is a derived/legacy convenience copy; tagging that lands *only* in the attribute file leaves the tier sweep seeing zero crown jewels. Always set the structure.json flag.
 5. If a crown jewel declaration matches neither a component nor a data item, flag it: "Crown jewel 'X' does not match any discovered component or data item. Add it with `/dethereal:add`?" An unresolved crown jewel silently drops to Tier 4 in every downstream pass (enrichment priority, surface report, control pass) — do not let the user skip this without an explicit decision
 
 This is the lightweight Phase 3 tagging. Full `asset_criticality` enrichment happens during `/dethereal:enrich`.

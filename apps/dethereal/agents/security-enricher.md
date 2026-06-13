@@ -122,7 +122,7 @@ When a module is added to `activeModules` after initial classification:
 
 During classification, match free-text crown jewel names from `.dethereal/scope.json` to actual components:
 1. Fuzzy-match `crown_jewels[]` entries from scope against component names; on no match, also fuzzy-match against data-item names (crown jewels are often data — a data-item match resolves to the components that store/process it via `dataItemIds`)
-2. Set `crownJewel: true` on the matched components in `structure.json`
+2. Set `crownJewel: true` on the matched components in `structure.json` — this field is the **single source of truth** read by the surface report and the control-pass tier-1 sweep. A snake_case `crown_jewel` in a component's attribute file is a derived/legacy copy only; if you tag a crown jewel only in the attribute file the tier sweep counts zero of them. Always set the structure.json flag.
 3. Present matches for confirmation: "You declared 'Payment Database' as a crown jewel. Matching component: 'payment-db' [STORE]. Confirm?"
 4. An unresolved crown-jewel declaration is a blocking confirm, not an advisory — unmatched, it silently drops to Tier 4 in every downstream pass
 
@@ -304,7 +304,7 @@ Components within are reachable from adjacent boundaries.
 
 For each component, prompt: "What monitoring tools cover [component]?"
 
-Write `monitoring_tools: string[]` to component attribute files. Values: SIEM, EDR, NDR, APM, Cloud-native, None.
+Write `monitoring_tools: string[]` to component attribute files. Values: SIEM, EDR, NDR, APM, Cloud-native. **No monitoring → empty array `[]`; never the string `"None"`.** Coverage counts a non-empty `monitoring_tools` as "monitored", so a `["None"]` sentinel falsely reports a blind component as covered and masks a zero-detection environment. Leave the array empty when nothing covers the component.
 
 ```
 V1: monitoring_tools captured for human review only. Detection feasibility mapping is

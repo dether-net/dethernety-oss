@@ -372,7 +372,7 @@ Delegate to `Agent(security-enricher)` for comprehensive security attribute enri
 1. Pass model directory path to `Agent(security-enricher)`
 2. The enricher handles:
    - Class-specific template attributes per element (components **and classified data items**) — template stubs are already on disk from `generate_attribute_stubs` (run during classification and Step 7). The enricher reads the configuration guide from `.dethereal/class-cache/<classId>.json`, discovers values from code/IaC, asks the user for undiscoverable attributes, and sets all template fields (100% coverage)
-   - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `monitoring_tools`)
+   - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `monitoring_tools`). The attribute-file `crown_jewel` is a derived copy — `structure.json` `crownJewel` is the single source of truth read by the tier sweep; never let crown-jewel status live only in the attribute file.
    - Credential enrichment (inventory → map to flows → STORE credential scope)
    - Auth failure mode capture (`deny`, `fallback`, `fail_open`)
    - Boundary enforcement attributes

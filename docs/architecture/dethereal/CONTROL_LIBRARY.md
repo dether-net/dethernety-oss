@@ -202,6 +202,10 @@ The right-hand arrow originates from **brownfield** (a Control that was successf
 
 Brownfield Controls do not become greenfield again. Tombstoned Controls do not become brownfield again — recovery is via clone-and-swap, which produces a fresh greenfield. Deleting a Control on the platform is out of scope here — it goes through `manage_controls(action: 'delete')`. The local file's reaction to that deletion is the `tombstoned` row above.
 
+### Never hand-edit `lifecycle` or `platformState`
+
+These fields are owned by the sync state machine, not the operator or agent. Hand-editing `lifecycle` to "fix" a control after a platform-side change does not work and only produces friction: the value enum is exactly `greenfield | partially-pushed | brownfield | tombstoned`, so a guessed value like `pushed` fails validation outright, and an out-of-band `brownfield` without a populated `platformState` block fails a second validation pass. After **any** platform-side change, run `manage_controls(action: 'pull-controls')` to regenerate canonical files — it is the only sanctioned path that reconciles `lifecycle` and `platformState` with the platform. See also [Sync-Owned Fields](../../../apps/dethereal/docs/controls-enrichment.md) in the control-enrichment instructions.
+
 ---
 
 ## 6. Shared-Ownership Safety

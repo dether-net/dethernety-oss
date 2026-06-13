@@ -47,7 +47,7 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 4. If all candidates are `weak`, recommend creating a new control rather than reusing a poor match — drop into Path 2 for that boundary.
 
 **Path 2 procedure (file-first greenfield with class binding):**
-1. Pick a temporary local id: `greenfield-<short-uuid>`.
+1. Pick a temporary local id of the form `greenfield-<short-uuid>`. The id shape is mandatory and the **filename must equal the id** — write the file as `controls/<id>.json` (so a `greenfield-<suffix>` id lives at `controls/greenfield-<suffix>.json`). The validator rejects any other shape (e.g. `ctrl-tmp-*`), and you cannot delete files to undo a wrong name — choose the right one up front rather than leaving stale stubs for the orchestrator to clean up.
 2. Discover candidate ControlClasses. An element's own class assignment is a **ComponentClass**, NOT a ControlClass — never write it into `classes[]`. Instead, use the control idea (and the element's class/type/category as context) as search input: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name: "<control idea>", description: "<mechanism / what it protects>"}], classLabel: 'CONTROL', moduleIds: [...], topN: 3)`. Fallback when matching is unavailable: browse `mcp__plugin_dethereal_dethereal__get_classes(class_type: 'CONTROL')` for the active modules.
 3. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, **one `classes[]` entry per applicable ControlClass**, and `attributes` populated from observed code/IaC (empty `{}` is valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup), create ONE Control with one `classes[]` entry per class — never one Control per class.
 4. Write `{ id: "<temp-id>", name: "...", source: "declared" }` to the element's `controls[]` in `structure.json` / `dataflows.json`.
@@ -334,7 +334,7 @@ The agent **must not** directly mutate these fields on `controls/<id>.json`:
 | `platformState.assignedModelIds` / `assignedModelCount` | Pull path (cached; never used as source of truth by the safety check) |
 | `lifecycle` | Sync state machine (transitions documented in [CONTROL_LIBRARY.md §5](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#5-lifecycle-greenfield--brownfield)) |
 
-Touching these fields directly breaks the drift-detection and shared-ownership-safety guarantees the sync pipeline depends on.
+Touching these fields directly breaks the drift-detection and shared-ownership-safety guarantees the sync pipeline depends on. In particular, **never hand-edit `lifecycle` or `platformState`** to "fix" a control after a platform-side change — guessing a value (e.g. `lifecycle: "pushed"`, which is not a valid state) only produces validation friction. Run `manage_controls pull-controls` to regenerate canonical files instead; it is the only sanctioned way to reconcile local state with the platform.
 
 ### File Discovery
 
@@ -364,6 +364,8 @@ When the `rank` action returns candidates, the scoring is pre-computed:
 - **weak** (score < 0.5): more noise than signal — recommend creating a new control
 
 Present relevance labels in the batch table. The user can always override by choosing a `weak` candidate or rejecting a `strong` one.
+
+**Class-selection audit (report contract).** A Control binding exactly one class is legitimate (one mechanism, one good-fit class), but the *reasoning* must be observable. For each control, the control-pass report (and the relay table the orchestrator renders before confirmation) names the **other candidate ControlClasses considered and why they were not bound** — e.g. "bound Identity & Access Management; considered MFA Enforcement and RBAC but the chart shows neither mechanism". This keeps the multi-class grouping rule auditable without changing behavior: a single-class binding made after weighing alternatives reads differently from one made by never looking.
 
 ## Turn Budget (control pass only)
 
