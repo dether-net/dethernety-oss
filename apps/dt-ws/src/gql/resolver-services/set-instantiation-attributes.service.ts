@@ -1332,6 +1332,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     });
   }
 
+  // INVARIANT: `message` reaches the client verbatim — the resolver surfaces a
+  // structured SetInstantiationError's message in the result envelope,
+  // *bypassing* the production error mask (safeErrorMessage). Every call site
+  // must pass a self-curated, client-safe string: no raw driver/stack text, no
+  // internal paths. Sub-results interpolated into the message (e.g.
+  // `${result.error}`) must already be mask-wrapped by their own helper. A
+  // future edit that drops that wrapping would silently start leaking here.
   private createSetInstantiationError(
     type: SetInstantiationErrorType,
     message: string,

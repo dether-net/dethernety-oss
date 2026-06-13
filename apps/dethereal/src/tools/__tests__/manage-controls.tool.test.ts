@@ -64,6 +64,22 @@ const asControlClass = ({ classType }: { classType: string }) =>
 
 import { manageControlsTool } from '../manage-controls.tool.js'
 
+// File-level safe defaults for the lock + WAL + file-IO mocks. The non-directory
+// suites (create/update/class-kind) never reach these in practice, but giving
+// them benign defaults means a future directory-touching test added to any
+// suite starts from a known state instead of an unstubbed `undefined` — and
+// no suite inherits another suite's leftover stub by declaration order.
+beforeEach(() => {
+  mockAcquireLock.mockReset().mockResolvedValue({} as never)
+  mockReleaseLock.mockReset().mockResolvedValue(undefined)
+  mockApplyPendingRewrites.mockReset().mockResolvedValue(0)
+  mockInspectPendingRewrite
+    .mockReset()
+    .mockResolvedValue({ present: false, journalPath: '', operations: [] })
+  mockReadControlFile.mockReset().mockResolvedValue(null)
+  mockListControlFiles.mockReset().mockResolvedValue([])
+})
+
 describe('ManageControlsTool', () => {
   it('should have the correct tool name', () => {
     expect(manageControlsTool.name).toBe('manage_controls')

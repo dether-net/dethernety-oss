@@ -26,8 +26,9 @@ export interface SetAttributesRequest {
  * TS-internal — distinct from the GraphQL `SetInstantiationAttributesResult`
  * type returned by the GraphQL resolver. The resolver wrapper in
  * `set-instantiation-attributes.service.ts` maps this internal shape
- * into the GraphQL envelope (only `success` + `staleFlippedCount` flow to
- * the public surface).
+ * into the GraphQL envelope: `success` + `staleFlippedCount` on success, and
+ * on failure `error`→`errorMessage` + `errorCode` (the curated diagnosis that
+ * bypasses the production error mask).
  *
  * `staleFlippedCount` is populated by the two-statement Cypher
  * after the attribute write succeeds: counts dispositioned exposures on the

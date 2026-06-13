@@ -407,6 +407,10 @@ export class DtClass {
       // class kind, missing element/class, no IS_INSTANCE_OF edge). Carry it
       // through so the control-library push pipeline can name the root cause
       // instead of throwing an opaque "setInstantiationAttributes failed".
+      // `errorCode` is selected on the wire (machine-readable category) but
+      // intentionally not surfaced on this path — callers branch on
+      // `errorMessage` presence, not the code. Forward it here if a consumer
+      // ever needs the category.
       errorMessage: response?.errorMessage ?? null,
     }
   }

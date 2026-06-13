@@ -810,6 +810,60 @@ describe('pushBrownfieldControl — failure-cause propagation', () => {
   });
 });
 
+describe('pushGreenfieldControl — failure-cause propagation', () => {
+  // Symmetric with the brownfield case. A partially-pushed resume skips Step A
+  // (create + WAL) and runs Step B directly; when setInstantiationAttributes
+  // fails, the diagnosis must surface as `Cause: …` rather than the opaque
+  // "setInstantiationAttributes failed".
+  const partiallyPushedFile = (): ControlFile => ({
+    id: VALID_UUID,
+    name: 'Test Control',
+    source: 'declared',
+    lifecycle: 'partially-pushed',
+    classes: [{ classId: VALID_CLASS_ID, attributes: { foo: 'edited' } }],
+    platformState: { lastPushedAt: '2026-04-27T06:46:01Z' },
+  });
+
+  it('appends the backend errorMessage to the thrown message', async () => {
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({
+      success: false,
+      errorMessage: 'class "x" ("NetworkPolicy") is a ComponentClass — a Control can only bind ControlClass',
+    });
+
+    await expect(
+      lib.pushGreenfieldControl({
+        modelDir,
+        file: partiallyPushedFile(),
+        supportingElementIds: [],
+        folderId: undefined,
+        liveAssignedModelIds: [],
+      }),
+    ).rejects.toThrow(/Cause: class "x" \("NetworkPolicy"\) is a ComponentClass/);
+  });
+
+  it('omits the Cause clause when the backend provides no errorMessage', async () => {
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({ success: false, errorMessage: null });
+
+    await expect(
+      lib.pushGreenfieldControl({
+        modelDir,
+        file: partiallyPushedFile(),
+        supportingElementIds: [],
+        folderId: undefined,
+        liveAssignedModelIds: [],
+      }),
+    ).rejects.toThrow(
+      /setInstantiationAttributes failed for control=.* State left at lifecycle=partially-pushed for resume\./,
+    );
+  });
+});
+
 describe('pushBrownfieldControl — first-write path', () => {
   // Bug-fix scenario: 22 fresh Controls created on the platform with empty
   // platformAttributes, set-local-edited populates `attributes` from observed

@@ -517,6 +517,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           // zero countermeasures still counts here, so an "X/X, 100%" offline
           // result must never be reported as "X exposures mitigated". The
           // coverage_kind label makes that explicit to every consumer.
+          // Value space (closed set): 'assignment-heuristic' here; the
+          // authenticated/online path reports authoritative MITRE-chain
+          // coverage and does not set this field.
           coverage_kind: 'assignment-heuristic',
           coverage_summary: {
             total_exposures: classifiedCount,
