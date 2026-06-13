@@ -433,10 +433,18 @@ export class DtLgAnalysisOps {
     streamMode: string
   ): Promise<boolean> {
     try {
+      // Durable runs: keep the run executing if the observing stream
+      // disconnects. The create-and-stream endpoint defaults on_disconnect
+      // to "cancel", so a dropped SSE stream (browser refresh, navigation,
+      // a transient network blip on this consumer) would otherwise CANCEL
+      // the underlying run — a long analysis would die the moment the user
+      // refreshed. "continue" decouples the run lifecycle from this
+      // observation stream; progress is still recoverable via thread-state
+      // polling and a re-attached /stream join. Callers may override.
       const streamResponse = await this.client.runs.stream(
         sessionId,
         assistantId,
-        payload
+        { onDisconnect: 'continue', ...payload }
       );
 
       for await (const chunk of streamResponse) {
