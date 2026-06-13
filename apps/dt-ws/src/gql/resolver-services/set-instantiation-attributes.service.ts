@@ -66,6 +66,23 @@ export function describeNonPrimitiveValue(value: unknown): string | null {
   return `value must be a primitive or a list of primitives (Memgraph property model); got ${t === 'object' ? 'nested object' : t}`;
 }
 
+/**
+ * Narrow an unknown thrown value to a structured SetInstantiationError. Errors
+ * raised via createSetInstantiationError carry a string `type` and a curated,
+ * client-safe `message`; the resolver surfaces those verbatim in the result
+ * envelope (bypassing the production error mask) and masks everything else.
+ */
+function isSetInstantiationError(
+  error: unknown,
+): error is SetInstantiationError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { type?: unknown }).type === 'string' &&
+    typeof (error as { message?: unknown }).message === 'string'
+  );
+}
+
 // Allowlist + sanitiser helpers live in ./shared/finding-attrs (re-used by
 // ElementBindingService for the changeElementBinding mutation).
 
@@ -882,9 +899,14 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         if (r1.records.length === 0 ||
             !r1.records[0].get('moduleName') ||
             !r1.records[0].get('type')) {
+          const diagnosis = await this.diagnoseSetAttributesFailure(
+            tx,
+            request.componentId,
+            request.classId,
+          );
           throw this.createSetInstantiationError(
             'DATABASE_ERROR',
-            'Component or class not found, or failed to set attributes',
+            diagnosis,
             request.componentId,
             request.classId
           );
@@ -1076,9 +1098,16 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         stack: error.stack,
       });
 
+      // setAttributes catches its own failures and returns a result (it does
+      // not rethrow — the batch path resolves on this). Preserve the structured
+      // diagnosis from createSetInstantiationError (curated, client-safe — e.g.
+      // the wrong-class-kind message) so the resolver can surface it; mask only
+      // unanticipated errors via safeErrorMessage.
+      const structured = isSetInstantiationError(error);
       return {
         success: false,
-        error: safeErrorMessage(error),
+        error: structured ? error.message : safeErrorMessage(error),
+        errorCode: structured ? error.type : 'UNKNOWN_ERROR',
         metadata: {
           operationId,
           timestamp: new Date().toISOString(),
@@ -1303,6 +1332,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     });
   }
 
+  // INVARIANT: `message` reaches the client verbatim — the resolver surfaces a
+  // structured SetInstantiationError's message in the result envelope,
+  // *bypassing* the production error mask (safeErrorMessage). Every call site
+  // must pass a self-curated, client-safe string: no raw driver/stack text, no
+  // internal paths. Sub-results interpolated into the message (e.g.
+  // `${result.error}`) must already be mask-wrapped by their own helper. A
+  // future edit that drops that wrapping would silently start leaking here.
   private createSetInstantiationError(
     type: SetInstantiationErrorType,
     message: string,
@@ -1321,6 +1357,86 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         batchQueueSize: Array.from(this.batchQueue.values()).reduce((sum, queue) => sum + queue.length, 0),
       },
     };
+  }
+
+  /**
+   * Diagnose why statement 1 of the attribute write matched zero rows.
+   *
+   * The happy-path write is a single round trip; this runs ONLY on the
+   * zero-records failure path, so its extra read costs nothing on success. It
+   * pinpoints the cause — element missing, class missing, the class id resolves
+   * to the wrong kind (e.g. a ComponentClass bound to a Control), the class is
+   * orphaned (no active module), or there is simply no IS_INSTANCE_OF edge — so
+   * callers get an actionable message instead of the opaque "not found".
+   *
+   * The expected class label is derived from the element's own label
+   * (`Control` -> `ControlClass`), so the same diagnosis works for every
+   * element type. Unlabeled `(... {id})` lookups scan on Memgraph, but this is
+   * the error path only.
+   */
+  private async diagnoseSetAttributesFailure(
+    tx: DatabaseTransaction,
+    componentId: string,
+    classId: string,
+  ): Promise<string> {
+    const pickClassLabel = (labels: unknown): string | null => {
+      if (!Array.isArray(labels)) return null;
+      return (labels as string[]).find(l => l.endsWith('Class')) ?? null;
+    };
+
+    try {
+      const diag = await tx.run(
+        `
+        OPTIONAL MATCH (c {id: $componentId})
+        OPTIONAL MATCH (t {id: $classId})
+        OPTIONAL MATCH (t)<-[:HAS_CLASS]-(m:Module)
+        OPTIONAL MATCH (c)-[r:IS_INSTANCE_OF]->(t)
+        RETURN c IS NOT NULL AS elementFound,
+               labels(c) AS elementLabels,
+               t IS NOT NULL AS classFound,
+               labels(t) AS classLabels,
+               t.name AS className,
+               m.name AS moduleName,
+               r IS NOT NULL AS edgeExists
+        `,
+        { componentId, classId },
+      );
+
+      const row = diag.records[0];
+      if (!row) {
+        return `Component or class not found, or failed to set attributes (component=${componentId}, class=${classId})`;
+      }
+
+      const elementFound = row.get('elementFound') as boolean;
+      const classFound = row.get('classFound') as boolean;
+      if (!elementFound) {
+        return `element "${componentId}" not found`;
+      }
+      if (!classFound) {
+        return `class "${classId}" not found`;
+      }
+
+      const elementLabel = ((row.get('elementLabels') as string[] | null) ?? [])[0] ?? 'element';
+      const expectedClassLabel = `${elementLabel}Class`;
+      const actualClassLabel = pickClassLabel(row.get('classLabels'));
+      const className = (row.get('className') as string | null) ?? classId;
+      const moduleName = row.get('moduleName') as string | null;
+      const edgeExists = row.get('edgeExists') as boolean;
+
+      if (actualClassLabel && actualClassLabel !== expectedClassLabel) {
+        return `class "${classId}" ("${className}") is a ${actualClassLabel} — a ${elementLabel} can only bind ${expectedClassLabel}`;
+      }
+      if (!moduleName) {
+        return `class "${classId}" ("${className}") has no active module (retired or orphaned) — its instantiation attributes cannot be set`;
+      }
+      if (!edgeExists) {
+        return `no IS_INSTANCE_OF relationship between ${elementLabel} "${componentId}" and class "${classId}" ("${className}") — assign the class to the element before setting attributes`;
+      }
+      return `Component or class not found, or failed to set attributes (component=${componentId}, class=${classId})`;
+    } catch {
+      // Diagnosis is best-effort — never let it mask the original failure.
+      return `Component or class not found, or failed to set attributes (component=${componentId}, class=${classId})`;
+    }
   }
 
   // ============================================================================
@@ -1680,16 +1796,35 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
                 }
               },
             );
+            // setAttributes resolves (does not reject) on a handled failure,
+            // carrying its diagnosis in result.error/result.errorCode — surface
+            // those when success is false. A genuine throw is handled below.
             return {
               success: result.success,
               staleFlippedCount: result.staleFlippedCount ?? null,
+              errorCode: result.success ? null : (result.errorCode ?? 'UNKNOWN_ERROR'),
+              errorMessage: result.success ? null : (result.error ?? null),
             };
           } catch (error) {
             this.logger.error('GraphQL setInstantiationAttributes failed', {
               componentId: args.componentId,
-              error: error.message,
+              error: error?.message,
             });
-            return { success: false, staleFlippedCount: null };
+            // Surface the diagnosis instead of collapsing to a bare
+            // success:false. Errors raised through createSetInstantiationError
+            // carry a `type` and a curated, client-safe message (e.g. the
+            // wrong-kind-class diagnosis) — pass those straight through, since
+            // the envelope's purpose is to bypass the production error mask for
+            // intentional diagnoses. Anything WITHOUT a `type` is an
+            // unanticipated error (raw DB/driver fault) and is masked in
+            // production via safeErrorMessage.
+            const structured = isSetInstantiationError(error);
+            return {
+              success: false,
+              staleFlippedCount: null,
+              errorCode: structured ? error.type : 'UNKNOWN_ERROR',
+              errorMessage: structured ? error.message : safeErrorMessage(error),
+            };
           }
         },
       },

@@ -37,6 +37,12 @@ This workflow is local-first: model files are created on disk now and synced to 
 - Try to call `mcp__plugin_dethereal_dethereal__create_threat_model` during Step 1 — that tool requires platform connectivity and is invoked by the sync skill at Step 10
 - Substitute `get_classes` for `match_classes` in classification (D51) unless the offline fallback chain triggers it
 
+## Presentation Discipline
+
+Every mandated artifact in this workflow — the progress table (Step 0), discovery confirmation table (Step 2), boundary hierarchy tree (Step 4), enrichment/control-pass decision tables (Step 8), quality dashboard (Step 9), and push summary (Step 10) — is rendered as a **markdown text block in the conversation BEFORE any `AskUserQuestion`**. The confirmation modal never substitutes for the presentation: render the table/tree/dashboard first, then let the modal carry only the blocking question (and, where useful, mirror modify-variants into an `AskUserQuestion` `preview`). Information that travels only inside option labels is information the operator cannot review, compare, or scroll back to.
+
+This applies equally to the subagent-delegated steps (6, 8, 9): when a step delegates to `Agent(...)`, the orchestrator relays the subagent's returned tables into the conversation before prompting — the subagent cannot reach the user itself (see the relay obligations in Steps 8 and 9).
+
 ## Entry / Resume Logic
 
 Parse `$ARGUMENTS` to determine whether to start a new model or resume an existing one:
@@ -143,7 +149,7 @@ Delegate to `Agent(infrastructure-scout)` per the Discovery Orchestration Protoc
 3. Delegate scanning to `Agent(infrastructure-scout)` with model directory path and scope summary
 4. Receive compact discovery report
 5. Write full provenance to `.dethereal/discovery.json`
-6. Present batch confirmation table (boundaries + components + flows)
+6. Present batch confirmation table (boundaries + components + flows) — render it in the conversation before any confirmation modal (see Presentation Discipline). This is the model structure the operator asked to see; it must not live only inside `AskUserQuestion` labels.
 7. Run post-discovery blind spots interview (consolidated prompt)
 8. After confirmation, write `structure.json` and `dataflows.json`
 9. Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity
@@ -227,7 +233,7 @@ No state transition — stays at `DISCOVERED`.
 
 Review and refine the trust boundary hierarchy.
 
-1. Display current boundary hierarchy as a tree view
+1. Display current boundary hierarchy as a tree view — rendered in the conversation before any refinement prompt (see Presentation Discipline)
 2. Check for structural issues:
    - Single-component boundaries (may need merging)
    - Flat hierarchy (no nesting — consider adding sub-boundaries)
@@ -366,15 +372,18 @@ Delegate to `Agent(security-enricher)` for comprehensive security attribute enri
 1. Pass model directory path to `Agent(security-enricher)`
 2. The enricher handles:
    - Class-specific template attributes per element (components **and classified data items**) — template stubs are already on disk from `generate_attribute_stubs` (run during classification and Step 7). The enricher reads the configuration guide from `.dethereal/class-cache/<classId>.json`, discovers values from code/IaC, asks the user for undiscoverable attributes, and sets all template fields (100% coverage)
-   - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `monitoring_tools`)
+   - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `monitoring_tools`). The attribute-file `crown_jewel` is a derived copy — `structure.json` `crownJewel` is the single source of truth read by the tier sweep; never let crown-jewel status live only in the attribute file.
    - Credential enrichment (inventory → map to flows → STORE credential scope)
    - Auth failure mode capture (`deny`, `fallback`, `fail_open`)
    - Boundary enforcement attributes
    - Processing of `staleElements[]` first (if any exist from backward transitions)
 
 MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy` (see `/dethereal:surface` §5). The enricher does not annotate MITRE techniques on attribute files.
-3. Receive compact summary (enriched element count + template coverage metrics)
+3. Receive the enricher's return payload: the compact summary (enriched element count + template coverage metrics), the **proposal table** of values it set, and the **"Operator confirmations needed"** list (per the enricher's non-interactive return contract — every value taken on a defensive default or undiscoverable from code, e.g. `enrichment_note`-flagged attributes).
 4. Read updated attribute files from disk
+5. **Relay (mandatory).** The enricher ran non-interactively and could not reach you — it made evidence-based decisions and self-confirmed nothing. Render its proposal table and the "Operator confirmations needed" list as a markdown block in the conversation (see Presentation Discipline), then offer **one batched confirm/adjust** prompt before the Control Pass Offer:
+   - "Enrichment set N attributes; M need your confirmation (defensive defaults / undiscoverable). Accept all, or adjust specific rows?"
+   - Apply any adjustments to the attribute files via `Edit` before proceeding. Do not silently accept the defaults on the operator's behalf.
 
 State: no transition — already at ENRICHING from Step 5.
 
@@ -396,7 +405,8 @@ Compute N from boundary count: N = B + 2 (B enforcement prompts + 1 detection + 
 2. The agent runs the 3-step control pass per `@docs/controls-enrichment.md`
 3. This is a separate agent invocation with its own 40-turn budget
 4. After the control pass completes, read updated model files from disk
-5. Proceed to Step 9 (Validation)
+5. **Relay (mandatory).** The control pass also ran non-interactively, so its per-boundary proposal tables and class-selection judgment calls never reached you. Render the control-pass **decision table** as a markdown block in the conversation (see Presentation Discipline) — one row per control: control name → bound ControlClass(es) → **other candidate classes considered and why they were not bound** → countermeasure count. Then offer **one batched confirm/adjust** prompt ("Accept these N control assignments, or change a binding?") before Step 9. Apply adjustments to the control files before proceeding; never advance with autonomously-chosen bindings unreviewed.
+6. Proceed to Step 9 (Validation)
 
 **If "later":**
 ```
@@ -414,7 +424,7 @@ Delegate to `Agent(model-reviewer)` for quality assessment.
 1. Pass model directory path to `Agent(model-reviewer)`
 2. Receive quality score + top 3 issues
 3. Write the quality results to `.dethereal/quality.json` (the threat-modeler has Write access; the model-reviewer is read-only)
-4. Display inline quality dashboard:
+4. Display the inline quality dashboard as a markdown block in the conversation (see Presentation Discipline) — the model-reviewer returns a full factor breakdown and top issues; render them, never collapse them into a one-line score or an `AskUserQuestion` label:
    - Quality score with label
    - Factor breakdown table
    - Quality gate evaluation (Gate 1/2/3)
@@ -447,6 +457,18 @@ Read `~/.dethernety/tokens.json`. Find the entry keyed by the platform URL (`DET
 - If valid token: proceed
 - If expired or missing: "Not authenticated. Run `/dethereal:login` first, or skip sync for now."
 - If user skips: jump to README generation, then show final footer without sync-related next steps
+
+### Push Consent
+
+Consent is **orthogonal to auth** — passing the auth check (including auth-disabled dev platforms, which count as authenticated) is permission to reach the platform, not permission to publish this model. Before executing the push, ask explicitly:
+
+```
+Model passed Gate 2 and is ready to publish to <platform URL>.
+Push to platform now? (push / skip — resume later with /dethereal:sync push)
+```
+
+- If "push": proceed to Execute Push.
+- If "skip": jump to README generation, then show the final footer with `/dethereal:sync push` as the resume next-step. Never auto-push on the operator's behalf just because auth succeeded.
 
 ### Execute Push
 

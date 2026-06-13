@@ -392,8 +392,8 @@ export class DtClass {
   setInstantiationAttributesWithStaleCount = async (
     { componentId, classId, attributes }:
     { componentId: string, classId: string, attributes: object }
-  ): Promise<{ success: boolean, staleFlippedCount: number | null }> => {
-    const response = await this.dtUtils.performMutation<{ success: boolean, staleFlippedCount: number | null }>({
+  ): Promise<{ success: boolean, staleFlippedCount: number | null, errorMessage: string | null }> => {
+    const response = await this.dtUtils.performMutation<{ success: boolean, staleFlippedCount: number | null, errorCode: string | null, errorMessage: string | null }>({
       mutation: SET_INSTANTIATION_ATTRIBUTES_WITH_STALE_COUNT,
       variables: { componentId, classId, attributes },
       dataPath: 'setInstantiationAttributes',
@@ -403,6 +403,15 @@ export class DtClass {
     return {
       success: Boolean(response?.success),
       staleFlippedCount: response?.staleFlippedCount ?? null,
+      // The backend supplies a curated diagnosis on the failure path (wrong
+      // class kind, missing element/class, no IS_INSTANCE_OF edge). Carry it
+      // through so the control-library push pipeline can name the root cause
+      // instead of throwing an opaque "setInstantiationAttributes failed".
+      // `errorCode` is selected on the wire (machine-readable category) but
+      // intentionally not surfaced on this path — callers branch on
+      // `errorMessage` presence, not the code. Forward it here if a consumer
+      // ever needs the category.
+      errorMessage: response?.errorMessage ?? null,
     }
   }
 

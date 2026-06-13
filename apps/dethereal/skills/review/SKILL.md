@@ -43,7 +43,7 @@ The quality score measures **model completeness**, not system security posture. 
 
 ### 3. Factor Breakdown
 
-Display all 7 factors in a table:
+Display all 7 factors in a table. Render this dashboard as a markdown block in the conversation — when this skill (or `Agent(model-reviewer)`) feeds a guided workflow, the full factor breakdown and top issues belong in the conversation, never collapsed into a one-line score or an `AskUserQuestion` label.
 
 ```
 ### Factor Breakdown
@@ -89,7 +89,7 @@ Gate 3 (Analysis):    FAIL — 2 components unclassified, attribute completion a
 - Data items on sensitive flows have `classData` (DATA class assigned) — the field that drives template enrichment and OPA, not just a `sensitivity` tag
 - ≥1 cross-boundary data flow exists
 
-**Red-flag surfacing (always shown with Gate 3, regardless of score):** list any flow with `auth_failure_mode: fail_open` or `fallback`, and any Tier-1 (crown jewel) component with zero controls. The quality score measures completeness, not posture — a 95/100 model can carry both; the gate must at least NAME them.
+**Red-flag surfacing (always shown with Gate 3, regardless of score):** list any flow with `auth_failure_mode: fail_open` or `fallback`, and any Tier-1 (crown jewel) component with zero controls. Also list any control whose class binding carries empty `attributes` AND empty `platformAttributes` (the module emits no countermeasures for an empty binding — it looks assigned but contributes nothing), and any control with zero countermeasures after analysis. The quality score measures completeness, not posture — a 95/100 model can carry all of these; the gate must at least NAME them.
 
 ### 5. Common Gaps Checklist
 

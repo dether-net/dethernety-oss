@@ -505,7 +505,7 @@ describe('pushBrownfieldControl — Step A external-edit guard', () => {
     // Mock setInstantiationAttributes via the dtControl property.
     const setSpy = vi
       .spyOn((lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl, 'setInstantiationAttributes')
-      .mockResolvedValue(true);
+      .mockResolvedValue({ success: true, errorMessage: null });
     const result = await lib.pushBrownfieldControl({
       modelDir,
       file,
@@ -612,7 +612,7 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -652,7 +652,7 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const decision: BrownfieldDecision = {
       sharedOwnership: 'push-unverified',
@@ -735,6 +735,135 @@ describe('pullControls — firstWriteKeys preservation', () => {
   });
 });
 
+describe('pushBrownfieldControl — failure-cause propagation', () => {
+  // When the platform mutation fails, the backend now returns a diagnosis in
+  // errorMessage (e.g. wrong class kind). The push pipeline must surface that
+  // cause in the thrown error instead of the opaque
+  // "setInstantiationAttributes failed".
+  it('appends the backend errorMessage to the thrown message', async () => {
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'edited' },
+          platformAttributes: { foo: 'bar' },
+          localEditedAt: '2026-04-27T06:46:01Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T06:46:01Z',
+            previousAttributes: { foo: 'bar' },
+          },
+        },
+      ],
+    });
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({
+      success: false,
+      errorMessage: 'class "x" ("NetworkPolicy") is a ComponentClass — a Control can only bind ControlClass',
+    });
+
+    await expect(
+      lib.pushBrownfieldControl({
+        modelDir,
+        file,
+        decision: { sharedOwnership: 'push-anyway' },
+        freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+        liveAssignedModelIds: ['model-this'],
+        thisModelId: 'model-this',
+      }),
+    ).rejects.toThrow(/Cause: class "x" \("NetworkPolicy"\) is a ComponentClass/);
+  });
+
+  it('omits the Cause clause when the backend provides no errorMessage', async () => {
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'edited' },
+          platformAttributes: { foo: 'bar' },
+          localEditedAt: '2026-04-27T06:46:01Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T06:46:01Z',
+            previousAttributes: { foo: 'bar' },
+          },
+        },
+      ],
+    });
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({ success: false, errorMessage: null });
+
+    await expect(
+      lib.pushBrownfieldControl({
+        modelDir,
+        file,
+        decision: { sharedOwnership: 'push-anyway' },
+        freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+        liveAssignedModelIds: ['model-this'],
+        thisModelId: 'model-this',
+      }),
+    ).rejects.toThrow(/setInstantiationAttributes failed for control=.* State preserved for retry\./);
+  });
+});
+
+describe('pushGreenfieldControl — failure-cause propagation', () => {
+  // Symmetric with the brownfield case. A partially-pushed resume skips Step A
+  // (create + WAL) and runs Step B directly; when setInstantiationAttributes
+  // fails, the diagnosis must surface as `Cause: …` rather than the opaque
+  // "setInstantiationAttributes failed".
+  const partiallyPushedFile = (): ControlFile => ({
+    id: VALID_UUID,
+    name: 'Test Control',
+    source: 'declared',
+    lifecycle: 'partially-pushed',
+    classes: [{ classId: VALID_CLASS_ID, attributes: { foo: 'edited' } }],
+    platformState: { lastPushedAt: '2026-04-27T06:46:01Z' },
+  });
+
+  it('appends the backend errorMessage to the thrown message', async () => {
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({
+      success: false,
+      errorMessage: 'class "x" ("NetworkPolicy") is a ComponentClass — a Control can only bind ControlClass',
+    });
+
+    await expect(
+      lib.pushGreenfieldControl({
+        modelDir,
+        file: partiallyPushedFile(),
+        supportingElementIds: [],
+        folderId: undefined,
+        liveAssignedModelIds: [],
+      }),
+    ).rejects.toThrow(/Cause: class "x" \("NetworkPolicy"\) is a ComponentClass/);
+  });
+
+  it('omits the Cause clause when the backend provides no errorMessage', async () => {
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({ success: false, errorMessage: null });
+
+    await expect(
+      lib.pushGreenfieldControl({
+        modelDir,
+        file: partiallyPushedFile(),
+        supportingElementIds: [],
+        folderId: undefined,
+        liveAssignedModelIds: [],
+      }),
+    ).rejects.toThrow(
+      /setInstantiationAttributes failed for control=.* State left at lifecycle=partially-pushed for resume\./,
+    );
+  });
+});
+
 describe('pushBrownfieldControl — first-write path', () => {
   // Bug-fix scenario: 22 fresh Controls created on the platform with empty
   // platformAttributes, set-local-edited populates `attributes` from observed
@@ -765,7 +894,7 @@ describe('pushBrownfieldControl — first-write path', () => {
         (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
-      .mockResolvedValue(true);
+      .mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -831,7 +960,7 @@ describe('pushBrownfieldControl — first-write path', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -873,7 +1002,7 @@ describe('pushBrownfieldControl — first-write path', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -974,7 +1103,7 @@ describe('pushBrownfieldControl — first-write path', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1030,7 +1159,7 @@ describe('pushBrownfieldControl — first-write path', () => {
         (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
-      .mockResolvedValue(true);
+      .mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1076,7 +1205,7 @@ describe('pushBrownfieldControl — partial-payload (DEC-CL-11)', () => {
         (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
-      .mockResolvedValue(true);
+      .mockResolvedValue({ success: true, errorMessage: null });
 
     await lib.pushBrownfieldControl({
       modelDir,
@@ -1118,7 +1247,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
         (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
-      .mockResolvedValue(true);
+      .mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1151,7 +1280,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1191,7 +1320,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
         (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
-      .mockResolvedValue(true);
+      .mockResolvedValue({ success: true, errorMessage: null });
 
     await lib.pushBrownfieldControl({
       modelDir,
@@ -1264,7 +1393,7 @@ describe('hand-edit coercion at audit-write site', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1314,7 +1443,7 @@ describe('hand-edit coercion at audit-write site', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1385,7 +1514,7 @@ describe('TOCTOU per-control fresh-fetch in Step B', () => {
     const setAttrsSpy = vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     await lib.pushBrownfieldControl({
       modelDir,
@@ -1440,7 +1569,7 @@ describe('TOCTOU per-control fresh-fetch in Step B', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -1515,7 +1644,7 @@ describe('authnOperator propagation to audit log', () => {
     vi.spyOn(
       (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
       modelDir,

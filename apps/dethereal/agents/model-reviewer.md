@@ -100,6 +100,8 @@ When invoked for surface analysis (`/dethereal:surface`), produce a structured a
    - Tier 3: Internet-facing components (connected to EXTERNAL_ENTITY)
    - Tier 4: Internal-only components
 
+   Also inspect `controls/*.json`: flag any control whose class binding has empty `attributes` AND empty `platformAttributes` — an empty binding produces no per-instance state, so the module emits **no countermeasures** for it (the control looks assigned but contributes nothing to analysis). This typically appears when a control was recreated via bare create+assign after a push error, skipping `setInstantiationAttributes`. Likewise flag any control that, post-analysis, has zero countermeasures.
+
 5. **MITRE ATT&CK coverage** — If the model is synced and exposures are present (from `mcp__plugin_dethereal_dethereal__manage_exposures(action: 'list')` on each element), aggregate `exploitedBy[].attack_id` across exposures and report which of the 14 Enterprise ATT&CK tactics are covered. If unsynced or no exposures returned: "MITRE tactic coverage requires a platform analysis run." See `/dethereal:surface` §5 for the canonical algorithm.
 
 6. **Credential topology** — Cross-boundary flows with `required_credentials` attributes. STORE components with `stores_credentials: true`. Shared credentials (same credential value on multiple flows) — flag credential blast radius.

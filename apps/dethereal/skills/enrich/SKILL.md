@@ -263,9 +263,9 @@ fail_open or fallback may appear more secure than they are in analysis results (
 ### 9. Monitoring Tools (D66)
 
 For each component, prompt:
-"What monitoring tools cover [component]? (SIEM, EDR, NDR, APM, Cloud-native, None)"
+"What monitoring tools cover [component]? (SIEM, EDR, NDR, APM, Cloud-native — or none)"
 
-Write `monitoring_tools: string[]` to component attribute files.
+Write `monitoring_tools: string[]` to component attribute files. **No monitoring → empty array `[]`; never the string `"None"`** — coverage treats a non-empty array as "monitored", so a `["None"]` sentinel masks a blind component.
 
 ```
 V1: monitoring_tools captured for human review only. No engine integration.

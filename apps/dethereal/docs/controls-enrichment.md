@@ -47,7 +47,7 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 4. If all candidates are `weak`, recommend creating a new control rather than reusing a poor match — drop into Path 2 for that boundary.
 
 **Path 2 procedure (file-first greenfield with class binding):**
-1. Pick a temporary local id: `greenfield-<short-uuid>`.
+1. Pick a temporary local id of the form `greenfield-<short-uuid>`. The id shape is mandatory and the **filename must equal the id** — write the file as `controls/<id>.json` (so a `greenfield-<suffix>` id lives at `controls/greenfield-<suffix>.json`). The validator rejects any other shape (e.g. `ctrl-tmp-*`), and you cannot delete files to undo a wrong name — choose the right one up front rather than leaving stale stubs for the orchestrator to clean up.
 2. Discover candidate ControlClasses. An element's own class assignment is a **ComponentClass**, NOT a ControlClass — never write it into `classes[]`. Instead, use the control idea (and the element's class/type/category as context) as search input: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name: "<control idea>", description: "<mechanism / what it protects>"}], classLabel: 'CONTROL', moduleIds: [...], topN: 3)`. Fallback when matching is unavailable: browse `mcp__plugin_dethereal_dethereal__get_classes(class_type: 'CONTROL')` for the active modules.
 3. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, **one `classes[]` entry per applicable ControlClass**, and `attributes` populated from observed code/IaC (empty `{}` is valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup), create ONE Control with one `classes[]` entry per class — never one Control per class.
 4. Write `{ id: "<temp-id>", name: "...", source: "declared" }` to the element's `controls[]` in `structure.json` / `dataflows.json`.
@@ -61,6 +61,15 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 **Error recovery:** If `rank` fails for a boundary (network error, auth expired), treat the platform as unreachable — fall back to Path 3 for that boundary. Do not retry or stall. Log: "Platform unreachable — switching to local control entry for this boundary."
 
 **Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Path 2 (file-first) remains achievable offline — author the `controls/<temp-id>.json` locally and the `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose Path 2 whenever attributes matter and the element has a class; choose Path 3 only when no class binding is desired.
+
+**Offline coverage is assignment, not mitigation.** `validate_model_json(action: 'coverage')` run offline reports **assignment coverage** — which exposures have a control assigned to their element — and tags the result `coverage_kind: "assignment-heuristic"`. A control with zero countermeasures still counts. Never report an offline "N/N, 100%" result as "N exposures mitigated"; label it "assignment coverage (offline heuristic)". Real mitigation coverage requires the platform's MITRE-chain analysis (`model_id` + auth).
+
+**Push-failure recovery (sanctioned path).** A `push-greenfield` that fails at the per-class `setInstantiationAttributes` step leaves the control at `lifecycle: "partially-pushed"` — the local file is preserved, with the instantiation attributes intact, precisely so the push can be resumed. Recover in one of two ways, never by deleting and recreating:
+
+1. **Fix the cause, then re-run `push-greenfield` with the SAME control id.** The pipeline resumes from `partially-pushed`, re-attempting only the unpushed class entries (idempotent). The most common cause is a wrong-kind class binding — the failure message now names it ("class … is a ComponentClass — a Control can only bind ControlClass"). Re-bind to a real CONTROL class via `match_classes(classLabel: 'CONTROL')`, **fetch that class's template with `get_classes` and fill its instantiation attributes**, then resume.
+2. If the control already exists on the platform and only its local state is wrong, use `set-local-edited` + `push-brownfield` rather than a fresh create.
+
+**Never** recover with bare `manage_controls(action: 'create')` + `assign`: that orphans the `partially-pushed` file and, because no `setInstantiationAttributes` runs, leaves every class binding with empty attributes — the module then emits **no countermeasures** for the control. After any class re-bind, the binding's instantiation attributes must be re-populated from the new class's template before the work is considered done.
 
 ### Boundary Count Handling
 
@@ -327,7 +336,7 @@ The agent **must not** directly mutate these fields on `controls/<id>.json`:
 | `platformState.assignedModelIds` / `assignedModelCount` | Pull path (cached; never used as source of truth by the safety check) |
 | `lifecycle` | Sync state machine (transitions documented in [CONTROL_LIBRARY.md §5](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#5-lifecycle-greenfield--brownfield)) |
 
-Touching these fields directly breaks the drift-detection and shared-ownership-safety guarantees the sync pipeline depends on.
+Touching these fields directly breaks the drift-detection and shared-ownership-safety guarantees the sync pipeline depends on. In particular, **never hand-edit `lifecycle` or `platformState`** to "fix" a control after a platform-side change — guessing a value (e.g. `lifecycle: "pushed"`, which is not a valid state) only produces validation friction. Run `manage_controls pull-controls` to regenerate canonical files instead; it is the only sanctioned way to reconcile local state with the platform.
 
 ### File Discovery
 
@@ -357,6 +366,8 @@ When the `rank` action returns candidates, the scoring is pre-computed:
 - **weak** (score < 0.5): more noise than signal — recommend creating a new control
 
 Present relevance labels in the batch table. The user can always override by choosing a `weak` candidate or rejecting a `strong` one.
+
+**Class-selection audit (report contract).** A Control binding exactly one class is legitimate (one mechanism, one good-fit class), but the *reasoning* must be observable. For each control, the control-pass report (and the relay table the orchestrator renders before confirmation) names the **other candidate ControlClasses considered and why they were not bound** — e.g. "bound Identity & Access Management; considered MFA Enforcement and RBAC but the evidence shows neither mechanism". This keeps the multi-class grouping rule auditable without changing behavior: a single-class binding made after weighing alternatives reads differently from one made by never looking.
 
 ## Turn Budget (control pass only)
 

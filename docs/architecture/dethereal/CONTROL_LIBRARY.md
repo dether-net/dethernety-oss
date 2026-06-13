@@ -202,6 +202,10 @@ The right-hand arrow originates from **brownfield** (a Control that was successf
 
 Brownfield Controls do not become greenfield again. Tombstoned Controls do not become brownfield again — recovery is via clone-and-swap, which produces a fresh greenfield. Deleting a Control on the platform is out of scope here — it goes through `manage_controls(action: 'delete')`. The local file's reaction to that deletion is the `tombstoned` row above.
 
+### Never hand-edit `lifecycle` or `platformState`
+
+These fields are owned by the sync state machine, not the operator or agent. Hand-editing `lifecycle` to "fix" a control after a platform-side change does not work and only produces friction: the value enum is exactly `greenfield | partially-pushed | brownfield | tombstoned`, so a guessed value like `pushed` fails validation outright, and an out-of-band `brownfield` without a populated `platformState` block fails a second validation pass. After **any** platform-side change, run `manage_controls(action: 'pull-controls')` to regenerate canonical files — it is the only sanctioned path that reconciles `lifecycle` and `platformState` with the platform. See also [Sync-Owned Fields](../../../apps/dethereal/docs/controls-enrichment.md) in the control-enrichment instructions.
+
 ---
 
 ## 6. Shared-Ownership Safety
@@ -632,6 +636,8 @@ For each controls/<id>.json with lifecycle in {"greenfield", "partially-pushed"}
 **Partial-model-push gate.** Control-library push runs ONLY if the model push phase (dt-update/dt-import) reported full success. If element creation partially failed (some components or boundaries missing), the control phase skips with a clear message: `"Control library push skipped — model push had N errors. Fix element errors and re-run sync."`. Otherwise Step C would silently fail to assign SUPPORTS edges to missing target elements, and the operator would not notice.
 
 **Rollback explicit non-goal.** Half-applied greenfield pushes (Step A succeeded, Step B partially succeeded, operator abandons) are handled by resume-on-next-push, not rollback. An abandoned greenfield Control does exist on the platform after Step A; it can be deleted via `manage_controls(action: 'delete')` if the operator decides never to use it. See [§12](#12-out-of-scope).
+
+**Step B failure recovery (sanctioned path).** When `setInstantiationAttributes` fails for a class entry, the control stays at `partially-pushed` with its local `attributes` intact — this is the resume anchor, not a dead end. The mutation's failure now carries a diagnosis (surfaced as `Cause: …` on the thrown error and in the result envelope's `errorMessage`): a wrong-kind class binding reads "class … is a ComponentClass — a Control can only bind ControlClass". Recover by (1) fixing the cause and re-running `push-greenfield` with the **same** control id — the loop skips already-pushed entries and re-attempts the rest — or (2) for a control already live on the platform, `set-local-edited` + brownfield push. After re-binding a class entry to a different (valid CONTROL) class, re-populate that entry's instantiation attributes from the new class's template before resuming. Do **not** recover by deleting the control and recreating it with bare `create` + `assign`: that path skips `setInstantiationAttributes` entirely, so every binding lands with empty `attributes`/`platformAttributes` and the module emits no countermeasures (the validator flags this empty-binding state at `validate_model_json` / `/dethereal:status` time).
 
 ### Push — brownfield Controls
 

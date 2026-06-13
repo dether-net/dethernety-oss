@@ -95,6 +95,13 @@ describe('validateControlFile — lifecycle enum', () => {
     );
     expect(r.errors.some(e => /lifecycle:/.test(e))).toBe(true);
   });
+
+  it('points an invalid lifecycle at pull-controls instead of a hand-edit', () => {
+    const r = validateControlFile(
+      brownfieldFile({ lifecycle: 'pushed' as 'brownfield' }),
+    );
+    expect(r.errors.some(e => /pull-controls/.test(e))).toBe(true);
+  });
 });
 
 describe('validateControlFile — platformState presence', () => {
@@ -103,6 +110,8 @@ describe('validateControlFile — platformState presence', () => {
     expect(
       r.errors.some(e => /platformState/.test(e)),
     ).toBe(true);
+    // and steers the operator to pull-controls rather than hand-editing
+    expect(r.errors.some(e => /pull-controls/.test(e))).toBe(true);
   });
 
   it('warns when greenfield has platformState', () => {
@@ -522,5 +531,38 @@ describe('validateControlFile — hint includes classId', () => {
     const hint = r.warnings.find(w => /promote-external-edit/.test(w));
     expect(hint).toBeTruthy();
     expect(hint).toContain(VALID_CLASS_ID);
+  });
+});
+
+describe('validateControlFile — empty-binding warning', () => {
+  const emptyBindingRe = /both attributes and platformAttributes are empty/;
+
+  it('warns when a class entry carries neither attributes nor platformAttributes', () => {
+    // greenfieldFile() defaults to attributes: {} and no platformAttributes.
+    const r = validateControlFile(greenfieldFile());
+    expect(r.warnings.some(w => emptyBindingRe.test(w))).toBe(true);
+  });
+
+  it('does not warn when attributes are populated', () => {
+    const r = validateControlFile(
+      greenfieldFile({ classes: [{ classId: VALID_CLASS_ID, attributes: { foo: 'bar' } }] }),
+    );
+    expect(r.warnings.some(w => emptyBindingRe.test(w))).toBe(false);
+  });
+
+  it('does not warn when platformAttributes are populated (brownfield re-pull)', () => {
+    // attributes empty but platform-side values exist — the binding contributes.
+    const r = validateControlFile(brownfieldFile({
+      classes: [{ classId: VALID_CLASS_ID, attributes: {}, platformAttributes: { foo: 'bar' } }],
+    }));
+    expect(r.warnings.some(w => emptyBindingRe.test(w))).toBe(false);
+  });
+
+  it('exempts tombstoned entries (a retired binding legitimately carries nothing)', () => {
+    const r = validateControlFile(brownfieldFile({
+      lifecycle: 'tombstoned',
+      classes: [{ classId: VALID_CLASS_ID, attributes: {} }],
+    }));
+    expect(r.warnings.some(w => emptyBindingRe.test(w))).toBe(false);
   });
 });
