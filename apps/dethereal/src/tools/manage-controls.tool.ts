@@ -22,6 +22,7 @@ import {
   clearPendingRewrite,
   type LockHandle,
   readControlFile,
+  listControlFiles,
 } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import { validatePathConfinement } from '../utils/directory-utils.js'
@@ -178,7 +179,7 @@ type ManageControlsInput = z.infer<typeof InputSchema>
 
 export class ManageControlsTool extends ClientDependentTool<ManageControlsInput, unknown> {
   readonly name = 'manage_controls'
-  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved).'
+  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved). Never hand-edit lifecycle or platformState in controls/<id>.json — they are owned by the sync state machine; after any platform-side change run "pull-controls" to regenerate canonical files.'
   readonly inputSchema = InputSchema
 
   /**
@@ -256,6 +257,52 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       }
     }
     return null
+  }
+
+  /**
+   * Build an actionable "control file not found" message for the push paths.
+   *
+   * push-greenfield renames `controls/<temp-id>.json` →
+   * `controls/<platform-id>.json` mid-pipeline (the WAL-protected id rewrite,
+   * CONTROL_LIBRARY §7). If the platform create succeeds but a later step
+   * (e.g. setInstantiationAttributes) fails, the control now lives under its
+   * platform id with `lifecycle: "partially-pushed"`, so a retry by the
+   * original temp id lands on a bare "not found" with no hint. Point the
+   * operator at the right id to resume. Best-effort: any diagnosis failure
+   * falls back to the plain message.
+   */
+  private async diagnoseMissingControlFile(
+    modelDir: string,
+    controlId: string,
+  ): Promise<string> {
+    const base = `Control file not found: ${controlId} under ${modelDir}.`
+    try {
+      // 1. If a pending id-rewrite journal still maps this temp id (rare —
+      //    pre-dispatch usually replays and deletes it), name the exact
+      //    platform id.
+      const wal = await inspectPendingRewrite(modelDir)
+      for (const op of wal.operations) {
+        if (op.kind === 'greenfield-id-rewrite' && op.tempId === controlId) {
+          return `${base} The push renamed this file to controls/${op.serverId}.json during the id rewrite — resume with control_id: ${op.serverId}.`
+        }
+      }
+      // 2. Journal already consumed (the common case: a successful rename
+      //    followed by a later push failure). Surface any control left at
+      //    partially-pushed as a resume candidate.
+      const ids = await listControlFiles(modelDir)
+      const resumable: string[] = []
+      for (const id of ids) {
+        if (id === controlId) continue
+        const f = await readControlFile(modelDir, id).catch(() => null)
+        if (f && f.lifecycle === 'partially-pushed') resumable.push(id)
+      }
+      if (resumable.length > 0) {
+        return `${base} push-greenfield renames controls/<temp-id>.json to controls/<platform-id>.json mid-pipeline, so if the platform create succeeded the file now lives under its platform id. Partially-pushed control(s) you can resume: ${resumable.join(', ')}. Re-run the push with one of those ids (do not create+assign a fresh control — that strands the partial and loses its instantiation attributes).`
+      }
+    } catch {
+      // Diagnosis is best-effort — never let it mask the not-found result.
+    }
+    return base
   }
 
   async execute(input: ManageControlsInput, context: ToolContext): Promise<ToolResult<unknown>> {
@@ -539,7 +586,10 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
-            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+            return {
+              success: false,
+              error: await this.diagnoseMissingControlFile(input.directory_path!, input.control_id!),
+            }
           }
           // Reject wrong-kind class bindings before the push pipeline runs, so
           // a bad classId fails here instead of mid-pipeline at
@@ -570,7 +620,10 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
-            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+            return {
+              success: false,
+              error: await this.diagnoseMissingControlFile(input.directory_path!, input.control_id!),
+            }
           }
           const bfClassError = await this.validateControlClassIds(
             dtClass,

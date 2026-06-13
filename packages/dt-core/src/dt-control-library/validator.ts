@@ -114,7 +114,7 @@ export function validateControlFile(file: ControlFile): ValidationResult {
     !VALID_LIFECYCLES.has(file.lifecycle as ControlLifecycle)
   ) {
     errors.push(
-      `lifecycle: '${String(file.lifecycle)}' invalid (expected one of ${Array.from(VALID_LIFECYCLES).join(', ')})`,
+      `lifecycle: '${String(file.lifecycle)}' invalid (expected one of ${Array.from(VALID_LIFECYCLES).join(', ')}). Do not hand-edit lifecycle — run manage_controls pull-controls to regenerate canonical files.`,
     );
   }
 
@@ -150,7 +150,7 @@ export function validateControlFile(file: ControlFile): ValidationResult {
     !file.platformState
   ) {
     errors.push(
-      `lifecycle '${file.lifecycle}' requires a platformState block (lastPushedAt or lastSyncedAt at minimum).`,
+      `lifecycle '${file.lifecycle}' requires a platformState block (lastPushedAt or lastSyncedAt at minimum). Do not hand-edit lifecycle or platformState — run manage_controls pull-controls to regenerate canonical files.`,
     );
   }
 

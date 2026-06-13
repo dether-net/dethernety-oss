@@ -7,18 +7,39 @@ const {
   mockCreateControl,
   mockGetClassById,
   mockGetControlClasses,
+  mockAcquireLock,
+  mockReleaseLock,
+  mockApplyPendingRewrites,
+  mockInspectPendingRewrite,
+  mockReadControlFile,
+  mockListControlFiles,
 } = vi.hoisted(() => ({
   mockGetControl: vi.fn(),
   mockUpdateControl: vi.fn(),
   mockCreateControl: vi.fn(),
   mockGetClassById: vi.fn(),
   mockGetControlClasses: vi.fn(),
+  mockAcquireLock: vi.fn(),
+  mockReleaseLock: vi.fn(),
+  mockApplyPendingRewrites: vi.fn(),
+  mockInspectPendingRewrite: vi.fn(),
+  mockReadControlFile: vi.fn(),
+  mockListControlFiles: vi.fn(),
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>
   return {
     ...actual,
+    // Lock + WAL pre-dispatch is mocked so directory-touching actions don't
+    // hit the real filesystem; only the file-not-found diagnosis tests
+    // exercise these paths and they override the relevant mocks per case.
+    acquireLock: mockAcquireLock,
+    releaseLock: mockReleaseLock,
+    applyPendingRewrites: mockApplyPendingRewrites,
+    inspectPendingRewrite: mockInspectPendingRewrite,
+    readControlFile: mockReadControlFile,
+    listControlFiles: mockListControlFiles,
     DtControl: class MockDtControl {
       constructor(_apolloClient: unknown) {}
       getControl = mockGetControl
@@ -395,5 +416,88 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
     expect(result.success).toBe(false)
     expect(result.error).toContain('does not resolve to any class')
     expect(mockCreateControl).not.toHaveBeenCalled()
+  })
+})
+
+describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+  // Under CWD so validatePathConfinement passes; never actually created on
+  // disk (lock + WAL pre-dispatch and the file reads are all mocked).
+  const dir = './__g8_diag_model__'
+
+  beforeEach(() => {
+    mockReadControlFile.mockReset()
+    mockListControlFiles.mockReset().mockResolvedValue([])
+    mockInspectPendingRewrite
+      .mockReset()
+      .mockResolvedValue({ present: false, journalPath: '', operations: [] })
+    mockAcquireLock.mockReset().mockResolvedValue({} as never)
+    mockReleaseLock.mockReset().mockResolvedValue(undefined)
+    mockApplyPendingRewrites.mockReset().mockResolvedValue(0)
+  })
+
+  it('names the exact platform id when the WAL journal still maps the temp id', async () => {
+    mockReadControlFile.mockResolvedValue(null) // temp-id file gone
+    mockInspectPendingRewrite.mockResolvedValue({
+      present: true,
+      journalPath: '',
+      operations: [
+        {
+          kind: 'greenfield-id-rewrite',
+          tempId: 'greenfield-xyz',
+          serverId: 'uuid-123',
+          controlFileRename: { from: '', to: '' },
+          fromExists: false,
+          toExists: true,
+          filePaths: [],
+          ambiguous: false,
+          createdAt: '',
+        },
+      ],
+    })
+
+    const result = await manageControlsTool.execute(
+      { action: 'push-greenfield', directory_path: dir, control_id: 'greenfield-xyz' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('uuid-123')
+    expect(result.error).toContain('resume with control_id: uuid-123')
+  })
+
+  it('surfaces partially-pushed controls as resume candidates once the journal is consumed', async () => {
+    // The common case: rename succeeded, journal already replayed+deleted, a
+    // later push step failed leaving the control at partially-pushed.
+    mockReadControlFile.mockImplementation(async (_dir: string, id: string) => {
+      if (id === 'greenfield-xyz') return null
+      if (id === 'uuid-abc') return { id: 'uuid-abc', lifecycle: 'partially-pushed' } as never
+      return { id, lifecycle: 'brownfield' } as never
+    })
+    mockListControlFiles.mockResolvedValue(['uuid-abc', 'uuid-done'])
+
+    const result = await manageControlsTool.execute(
+      { action: 'push-greenfield', directory_path: dir, control_id: 'greenfield-xyz' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('uuid-abc')
+    expect(result.error.toLowerCase()).toContain('partially-pushed')
+    // brownfield controls are not resume candidates
+    expect(result.error).not.toContain('uuid-done')
+  })
+
+  it('falls back to the plain not-found message when nothing is resumable', async () => {
+    mockReadControlFile.mockResolvedValue(null)
+    mockListControlFiles.mockResolvedValue([])
+
+    const result = await manageControlsTool.execute(
+      { action: 'push-greenfield', directory_path: dir, control_id: 'greenfield-xyz' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Control file not found: greenfield-xyz')
   })
 })

@@ -512,6 +512,12 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         success: true,
         data: {
           mode: 'offline',
+          // Offline coverage measures ASSIGNMENT — which exposures have a
+          // control assigned to their element — not mitigation. A control with
+          // zero countermeasures still counts here, so an "X/X, 100%" offline
+          // result must never be reported as "X exposures mitigated". The
+          // coverage_kind label makes that explicit to every consumer.
+          coverage_kind: 'assignment-heuristic',
           coverage_summary: {
             total_exposures: classifiedCount,
             mitigated: coveredCount,
@@ -524,7 +530,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           ...(localData.source_breakdown ? { source_breakdown: localData.source_breakdown } : {}),
         },
         warnings: [
-          'Offline mode: coverage estimated from local attributes and controls. Use model_id with authentication for authoritative MITRE-chain coverage analysis.',
+          'Offline mode reports ASSIGNMENT coverage (which exposures have a control assigned to their element), NOT mitigation. A control with zero countermeasures still counts as assigned, so do not report this as "exposures mitigated". Use model_id with authentication for authoritative MITRE-chain mitigation coverage.',
         ],
       }
     }
@@ -689,6 +695,23 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
   }
 
   /**
+   * True only if `monitoring_tools` lists at least one real tool.
+   *
+   * The "no monitoring" sentinel `["None"]` (prescribed historically, now
+   * discouraged) is a non-empty array, so a naive `length > 0` check counts a
+   * blind component as monitored and masks a zero-detection environment.
+   * Filter out the case-insensitive `none` / `n/a` / empty placeholders before
+   * deciding.
+   */
+  private hasRealMonitoring(monTools: unknown): boolean {
+    if (!Array.isArray(monTools)) return false
+    const sentinels = new Set(['none', 'n/a', 'na', ''])
+    return monTools.some(
+      t => typeof t === 'string' && !sentinels.has(t.trim().toLowerCase()),
+    )
+  }
+
+  /**
    * Get per-category security attribute results (unlike hasPositiveSecurityAttribute which returns a single boolean).
    */
   private getAttributeCategories(attrs: any): {
@@ -720,7 +743,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const encryption_at_rest = !!(encAtRest && typeof encAtRest === 'string' &&
       !deprecatedAtRest.has(encAtRest.toLowerCase()))
 
-    const monitoring = !!(Array.isArray(monTools) && monTools.length > 0)
+    const monitoring = this.hasRealMonitoring(monTools)
 
     return { authentication, encryption_at_rest, monitoring }
   }
@@ -879,8 +902,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       }
     }
 
-    // monitoring_tools: non-empty array
-    if (Array.isArray(monTools) && monTools.length > 0) {
+    // monitoring_tools: at least one real tool (the ["None"] sentinel doesn't count)
+    if (this.hasRealMonitoring(monTools)) {
       return true
     }
 

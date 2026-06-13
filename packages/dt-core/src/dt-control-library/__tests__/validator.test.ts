@@ -95,6 +95,13 @@ describe('validateControlFile — lifecycle enum', () => {
     );
     expect(r.errors.some(e => /lifecycle:/.test(e))).toBe(true);
   });
+
+  it('points an invalid lifecycle at pull-controls instead of a hand-edit', () => {
+    const r = validateControlFile(
+      brownfieldFile({ lifecycle: 'pushed' as 'brownfield' }),
+    );
+    expect(r.errors.some(e => /pull-controls/.test(e))).toBe(true);
+  });
 });
 
 describe('validateControlFile — platformState presence', () => {
@@ -103,6 +110,8 @@ describe('validateControlFile — platformState presence', () => {
     expect(
       r.errors.some(e => /platformState/.test(e)),
     ).toBe(true);
+    // and steers the operator to pull-controls rather than hand-editing
+    expect(r.errors.some(e => /pull-controls/.test(e))).toBe(true);
   });
 
   it('warns when greenfield has platformState', () => {
