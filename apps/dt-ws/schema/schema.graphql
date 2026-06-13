@@ -2364,12 +2364,22 @@ is non-null when the attribute write succeeded; the value is the number of
 dispositioned exposures on the element whose `dispositionStale` was flipped
 to true by the second statement of the staleness Cypher. Zero on no-op saves (no value
 change) or when the element has no dispositioned exposures.
+
+On failure (`success: false`), `errorCode` and `errorMessage` carry a diagnosis
+of why the write was rejected (e.g. the element or class id does not exist, or
+the class id resolves to a non-Control class so no IS_INSTANCE_OF edge exists).
+Both are null on success. The diagnosis is computed only on the failure path, so
+the happy path stays a single round trip.
 """
 type SetInstantiationAttributesResult {
   "True when the attribute write succeeded; false when validation or DB failure prevented the write."
   success: Boolean!
   "Number of dispositioned exposures on the element whose `dispositionStale` was flipped to true. Zero on no-op saves or when the element carries no dispositions."
   staleFlippedCount: Int
+  "Stable failure category (e.g. DATABASE_ERROR, VALIDATION_ERROR). Null on success."
+  errorCode: String
+  "Human-readable diagnosis of the failure, naming the offending id and the precise reason. Null on success."
+  errorMessage: String
 }
 
 # ============================================================================
