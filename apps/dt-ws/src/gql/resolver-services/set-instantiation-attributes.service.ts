@@ -1098,9 +1098,16 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         stack: error.stack,
       });
 
+      // setAttributes catches its own failures and returns a result (it does
+      // not rethrow — the batch path resolves on this). Preserve the structured
+      // diagnosis from createSetInstantiationError (curated, client-safe — e.g.
+      // the wrong-class-kind message) so the resolver can surface it; mask only
+      // unanticipated errors via safeErrorMessage.
+      const structured = isSetInstantiationError(error);
       return {
         success: false,
-        error: safeErrorMessage(error),
+        error: structured ? error.message : safeErrorMessage(error),
+        errorCode: structured ? error.type : 'UNKNOWN_ERROR',
         metadata: {
           operationId,
           timestamp: new Date().toISOString(),
@@ -1782,11 +1789,14 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
                 }
               },
             );
+            // setAttributes resolves (does not reject) on a handled failure,
+            // carrying its diagnosis in result.error/result.errorCode — surface
+            // those when success is false. A genuine throw is handled below.
             return {
               success: result.success,
               staleFlippedCount: result.staleFlippedCount ?? null,
-              errorCode: null,
-              errorMessage: null,
+              errorCode: result.success ? null : (result.errorCode ?? 'UNKNOWN_ERROR'),
+              errorMessage: result.success ? null : (result.error ?? null),
             };
           } catch (error) {
             this.logger.error('GraphQL setInstantiationAttributes failed', {

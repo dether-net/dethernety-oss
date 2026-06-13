@@ -39,6 +39,7 @@ export interface SetAttributesRequest {
 export interface SetAttributesResult {
   success: boolean;
   error?: string;
+  errorCode?: string;
   staleFlippedCount?: number;
   metadata?: {
     operationId: string;

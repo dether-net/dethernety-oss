@@ -155,6 +155,27 @@ describe('SetInstantiationAttributesService — resolver envelope', () => {
     );
   };
 
+  // Production path: setAttributes catches its own failure and RESOLVES with a
+  // result envelope (error + errorCode) — it does not reject — because the
+  // batch path resolves on this. The resolver must surface those fields.
+  it('surfaces errorCode/errorMessage when setAttributes resolves a failure result', async () => {
+    const { service, authorizationService } = makeService();
+    (service as any).config.batchEnabled = false;
+    jest.spyOn(service as any, 'setAttributes').mockResolvedValue({
+      success: false,
+      errorCode: 'DATABASE_ERROR',
+      error: 'class "class-1" ("NetworkPolicy") is a ComponentClass — a Control can only bind ControlClass',
+    });
+
+    const out = await callResolver(service, authorizationService);
+    expect(out.success).toBe(false);
+    expect(out.staleFlippedCount).toBeNull();
+    expect(out.errorCode).toBe('DATABASE_ERROR');
+    expect(out.errorMessage).toContain('is a ComponentClass');
+  });
+
+  // Defensive: a genuine throw (e.g. concurrency-control rejection) still maps
+  // through the resolver catch.
   it('surfaces errorCode/errorMessage when the write throws a SetInstantiationError', async () => {
     const { service, authorizationService } = makeService();
     (service as any).config.batchEnabled = false;
