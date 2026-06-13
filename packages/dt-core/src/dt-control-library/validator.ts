@@ -365,6 +365,29 @@ function validateClassEntry(
       `${ctx}: platformAttributes is absent on a ${lifecycle} entry. Re-pull recommended to populate it.`,
     );
   }
+
+  // Empty-binding warning: a class entry that carries neither instantiation
+  // attributes nor platform-side attributes produces no per-instance state, so
+  // the module emits no countermeasures for the binding — the control looks
+  // assigned but contributes nothing to analysis. (This is the failure mode
+  // that surfaces when a Control is recreated via bare create+assign after a
+  // push error, skipping setInstantiationAttributes.) Tombstoned entries are
+  // exempt — a retired binding legitimately carries no attributes.
+  if (lifecycle !== 'tombstoned') {
+    const attrsEmpty =
+      typeof entry.attributes === 'object' &&
+      entry.attributes !== null &&
+      Object.keys(entry.attributes).length === 0;
+    const platformEmpty =
+      !entry.platformAttributes ||
+      (typeof entry.platformAttributes === 'object' &&
+        Object.keys(entry.platformAttributes).length === 0);
+    if (attrsEmpty && platformEmpty) {
+      warnings.push(
+        `${ctx}: both attributes and platformAttributes are empty — the module will emit no countermeasures for this binding. Fetch the class template (get_classes) and fill instantiation attributes, or re-pull if the values live on the platform.`,
+      );
+    }
+  }
 }
 
 function shallowEqualAttrs(

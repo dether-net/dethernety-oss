@@ -199,6 +199,8 @@ export const SET_INSTANTIATION_ATTRIBUTES_WITH_STALE_COUNT = gql`
     ) {
       success
       staleFlippedCount
+      errorCode
+      errorMessage
     }
   }
 `

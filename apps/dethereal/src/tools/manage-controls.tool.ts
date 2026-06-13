@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import {
   DtControl,
+  DtClass,
   DtControlLibrary,
   ExternalEditDetectedError,
   CloneAndSwapNotImplemented,
@@ -180,6 +181,83 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
   readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved).'
   readonly inputSchema = InputSchema
 
+  /**
+   * Fail fast when a class id does not resolve to a CONTROL class. Binding a
+   * non-Control class (e.g. a kubernetes-core ComponentClass like
+   * "NetworkPolicy") to a Control behaves inconsistently on the platform —
+   * `create` silently produces a classless control, `update` errors with no
+   * reason, and `push-greenfield` dies mid-pipeline at setInstantiationAttributes
+   * leaving a partially-pushed control. Catching it here, before any mutation,
+   * names the offending id's actual kind and the CONTROL classes available in
+   * its module so the agent can self-correct.
+   *
+   * Returns an error envelope to return directly, or null when every id is a
+   * valid CONTROL class (or the list is empty/omitted — happy path costs
+   * nothing).
+   */
+  private async validateControlClassIds(
+    dtClass: DtClass,
+    classIds: readonly string[] | null | undefined,
+  ): Promise<ToolResult<unknown> | null> {
+    if (!classIds || classIds.length === 0) return null
+    const OTHER_KINDS = ['component', 'boundary', 'dataflow', 'data'] as const
+    for (const classId of classIds) {
+      const asControl = await dtClass.getClassById({ classId, classType: 'control' })
+      if (asControl) continue
+
+      // Not a CONTROL class — probe the other kinds to name the actual one.
+      let actualKind: string | null = null
+      let actual: Awaited<ReturnType<DtClass['getClassById']>> | undefined
+      for (const kind of OTHER_KINDS) {
+        const found = await dtClass.getClassById({ classId, classType: kind })
+        if (found) {
+          actualKind = kind
+          actual = found
+          break
+        }
+      }
+
+      if (!actualKind || !actual) {
+        return {
+          success: false,
+          error: `class_ids contains "${classId}", which does not resolve to any class on the platform. Verify the id with get_classes(class_type: 'CONTROL') or match_classes(classLabel: 'CONTROL').`,
+        }
+      }
+
+      // Best-effort suggestion: CONTROL classes from the same module.
+      let suggestion = ''
+      const moduleId = actual.module?.id
+      const moduleName = actual.module?.name
+      if (moduleId) {
+        try {
+          const modules = await dtClass.getControlClasses({
+            moduleWhere: { id: moduleId },
+            classWhere: {},
+          })
+          const controlClasses = modules.flatMap(
+            (m: { controlClasses?: Array<{ id: string; name: string }> }) =>
+              m.controlClasses ?? [],
+          )
+          if (controlClasses.length > 0) {
+            suggestion = ` CONTROL classes in module "${moduleName ?? moduleId}": ${controlClasses
+              .map(c => `${c.name} (${c.id})`)
+              .join(', ')}.`
+          }
+        } catch {
+          // Suggestions are best-effort — never let the lookup mask the error.
+        }
+      }
+
+      return {
+        success: false,
+        error: `class_ids contains "${classId}" ("${actual.name}"), a ${actualKind.toUpperCase()} class${
+          moduleName ? ` from module "${moduleName}"` : ''
+        } — Controls can only bind CONTROL classes.${suggestion} Use match_classes(classLabel: 'CONTROL') or get_classes(class_type: 'CONTROL') to find the right id.`,
+      }
+    }
+    return null
+  }
+
   async execute(input: ManageControlsInput, context: ToolContext): Promise<ToolResult<unknown>> {
     // Serialise concurrent invocations against the same model directory
     // and replay any stranded WAL journal before the action runs. The
@@ -274,6 +352,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       // action dispatch instead of asserting at every call site.
       const apolloClient = context.apolloClient!
       const dtControl = new DtControl(apolloClient)
+      const dtClass = new DtClass(apolloClient)
 
       switch (input.action) {
         case 'list': {
@@ -328,6 +407,8 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'create': {
+          const classError = await this.validateControlClassIds(dtClass, input.class_ids)
+          if (classError) return classError
           const control = await dtControl.createControl({
             newControl: { name: input.name!, description: input.description } as any,
             classIds: input.class_ids || null,
@@ -345,6 +426,14 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           // EVERY class (kind: 'NONE'), and an undefined folderId disconnects
           // the folder. Controls are shared across models, so omitted inputs
           // must preserve the current values — fetch them first and merge.
+          //
+          // Validate only when class_ids is explicitly provided: omitted
+          // preserves the current bindings (already valid), and an explicit
+          // empty array is an intentional unbind-all.
+          if (input.class_ids && input.class_ids.length > 0) {
+            const classError = await this.validateControlClassIds(dtClass, input.class_ids)
+            if (classError) return classError
+          }
           const current = await dtControl.getControl({ controlId: input.control_id! })
           if (!current) {
             return { success: false, error: `Control ${input.control_id} not found` }
@@ -452,6 +541,15 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
+          // Reject wrong-kind class bindings before the push pipeline runs, so
+          // a bad classId fails here instead of mid-pipeline at
+          // setInstantiationAttributes (which would strand a partially-pushed
+          // control on the platform).
+          const gfClassError = await this.validateControlClassIds(
+            dtClass,
+            file.classes.map(c => c.classId),
+          )
+          if (gfClassError) return gfClassError
           const lib = new DtControlLibrary(apolloClient)
           // superRefine already enforces presence + non-null on
           // push-greenfield, so a `?? []` fallback would be dead but mask
@@ -474,6 +572,11 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
+          const bfClassError = await this.validateControlClassIds(
+            dtClass,
+            file.classes.map(c => c.classId),
+          )
+          if (bfClassError) return bfClassError
           const freshMap = new Map<string, Record<string, unknown>>(
             Object.entries(input.fresh_platform_attrs as Record<string, Record<string, unknown>>)
           )

@@ -1,9 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ToolContext } from '../base-tool.js'
 
-const { mockGetControl, mockUpdateControl } = vi.hoisted(() => ({
+const {
+  mockGetControl,
+  mockUpdateControl,
+  mockCreateControl,
+  mockGetClassById,
+  mockGetControlClasses,
+} = vi.hoisted(() => ({
   mockGetControl: vi.fn(),
   mockUpdateControl: vi.fn(),
+  mockCreateControl: vi.fn(),
+  mockGetClassById: vi.fn(),
+  mockGetControlClasses: vi.fn(),
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
@@ -14,9 +23,23 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       constructor(_apolloClient: unknown) {}
       getControl = mockGetControl
       updateControl = mockUpdateControl
+      createControl = mockCreateControl
+    },
+    DtClass: class MockDtClass {
+      constructor(_apolloClient: unknown) {}
+      getClassById = mockGetClassById
+      getControlClasses = mockGetControlClasses
     },
   }
 })
+
+// Default: every class id resolves to a CONTROL class (so existing
+// merge-defaults tests that pass class_ids pass the new kind validation).
+// Kind-specific tests override mockGetClassById per case.
+const asControlClass = ({ classType }: { classType: string }) =>
+  classType === 'control'
+    ? { id: 'ctrl-class', name: 'Network Access Control', module: { id: 'mod-1', name: 'dethernety-general' } }
+    : undefined
 
 import { manageControlsTool } from '../manage-controls.tool.js'
 
@@ -174,6 +197,11 @@ describe('ManageControlsTool.execute — update merge-defaults', () => {
   beforeEach(() => {
     mockGetControl.mockReset()
     mockUpdateControl.mockReset()
+    mockGetClassById.mockReset()
+    mockGetControlClasses.mockReset()
+    // Existing merge-defaults tests that pass class_ids must clear the new
+    // kind validation: treat any provided id as a valid CONTROL class.
+    mockGetClassById.mockImplementation(asControlClass)
   })
 
   it('preserves name, class bindings, and folder on a description-only update', async () => {
@@ -257,5 +285,115 @@ describe('ManageControlsTool.execute — update merge-defaults', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toContain('Failed to update control')
+  })
+})
+
+describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+
+  // A ComponentClass id (the dogfood G1 case): getClassById('control') misses,
+  // the 'component' probe hits, getControlClasses supplies same-module
+  // suggestions.
+  const componentClass = {
+    id: 'comp-class',
+    name: 'NetworkPolicy',
+    module: { id: 'mod-k8s', name: 'kubernetes-core' },
+  }
+  const wrongKindLookup = ({ classType }: { classType: string }) =>
+    classType === 'component' ? componentClass : undefined
+
+  beforeEach(() => {
+    mockGetControl.mockReset()
+    mockUpdateControl.mockReset()
+    mockCreateControl.mockReset()
+    mockGetClassById.mockReset()
+    mockGetControlClasses.mockReset()
+  })
+
+  it('rejects create with a ComponentClass id before calling createControl', async () => {
+    mockGetClassById.mockImplementation(wrongKindLookup)
+    mockGetControlClasses.mockResolvedValueOnce([
+      { controlClasses: [{ id: 'nac-1', name: 'Network Access Control' }] },
+    ])
+
+    const result = await manageControlsTool.execute(
+      { action: 'create', name: 'web-netpol', class_ids: ['comp-class'] } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('NetworkPolicy')
+    expect(result.error).toContain('COMPONENT class')
+    expect(result.error).toContain('kubernetes-core')
+    expect(result.error).toContain('Network Access Control (nac-1)')
+    expect(mockCreateControl).not.toHaveBeenCalled()
+  })
+
+  it('proceeds with create when every class id is a CONTROL class', async () => {
+    mockGetClassById.mockImplementation(asControlClass)
+    mockCreateControl.mockResolvedValueOnce({ id: 'new-ctrl', name: 'web-netpol' })
+
+    const result = await manageControlsTool.execute(
+      { action: 'create', name: 'web-netpol', class_ids: ['ctrl-class'] } as never,
+      context,
+    )
+
+    expect(result.success).toBe(true)
+    expect(mockCreateControl).toHaveBeenCalled()
+  })
+
+  it('does not look up class kinds when create omits class_ids', async () => {
+    mockCreateControl.mockResolvedValueOnce({ id: 'new-ctrl', name: 'web-netpol' })
+
+    const result = await manageControlsTool.execute(
+      { action: 'create', name: 'web-netpol' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(true)
+    expect(mockGetClassById).not.toHaveBeenCalled()
+    expect(mockCreateControl).toHaveBeenCalled()
+  })
+
+  it('rejects update with a ComponentClass id before fetching/updating the control', async () => {
+    mockGetClassById.mockImplementation(wrongKindLookup)
+    mockGetControlClasses.mockResolvedValueOnce([])
+
+    const result = await manageControlsTool.execute(
+      { action: 'update', control_id: 'ctrl-1', class_ids: ['comp-class'] } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('NetworkPolicy')
+    expect(mockGetControl).not.toHaveBeenCalled()
+    expect(mockUpdateControl).not.toHaveBeenCalled()
+  })
+
+  it('does not validate kinds when update omits class_ids', async () => {
+    mockGetControl.mockResolvedValueOnce({ id: 'ctrl-1', name: 'X', controlClasses: [] })
+    mockUpdateControl.mockResolvedValueOnce({ control: { id: 'ctrl-1' }, residualOk: true })
+
+    const result = await manageControlsTool.execute(
+      { action: 'update', control_id: 'ctrl-1', description: 'desc' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(true)
+    expect(mockGetClassById).not.toHaveBeenCalled()
+  })
+
+  it('reports an unknown class id with verification guidance', async () => {
+    // getClassById misses every kind.
+    mockGetClassById.mockResolvedValue(undefined)
+
+    const result = await manageControlsTool.execute(
+      { action: 'create', name: 'x', class_ids: ['ghost'] } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('does not resolve to any class')
+    expect(mockCreateControl).not.toHaveBeenCalled()
   })
 })

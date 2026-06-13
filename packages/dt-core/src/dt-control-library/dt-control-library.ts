@@ -454,14 +454,15 @@ export class DtControlLibrary {
         continue;
       }
 
-      const ok = await this.dtControl.setInstantiationAttributes({
+      const { success, errorMessage } = await this.dtControl.setInstantiationAttributes({
         controlId: working.id,
         classId: entry.classId,
         attributes: entry.attributes,
       });
-      if (!ok) {
+      if (!success) {
+        const cause = errorMessage ? ` Cause: ${errorMessage}.` : '';
         throw new Error(
-          `pushGreenfieldControl: setInstantiationAttributes failed for control=${working.id} class=${entry.classId}. State left at lifecycle=partially-pushed for resume.`,
+          `pushGreenfieldControl: setInstantiationAttributes failed for control=${working.id} class=${entry.classId}.${cause} State left at lifecycle=partially-pushed for resume.`,
         );
       }
       const now = new Date().toISOString();
@@ -926,12 +927,12 @@ export class DtControlLibrary {
     for (const plan of resolvedPlans) {
       const entry = working.classes[plan.classIdx];
 
-      const ok = await this.dtControl.setInstantiationAttributes({
+      const { success, errorMessage } = await this.dtControl.setInstantiationAttributes({
         controlId: working.id,
         classId: entry.classId,
         attributes: plan.outboundPayload,
       });
-      if (!ok) {
+      if (!success) {
         // Brownfield has no `partially-pushed` lifecycle. Throwing here is
         // safe because mid-loop mutations live only on the in-memory
         // `working` copy — on-disk state still has every class entry's
@@ -939,8 +940,9 @@ export class DtControlLibrary {
         // re-attempts ALL classes (idempotent under the partial-payload
         // contract; a class already updated server-side just no-ops).
         // See the crash recovery contract block above.
+        const cause = errorMessage ? ` Cause: ${errorMessage}.` : '';
         throw new Error(
-          `pushBrownfieldControl: setInstantiationAttributes failed for control=${working.id} class=${entry.classId}. State preserved for retry.`,
+          `pushBrownfieldControl: setInstantiationAttributes failed for control=${working.id} class=${entry.classId}.${cause} State preserved for retry.`,
         );
       }
 

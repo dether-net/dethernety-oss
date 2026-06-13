@@ -658,16 +658,22 @@ export class DtControl {
    * @param controlId - Control UUID (the element-side of IS_INSTANCE_OF)
    * @param classId - ControlClass UUID
    * @param attributes - Partial payload of per-instance attributes to merge
-   * @returns True on success, false on failure
+   * @returns `{ success, errorMessage }` — on failure, `errorMessage` carries
+   *   the backend's diagnosis (wrong class kind, missing edge, …) so the
+   *   control-library push pipeline can name the root cause. Routes through the
+   *   stale-count variant (which propagates errors and now selects
+   *   `errorMessage`) rather than the boolean-returning sibling used by the
+   *   fire-and-forget import/update callers.
    */
   setInstantiationAttributes = async (
     { controlId, classId, attributes }:
     { controlId: string, classId: string, attributes: Record<string, unknown> }
-  ): Promise<boolean> => {
-    return this.dtClass.setInstantiationAttributes({
+  ): Promise<{ success: boolean, errorMessage: string | null }> => {
+    const { success, errorMessage } = await this.dtClass.setInstantiationAttributesWithStaleCount({
       componentId: controlId,
       classId,
       attributes,
     })
+    return { success, errorMessage }
   }
 }
