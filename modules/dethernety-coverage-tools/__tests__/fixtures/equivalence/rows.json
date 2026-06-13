@@ -1,0 +1,123 @@
+{
+  "modelId": "model-eq-fixture",
+  "generatedAt": "2026-06-10T00:00:00.000Z",
+  "baseRows": [
+    {
+      "elementId": "d-records",
+      "elementKind": "Data",
+      "exposureId": "exp-data-harvest",
+      "techniqueId": "T9005",
+      "techniqueName": "Record Harvesting",
+      "techniqueDescription": "Adversaries may harvest stored records.",
+      "tactics": [
+        "Exfiltration"
+      ]
+    },
+    {
+      "elementId": "c-db",
+      "elementKind": "Component",
+      "exposureId": "exp-db-exfil",
+      "techniqueId": "T9003",
+      "techniqueName": "Stage and Exfiltrate",
+      "techniqueDescription": "Adversaries may stage and exfiltrate collected data.",
+      "tactics": [
+        "Exfiltration"
+      ]
+    },
+    {
+      "elementId": "f-web-db",
+      "elementKind": "DataFlow",
+      "exposureId": "exp-flow-intercept",
+      "techniqueId": "T9004",
+      "techniqueName": "Flow Interception",
+      "techniqueDescription": "Adversaries may intercept data in transit.",
+      "tactics": [
+        "Credential Access"
+      ]
+    },
+    {
+      "elementId": "c-web",
+      "elementKind": "Component",
+      "exposureId": "exp-web-cloudacct",
+      "techniqueId": "T9002.004",
+      "techniqueName": "Cloud Accounts",
+      "techniqueDescription": "Adversaries may abuse cloud accounts.",
+      "tactics": [
+        "Initial Access",
+        "Privilege Escalation"
+      ]
+    },
+    {
+      "elementId": "c-web",
+      "elementKind": "Component",
+      "exposureId": "exp-web-rce",
+      "techniqueId": "T9001",
+      "techniqueName": "Exploit Edge Service",
+      "techniqueDescription": "Adversaries may exploit an internet-facing edge service.",
+      "tactics": [
+        "Initial Access"
+      ]
+    },
+    {
+      "elementId": "c-web",
+      "elementKind": "Component",
+      "exposureId": "exp-web-soft",
+      "techniqueId": null,
+      "techniqueName": null,
+      "techniqueDescription": null,
+      "tactics": []
+    }
+  ],
+  "directRows": [
+    {
+      "exposureId": "exp-db-exfil",
+      "techniqueId": "T9003",
+      "cmId": "cm-ids",
+      "controlId": "ctrl-core",
+      "relType": "COUNTERMEASURE_DETECTS"
+    },
+    {
+      "exposureId": "exp-web-rce",
+      "techniqueId": "T9001",
+      "cmId": "cm-waf",
+      "controlId": "ctrl-edge",
+      "relType": "COUNTERMEASURE_PROTECTS_AGAINST"
+    }
+  ],
+  "mitigationRows": [
+    {
+      "exposureId": "exp-web-cloudacct",
+      "techniqueId": "T9002.004",
+      "cmId": "cm-acctpol",
+      "controlId": "ctrl-edge"
+    }
+  ],
+  "d3fendRows": [
+    {
+      "exposureId": "exp-data-harvest",
+      "techniqueId": "T9005",
+      "cmId": "cm-vault",
+      "controlId": "ctrl-data",
+      "tactics": []
+    },
+    {
+      "exposureId": "exp-db-exfil",
+      "techniqueId": "T9003",
+      "cmId": "cm-nta",
+      "controlId": "ctrl-core",
+      "tactics": [
+        "Detect"
+      ]
+    },
+    {
+      "exposureId": "exp-web-rce",
+      "techniqueId": "T9001",
+      "cmId": "cm-waf",
+      "controlId": "ctrl-edge",
+      "tactics": [
+        "Detect",
+        "Harden"
+      ]
+    }
+  ]
+}
