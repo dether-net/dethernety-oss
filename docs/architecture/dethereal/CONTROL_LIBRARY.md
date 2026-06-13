@@ -633,6 +633,8 @@ For each controls/<id>.json with lifecycle in {"greenfield", "partially-pushed"}
 
 **Rollback explicit non-goal.** Half-applied greenfield pushes (Step A succeeded, Step B partially succeeded, operator abandons) are handled by resume-on-next-push, not rollback. An abandoned greenfield Control does exist on the platform after Step A; it can be deleted via `manage_controls(action: 'delete')` if the operator decides never to use it. See [§12](#12-out-of-scope).
 
+**Step B failure recovery (sanctioned path).** When `setInstantiationAttributes` fails for a class entry, the control stays at `partially-pushed` with its local `attributes` intact — this is the resume anchor, not a dead end. The mutation's failure now carries a diagnosis (surfaced as `Cause: …` on the thrown error and in the result envelope's `errorMessage`): a wrong-kind class binding reads "class … is a ComponentClass — a Control can only bind ControlClass". Recover by (1) fixing the cause and re-running `push-greenfield` with the **same** control id — the loop skips already-pushed entries and re-attempts the rest — or (2) for a control already live on the platform, `set-local-edited` + brownfield push. After re-binding a class entry to a different (valid CONTROL) class, re-populate that entry's instantiation attributes from the new class's template before resuming. Do **not** recover by deleting the control and recreating it with bare `create` + `assign`: that path skips `setInstantiationAttributes` entirely, so every binding lands with empty `attributes`/`platformAttributes` and the module emits no countermeasures (the validator flags this empty-binding state at `validate_model_json` / `/dethereal:status` time).
+
 ### Push — brownfield Controls
 
 ```

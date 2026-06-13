@@ -62,6 +62,13 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 
 **Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Path 2 (file-first) remains achievable offline — author the `controls/<temp-id>.json` locally and the `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose Path 2 whenever attributes matter and the element has a class; choose Path 3 only when no class binding is desired.
 
+**Push-failure recovery (sanctioned path).** A `push-greenfield` that fails at the per-class `setInstantiationAttributes` step leaves the control at `lifecycle: "partially-pushed"` — the local file is preserved, with the instantiation attributes intact, precisely so the push can be resumed. Recover in one of two ways, never by deleting and recreating:
+
+1. **Fix the cause, then re-run `push-greenfield` with the SAME control id.** The pipeline resumes from `partially-pushed`, re-attempting only the unpushed class entries (idempotent). The most common cause is a wrong-kind class binding — the failure message now names it ("class … is a ComponentClass — a Control can only bind ControlClass"). Re-bind to a real CONTROL class via `match_classes(classLabel: 'CONTROL')`, **fetch that class's template with `get_classes` and fill its instantiation attributes**, then resume.
+2. If the control already exists on the platform and only its local state is wrong, use `set-local-edited` + `push-brownfield` rather than a fresh create.
+
+**Never** recover with bare `manage_controls(action: 'create')` + `assign`: that orphans the `partially-pushed` file and, because no `setInstantiationAttributes` runs, leaves every class binding with empty attributes — the module then emits **no countermeasures** for the control. After any class re-bind, the binding's instantiation attributes must be re-populated from the new class's template before the work is considered done.
+
 ### Boundary Count Handling
 
 **Zero boundaries (B=0):**
