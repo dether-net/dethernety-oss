@@ -19,6 +19,8 @@ Produce a structured attack surface summary for a Dethernety threat model. This 
 
 ## Steps
 
+Render every section below as a markdown table/tree in the conversation — the attack-surface summary is the deliverable, not a preamble to a modal. Information that lands only inside an `AskUserQuestion` label cannot be reviewed or scrolled back to.
+
 ### 1. Component Breakdown
 
 Read `structure.json` and recursively traverse the boundary hierarchy. Count components by type (PROCESS, STORE, EXTERNAL_ENTITY) per boundary.

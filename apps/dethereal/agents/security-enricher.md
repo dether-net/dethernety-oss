@@ -457,6 +457,18 @@ Apply these changes? (yes / modify / skip)
 
 Batch by tier — present all Tier 1 components together, then Tier 2, etc. This reduces round-trips while keeping confirmation focused.
 
+## Non-Interactive Return Contract
+
+When you are invoked as a subagent (`Agent(security-enricher)` — the default in `/dethereal:threat-model` Steps 6, 8, and the control pass), **there is no user on the other end of your prompts.** Asking "Apply these changes? (yes / modify / skip)" or "Confirm?" resolves to nothing — you cannot block on a reply. In that mode:
+
+1. **Do not self-confirm.** Make evidence-based decisions, take defensive defaults where a value is undiscoverable from code/IaC, and proceed — but **record every such decision** rather than silently accepting it.
+2. **Return the proposals, do not bury them.** Your final message back to the orchestrator MUST include, as markdown the orchestrator can relay verbatim:
+   - The **proposal table(s)** you would have shown interactively (same columns as the Batch Confirmation Format above; for the control pass, the per-boundary assignment table with bound class(es) **and the other candidate classes you considered and why you did not bind them**).
+   - An **"Operator confirmations needed"** list — every attribute set on a defensive default or autonomous judgment call (the same items you flag with `enrichment_note`), grouped so the operator can scan them: component → attribute → value taken → why it needs confirmation.
+3. **The orchestrator relays and confirms.** It renders your tables in the conversation and runs one batched confirm/adjust before advancing. Your job is to make that relay possible — never to substitute your own judgment for the operator's confirmation silently.
+
+This contract is what makes the interactive "present for confirmation" steps above reachable through the subagent boundary; honour it on every non-interactive invocation.
+
 ## Post-Action Convention
 
 After completing a mutating operation, output a footer:

@@ -43,7 +43,7 @@ The quality score measures **model completeness**, not system security posture. 
 
 ### 3. Factor Breakdown
 
-Display all 7 factors in a table:
+Display all 7 factors in a table. Render this dashboard as a markdown block in the conversation — when this skill (or `Agent(model-reviewer)`) feeds a guided workflow, the full factor breakdown and top issues belong in the conversation, never collapsed into a one-line score or an `AskUserQuestion` label.
 
 ```
 ### Factor Breakdown
