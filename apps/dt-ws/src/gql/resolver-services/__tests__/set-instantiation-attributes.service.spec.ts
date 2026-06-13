@@ -8,7 +8,7 @@ import { MonitoringService } from '../../services/monitoring.service';
  * Unit pins for SetInstantiationAttributesService failure transparency.
  * Covers:
  *   - diagnoseSetAttributesFailure branches: element missing, class missing,
- *     wrong-kind class (the dogfood G1 case: a ComponentClass bound to a
+ *     wrong-kind class (a ComponentClass bound to a
  *     Control), orphaned class, no IS_INSTANCE_OF edge, and the generic
  *     fallback — each producing an actionable message naming the offending id.
  *   - the diagnostic issues exactly one tx.run (one round trip on the error
@@ -90,7 +90,7 @@ describe('SetInstantiationAttributesService — diagnoseSetAttributesFailure', (
     await expect(result).resolves.toContain(`class "${CLASS}" not found`);
   });
 
-  it('names the actual class kind when a ComponentClass is bound to a Control (G1)', async () => {
+  it('names the actual class kind when a ComponentClass is bound to a Control', async () => {
     const { service } = makeService();
     const { result } = diagnose(
       service,
@@ -98,7 +98,7 @@ describe('SetInstantiationAttributesService — diagnoseSetAttributesFailure', (
         elementLabels: ['Control'],
         classLabels: ['ComponentClass'],
         className: 'NetworkPolicy',
-        moduleName: 'kubernetes-core',
+        moduleName: 'k8s-module',
         edgeExists: false,
       }),
     );

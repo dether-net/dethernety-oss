@@ -184,7 +184,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
 
   /**
    * Fail fast when a class id does not resolve to a CONTROL class. Binding a
-   * non-Control class (e.g. a kubernetes-core ComponentClass like
+   * non-Control class (e.g. a Kubernetes ComponentClass like
    * "NetworkPolicy") to a Control behaves inconsistently on the platform —
    * `create` silently produces a classless control, `update` errors with no
    * reason, and `push-greenfield` dies mid-pipeline at setInstantiationAttributes

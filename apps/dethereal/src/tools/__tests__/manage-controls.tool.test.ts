@@ -312,13 +312,13 @@ describe('ManageControlsTool.execute — update merge-defaults', () => {
 describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
   const context: ToolContext = { debug: false, apolloClient: {} as never }
 
-  // A ComponentClass id (the dogfood G1 case): getClassById('control') misses,
-  // the 'component' probe hits, getControlClasses supplies same-module
+  // A ComponentClass id (the wrong-kind binding case): getClassById('control')
+  // misses, the 'component' probe hits, getControlClasses supplies same-module
   // suggestions.
   const componentClass = {
     id: 'comp-class',
     name: 'NetworkPolicy',
-    module: { id: 'mod-k8s', name: 'kubernetes-core' },
+    module: { id: 'mod-k8s', name: 'k8s-module' },
   }
   const wrongKindLookup = ({ classType }: { classType: string }) =>
     classType === 'component' ? componentClass : undefined
@@ -345,7 +345,7 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
     expect(result.success).toBe(false)
     expect(result.error).toContain('NetworkPolicy')
     expect(result.error).toContain('COMPONENT class')
-    expect(result.error).toContain('kubernetes-core')
+    expect(result.error).toContain('k8s-module')
     expect(result.error).toContain('Network Access Control (nac-1)')
     expect(mockCreateControl).not.toHaveBeenCalled()
   })

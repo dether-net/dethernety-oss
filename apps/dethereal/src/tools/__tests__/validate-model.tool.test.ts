@@ -147,7 +147,7 @@ describe('ValidateModelTool', () => {
   })
 })
 
-describe('ValidateModelTool — monitoring_tools "None" sentinel (G9)', () => {
+describe('ValidateModelTool — monitoring_tools "None" sentinel', () => {
   const tool = validateModelTool as any
 
   it('does not count ["None"] as monitoring', () => {
@@ -176,7 +176,7 @@ describe('ValidateModelTool — monitoring_tools "None" sentinel (G9)', () => {
   })
 })
 
-describe('ValidateModelTool — offline coverage is assignment, not mitigation (G10)', () => {
+describe('ValidateModelTool — offline coverage is assignment, not mitigation', () => {
   const dir = path.resolve('./__g10_cov_model__')
 
   beforeAll(async () => {
