@@ -10,6 +10,7 @@ import {
 } from '@dethernety/dt-core'
 
 import { ref, computed } from 'vue'
+import { generateUUID } from '@/utils/uuid'
 
 export const useAnalysisStore = defineStore('analysis', () => {
   const analyses = ref<Analysis[]>([])
@@ -144,7 +145,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     // backend `@cypher` mutation MERGEs idempotently. A
     // `temp-${Date.now()}` placeholder swapped post-create would defeat
     // the dedupe key in `dtAnalysis.createAnalysis`.
-    const id = crypto.randomUUID()
+    const id = generateUUID()
     // Look up the class so the optimistic row carries the same `analysisClass.name`
     // the real record will have — otherwise it briefly lands in an `undefined`-keyed
     // phantom group and the v-data-table re-mounts group headers when the real
@@ -257,7 +258,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     if (analysisClasses && analysisClasses.length > 0) {
       const analysisClass = analysisClasses[0]
       const createdAnalysis = await dtAnalysis.createAnalysis({
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         elementId,
         name: analysisName || className || classType || 'New Analysis',
         description: analysisDescription || '',
