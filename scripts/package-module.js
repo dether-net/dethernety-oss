@@ -93,7 +93,10 @@ const moduleDestDir = path.join(packageDir, 'dethernety', name);
 if (fs.existsSync(jsSourceDir)) {
   fs.mkdirSync(moduleDestDir, { recursive: true });
   const jsFiles = fs.readdirSync(jsSourceDir).filter(f =>
-    f.endsWith('.js') || f.endsWith('.d.ts') || f.endsWith('.js.map')
+    f.endsWith('.js') || f.endsWith('.d.ts') || f.endsWith('.js.map') ||
+    // External GraphQL schema fragment (readSchemaExtension reads schema.graphql
+    // co-located with the compiled JS at runtime).
+    f.endsWith('.graphql')
   );
   for (const file of jsFiles) {
     fs.copyFileSync(path.join(jsSourceDir, file), path.join(moduleDestDir, file));
