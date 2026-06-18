@@ -172,18 +172,18 @@ main() {
     fi
 
     # Generate Memgraph HNSW embeddings (05-mitre-embeddings.cypher).
-    # Provider auto-detect happens inside the Python script — sentence-transformers
-    # if installed, else honours EMBEDDING_PROVIDER (ollama/openai/fixture). When
-    # no provider is configured, the script logs a warning and exits zero; build
-    # continues without 05-mitre-embeddings.cypher and the runtime picker falls
-    # back to deterministic tiers (id/name/description).
+    # Provider selection happens inside the Python script. With no EMBEDDING_PROVIDER
+    # set it DEFAULTS to Ollama + embeddinggemma (matching the dt-ws runtime default),
+    # probing reachability first; if Ollama is unreachable or the model isn't pulled,
+    # the script logs a warning and exits zero, leaving the committed
+    # 05-mitre-embeddings.cypher authoritative. EMBEDDING_PROVIDER overrides the
+    # default (sentence-transformers/nomic, openai, fixture).
     #
     # NOTE on step 4 vs step 5 asymmetry: step 4 (pgvector SQL) is shell-gated on
-    # OPENAI_API_KEY; step 5 (Memgraph cypher) auto-detects in Python. An operator
-    # with OPENAI_API_KEY set AND sentence-transformers installed will produce
-    # step 4 via OpenAI but step 5 via sentence-transformers — two model families,
-    # two embedding spaces, two consumers. Set EMBEDDING_PROVIDER=openai to align
-    # step 5 with step 4 if that's the intent.
+    # OPENAI_API_KEY and uses OpenAI text-embedding-3-small; step 5 (Memgraph cypher)
+    # defaults to Ollama + embeddinggemma — two model families, two embedding spaces,
+    # two consumers. Set EMBEDDING_PROVIDER=openai to align step 5 with step 4 if
+    # that's the intent.
     log_info "Generating MITRE Memgraph embeddings (05-mitre-embeddings.cypher)..."
     (
         cd "$MODULE_DIR"

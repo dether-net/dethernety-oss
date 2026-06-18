@@ -53,43 +53,49 @@ GraphQL query's vector-similarity tier. It is **separate** from the existing
 `04-mitre-vectors.sql` (pgvector path, OpenAI `text-embedding-3-small` 1536-dim,
 consumed by the LangChain RAG / analysis subsystem):
 
-| Artifact | Model | Dimensions | Consumer |
-|---|---|---|---|
-| `data/04-mitre-vectors.sql` | OpenAI `text-embedding-3-small` | 1536 | pgvector |
-| `data/05-mitre-embeddings.cypher` | `embeddinggemma` (runtime default) | 768 | Memgraph HNSW — `matchMitreTechniques` picker |
+| Artifact | Model | Dimensions | Consumer | Committed |
+|---|---|---|---|---|
+| `data/04-mitre-vectors.sql` | OpenAI `text-embedding-3-small` | 1536 | pgvector | No — rebuilt on demand with `OPENAI_API_KEY` |
+| `data/05-mitre-embeddings.cypher` | `embeddinggemma` (build + runtime default) | 768 | Memgraph HNSW — `matchMitreTechniques` picker | **Yes** — checked into the repo |
 
-Both coexist; neither replaces the other.
+Both coexist; neither replaces the other. The graph export (`01/02/03`) and the
+embeddinggemma `05` embeddings are committed so a fresh checkout needn't
+regenerate the corpus on every build — see [`.gitignore`](.gitignore). Run
+`pnpm build` to regenerate only when the MITRE source or the embedding model
+changes.
 
 ### Embedding provider precedence
 
-`scripts/export_embeddings_to_cypher.py` honours `EMBEDDING_PROVIDER`. Auto-detects
-sentence-transformers if installed; otherwise skips gracefully (build still succeeds).
+`scripts/export_embeddings_to_cypher.py` honours `EMBEDDING_PROVIDER`. When unset
+it **defaults to Ollama + `embeddinggemma`** (matching the `dt-ws` runtime
+default), probing the endpoint first and skipping gracefully if it's unreachable.
 
 | `EMBEDDING_PROVIDER` | Provider | Notes |
 |---|---|---|
-| _(unset, default)_ | sentence-transformers + `nomic-ai/nomic-embed-text-v1.5` if installed; else skip | 768-dim, requires `einops` (transitive). Model weights cache ~250 MB on first run. |
-| `sentence-transformers` | Same as above, explicitly | Forces the path even if other env vars are set. |
-| `ollama` | HTTP `OLLAMA_URL` `/api/embed` (default `http://localhost:11434/api/embed`) | Same model family — `search_document: ` task prefix applied build-side. |
+| _(unset, default)_ | Ollama + `embeddinggemma` via `OLLAMA_URL` `/api/embed` | 768-dim. Reachability-probed (`/api/tags`); if Ollama is down or the model isn't pulled, skips gracefully (committed `05` stays authoritative). Matches the platform runtime, so the stored corpus is byte-aligned with query vectors. |
+| `ollama` | Same as default, explicitly | Contractual — bypasses the probe; `embed()` fails the build if the endpoint is unreachable. `EMBEDDING_MODEL` overrides the model (default `embeddinggemma`). |
+| `sentence-transformers` | `nomic-ai/nomic-embed-text-v1.5` (self-contained) | 768-dim, requires `einops` (transitive). Model weights cache ~250 MB on first run. Applies the `search_document: ` task prefix; tag with `EMBEDDING_MODEL=nomic-embed-text` at query time to match. |
 | `openai` | OpenAI client, `EMBEDDING_MODEL=text-embedding-3-small` | 1536-dim. NO task prefix (different model family). |
 | `fixture` | Deterministic hash-derived vectors, tagged `embeddingModel: "fixture"` | CI mode. The runtime precheck rejects fixture-tagged vectors against any real model — fail-closed by design. |
 
 ### Graceful skip
 
-If no provider is configured (no sentence-transformers installed AND no
-`EMBEDDING_PROVIDER` set), the build logs a warning, omits
-`05-mitre-embeddings.cypher` from the tarball, and exits zero. The
-mitre-frameworks module still installs cleanly — the runtime picker
-falls back to deterministic tiers (id / name / description). See
-[`scripts/build-data.sh`](scripts/build-data.sh).
+When the default provider is unreachable (Ollama down or `embeddinggemma` not
+pulled) and no `EMBEDDING_PROVIDER` is set, the build logs a warning, leaves the
+committed `05-mitre-embeddings.cypher` in place, and exits zero. The
+mitre-frameworks module still installs cleanly — and if no `05` artifact is
+present at all, the runtime picker falls back to deterministic tiers (id / name /
+description). See [`scripts/build-data.sh`](scripts/build-data.sh).
 
 ### Task-prefix discipline
 
-The runtime side (`dt-ws` `EmbeddingService`) prepends `search_query: ` before
-embedding the user's typed query; the build side (`SentenceTransformersProvider`
-and `OllamaProvider`) prepends `search_document: ` before `model.encode()`.
-Silent prefix mismatch produces ~9% recall degradation invisible to operators —
-the prefix is encoded inside each provider so operators cannot accidentally skip
-it.
+The build side and the runtime side must embed the same text the same way.
+`embeddinggemma` over Ollama (the default on both sides — build via `OllamaProvider`,
+query via `dt-ws` `EmbeddingService`) sends **raw text** on both sides, so the
+corpus and queries stay byte-aligned. The `search_document: ` / `search_query: `
+prefix discipline applies only to the `nomic-ai/nomic-embed-text-v1.5` family
+(the `sentence-transformers` override), whose training expects it; that prefix is
+encoded inside `SentenceTransformersProvider` so it cannot be accidentally skipped.
 
 ### `corpusVersions`
 
@@ -106,8 +112,8 @@ Configuration is managed through environment variables (typically set in a `.env
 - `NEO4J_PASSWORD`: Password for Neo4j authentication
 - `MITRE_ATTACK_VERSION`: Version of MITRE ATT&CK to ingest (default: latest)
 - `MITRE_DEFEND_VERSION`: Version of MITRE D3FEND to ingest (default: latest)
-- `EMBEDDING_PROVIDER`: One of `sentence-transformers`, `ollama`, `openai`, `fixture`. Used by `export_embeddings_to_cypher.py`. Auto-detects when unset (sentence-transformers if installed, else skip).
-- `EMBEDDING_MODEL`: Model identifier written into the `embeddingModel` property on each MITRE node. Defaults are per-provider: `nomic-embed-text` (sentence-transformers), `embeddinggemma` (Ollama — the platform runtime default), or `text-embedding-3-small` (OpenAI).
+- `EMBEDDING_PROVIDER`: One of `sentence-transformers`, `ollama`, `openai`, `fixture`. Used by `export_embeddings_to_cypher.py`. Defaults to `ollama` + `embeddinggemma` when unset (matching the platform runtime); skips gracefully if Ollama is unreachable.
+- `EMBEDDING_MODEL`: Model identifier written into the `embeddingModel` property on each MITRE node. Defaults are per-provider: `embeddinggemma` (Ollama — the default and platform runtime default), `nomic-embed-text` (sentence-transformers), or `text-embedding-3-small` (OpenAI).
 - `EMBEDDING_DIMENSIONS`: Override the expected dimension. Default 768 (Ollama / sentence-transformers) / 1536 (OpenAI).
 - `OLLAMA_URL`: Override the Ollama endpoint (default `http://localhost:11434/api/embed`).
 
