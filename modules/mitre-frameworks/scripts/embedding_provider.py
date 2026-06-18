@@ -1,13 +1,17 @@
 """
 Embedding provider abstraction for the mitre-frameworks build pipeline.
 
-Selected via the EMBEDDING_PROVIDER env var (explicit), or by auto-detecting
-sentence-transformers when not set. Returns None if no provider is configured,
-which causes export_embeddings_to_cypher.py to skip with a warning.
+Selected via the EMBEDDING_PROVIDER env var (explicit), or by defaulting to
+Ollama + embeddinggemma when not set (matching the dt-ws runtime default).
+Returns None when the default provider is unreachable or no provider is
+configured, which causes export_embeddings_to_cypher.py to skip with a warning
+(the committed data/05-mitre-embeddings.cypher then remains authoritative).
 
 Provider precedence:
-  1. Default — sentence-transformers with nomic-ai/nomic-embed-text-v1.5 (768-dim)
-  2. Override — ollama via HTTP /api/embed
+  1. Default — ollama via HTTP /api/embed with embeddinggemma (768-dim), matching
+               the dt-ws runtime default. Probed for reachability; returns None
+               (graceful skip) if Ollama is unreachable or the model isn't pulled.
+  2. Override — sentence-transformers with nomic-ai/nomic-embed-text-v1.5 (768-dim)
   3. Override — OpenAI text-embedding-3-small (1536-dim)
   4. CI       — fixture (deterministic, hash-derived vectors tagged 'fixture')
 
@@ -24,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import sys
 import time
 from typing import List, Optional, Protocol
 
@@ -152,6 +157,30 @@ class OllamaProvider:
         self._url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/embed")
         self.model_name = os.getenv("EMBEDDING_MODEL", "embeddinggemma")
         self.dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
+
+    def available(self) -> bool:
+        """
+        Best-effort reachability + model-presence probe used by the auto-detect
+        default path in select_provider(). Returns True only when the Ollama
+        server answers and self.model_name is among the pulled models. Lets the
+        DEFAULT (no EMBEDDING_PROVIDER set) skip gracefully — committed vectors
+        stay authoritative — instead of hard-failing mid-run when Ollama isn't
+        running. An EXPLICIT EMBEDDING_PROVIDER=ollama bypasses this probe and is
+        contractual (embed() raises on failure).
+        """
+        import requests
+
+        # Derive the server root from the (possibly full) embed URL.
+        base = self._url.split("/api/")[0] if "/api/" in self._url else self._url.rstrip("/")
+        try:
+            resp = requests.get(f"{base}/api/tags", timeout=3.0)
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+        except Exception:  # noqa: BLE001 — any failure means "treat as unavailable"
+            return False
+        # Ollama reports names like "embeddinggemma:latest"; match the base name.
+        wanted = self.model_name.split(":")[0]
+        return any(str(m.get("name", "")).split(":")[0] == wanted for m in models)
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         import requests
@@ -296,8 +325,9 @@ class FixtureProvider:
 
 def select_provider() -> Optional[EmbeddingProvider]:
     """
-    Honor EMBEDDING_PROVIDER if set; otherwise auto-detect sentence-transformers.
-    Returns None when no provider can be selected — caller must skip with a warning.
+    Honor EMBEDDING_PROVIDER if set; otherwise default to Ollama + embeddinggemma
+    (matching the dt-ws runtime). Returns None when no provider can be selected —
+    caller must skip with a warning.
     """
     explicit = os.getenv("EMBEDDING_PROVIDER")
     if explicit:
@@ -312,9 +342,20 @@ def select_provider() -> Optional[EmbeddingProvider]:
             return SentenceTransformersProvider()
         raise ValueError(f"unknown EMBEDDING_PROVIDER: {explicit!r}")
 
-    # Auto-detect: prefer sentence-transformers when importable.
-    try:
-        import sentence_transformers  # noqa: F401
-        return SentenceTransformersProvider()
-    except ImportError:
-        return None
+    # Default (no EMBEDDING_PROVIDER): Ollama + embeddinggemma, matching the
+    # dt-ws runtime default (EmbeddingService defaults to embeddinggemma over
+    # Ollama). Both sides POST raw text to /api/embed, so the stored corpus stays
+    # byte-aligned with query vectors. Probe first; if Ollama is unreachable or
+    # the model isn't pulled, return None so the export skips gracefully — the
+    # committed data/05-mitre-embeddings.cypher remains authoritative. Operators
+    # who want the self-contained sentence-transformers/nomic path set
+    # EMBEDDING_PROVIDER=sentence-transformers explicitly.
+    provider = OllamaProvider()
+    if provider.available():
+        return provider
+    print(
+        f"[warn] default embedding provider (Ollama + {provider.model_name}) "
+        "unreachable or model not pulled — skipping embedding generation.",
+        file=sys.stderr,
+    )
+    return None

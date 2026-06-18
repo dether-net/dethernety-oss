@@ -1,5 +1,16 @@
 # Generated data files
-data/
+#
+# The graph export (01/02/03) and the default-model Memgraph embeddings (05,
+# embeddinggemma/768) ARE committed so a fresh checkout needn't regenerate the
+# corpus on every build. Regenerate with `pnpm build` (needs Docker + Ollama
+# with embeddinggemma) only when the MITRE source or embedding model changes.
+#
+# NOT committed:
+#   - data/.embedding-cache/      build-time idempotency cache, not a deliverable
+#   - data/04-mitre-vectors.sql   32 MB OpenAI pgvector dump; rebuilt on demand
+#                                 with OPENAI_API_KEY (separate model + consumer)
+data/.embedding-cache/
+data/04-mitre-vectors.sql
 
 # Build output
 dist/

@@ -486,9 +486,11 @@ def main() -> int:
 
     if provider is None:
         print(
-            "[warn] MITRE Memgraph embeddings not generated — picker will fall back "
-            "to text matching at runtime. Set EMBEDDING_PROVIDER (sentence-transformers, "
-            "ollama, openai, fixture) or install sentence-transformers to enable.",
+            "[warn] MITRE Memgraph embeddings not generated — the committed "
+            "05-mitre-embeddings.cypher (if present) stays authoritative, else the "
+            "picker falls back to text matching at runtime. The default provider is "
+            "Ollama + embeddinggemma; start Ollama and `ollama pull embeddinggemma`, "
+            "or set EMBEDDING_PROVIDER (ollama, sentence-transformers, openai, fixture).",
             file=sys.stderr,
         )
         return 0
