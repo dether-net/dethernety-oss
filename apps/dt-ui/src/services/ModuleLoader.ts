@@ -2,6 +2,12 @@
 import { useModulesStore } from '@/stores/modulesStore'
 import { useHostContext } from '@/composables/useHostContext'
 import { componentRegistry } from '@/services/ComponentRegistry'
+// Re-export the host's already-bundled JSONForms engine to module bundles via
+// __HOST_DEPENDENCIES__.__JSONFORMS__ (see exposeHostDependencies). Namespace imports
+// resolve to the single host-bundled copy, so modules share one JSONForms bound to the
+// host's one Vue — no duplicate instance, no version skew.
+import * as JsonFormsCore from '@jsonforms/core'
+import * as JsonFormsVue from '@jsonforms/vue'
 
 declare global {
   interface Window {
@@ -17,6 +23,13 @@ export interface HostDependencies {
     componentRegistry: typeof componentRegistry
   }
   __VUE__?: any
+  // Host's already-bundled JSONForms engine shared with module bundles (see
+  // exposeHostDependencies). `@jsonforms/core` + `@jsonforms/vue` only — modules supply
+  // their own renderer set, so the host's vue-vuetify renderers are not exposed.
+  __JSONFORMS__?: {
+    core: typeof JsonFormsCore
+    vue: typeof JsonFormsVue
+  }
   __APP_CONTEXT__?: any,
 }
 
@@ -139,6 +152,12 @@ export class ModuleLoader {
         componentRegistry,
       },
       __VUE__: VueRuntime,
+      // Share the host's already-bundled JSONForms engine with module bundles so a
+      // module can render a class's schema/uiSchema through JSONForms with its own
+      // renderer set. Same single-instance discipline as __VUE__ (one JSONForms bound
+      // to the host's one Vue). The host's vue-vuetify renderer set is intentionally
+      // not exposed — modules supply renderers in their own design language.
+      __JSONFORMS__: { core: JsonFormsCore, vue: JsonFormsVue },
       __APP_CONTEXT__: appContext,
     }
     
