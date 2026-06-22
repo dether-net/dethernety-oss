@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Module content-hash generator for file-based Dethernety modules.
  *
@@ -187,12 +188,18 @@ function walkFiles(dir, base = dir) {
  * Compute the digest payload for one file given its POSIX relative path.
  */
 function payloadFor(relPath, absPath) {
-  // Embedding vectors: path only (already fed to the digest), never contents.
-  if (relPath.split('/').includes(EMBEDDINGS_DIR)) {
+  const segments = relPath.split('/');
+
+  // Embedding vectors (<classType>/<class>/embeddings/<slug>.json): hash the
+  // path only (already fed to the digest), never the float contents. Anchor on
+  // the file's immediate parent dir — not any segment — so a non-embedding file
+  // (or a class literally named "embeddings") can't accidentally skip content
+  // hashing, which would be a silent "content changed but hash didn't".
+  if (segments.length >= 2 && segments[segments.length - 2] === EMBEDDINGS_DIR) {
     return '';
   }
 
-  const name = relPath.split('/').pop();
+  const name = segments[segments.length - 1];
 
   // Root module.json: canonicalize after dropping volatile keys.
   if (relPath === MODULE_JSON) {
