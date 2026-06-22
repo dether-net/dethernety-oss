@@ -36,6 +36,30 @@
 
   const controls = computed(() => controlsStore.controls)
 
+  // Content (models + controls) skeleton, debounced. Folder navigation re-fetches
+  // content while folders persist; showing skeletons instantly would flicker on
+  // fast (warm-backend) switches. We only reveal skeletons if a fetch is still
+  // in flight after a short grace period, so snappy navigations show no flash.
+  const contentLoading = computed(() => modelsStore.isLoading || controlsStore.isLoading)
+  const showContentSkeleton = ref(false)
+  let contentSkeletonTimer: ReturnType<typeof setTimeout> | null = null
+
+  watch(contentLoading, loading => {
+    if (loading) {
+      if (contentSkeletonTimer) return
+      contentSkeletonTimer = setTimeout(() => {
+        if (contentLoading.value) showContentSkeleton.value = true
+        contentSkeletonTimer = null
+      }, 150)
+    } else {
+      if (contentSkeletonTimer) {
+        clearTimeout(contentSkeletonTimer)
+        contentSkeletonTimer = null
+      }
+      showContentSkeleton.value = false
+    }
+  })
+
   const buildBreadcrumbs = (folder: Folder | undefined): { title: string, to: string }[] => {
     if (!folder) {
       return [{
@@ -259,6 +283,10 @@
   }
 
   onBeforeRouteLeave(() => {
+    if (contentSkeletonTimer) {
+      clearTimeout(contentSkeletonTimer)
+      contentSkeletonTimer = null
+    }
     modelsStore.resetStore()
   })
 </script>
@@ -323,6 +351,14 @@
           </v-card-title>
           <v-card-text>
             <div class="d-flex flex-wrap gap-2 folders-container overflow-y-auto">
+              <!-- First-load only: the + card always renders, so skeletons are
+                   only needed on a cold load where nothing else is visible yet. -->
+              <v-skeleton-loader
+                v-for="i in (folderStore.isLoading && folders.length === 0 ? 3 : 0)"
+                :key="`folder-sk-${i}`"
+                class="ma-2 folder-card-skeleton"
+                type="image"
+              />
               <template
                 v-for="folder in folders.slice().sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))"
                 :key="folder.id"
@@ -424,30 +460,56 @@
           style="background-color: rgba(var(--v-theme-foreground), 0)"
         >
           <!-- Models -->
-          <div v-if="models.length > 0" class="d-flex flex-row flex-wrap gap-2">
-            <template
-              v-for="model in [...models].sort((a, b) => (a.name || '').localeCompare(b.name || ''))"
-              :key="model.id"
-            >
+          <div class="d-flex flex-row flex-wrap gap-2">
+            <!-- Loading -->
+            <template v-if="modelsStore.isLoading && showContentSkeleton">
+              <v-skeleton-loader
+                v-for="i in 3"
+                :key="`model-sk-${i}`"
+                class="ma-2 context-card-skeleton"
+                type="image"
+              />
+            </template>
+            <!-- Loaded: existing models, then a persistent single-click create card -->
+            <template v-else>
+              <template
+                v-for="model in [...models].sort((a, b) => (a.name || '').localeCompare(b.name || ''))"
+                :key="model.id"
+              >
+                <v-card
+                  border="opacity-100 primary md"
+                  class="ma-2 opacity-90 rounded-lg elevation-11 pa-0 context-card opacity-90"
+                  color="surface"
+                  height="100px"
+                  rounded="lg"
+                  width="220px"
+                  @click="router.push({ path: '/dataflow', query: { id: model.id } })"
+                  @contextmenu.prevent="selectedModelId = model.id; showModelDialog = true"
+                >
+                  <v-card-title class="ma-0 pa-0">
+                    <v-sheet class="pa-1 ma-0 text-body-1" color="primary" density="compact" variant="plain">
+                      <v-icon color="tertiary" size="small">mdi-vector-polyline</v-icon>
+                      <span class="ml-2 text-body-1">Model</span>
+                    </v-sheet>
+                  </v-card-title>
+                  <v-card-text class="pa-2 ma-0">
+                    <span class="text-body-1">{{ model.name }}</span>
+                  </v-card-text>
+                </v-card>
+              </template>
+              <!-- Always available: single-click add, doubles as the empty-state affordance -->
               <v-card
-                border="opacity-100 primary md"
-                class="ma-2 opacity-90 rounded-lg elevation-11 pa-0 context-card opacity-90"
+                class="ma-2 rounded-lg context-card create-ghost-card d-flex align-center justify-center"
                 color="surface"
                 height="100px"
-                rounded="lg"
+                variant="outlined"
                 width="220px"
-                @click="router.push({ path: '/dataflow', query: { id: model.id } })"
-                @contextmenu.prevent="selectedModelId = model.id; showModelDialog = true"
+                @click="addModel"
               >
-                <v-card-title class="ma-0 pa-0">
-                  <v-sheet class="pa-1 ma-0 text-body-1" color="primary" density="compact" variant="plain">
-                    <v-icon color="tertiary" size="small">mdi-vector-polyline</v-icon>
-                    <span class="ml-2 text-body-1">Model</span>
-                  </v-sheet>
-                </v-card-title>
-                <v-card-text class="pa-2 ma-0">
-                  <span class="text-body-1">{{ model.name }}</span>
-                </v-card-text>
+                <div class="d-flex flex-column align-center text-disabled">
+                  <v-icon size="large">mdi-plus</v-icon>
+                  <span class="text-caption mt-1">{{ models.length === 0 ? 'No models yet — create one' : 'New model' }}</span>
+                </div>
               </v-card>
             </template>
           </div>
@@ -455,29 +517,55 @@
           <v-divider class="my-2" />
 
           <!-- Controls -->
-          <div v-if="controls.length > 0" class="d-flex flex-row flex-wrap gap-2">
-            <template
-              v-for="control in [...controls].sort((a, b) => (a.name || '').localeCompare(b.name || ''))"
-              :key="control.id"
-            >
+          <div class="d-flex flex-row flex-wrap gap-2">
+            <!-- Loading -->
+            <template v-if="controlsStore.isLoading && showContentSkeleton">
+              <v-skeleton-loader
+                v-for="i in 3"
+                :key="`control-sk-${i}`"
+                class="ma-2 context-card-skeleton"
+                type="image"
+              />
+            </template>
+            <!-- Loaded: existing controls, then a persistent single-click create card -->
+            <template v-else>
+              <template
+                v-for="control in [...controls].sort((a, b) => (a.name || '').localeCompare(b.name || ''))"
+                :key="control.id"
+              >
+                <v-card
+                  border="opacity-100 secondary md"
+                  class="ma-2 opacity-90 rounded-lg elevation-11 pa-0 context-card opacity-90"
+                  color="surface"
+                  height="100px"
+                  rounded="lg"
+                  width="220px"
+                  @click="selectedControlId = control.id || null; showControlDialog = true"
+                >
+                  <v-card-title class="ma-0 pa-0">
+                    <v-sheet class="pa-1 ma-0" color="secondary" density="compact" variant="plain">
+                      <v-icon color="primary" size="small">mdi-shield-sword-outline</v-icon>
+                      <span class="ml-2 text-body-1">Control</span>
+                    </v-sheet>
+                  </v-card-title>
+                  <v-card-text class="pa-2 ma-0">
+                    <span class="text-body-1">{{ control.name }}</span>
+                  </v-card-text>
+                </v-card>
+              </template>
+              <!-- Always available: single-click add, doubles as the empty-state affordance -->
               <v-card
-                border="opacity-100 secondary md"
-                class="ma-2 opacity-90 rounded-lg elevation-11 pa-0 context-card opacity-90"
+                class="ma-2 rounded-lg context-card create-ghost-card d-flex align-center justify-center"
                 color="surface"
                 height="100px"
-                rounded="lg"
+                variant="outlined"
                 width="220px"
-                @click="selectedControlId = control.id || null; showControlDialog = true"
+                @click="addControl"
               >
-                <v-card-title class="ma-0 pa-0">
-                  <v-sheet class="pa-1 ma-0" color="secondary" density="compact" variant="plain">
-                    <v-icon color="primary" size="small">mdi-shield-sword-outline</v-icon>
-                    <span class="ml-2 text-body-1">Control</span>
-                  </v-sheet>
-                </v-card-title>
-                <v-card-text class="pa-2 ma-0">
-                  <span class="text-body-1">{{ control.name }}</span>
-                </v-card-text>
+                <div class="d-flex flex-column align-center text-disabled">
+                  <v-icon size="large">mdi-plus</v-icon>
+                  <span class="text-caption mt-1">{{ controls.length === 0 ? 'No controls yet — create one' : 'New control' }}</span>
+                </div>
               </v-card>
             </template>
           </div>
@@ -584,5 +672,32 @@
   background: rgb(var(--v-theme-tertiary));
   border-radius: 8px 8px 0px 0;
   display: flex;
+}
+
+/* Skeleton ghosts match the real card geometry so content fills in place
+   without shifting the divider or FAB. */
+.folder-card-skeleton {
+  width: 150px;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.context-card-skeleton {
+  width: 220px;
+  height: 100px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.folder-card-skeleton :deep(.v-skeleton-loader__image),
+.context-card-skeleton :deep(.v-skeleton-loader__image) {
+  height: 100%;
+}
+
+/* Dashed outline distinguishes the empty-state create affordance from real cards. */
+.create-ghost-card {
+  border-style: dashed !important;
+  cursor: pointer;
 }
 </style>

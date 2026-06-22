@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, useAttrs, Teleport } from 'vue'
+  import { computed, nextTick, ref, useAttrs, Teleport } from 'vue'
   import { Controls } from '@vue-flow/controls'
   import {
     Connection,
@@ -59,6 +59,7 @@
     applyEdgeChanges,
     getNodes,
     screenToFlowCoordinate,
+    fitView,
   } = useVueFlow()
 
   const {
@@ -80,7 +81,26 @@
 
   const selectedItem = computed(() => flowStore.selectedItem)
   const snackBar = ref<SnackBar>({ show: false, message: '', color: '' })
+  // Covers the canvas until the model is loaded AND framed, hiding both the
+  // empty-canvas flash and the fitView() viewport jump on first paint.
+  const isCanvasLoading = ref(true)
   flowStore.fetchMitreAttackTactics()
+
+  // Load a model's data, then frame it with fitView before revealing the canvas.
+  // The setTimeout gives vue-flow a beat to measure the freshly-mounted nodes so
+  // fitView centers on real dimensions rather than zero-sized placeholders.
+  const loadAndFrame = async (model: string) => {
+    isCanvasLoading.value = true
+    try {
+      await flowStore.fetchData({ model })
+    } finally {
+      await nextTick()
+      setTimeout(() => {
+        fitView()
+        isCanvasLoading.value = false
+      }, 100)
+    }
+  }
 
   const modelName = ref<string | null>(null)
 
@@ -234,17 +254,14 @@
   }
 
   // event handlers
-  onInit(instance => {
+  onInit(() => {
     if (modelId.value) {
       flowStore.setModelId({ newModelId: modelId.value })
-      flowStore.fetchData({ model: modelId.value }).then(() => {
-        if (instance) {
-          setTimeout(() => {
-            instance.fitView()
-          }, 100)
-        }
-      })
+      loadAndFrame(modelId.value)
       flowStore.fetchControls()
+    } else {
+      // Empty editor (no model in the route) — nothing to load, reveal the canvas.
+      isCanvasLoading.value = false
     }
   })
 
@@ -505,7 +522,7 @@
     // Carry-over would point at a node that no longer exists in the new model.
     freshlyCreatedId.value = null
     flowStore.resetStore()
-    flowStore.fetchData({ model: updatedModelId })
+    loadAndFrame(updatedModelId)
     flowStore.fetchControls()
     flowStore.getModelData({ modelId: updatedModelId }).then(model => {
       if (modelId.value === updatedModelId) {
@@ -669,6 +686,13 @@
         position="bottom-right"
       />
     </VueFlow>
+
+    <Transition name="canvas-fade">
+      <div v-if="isCanvasLoading" class="canvas-loading-overlay">
+        <v-progress-circular color="primary" indeterminate :size="48" :width="4" />
+        <span class="canvas-loading-text">Loading model…</span>
+      </div>
+    </Transition>
   </div>
 
   <!-- Use Teleport to render dialogs at document root to prevent DOM connection issues -->
@@ -728,6 +752,34 @@
   width: 100%;
   height: 100%;
   display: flex;
+  position: relative;
+}
+
+.canvas-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background-color: rgb(var(--v-theme-surface));
+}
+
+.canvas-loading-text {
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  font-size: 0.9rem;
+}
+
+/* Only animate the leave — the overlay is present from first paint, so a fade-in
+   would itself flash the empty canvas underneath. */
+.canvas-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.canvas-fade-leave-to {
+  opacity: 0;
 }
 
 .vue-flow {
