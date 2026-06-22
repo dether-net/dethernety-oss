@@ -279,6 +279,7 @@ export class DtFileOpaModule implements DTModule {
       name: moduleJson.name,
       description: moduleJson.description,
       version: moduleJson.version,
+      contentHash: moduleJson.contentHash,
     };
 
     const policies: Policy[] = [];
