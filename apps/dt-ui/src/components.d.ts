@@ -44,6 +44,8 @@ declare module 'vue' {
     DispositionDialog: typeof import('./components/Dialogs/Exposure/DispositionDialog.vue')['default']
     ExportModelDialog: typeof import('./components/Dialogs/Model/ExportModelDialog.vue')['default']
     ExposureDialog: typeof import('./components/Dialogs/DataFlow/ExposureDialog.vue')['default']
+    ExposuresDialog: typeof import('./components/Dialogs/DataFlow/ExposuresDialog.vue')['default']
+    ExposuresPanel: typeof import('./components/DataFlow/ExposuresPanel.vue')['default']
     ExtEntNode: typeof import('./components/DataFlow/Nodes/ExtEntNode.vue')['default']
     FindingIssueDialog: typeof import('./components/Dialogs/Issues/FindingIssueDialog.vue')['default']
     FolderDialog: typeof import('./components/Dialogs/Browser/FolderDialog.vue')['default']
