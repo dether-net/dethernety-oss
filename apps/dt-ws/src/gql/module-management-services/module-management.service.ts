@@ -1218,6 +1218,30 @@ export class ModuleManagementService {
         string,
         { metadata: DTMetadata; vectors: Map<string, number[]> | null }
       >();
+
+      // Content-hash skip gate — read each :Module node's stored contentHash +
+      // lastInstallStatus once (single read, outside the write tx). A module
+      // whose shipped contentHash matches the node's and whose last install was
+      // authoritative is unchanged: skip its embedding resolution AND graph
+      // write. Fails safe — unknown/partial/legacy/forced ⇒ full install.
+      const installed = new Map<
+        string,
+        { contentHash: string | null; lastInstallStatus: string | null }
+      >();
+      const installState = await session.executeRead(async (tx: DatabaseTransaction) =>
+        tx.run(
+          `MATCH (m:Module)
+           RETURN m.name AS name, m.contentHash AS contentHash, m.lastInstallStatus AS lastInstallStatus`,
+        ),
+      );
+      for (const rec of installState.records) {
+        installed.set(rec.get('name'), {
+          contentHash: rec.get('contentHash') ?? null,
+          lastInstallStatus: rec.get('lastInstallStatus') ?? null,
+        });
+      }
+      let skippedCount = 0;
+
       for (const [moduleName, moduleInstance] of modules) {
         try {
           this.logger.debug('Processing module for update', { moduleName });
@@ -1226,6 +1250,25 @@ export class ModuleManagementService {
             this.logger.warn('Module metadata not found, skipping', { moduleName });
             continue;
           }
+
+          // Skip unchanged, authoritatively-installed modules (unless forced).
+          if (!options.force && metadata.contentHash) {
+            const db = installed.get(moduleName);
+            if (
+              db &&
+              db.contentHash === metadata.contentHash &&
+              db.lastInstallStatus === 'authoritative'
+            ) {
+              this.logger.log('Module unchanged — skipping embedding + write', {
+                moduleName,
+                contentHash: metadata.contentHash,
+              });
+              modulesInstalled.push(moduleName); // retained; protected from deleteOldModules
+              skippedCount++;
+              continue;
+            }
+          }
+
           const vectors = await this.resolveVectors(metadata, moduleInstance);
           resolved.set(moduleName, { metadata, vectors });
         } catch (error) {
@@ -1275,6 +1318,7 @@ export class ModuleManagementService {
       this.recordOperation('updateAllModules', duration, {
         totalModules: modules.size,
         processedCount,
+        skippedCount,
         errorCount,
         installedModules: modulesInstalled,
       });
@@ -1282,9 +1326,12 @@ export class ModuleManagementService {
       this.logger.log('Bulk module update completed', {
         totalModules: modules.size,
         processedCount,
+        skippedCount,
         errorCount,
         duration,
-        successRate: processedCount / modules.size,
+        successRate: modules.size
+          ? (processedCount + skippedCount) / modules.size
+          : 1,
       });
 
     } catch (error) {

@@ -9,6 +9,8 @@
     "build:ts": "tsc",
     "build:package": "node ../../scripts/package-module.js",
     "embed": "../../scripts/module-manager.sh embed . --model ${EMBEDDING_MODEL:-embeddinggemma} --url ${EMBEDDING_URL:-http://localhost:11434/api/embed}",
+    "hash": "node ../../scripts/hash-module.mjs .",
+    "hash:check": "node ../../scripts/hash-module.mjs . --check",
     "dev": "tsc -w",
     "clean": "rm -rf dist"
   },
