@@ -60,9 +60,9 @@ consumed by the LangChain RAG / analysis subsystem):
 
 Both coexist; neither replaces the other. The graph export (`01/02/03`) and the
 embeddinggemma `05` embeddings are committed so a fresh checkout needn't
-regenerate the corpus on every build — see [`.gitignore`](.gitignore). Run
-`pnpm build` to regenerate only when the MITRE source or the embedding model
-changes.
+regenerate the corpus — see [`.gitignore`](.gitignore). The default `pnpm build`
+(and the demos) only **package** the committed exports; run `pnpm build:data`
+to regenerate them when the MITRE source or the embedding model changes.
 
 ### Embedding provider precedence
 
@@ -81,8 +81,9 @@ default), probing the endpoint first and skipping gracefully if it's unreachable
 ### Graceful skip
 
 When the default provider is unreachable (Ollama down or `embeddinggemma` not
-pulled) and no `EMBEDDING_PROVIDER` is set, the build logs a warning, leaves the
-committed `05-mitre-embeddings.cypher` in place, and exits zero. The
+pulled) and no `EMBEDDING_PROVIDER` is set, the data build (`pnpm build:data`)
+logs a warning, leaves the committed `05-mitre-embeddings.cypher` in place, and
+exits zero. The
 mitre-frameworks module still installs cleanly — and if no `05` artifact is
 present at all, the runtime picker falls back to deterministic tiers (id / name /
 description). See [`scripts/build-data.sh`](scripts/build-data.sh).

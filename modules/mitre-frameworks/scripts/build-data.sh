@@ -205,28 +205,10 @@ main() {
         log_warn "  05-mitre-embeddings.cypher absent — operator did not configure an embedding provider"
     fi
 
-    # Parse version from manifest
-    VERSION=$(jq -r '.version' "$MODULE_DIR/manifest.json")
-    PACKAGE_NAME="mitre-frameworks-${VERSION}.tar.gz"
-    PACKAGE_PATH="$MODULE_DIR/dist/$PACKAGE_NAME"
-
-    # Create tarball
-    log_info "Creating package: $PACKAGE_NAME"
-    tar -czf "$PACKAGE_PATH" \
-        --exclude='.*' \
-        --exclude='scripts' \
-        --exclude='dist' \
-        --exclude='node_modules' \
-        -C "$MODULE_DIR" \
-        manifest.json \
-        data
-
-    # Show package info
-    PACKAGE_SIZE=$(du -h "$PACKAGE_PATH" | cut -f1)
-    log_info "Package created: $PACKAGE_PATH ($PACKAGE_SIZE)"
-
-    log_info "Package contents:"
-    tar -tzf "$PACKAGE_PATH"
+    # Package the freshly-regenerated data into the install tarball. Delegating
+    # to package.sh keeps a single packaging implementation shared with the
+    # default `pnpm build` (package-only) path.
+    "$SCRIPT_DIR/package.sh"
 
     log_info "Build complete!"
 }
