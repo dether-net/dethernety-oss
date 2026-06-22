@@ -64,7 +64,15 @@ export class ModuleRegistryService implements OnModuleInit {
         }
       }
       
-      await this.moduleManagementService.updateAllModules(moduleInstances);
+      // MODULE_LOAD_FORCE=1 is an incident-recovery escape hatch that bypasses
+      // the content-hash skip gate and reinstalls every module unconditionally.
+      const force = process.env.MODULE_LOAD_FORCE === '1';
+      if (force) {
+        this.logger.warn(
+          'MODULE_LOAD_FORCE active — content-hash skip disabled; all modules will reinstall',
+        );
+      }
+      await this.moduleManagementService.updateAllModules(moduleInstances, { force });
       
       this.logger.log('Module initialization completed', {
         totalModules: this.customModules.size,

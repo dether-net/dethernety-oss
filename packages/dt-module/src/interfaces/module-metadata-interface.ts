@@ -27,6 +27,7 @@ export interface DTMetadata {
   description?: string;
   icon?: string;
   version?: string;
+  contentHash?: string;
   componentClasses?: ComponentClassMetadata[];
   dataFlowClasses?: DataFlowClassMetadata[];
   securityBoundaryClasses?: SecurityBoundaryClassMetadata[];

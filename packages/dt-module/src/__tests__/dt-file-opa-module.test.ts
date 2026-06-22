@@ -199,6 +199,47 @@ describe('DtFileOpaModule.getMetadata — issue classes', () => {
   });
 });
 
+describe('DtFileOpaModule.getMetadata — contentHash', () => {
+  // Minimal layout: only module.json exists; no class-type dirs (readdir → []).
+  const makeModuleJson = (extra: Record<string, unknown>) =>
+    JSON.stringify({ name: 'test-module', description: 'd', version: '1.0.0', ...extra });
+
+  // Restore the file-wide defaults the other suites rely on.
+  afterEach(() => {
+    vi.mocked(fs.existsSync).mockImplementation(() => true);
+    vi.mocked(fs.readFileSync).mockImplementation((() => 'package test.pkg\n') as any);
+    vi.mocked(fs.readdirSync).mockImplementation((() => []) as any);
+  });
+
+  function buildModule(moduleJson: string) {
+    vi.mocked(fs.existsSync).mockReset();
+    vi.mocked(fs.readFileSync).mockReset();
+    vi.mocked(fs.readdirSync).mockReset();
+    vi.mocked(fs.existsSync).mockImplementation((p: any) => String(p).endsWith('module.json'));
+    vi.mocked(fs.readFileSync).mockImplementation(((p: any) =>
+      String(p).endsWith('module.json') ? moduleJson : '') as any);
+    vi.mocked(fs.readdirSync).mockImplementation((() => []) as any);
+    const mod = new DtFileOpaModule('/fake/dir', 'test-module', {} as any, stubLogger as any);
+    (mod as any).opaOps = {
+      deletePolicyByPrefix: vi.fn().mockResolvedValue(undefined),
+      installPolicies: vi.fn().mockResolvedValue(undefined),
+    };
+    return mod;
+  }
+
+  it('surfaces module.json contentHash onto metadata', async () => {
+    const mod = buildModule(makeModuleJson({ contentHash: 'sha256:abc123' }));
+    const metadata = await mod.getMetadata();
+    expect(metadata.contentHash).toBe('sha256:abc123');
+  });
+
+  it('leaves contentHash undefined when module.json has none', async () => {
+    const mod = buildModule(makeModuleJson({}));
+    const metadata = await mod.getMetadata();
+    expect(metadata.contentHash).toBeUndefined();
+  });
+});
+
 describe('DtFileOpaModule.getExposures — ref passthrough', () => {
   it('passes the exploited_by ref array through verbatim, attributes included', async () => {
     const mod = buildModule([

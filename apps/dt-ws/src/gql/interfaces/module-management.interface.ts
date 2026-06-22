@@ -25,6 +25,11 @@ export interface ModuleOperationOptions {
   skipValidation?: boolean;
   timeout?: number;
   retryCount?: number;
+  /**
+   * When true, bypass the content-hash skip gate in updateAllModules and
+   * reinstall every module unconditionally (incident-recovery escape hatch).
+   */
+  force?: boolean;
 }
 
 export interface ModuleStatistics {
