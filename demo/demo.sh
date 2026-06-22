@@ -214,7 +214,10 @@ if needs_module_install; then
   # Optional: mitre-frameworks
   MITRE_DIR="${OSS_ROOT}/modules/mitre-frameworks"
   if [ -d "${MITRE_DIR}" ]; then
-    step "Building mitre-frameworks (this may take a few minutes)"
+    # Packages the committed data/*.cypher exports — does NOT regenerate them.
+    # Regenerate with `pnpm --filter mitre-frameworks build:data` only when the
+    # framework or generation code changes.
+    step "Packaging mitre-frameworks (committed data — no regeneration)"
     MITRE_BUILD_LOG="${DEMO_DIR}/.mitre-build.log"
     if "${MODULE_MANAGER}" build "${MITRE_DIR}" >"${MITRE_BUILD_LOG}" 2>&1; then
       rm -f "${MITRE_BUILD_LOG}"
@@ -232,7 +235,7 @@ if needs_module_install; then
         warn "mitre-frameworks tarball not found after build — skipping."
       fi
     else
-      warn "mitre-frameworks build failed. Last 20 lines of ${MITRE_BUILD_LOG}:"
+      warn "mitre-frameworks packaging failed. Last 20 lines of ${MITRE_BUILD_LOG}:"
       tail -n 20 "${MITRE_BUILD_LOG}" >&2 || true
       warn "Retry later with: ../scripts/module-manager.sh build ../modules/mitre-frameworks"
     fi

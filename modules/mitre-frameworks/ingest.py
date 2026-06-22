@@ -128,13 +128,13 @@ def merge_object_property_relationship(tx, subj_uri, rel_type, obj_uri):
     tx.run(query, suri=subj_uri, ouri=obj_uri)
 
 def get_attack_ids(tx):
-    result = tx.run(f"MATCH (t:{MITRE_ATTACK_LABEL_MAPPING["MitreAttackTechnique"]}) RETURN t.attack_id AS attack_id")
+    result = tx.run(f"MATCH (t:{MITRE_ATTACK_LABEL_MAPPING['MitreAttackTechnique']}) RETURN t.attack_id AS attack_id")
     return {record["attack_id"] for record in result}
 
 def merge_attack_id(tx, label, name, rel_label, attack_id):
     query = f"""
     MATCH (n:{label} {{ name: $name }})
-    MATCH (t:{MITRE_ATTACK_LABEL_MAPPING["MitreAttackTechnique"]} {{ attack_id: $attack_id }})
+    MATCH (t:{MITRE_ATTACK_LABEL_MAPPING['MitreAttackTechnique']} {{ attack_id: $attack_id }})
     MERGE (n)<-[:{rel_label}]-(t)
     """
     tx.run(query, name=name, attack_id=attack_id)
