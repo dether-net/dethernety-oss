@@ -20,14 +20,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@apollo/client": "^4.1.9",
+    "@apollo/client": "^4.2.3",
     "@vue-flow/core": "^1.48.2",
-    "graphql-tag": "^2.12.6",
+    "graphql-tag": "^2.12.7",
     "js-yaml": "^4.2.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^25.9.2",
-    "vitest": "^4.1.8"
+    "@types/node": "^25.9.4",
+    "vitest": "^4.1.9"
   }
 }
