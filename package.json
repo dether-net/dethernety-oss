@@ -18,11 +18,11 @@
     "docs:api": "node scripts/generate-api-docs.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.4",
     "neo4j-driver": "^5.28.3",
-    "prettier": "^3.8.3",
+    "prettier": "^3.8.4",
     "tsx": "^4.22.4",
-    "turbo": "^2.9.16",
+    "turbo": "^2.9.18",
     "typescript": "5.9.3"
   },
   "engines": {
@@ -32,11 +32,11 @@
   "pnpm": {
     "overrides": {
       "zod": "4.3.6",
-      "hono": "^4.12.21",
+      "hono": "^4.12.25",
       "@hono/node-server": "^1.19.13",
       "ip-address": ">=10.1.1",
       "fast-uri": ">=3.1.2",
-      "multer": ">=2.1.0",
+      "multer": ">=2.2.0 <3.0.0",
       "lodash": ">=4.18.1",
       "lodash-es": ">=4.18.1",
       "ajv@^6.0.0": "^6.14.0",
@@ -44,7 +44,7 @@
       "minimatch@>=9.0.0": ">=9.0.7",
       "webpack": ">=5.105.4",
       "express-rate-limit": ">=8.2.2",
-      "dompurify": "^3.4.2",
+      "dompurify": "^3.4.11",
       "file-type": ">=21.3.1",
       "handlebars": ">=4.7.9",
       "defu": ">=6.1.5",
@@ -58,8 +58,12 @@
       "flatted": ">=3.4.2",
       "@apollo/federation-internals": ">=2.13.2",
       "tmp": ">=0.2.6 <0.3.0",
-      "protobufjs": ">=7.5.8 <8.0.0",
+      "protobufjs": ">=7.6.3 <8.0.0",
       "qs": ">=6.15.2 <7.0.0",
+      "@grpc/grpc-js": ">=1.14.4",
+      "esbuild": ">=0.28.1",
+      "form-data": ">=4.0.6",
+      "ws@>=8.0.0 <9.0.0": ">=8.21.0 <9.0.0",
       "uuid@<11.1.1": "^11.1.1"
     }
   }
