@@ -723,14 +723,31 @@ class DethernetyThreatReportModule implements DTModule {
   /**
    * Static 'idle' status. A report is not a long-running run; reporting 'idle'
    * keeps the Analysis tab's "Results" action enabled (it gates on
-   * status === 'idle'). Cheap and side-effect-free — this is called on every
-   * analysis listing.
+   * status === 'idle'). hasDocument reflects whether a snapshot has been
+   * persisted, so the UI can tell a never-run report (Ready) from a completed
+   * one (Done) — a cheap indexed single-node lookup, called on every listing.
    */
-  async getAnalysisStatus(_id: string): Promise<AnalysisStatus> {
+  async getAnalysisStatus(id: string): Promise<AnalysisStatus> {
+    let hasDocument = false;
+    const session = this.session();
+    try {
+      const r = await session.run(
+        `MATCH (a:Analysis {id: $id}) RETURN a.threatReportDoc IS NOT NULL AS hasDoc`,
+        { id },
+      );
+      hasDocument = r.records[0]?.get('hasDoc') ?? false;
+    } catch (err) {
+      // A status read should never flip the row to the error fallback; default
+      // false, but log so a persistently unhealthy DB is observable.
+      this.logger.debug(`threat-report: hasDocument check failed for ${id}`, err);
+    } finally {
+      await session.close();
+    }
     return {
       createdAt: '',
       updatedAt: '',
       status: 'idle',
+      hasDocument,
       interrupts: {},
       messages: [],
       metadata: {},

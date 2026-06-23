@@ -874,7 +874,9 @@ Gets the current status of an analysis session.
 async getAnalysisStatus(id: string): Promise<AnalysisStatus>
 ```
 
-**Returns:** `AnalysisStatus` with `status`, `messages`, `interrupts`, `metadata`
+**Returns:** `AnalysisStatus` with `status`, `hasDocument`, `messages`, `interrupts`, `metadata`
+
+`hasDocument` (optional on the interface, defaulted to `false` at the GraphQL resolver) should be `true` once a run has completed successfully and a viewable result exists, so the UI can tell a never-run analysis from a completed one (both report `status: idle`).
 
 ---
 
