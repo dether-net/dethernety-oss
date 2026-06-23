@@ -1,7 +1,17 @@
 <script setup lang="ts">
-  import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useAnalysisStore } from '@/stores/analysisStore'
   import { Analysis } from '@dethernety/dt-core'
+  import {
+    phaseOf,
+    PHASE_LABELS,
+    PHASE_COLOR,
+    PHASE_PRIMARY,
+    phaseShowsBadge,
+    phaseShowsDelete,
+    phaseShowsRerun,
+    errorReason,
+  } from '@/utils/analysisPhase'
 
   import { useRouter } from 'vue-router'
   import { useDate } from 'vuetify'
@@ -18,7 +28,7 @@
   const analysisIdToShow = ref<string | undefined>(undefined)
   const analysisStore = useAnalysisStore()
   const router = useRouter()
-  const fetchTimer = ref(null)
+  const fetchTimer = ref<ReturnType<typeof setInterval> | null>(null)
   const date = useDate()
 
   analysisStore.fetchAnalyses({ elementId: props.modelId })
@@ -26,7 +36,7 @@
   onMounted(() => {
     fetchTimer.value = setInterval(() => {
       analysisStore.fetchAnalyses({ elementId: props.modelId })
-    }, 5000) as unknown as null
+    }, 5000)
   })
 
   onBeforeUnmount(() => {
@@ -46,27 +56,80 @@
 
   const analysisClasses = computed(() => analysisStore.analysisClasses)
 
-  // Tracks group keys we've already auto-opened, so re-mounts caused by the
-  // 5s poll (which replaces analyses by reference) don't re-toggle them shut.
-  const autoOpenedGroups = new Set<string>()
-  // Typed loosely — Vuetify's Group<any> type isn't part of the public exports,
-  // and we only need the `value`/`key` fields for our Set lookup.
-  const autoOpenGroup = (
-    item: any,
-    toggleGroup: (item: any) => void,
-    isGroupOpen: (item: any) => boolean,
-  ) => {
-    const key = String(item?.key ?? item?.value ?? '')
-    if (autoOpenedGroups.has(key)) return
-    autoOpenedGroups.add(key)
-    if (!isGroupOpen(item)) toggleGroup(item)
+  // Show a spinner only on the first load (empty table); subsequent 5s polls
+  // refresh in place without flashing the indicator.
+  const isInitialLoading = computed(
+    () => analysisStore.loadingStates.fetchingAnalyses && analysisStore.analyses.length === 0,
+  )
+
+  // --- Group open/closed state -------------------------------------------------
+  // Vuetify's data-table has no controlled API for group expansion, so we keep
+  // our own source of truth (`openGroups`) and reconcile each group header to it
+  // on mount (headers re-mount on every 5s poll) and whenever it changes.
+  // Typed loosely — Vuetify's Group<any> type isn't part of the public exports.
+  const openGroups = ref<Set<string>>(new Set())
+  const groupKey = (item: any): string => String(item?.value ?? '')
+  const groupNames = computed(() => {
+    const names = new Set<string>()
+    for (const a of analysisStore.analyses) {
+      const name = a.analysisClass?.name
+      if (name) names.add(name)
+    }
+    return names
+  })
+
+  // Live handles to each mounted group header, so we can reconcile them all when
+  // `openGroups` changes programmatically (initial rule / on create).
+  const groupControls = new Map<string, { item: any, toggle: (i: any) => void, isOpen: (i: any) => boolean }>()
+  const applyGroupState = (item: any, toggle: (i: any) => void, isOpen: (i: any) => boolean) => {
+    if (openGroups.value.has(groupKey(item)) !== isOpen(item)) toggle(item)
   }
+  const reconcileGroup = (item: any, toggle: (i: any) => void, isOpen: (i: any) => boolean) => {
+    groupControls.set(groupKey(item), { item, toggle, isOpen })
+    applyGroupState(item, toggle, isOpen)
+  }
+  const reconcileAllGroups = () => {
+    for (const [key, ctl] of groupControls) {
+      // Drop handles for groups that no longer exist (last row deleted / class
+      // renamed) so the map can't accumulate stale entries over the session.
+      if (!groupNames.value.has(key)) {
+        groupControls.delete(key)
+        continue
+      }
+      applyGroupState(ctl.item, ctl.toggle, ctl.isOpen)
+    }
+  }
+
+  // User clicked the chevron — keep our source of truth in sync, then toggle.
+  const onToggleGroup = (item: any, toggle: (i: any) => void) => {
+    const key = groupKey(item)
+    const next = new Set(openGroups.value)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    openGroups.value = next
+    toggle(item)
+  }
+
+  // Initial rule (applied once, when analyses first load): a lone group opens; two
+  // or more stay collapsed so the dialog doesn't open as a wall of groups.
+  let groupsInitialised = false
+  watch(groupNames, names => {
+    if (groupsInitialised || names.size === 0) return
+    groupsInitialised = true
+    openGroups.value = names.size === 1 ? new Set(names) : new Set()
+  }, { immediate: true })
+
+  // Reconcile mounted headers after any programmatic change to the open set.
+  watch(openGroups, () => reconcileAllGroups(), { flush: 'post' })
 
   // Track which item is being edited
   const editingNameItem = ref<string | null>(null)
   const editingDescriptionItem = ref<string | null>(null)
   const editedName = ref<string>('')
   const editedDescription = ref<string>('')
+  // Controlled row expansion (item-value = id), so the overflow "Edit description"
+  // can expand the row and focus the description editor in one step.
+  const expanded = ref<string[]>([])
 
   const startEditingName = (item: Analysis) => {
     editingNameItem.value = item.id || null
@@ -80,6 +143,14 @@
     editingNameItem.value = null
     editedName.value = item.name || ''
     editedDescription.value = item.description || ''
+  }
+
+  // Overflow "Edit description": ensure the row is expanded, then open its editor.
+  const openDescriptionEditor = (item: Analysis) => {
+    if (item.id && !expanded.value.includes(item.id)) {
+      expanded.value = [...expanded.value, item.id]
+    }
+    startEditingDescription(item)
   }
 
   const finishEditingName = (item: Analysis) => {
@@ -99,16 +170,20 @@
   }
 
   const createAnalysis = (analysisClassId: string) => {
+    const analysisClass = analysisClasses.value.find(c => c.id === analysisClassId)
     analysisStore.createAnalysis({
-      name: analysisClasses.value.find(analysisClass => analysisClass.id === analysisClassId)?.name || 'New Analysis',
-      description: analysisClasses.value.find(analysisClass => analysisClass.id === analysisClassId)?.name || 'New Analysis',
-      type: analysisClasses.value.find(analysisClass => analysisClass.id === analysisClassId)?.type || '',
-      category: analysisClasses.value.find(analysisClass => analysisClass.id === analysisClassId)?.category || '',
+      name: analysisClass?.name || 'New Analysis',
+      description: analysisClass?.name || 'New Analysis',
+      type: analysisClass?.type || '',
+      category: analysisClass?.category || '',
       elementId: props.modelId,
       analysisClassId,
     }).then(response => {
       if (response) {
         startEditingName(response)
+        // Focus the new analysis: open its group, collapse the rest, so the
+        // freshly-created row is never hidden inside a closed group.
+        if (analysisClass?.name) openGroups.value = new Set([analysisClass.name])
       }
     })
   }
@@ -120,11 +195,67 @@
     analysisIdToDelete.value = undefined
   }
 
-  const runAnalysis = (analysisId: string | undefined) => {
+  // Optimistic on-click feedback for the mutating primaries (Run/Retry):
+  // the button disables immediately on click instead of waiting for the 5s poll,
+  // so a user cannot double-click into a double-run. Local + bounded — pruned by
+  // the watcher below once the poll shows the run started, and on submit failure.
+  const pendingRun = ref<Set<string>>(new Set())
+  const isPending = (id: string | undefined): boolean => !!id && pendingRun.value.has(id)
+  const removePending = (id: string) => {
+    if (!pendingRun.value.has(id)) return
+    const next = new Set(pendingRun.value)
+    next.delete(id)
+    pendingRun.value = next
+  }
+
+  // Run/Retry (and the overflow Re-run). Decoupled from opening the flow dialog:
+  // the row transitions to Working on the next poll; the user opens the flow
+  // themselves via "View progress" if they want to watch.
+  const triggerRun = (analysisId: string | undefined) => {
     if (!analysisId) return
-    analysisStore.runAnalysis({ analysisId }).then(() => {
-      openAnalysisFlow(analysisId)
-    })
+    pendingRun.value = new Set(pendingRun.value).add(analysisId)
+    analysisStore.runAnalysis({ analysisId }).catch(() => removePending(analysisId))
+    // Safety net: self-heal the optimistic flag if the backend never reports a
+    // phase change (e.g. a Retry that re-fails without ever passing through
+    // Working), so the button can't spin forever. The watcher below clears it
+    // sooner on the normal path; removePending is idempotent.
+    setTimeout(() => removePending(analysisId), 15000)
+  }
+
+  // Clear the optimistic flag once the backend reports the run is no longer
+  // Ready/Failed (i.e. it actually started or finished). Also prevents stale
+  // membership from disabling a future Retry on a row that ran earlier.
+  watch(() => analysisStore.analyses, list => {
+    if (pendingRun.value.size === 0) return
+    const next = new Set(pendingRun.value)
+    let changed = false
+    for (const id of pendingRun.value) {
+      const found = list.find(a => a.id === id)
+      const phase = found ? phaseOf(found.status) : undefined
+      if (!found || (phase !== 'ready' && phase !== 'failed')) {
+        next.delete(id)
+        changed = true
+      }
+    }
+    if (changed) pendingRun.value = next
+  })
+
+  // The phase's primary button dispatches to the right handler.
+  const onPrimary = (item: Analysis) => {
+    const action = PHASE_PRIMARY[phaseOf(item.status)].action
+    switch (action) {
+      case 'run':
+      case 'retry':
+        triggerRun(item.id)
+        break
+      case 'viewProgress':
+      case 'answer':
+        openAnalysisFlow(item.id)
+        break
+      case 'viewResults':
+        openResults(item.id)
+        break
+    }
   }
 
   const updateAnalysis = (analysis: Analysis) => {
@@ -164,11 +295,20 @@
         <v-col cols="12">
           <v-sheet class="pa-2 opacity-90 border-thin rounded-lg elevation-11 mb-4">
             <v-data-table
+              v-model:expanded="expanded"
               :group-by="groupBy"
               :headers="headers"
+              item-value="id"
               :items="analysisStore.analyses"
+              :loading="isInitialLoading"
               show-expand
             >
+              <template #loading>
+                <div class="d-flex flex-column align-center justify-center pa-8">
+                  <v-progress-circular color="primary" indeterminate :size="48" :width="4" />
+                  <span class="mt-3 text-medium-emphasis">Loading analyses…</span>
+                </div>
+              </template>
               <template #top>
                 <v-menu>
                   <template #activator="{ props }">
@@ -204,8 +344,8 @@
                         :icon="isGroupOpen(item) ? '$expand' : '$next'"
                         size="small"
                         variant="outlined"
-                        @click="toggleGroup(item)"
-                        @vue:mounted="autoOpenGroup(item, toggleGroup, isGroupOpen)"
+                        @click="onToggleGroup(item, toggleGroup)"
+                        @vue:mounted="reconcileGroup(item, toggleGroup, isGroupOpen)"
                       />
                       <span class="ms-4">Analyzed by '{{ item.value }}'</span>
                     </div>
@@ -236,67 +376,101 @@
                 {{ date.format(item.status?.updatedAt, 'fullDateTime24h') }}
               </template>
               <template #item.status="{ item }">
-                {{ item.status?.status }}
+                <v-tooltip
+                  v-if="phaseOf(item.status) === 'failed'"
+                  location="top"
+                  :text="errorReason(item.status)"
+                >
+                  <template #activator="{ props: tProps }">
+                    <v-chip
+                      v-bind="tProps"
+                      color="error"
+                      size="small"
+                      variant="tonal"
+                    >
+                      {{ PHASE_LABELS.failed }}
+                    </v-chip>
+                  </template>
+                </v-tooltip>
+                <v-chip
+                  v-else
+                  :color="PHASE_COLOR[phaseOf(item.status)]"
+                  size="small"
+                  variant="tonal"
+                >
+                  {{ PHASE_LABELS[phaseOf(item.status)] }}
+                </v-chip>
               </template>
               <template #item.actions="{ item }">
-                <div class="d-flex justify-end">
-                  <v-progress-circular
-                    v-if="['busy', 'interrupted', 'running'].includes(item.status?.status ?? '')"
-                    class="ma-1 run-analysis-button-progress"
-                    color="amber"
-                    indeterminate
-                    :size="20"
-                  />
-                  <v-btn
-                    v-if="['error'].includes(item.status?.status ?? '')"
-                    class="mx-0"
-                    color="error"
-                    icon="mdi-alert-circle-outline"
-                    variant="plain"
-                    @click="runAnalysis(item.id)"
-                  />
-                  <v-btn
-                    v-else
-                    class="mx-0"
-                    :color="['busy', 'interrupted', 'running'].includes(item.status?.status ?? '') ? 'grey' : 'amber'"
-                    :disabled="['busy', 'interrupted', 'running'].includes(item.status?.status ?? '')"
-                    icon="mdi-creation-outline"
-                    variant="plain"
-                    @click="runAnalysis(item.id)"
-                  />
-                  <v-btn
-                    class="mx-0"
-                    :color="['busy', 'interrupted', 'running'].includes(item.status?.status ?? '') ? 'grey' : 'error'"
-                    :disabled="['busy', 'interrupted', 'running'].includes(item.status?.status ?? '')"
-                    icon="mdi-trash-can-outline"
-                    variant="plain"
-                    @click="analysisIdToDelete = item.id; showDeleteAnalysisDialog = true"
-                  />
-                  <v-btn
-                    v-if="!['interrupted', 'busy', 'running'].includes(item.status?.status ?? '')"
-                    class="mx-6"
-                    :color="item.status?.status === 'idle' ? 'secondary' : 'grey'"
-                    :disabled="item.status?.status !== 'idle'"
-                    icon="mdi-arrow-right-bold"
-                    variant="outlined"
-                    @click="openResults(item.id)"
-                  />
-                  <v-btn
-                    v-if="item.status?.status === 'interrupted'"
-                    class="mx-6"
+                <div class="d-flex justify-end align-center ga-2">
+                  <!-- Primary: the phase's forward action. Mutating primaries
+                       (Run/Retry) get optimistic on-click feedback; Paused
+                       gets a dot badge. -->
+                  <v-badge
                     color="warning"
-                    icon="mdi-forum-outline"
-                    variant="plain"
-                    @click="openAnalysisFlow(item.id)"
-                  />
-                  <v-btn
-                    v-if="['busy', 'running'].includes(item.status?.status ?? '')"
-                    class="mx-6"
-                    color="warning"
-                    icon="mdi-eye-outline"
-                    variant="outlined"
-                    @click="openAnalysisFlow(item.id)"
-                  />
+                    dot
+                    :model-value="phaseShowsBadge(phaseOf(item.status))"
+                  >
+                    <v-btn
+                      :color="PHASE_PRIMARY[phaseOf(item.status)].mutate ? 'amber' : 'secondary'"
+                      :disabled="PHASE_PRIMARY[phaseOf(item.status)].mutate && isPending(item.id)"
+                      :loading="PHASE_PRIMARY[phaseOf(item.status)].mutate && isPending(item.id)"
+                      :prepend-icon="PHASE_PRIMARY[phaseOf(item.status)].icon"
+                      size="small"
+                      :variant="PHASE_PRIMARY[phaseOf(item.status)].mutate ? 'flat' : 'text'"
+                      @click="onPrimary(item)"
+                    >
+                      {{ PHASE_PRIMARY[phaseOf(item.status)].label }}
+                    </v-btn>
+                  </v-badge>
+
+                  <!-- Secondary: Delete, only when nothing is in flight. -->
+                  <v-tooltip
+                    v-if="phaseShowsDelete(phaseOf(item.status))"
+                    location="top"
+                    text="Delete"
+                  >
+                    <template #activator="{ props: tProps }">
+                      <v-btn
+                        v-bind="tProps"
+                        color="error"
+                        icon="mdi-trash-can-outline"
+                        size="small"
+                        variant="text"
+                        @click="analysisIdToDelete = item.id; showDeleteAnalysisDialog = true"
+                      />
+                    </template>
+                  </v-tooltip>
+
+                  <!-- Overflow: low-frequency actions. -->
+                  <v-menu>
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        icon="mdi-dots-vertical"
+                        size="small"
+                        variant="text"
+                      />
+                    </template>
+                    <v-list density="compact">
+                      <v-list-item
+                        v-if="phaseShowsRerun(phaseOf(item.status))"
+                        prepend-icon="mdi-refresh"
+                        title="Re-run"
+                        @click="triggerRun(item.id)"
+                      />
+                      <v-list-item
+                        prepend-icon="mdi-pencil-outline"
+                        title="Rename"
+                        @click="startEditingName(item)"
+                      />
+                      <v-list-item
+                        prepend-icon="mdi-text-box-edit-outline"
+                        title="Edit description"
+                        @click="openDescriptionEditor(item)"
+                      />
+                    </v-list>
+                  </v-menu>
                 </div>
               </template>
               <template #item.data-table-expand="{ internalItem, isExpanded, toggleExpand }">

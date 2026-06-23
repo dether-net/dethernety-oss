@@ -14,6 +14,7 @@ export const FIND_ANALYSES = gql`
         createdAt
         updatedAt
         status
+        hasDocument
         interrupts
         messages
         metadata
@@ -120,6 +121,7 @@ export const CREATE_ANALYSIS = gql`
         createdAt
         updatedAt
         status
+        hasDocument
         interrupts
         messages
         metadata
@@ -178,6 +180,7 @@ export const UPDATE_ANALYSIS = gql`
           createdAt
           updatedAt
           status
+          hasDocument
           interrupts
           messages
           metadata

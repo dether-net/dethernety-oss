@@ -334,11 +334,21 @@ export class DtLgAnalysisOps {
       }
 
       let status = (thread as any).status;
+      // hasDocument is only consulted by the UI when status is idle (Ready vs
+      // Done); on running/interrupted/error it is irrelevant, so false is fine.
+      let hasDocument = false;
       if (status === 'idle') {
         const runs = await this.client.runs.list(sessionId);
         if (runs && runs.length > 0 && runs[0].status === 'running') {
           status = 'running';
         }
+        // A completed run means a viewable result exists. Reuses the runs list
+        // already fetched above — no extra round-trip. The list is newest-first;
+        // at idle the terminal success run is the most recent, so it is within
+        // the default page even after many interrupt/resume rounds. A re-run
+        // deletes the thread first (clearing prior run rows), so a stale success
+        // can't linger across runs.
+        hasDocument = !!runs && runs.some(r => r.status === 'success');
       }
 
       // Extract interrupts from state
@@ -352,6 +362,7 @@ export class DtLgAnalysisOps {
         createdAt: (thread as any).created_at,
         updatedAt: (thread as any).updated_at,
         status,
+        hasDocument,
         interrupts,
         messages,
         metadata: (thread as any).metadata || {},
@@ -365,6 +376,7 @@ export class DtLgAnalysisOps {
         createdAt: '',
         updatedAt: '',
         status: 'failed',
+        hasDocument: false,
         interrupts: {},
         messages: [],
         metadata: {},

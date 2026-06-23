@@ -1561,6 +1561,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
               createdAt: '',
               updatedAt: '',
               status: 'error',
+              hasDocument: false,
               interrupts: {},
               messages: [],
               metadata: { error: 'Module not found' },
@@ -1569,7 +1570,10 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
           const authContext = this.authorizationService.extractAuthContext(context);
           const result = await this.getAnalysisStatus(id, moduleName, authContext);
-          return result.data;
+          // Guarantee the non-null GraphQL `hasDocument` for every path: module
+          // success, the getAnalysisStatus error fallback, and modules that have
+          // not implemented the field yet all resolve to a concrete boolean.
+          return { ...result.data, hasDocument: result.data.hasDocument ?? false };
         },
         
         valueKeys: async ({ id, analysisClass }, _args, context) => {

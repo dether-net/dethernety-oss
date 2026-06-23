@@ -497,6 +497,10 @@ export interface AnalysisStatus {
   createdAt: string;
   updatedAt: string;
   status: string;
+  // True once a run has completed successfully and a viewable result exists.
+  // Optional so modules that have not implemented it still type-check; the
+  // GraphQL status resolver defaults it to false to satisfy the non-null field.
+  hasDocument?: boolean;
   interrupts: object;
   messages: object[];
   metadata: object;

@@ -1070,6 +1070,8 @@ type AnalysisStatus  @authentication @node {
   updatedAt: String!
   "Current status (e.g., running, completed, failed)"
   status: String!
+  "True once a run has completed successfully and a viewable result exists"
+  hasDocument: Boolean!
   "Pending human-in-the-loop interrupts"
   interrupts: JSON
   "Analysis messages and log entries"

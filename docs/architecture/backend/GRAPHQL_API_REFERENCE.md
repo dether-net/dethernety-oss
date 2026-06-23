@@ -1260,6 +1260,7 @@ Status of a running or completed analysis.
 | `createdAt` | `String!` | When the analysis was started |
 | `updatedAt` | `String!` | When the status was last updated |
 | `status` | `String!` | Current status (e.g., running, completed, failed) |
+| `hasDocument` | `Boolean!` | True once a run has completed successfully and a viewable result exists — distinguishes a never-run analysis from a completed one (both report `status: idle`) |
 | `interrupts` | `JSON` | Pending human-in-the-loop interrupts |
 | `messages` | `[JSON!]` | Analysis messages and log entries |
 | `metadata` | `JSON` | Additional metadata |

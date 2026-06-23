@@ -522,6 +522,7 @@ Runtime status of an analysis (not a graph relationship — resolved via custom 
 - `createdAt` (String!) — Creation timestamp
 - `updatedAt` (String!) — Last update timestamp
 - `status` (String!) — Current status
+- `hasDocument` (Boolean!) — True once a run has completed successfully and a viewable result exists (distinguishes a never-run analysis from a completed one, which both report `status: idle`)
 - `interrupts` (JSON) — Pending interrupts
 - `messages` ([JSON!]) — Analysis messages
 - `metadata` (JSON) — Additional metadata

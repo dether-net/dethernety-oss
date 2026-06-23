@@ -676,6 +676,7 @@ interface AnalysisStatus {
   createdAt: string
   updatedAt: string
   status: string                  // pending, running, completed, failed
+  hasDocument?: boolean           // True once a run completed successfully and a result exists
   interrupts: object              // Pause/resume state
   messages: object[]              // Analysis output messages
   metadata: object                // Additional metadata
