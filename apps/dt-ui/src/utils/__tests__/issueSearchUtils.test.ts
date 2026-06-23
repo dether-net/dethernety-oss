@@ -4,6 +4,7 @@ import {
   buildRemoteFilterParams,
   applyLocalFiltering,
   validateSearchQuery,
+  findUnrecognizedRemoteKeys,
 } from '../issueSearchUtils'
 
 describe('parseSearchQuery', () => {
@@ -52,6 +53,42 @@ describe('parseSearchQuery', () => {
     expect(result.remoteConditions[0]).toEqual({ key: 'name', value: 'test' })
     expect(result.localGroups).toHaveLength(1)
   })
+
+  it('should parse an unquoted remote value (the help-text form)', () => {
+    const result = parseSearchQuery('issueStatus:open')
+    expect(result.remoteConditions).toHaveLength(1)
+    expect(result.remoteConditions[0]).toEqual({ key: 'issueStatus', value: 'open' })
+  })
+
+  it('should parse separate top-level groups as distinct local groups', () => {
+    const result = parseSearchQuery('(status:"open") (severity:"high" OR severity:"low")')
+    expect(result.localGroups).toHaveLength(2)
+    expect(result.localGroups[0].conditions).toEqual([{ key: 'status', value: 'open' }])
+    expect(result.localGroups[1].operator).toBe('OR')
+    expect(result.localGroups[1].conditions).toHaveLength(2)
+  })
+
+  it('should not truncate a remote value containing an apostrophe', () => {
+    // The old [^'"] value class stopped at the first quote (name:O'Brien -> "O").
+    const result = parseSearchQuery("name:O'Brien")
+    expect(result.remoteConditions).toEqual([{ key: 'name', value: "O'Brien" }])
+  })
+
+  it('should parse a double-quoted multi-word remote value alongside another key', () => {
+    const result = parseSearchQuery('name:"Security Issue" classId:abc')
+    expect(result.remoteConditions).toEqual([
+      { key: 'name', value: 'Security Issue' },
+      { key: 'classId', value: 'abc' },
+    ])
+  })
+
+  it('should preserve an unquoted multi-word remote value up to the next key', () => {
+    const result = parseSearchQuery('name:SQL Injection classType:exposure')
+    expect(result.remoteConditions).toEqual([
+      { key: 'name', value: 'SQL Injection' },
+      { key: 'classType', value: 'exposure' },
+    ])
+  })
 })
 
 describe('buildRemoteFilterParams', () => {
@@ -79,6 +116,11 @@ describe('buildRemoteFilterParams', () => {
     expect(params.issueStatus).toBe('closed')
   })
 
+  it('should lowercase issueStatus values (case-insensitive)', () => {
+    const params = buildRemoteFilterParams([{ key: 'issueStatus', value: 'OPEN' }])
+    expect(params.issueStatus).toBe('open')
+  })
+
   it('should handle all known keys', () => {
     const params = buildRemoteFilterParams([
       { key: 'name', value: 'test' },
@@ -94,6 +136,18 @@ describe('buildRemoteFilterParams', () => {
     expect(params.classType).toBe('exposure')
     expect(params.moduleId).toBe('mod-1')
     expect(params.moduleName).toBe('my-module')
+  })
+
+  // The last condition for a duplicated remote key wins (params is an object,
+  // assigned per condition). The issues page relies on this: effectiveQuery
+  // appends the structured filters AFTER the user's typed text, so a structured
+  // Issue-Status filter overrides a same-key value the user typed.
+  it('lets the last condition win for a duplicated remote key', () => {
+    const params = buildRemoteFilterParams([
+      { key: 'issueStatus', value: 'closed' },
+      { key: 'issueStatus', value: 'open' },
+    ])
+    expect(params.issueStatus).toBe('open')
   })
 })
 
@@ -177,6 +231,39 @@ describe('applyLocalFiltering', () => {
     expect(filtered).toHaveLength(1)
     expect(filtered[0].name).toBe('SQL Injection')
   })
+
+  it('should AND across separate local groups', () => {
+    // status group ∩ severity group: only SQL Injection is threat + high.
+    const filtered = applyLocalFiltering(mockIssues, [
+      { operator: 'AND', conditions: [{ key: 'type', value: 'threat' }] },
+      { operator: 'AND', conditions: [{ key: 'severity', value: 'high' }] },
+    ])
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].name).toBe('SQL Injection')
+  })
+
+  it('should bound deep attribute search by depth', () => {
+    // `severity` is NOT a top-level key here, so evaluateCondition falls through
+    // to the bounded deep search rather than the direct-path lookup.
+    const deepIssues = [
+      {
+        id: 'within',
+        name: 'WithinCap',
+        syncedAttributes: { a: { b: { severity: 'high' } } }, // ~level 3
+      },
+      {
+        id: 'beyond',
+        name: 'BeyondCap',
+        syncedAttributes: { a: { b: { c: { d: { e: { f: { g: { severity: 'high' } } } } } } } }, // ~level 8
+      },
+    ] as any[]
+
+    const filtered = applyLocalFiltering(deepIssues, [
+      { operator: 'AND', conditions: [{ key: 'severity', value: 'high' }] },
+    ])
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].name).toBe('WithinCap')
+  })
 })
 
 describe('validateSearchQuery', () => {
@@ -203,5 +290,48 @@ describe('validateSearchQuery', () => {
 
   it('should reject queries without key:value pairs', () => {
     expect(validateSearchQuery('just plain text').valid).toBe(false)
+  })
+
+  // Characterization tests — lock the current behavior (Session 1 does not
+  // change validateSearchQuery): a key with an empty value is accepted, an
+  // empty parenthesised group has no key:value pair and is rejected.
+  it('should accept a key with an empty value', () => {
+    expect(validateSearchQuery('key:').valid).toBe(true)
+  })
+
+  it('should reject an empty parenthesised group', () => {
+    expect(validateSearchQuery('(())').valid).toBe(false)
+  })
+})
+
+describe('findUnrecognizedRemoteKeys', () => {
+  it('returns nothing for an empty query', () => {
+    expect(findUnrecognizedRemoteKeys('')).toEqual([])
+    expect(findUnrecognizedRemoteKeys('   ')).toEqual([])
+  })
+
+  it('does not flag recognized remote keys', () => {
+    expect(findUnrecognizedRemoteKeys('name:foo')).toEqual([])
+    expect(findUnrecognizedRemoteKeys('issueStatus:open classId:abc')).toEqual([])
+  })
+
+  it('flags a bare key that is not a remote filter key', () => {
+    // `severity` is a local/custom key — bare, it is silently dropped by the parser.
+    expect(findUnrecognizedRemoteKeys('severity:high')).toEqual(['severity'])
+    expect(findUnrecognizedRemoteKeys('severty:open')).toEqual(['severty'])
+  })
+
+  it('never flags keys inside a parenthesised (local) group', () => {
+    expect(findUnrecognizedRemoteKeys('(severity:high)')).toEqual([])
+    expect(findUnrecognizedRemoteKeys('(severity:high OR likelihood:low)')).toEqual([])
+  })
+
+  it('flags only the bare unknowns in a mixed query', () => {
+    expect(findUnrecognizedRemoteKeys('classId:x (severity:high)')).toEqual([])
+    expect(findUnrecognizedRemoteKeys('foo:bar (severity:high)')).toEqual(['foo'])
+  })
+
+  it('dedupes repeated bare unknown keys', () => {
+    expect(findUnrecognizedRemoteKeys('foo:a foo:b')).toEqual(['foo'])
   })
 })

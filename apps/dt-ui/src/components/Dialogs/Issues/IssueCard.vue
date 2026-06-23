@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { markRaw, nextTick, ref, watch } from 'vue'
+  import { computed, markRaw, nextTick, onBeforeUnmount, ref, watch } from 'vue'
   import { Class, Issue, IssueElement, Model } from '@dethernety/dt-core'
   import { useIssueStore } from '@/stores/issueStore'
   import { JsonForms } from '@jsonforms/vue'
@@ -7,7 +7,6 @@
   import type { UISchemaElement } from '@jsonforms/core'
   import ContentSelectDialog from '@/components/Dialogs/Browser/ContentSelectDialog.vue'
   import { LocationQueryRaw } from 'vue-router'
-  // import { flattenProperties, unflattenProperties } from '@/components/utils'
 
   interface Props {
     issue: Issue | null
@@ -25,7 +24,7 @@
   const issueData = ref<{
     name: string
     description: string | undefined
-    issueClass: Class
+    issueClass: Class | undefined
     type: string | undefined
     category: string | undefined
     attributes: string | undefined
@@ -38,7 +37,7 @@
   }>({
     name: issue.value.name,
     description: issue.value.description || '',
-    issueClass: issue.value.issueClass as Class,
+    issueClass: issue.value.issueClass,
     type: issue.value.type || '',
     category: issue.value.category || '',
     attributes: issue.value.attributes || '',
@@ -65,6 +64,13 @@
   const attributesData = ref<object | null>(null)
   const templateWarning = ref(false)
   const isSaving = ref(false)
+  const saveError = ref(false)
+  const justSaved = ref(false)
+  // Plain (non-reactive) coalescing slot: a save requested while another is in
+  // flight is snapshotted here at trigger time (before any server echo can reset
+  // issueData) and drained by the active save loop. Never silently dropped.
+  let pendingPayload: Issue | null = null
+  let justSavedTimer: ReturnType<typeof setTimeout> | null = null
   const isInitializingForm = ref(false)
   const newComment = ref('')
   const initializeFormStructure = async () => {
@@ -96,10 +102,10 @@
     issueData.value = {
       name: issue.value.name,
       description: issue.value.description || '',
-      issueClass: issue.value.issueClass as Class,
+      issueClass: issue.value.issueClass,
       type: issue.value.type || '',
       category: issue.value.category || '',
-      attributes: JSON.stringify(issue.value.syncedAttributes.attributes) || '',
+      attributes: JSON.stringify(issue.value.syncedAttributes?.attributes) || '',
       elements: issue.value.elementsWithExtendedInfo || undefined,
       createdAt: issue.value.createdAt || '',
       updatedAt: issue.value.updatedAt || '',
@@ -112,7 +118,7 @@
     if (schema.value && uischema.value) {
       // Set initialization flag to prevent change event from triggering save
       isInitializingForm.value = true
-      attributesData.value = issue.value.syncedAttributes.attributes || {}
+      attributesData.value = issue.value.syncedAttributes?.attributes || {}
       // Use nextTick to ensure the form has processed the data change
       await nextTick()
       // Add a small delay to ensure JSON Forms has completely processed the change
@@ -157,48 +163,112 @@
   }
 
   const updateAttributesData = (data: { data: object, errors: object[] }) => {
-    // Only prevent saves during form initialization or active save operations
-    // isLoading is handled by v-if in template, so JSON Forms won't exist during loading
-    if (!isSaving.value && !isInitializingForm.value) {
-      issueData.value.attributes = JSON.stringify(data.data)
-      onSave()
+    // Capture the edit even if a save is in flight (onSave coalesces it). Still
+    // guard the phantom @change JSON Forms emits while we (re)initialize the form
+    // — that one must not be persisted. (JSON Forms only renders once schema/
+    // uischema exist, so there's no @change during loading.)
+    //
+    // Known limitation (intentionally not "fixed"): isInitializingForm is cleared
+    // by the ~100ms timer in updateFormData, so an attribute @change landing in
+    // that window right after a post-save echo is dropped (low frequency — the
+    // next change re-fires with the cumulative value). A value-dedupe rewrite
+    // would remove the window but risk an equivalent write on every card open, so
+    // we keep the simpler guard.
+    if (isInitializingForm.value) {
+      return
     }
+    issueData.value.attributes = JSON.stringify(data.data)
+    onSave()
+  }
+
+  const buildPayload = (): Issue => ({
+    ...issue.value,
+    name: issueData.value.name,
+    description: issueData.value.description,
+    type: issueData.value.type,
+    category: issueData.value.category,
+    issueClass: issueData.value.issueClass,
+    elements: issueData.value.elements,
+    attributes: issueData.value.attributes,
+    issueStatus: issueData.value.issueStatus,
+    comments: issueData.value.comments,
+  })
+
+  const armJustSavedDecay = () => {
+    if (justSavedTimer) clearTimeout(justSavedTimer)
+    justSavedTimer = setTimeout(() => {
+      justSaved.value = false
+    }, 1500)
   }
 
   const onSave = async () => {
-    if (!issueData.value || isSaving.value) {
+    if (!issueData.value) {
+      return
+    }
+    // A save is already running: snapshot the latest edit NOW (synchronously, before
+    // the in-flight save's server echo can reset issueData) and let the active loop
+    // drain it as a trailing write. This is what stops a mid-flight edit being dropped.
+    if (isSaving.value) {
+      pendingPayload = buildPayload()
       return
     }
 
     isSaving.value = true
-    const updatedIssue = {
-      ...issue.value,
-      name: issueData.value.name,
-      description: issueData.value.description,
-      type: issueData.value.type,
-      category: issueData.value.category,
-      issueClass: issueData.value.issueClass,
-      elements: issueData.value.elements,
-      attributes: issueData.value.attributes,
-      issueStatus: issueData.value.issueStatus,
-      comments: issueData.value.comments,
-    }
+    saveError.value = false
+    justSaved.value = false
+    let payload: Issue | null = buildPayload()
     try {
-      await issueStore.updateIssue(updatedIssue)
+      while (payload) {
+        pendingPayload = null
+        await issueStore.updateIssue(payload)
+        payload = pendingPayload // a trigger that fired mid-save left a fresh snapshot
+      }
+      justSaved.value = true
+      armJustSavedDecay()
+    } catch (error) {
+      // Surface the failure instead of swallowing it. The edits remain live in the
+      // form (issueData is cumulative), so the next edit or Enter retries the full
+      // current state — we don't strand a stale partial snapshot or auto-hammer.
+      console.error('Error saving issue', error)
+      saveError.value = true
+      pendingPayload = null
     } finally {
       isSaving.value = false
     }
   }
 
+  // Drives the passive save-status indicator in the card header. Auto-save is the
+  // only save model here; the indicator reports its state honestly rather than
+  // asserting a permanent "Saved".
+  const saveStatus = computed(() => {
+    if (isSaving.value) {
+      return { icon: '', color: 'foreground', text: 'Saving…', loading: true }
+    }
+    if (saveError.value) {
+      return { icon: 'mdi-cloud-alert-outline', color: 'error', text: 'Couldn\'t save your last change — edit again to retry', loading: false }
+    }
+    if (justSaved.value) {
+      return { icon: 'mdi-cloud-check-outline', color: 'foreground', text: 'Changes saved', loading: false }
+    }
+    return { icon: 'mdi-cloud-outline', color: 'foreground', text: 'Changes are saved automatically', loading: false }
+  })
+  // Idle announces nothing (empty) so a screen reader isn't told "saved automatically"
+  // on a loop; saving/saved/failed are real state transitions worth announcing.
+  const saveStatusText = computed(() =>
+    (isSaving.value || saveError.value || justSaved.value) ? saveStatus.value.text : ''
+  )
+
+  onBeforeUnmount(() => {
+    if (justSavedTimer) clearTimeout(justSavedTimer)
+  })
+
   const addComment = () => {
-    // issueData.value.comments.push(newComment.value)
     issueData.value.comments = [new Date().toLocaleString() + ': ' + newComment.value, ...issueData.value.comments]
     newComment.value = ''
     onSave()
   }
 
   const removeComment = (index: number) => {
-    // issueData.value.comments.splice(index, 1)
     issueData.value.comments = issueData.value.comments.filter((_, i) => i !== index)
     onSave()
   }
@@ -238,8 +308,6 @@
     issueStore.clearIssueDataClipboard()
     returnTo.value = clipboardData.returnTo
   }
-
-  initializeAttributes()
 </script>
 
 <template>
@@ -256,14 +324,33 @@
             <v-icon color="tertiary" size="small">mdi-alert-outline</v-icon>
             <span class="ml-2 text-body-1">Issue</span>
           </div>
-          <v-btn
-            v-if="props.showClose"
-            color="foreground"
-            icon="mdi-close"
-            size="medium"
-            variant="text"
-            @click="onCancel()"
-          />
+          <div class="d-flex flex-row align-center">
+            <!-- Passive auto-save status; never a call-to-action. Kept as type="submit"
+                 so Enter-to-save still flows through the form, but tab-skipped and
+                 ripple-less so it reads as a status glyph, not a button. -->
+            <span class="sr-only" role="status" :aria-live="saveError ? 'assertive' : 'polite'">{{ saveStatusText }}</span>
+            <v-btn
+              :color="saveStatus.color"
+              :loading="saveStatus.loading"
+              :ripple="false"
+              size="small"
+              style="cursor: default"
+              tabindex="-1"
+              type="submit"
+              variant="plain"
+            >
+              <v-icon v-if="saveStatus.icon" aria-hidden="true">{{ saveStatus.icon }}</v-icon>
+              <v-tooltip activator="parent" location="bottom">{{ saveStatus.text }}</v-tooltip>
+            </v-btn>
+            <v-btn
+              v-if="props.showClose"
+              color="foreground"
+              icon="mdi-close"
+              size="medium"
+              variant="text"
+              @click="onCancel()"
+            />
+          </div>
         </v-sheet>
       </v-card-title>
       <v-card-text>
@@ -287,7 +374,7 @@
                     color="tertiary"
                     size="large"
                     variant="tonal"
-                  > {{ issueData.issueClass.name }}</v-chip>
+                  > {{ issueData.issueClass?.name }}</v-chip>
                   <div class="mr-2 px-3 d-flex flex-row justify-start align-center">
                     <div class="border-e-thin mr-2">
                       <v-btn
@@ -309,14 +396,6 @@
                       size="x-large"
                       variant="outlined"
                       @click="emits('delete:issue')"
-                    />
-                    <v-btn
-                      class="mr-2"
-                      color="secondary"
-                      icon="mdi-content-save-outline"
-                      size="x-large"
-                      type="submit"
-                      variant="outlined"
                     />
                   </div>
                   <v-divider class="my-2" color="tertiary" />
@@ -534,5 +613,18 @@
 
   .json-forms :deep(.v-toolbar__content) {
     height: 55px !important;
+  }
+
+  /* Visually-hidden live region for screen-reader save-status announcements. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

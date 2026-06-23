@@ -9,21 +9,15 @@ import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 import { defineConfig } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
 import path from 'node:path'
-// import { visualizer } from 'rollup-plugin-visualizer'
 
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production'
   
   return {
     base: process.env.VITE_BASE_PATH || '/',
     plugins: [
-      // visualizer({
-      //   filename: 'dist/bundle-analysis.html',
-      //   open: true,
-      //   gzipSize: true
-      // }) as any,
       AutoImport({
         imports: [
           'vue',

@@ -1,8 +1,36 @@
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 
-export const FIND_ISSUES = gql`
+// Light summary query for the collapsed issue list. Deliberately excludes the
+// expensive fields the row never renders: syncedAttributes (a per-issue external
+// sync + graph write), elementsWithExtendedInfo (an unbounded @cypher walk), the
+// 9 relationship collections, and issueClass.template. The plain stored
+// `attributes` String carries severity/likelihood for client-side filtering.
+export const FIND_ISSUES_SUMMARY = gql`
   query FindIssues($condition: IssueWhere) {
+    issues(where: $condition) {
+      id
+      name
+      description
+      type
+      category
+      lastSyncAt
+      createdAt
+      updatedAt
+      attributes
+      issueStatus
+      comments
+      issueClass {
+        id
+        name
+      }
+    }
+  }
+`
+
+// Heavy per-issue detail, fetched only when a row is expanded.
+export const FIND_ISSUE_DETAIL = gql`
+  query FindIssueDetail($condition: IssueWhere) {
     issues(where: $condition) {
       id
       name

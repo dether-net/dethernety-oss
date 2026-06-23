@@ -8,6 +8,11 @@
     icon?: string
     confirmIcon?: string
     confirmColor?: string
+    // When set, the confirm action renders as a labelled text button alongside a
+    // labelled Cancel — clearer for consequential actions (e.g. merge-close) than
+    // the bare icon button. When unset, the dialog keeps its icon-only confirm.
+    confirmLabel?: string
+    cancelLabel?: string
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -15,10 +20,15 @@
     icon: 'mdi-trash-can-outline',
     confirmIcon: 'mdi-trash-can-outline',
     confirmColor: 'error',
+    confirmLabel: undefined,
+    cancelLabel: 'Cancel',
   })
 
   const showDialog = ref(props.show)
   const emits = defineEmits(['delete:canceled', 'delete:confirmed'])
+  // Set while confirming so closing the dialog (which trips the showDialog watcher)
+  // doesn't also fire a spurious delete:canceled alongside delete:confirmed.
+  let isConfirming = false
 
   watch(
     () => props.show,
@@ -28,6 +38,10 @@
   )
 
   watch(showDialog, newVal => {
+    if (isConfirming) {
+      isConfirming = false
+      return
+    }
     if (newVal !== props.show) emits('delete:canceled', newVal)
   })
 
@@ -37,6 +51,7 @@
   }
 
   const confirmDelete = () => {
+    isConfirming = true
     showDialog.value = false
     emits('delete:confirmed')
   }
@@ -70,7 +85,20 @@
         <v-card-text class="pa-0 px-5 pt-5 ma-2">
           <span class="text-body-1">{{ message }}</span>
         </v-card-text>
-        <v-card-actions class="py-6 mx-6">
+        <v-card-actions v-if="confirmLabel" class="py-4 px-6 justify-end">
+          <v-btn
+            color="secondary"
+            variant="text"
+            @click="cancelDelete"
+          >{{ cancelLabel }}</v-btn>
+          <v-btn
+            :color="confirmColor"
+            :prepend-icon="confirmIcon"
+            variant="tonal"
+            @click="confirmDelete"
+          >{{ confirmLabel }}</v-btn>
+        </v-card-actions>
+        <v-card-actions v-else class="py-6 mx-6">
           <v-btn
             :color="confirmColor"
             :icon="confirmIcon"

@@ -1,5 +1,20 @@
 import { Issue } from '@dethernety/dt-core'
 
+// Remote filter params accepted by issueStore.fetchIssues (and produced by
+// buildRemoteFilterParams below). Lives here — the leaf util that maps search
+// conditions to the param shape — so the store and the issues page import it
+// from the util rather than the util reaching back into the store.
+export interface FetchIssuesParams {
+  name?: string
+  issueId?: string
+  classId?: string
+  elementIds?: string[]
+  classType?: string
+  moduleId?: string
+  moduleName?: string
+  issueStatus?: string
+}
+
 export interface SearchCondition {
   key: string
   value: string
@@ -64,13 +79,18 @@ export function parseSearchQuery (query: string): ParsedSearch {
 
 function parseRemoteConditions (query: string): SearchCondition[] {
   const conditions: SearchCondition[] = []
-  const keyValueRegex = /(\w+):['"]?([^'"]*?)['"]?(?=\s+\w+:|$)/g
+  // key:value where value is either "double-quoted", 'single-quoted', or an
+  // unquoted run up to the next `key:` or end. The quoted alternatives let a
+  // value contain a quote/apostrophe (e.g. name:O'Brien) without truncating —
+  // the old [^'"] class stopped at the first quote.
+  const keyValueRegex = /(\w+):(?:"([^"]*)"|'([^']*)'|(.+?))(?=\s+\w+:|$)/g
 
   let match
   while ((match = keyValueRegex.exec(query)) !== null) {
-    const [, key, value] = match
-    if (REMOTE_FILTER_KEYS.includes(key) && value.trim()) {
-      conditions.push({ key, value: value.trim() })
+    const key = match[1]
+    const value = (match[2] ?? match[3] ?? match[4] ?? '').trim()
+    if (REMOTE_FILTER_KEYS.includes(key) && value) {
+      conditions.push({ key, value })
     }
   }
 
@@ -113,10 +133,44 @@ function parseLocalGroup (query: string): SearchGroup {
 }
 
 /**
+ * Find bare (non-parenthesised) keys that are NOT recognized remote-filter keys.
+ *
+ * `parseRemoteConditions` silently drops any bare `key:value` whose key isn't in
+ * REMOTE_FILTER_KEYS — so `severty:open`, or even `severity:high` typed without
+ * parentheses, does nothing. This surfaces those keys for a non-blocking advisory
+ * hint. Keys INSIDE parentheses are local and open-ended (custom synced-attribute
+ * keys), so they are never reported.
+ */
+export function findUnrecognizedRemoteKeys (query: string): string[] {
+  if (!query.trim()) return []
+
+  const unknown = new Set<string>()
+  // Same split as parseSearchQuery: parenthesised groups vs bare remote text.
+  const parts = query.split(/(\([^)]+\))/).filter(part => part.trim())
+
+  for (const part of parts) {
+    const trimmedPart = part.trim()
+    // Skip local groups — their keys are open-ended (custom attributes).
+    if (trimmedPart.startsWith('(') && trimmedPart.endsWith(')')) continue
+
+    const keyRegex = /(\w+(?:\.\w+)?):/g
+    let match
+    while ((match = keyRegex.exec(trimmedPart)) !== null) {
+      const key = match[1]
+      if (!REMOTE_FILTER_KEYS.includes(key)) {
+        unknown.add(key)
+      }
+    }
+  }
+
+  return [...unknown]
+}
+
+/**
  * Convert remote search conditions to fetchIssues parameters
  */
-export function buildRemoteFilterParams (conditions: SearchCondition[]): Record<string, any> {
-  const params: Record<string, any> = {}
+export function buildRemoteFilterParams (conditions: SearchCondition[]): FetchIssuesParams {
+  const params: FetchIssuesParams = {}
 
   for (const condition of conditions) {
     switch (condition.key) {
@@ -237,18 +291,36 @@ function getNestedValue (obj: any, key: string): any {
   return current
 }
 
+// Bound the recursive attribute search so a deeply-nested (or cyclic) synced
+// payload can't stall the main thread on every keystroke.
+const MAX_DEEP_SEARCH_DEPTH = 5
+
 /**
  * Deep search for a key-value pair in nested objects
- * This recursively searches through all nested objects and arrays
+ * This recursively searches through all nested objects and arrays, up to
+ * MAX_DEEP_SEARCH_DEPTH levels and guarding against reference cycles.
  */
-function deepSearchInObject (obj: any, searchKey: string, searchValue: string): boolean {
+function deepSearchInObject (
+  obj: any,
+  searchKey: string,
+  searchValue: string,
+  depth = 0,
+  seen: WeakSet<object> = new WeakSet(),
+): boolean {
   if (!obj || typeof obj !== 'object') {
     return false
   }
+  if (depth >= MAX_DEEP_SEARCH_DEPTH) {
+    return false
+  }
+  if (seen.has(obj)) {
+    return false
+  }
+  seen.add(obj)
 
   // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.some(item => deepSearchInObject(item, searchKey, searchValue))
+    return obj.some(item => deepSearchInObject(item, searchKey, searchValue, depth + 1, seen))
   }
 
   // Check all keys in the current object
@@ -262,7 +334,7 @@ function deepSearchInObject (obj: any, searchKey: string, searchValue: string): 
 
     // Recursive search in nested objects/arrays
     if (value && typeof value === 'object') {
-      if (deepSearchInObject(value, searchKey, searchValue)) {
+      if (deepSearchInObject(value, searchKey, searchValue, depth + 1, seen)) {
         return true
       }
     }
