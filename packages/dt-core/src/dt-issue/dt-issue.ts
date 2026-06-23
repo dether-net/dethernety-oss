@@ -1,7 +1,7 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { ADD_ELEMENTS_TO_ISSUE, CREATE_ISSUE, DELETE_ISSUE, FIND_ISSUES, FIND_ISSUE_CLASSES, REMOVE_ELEMENT_FROM_ISSUE, UPDATE_ISSUE } from './dt-issue-gql.js'
+import { ADD_ELEMENTS_TO_ISSUE, CREATE_ISSUE, DELETE_ISSUE, FIND_ISSUES_SUMMARY, FIND_ISSUE_DETAIL, FIND_ISSUE_CLASSES, REMOVE_ELEMENT_FROM_ISSUE, UPDATE_ISSUE } from './dt-issue-gql.js'
 import { Issue, Class } from '../interfaces/core-types-interface.js'
 
 export class DtIssue {
@@ -143,13 +143,67 @@ export class DtIssue {
       }
 
       const response = await this.dtUtils.performQuery<{ issues: Issue[] }>({
-        query: FIND_ISSUES,
+        query: FIND_ISSUES_SUMMARY,
         variables: { condition: { "AND": condition } },
         action: 'findIssues',
         fetchPolicy: 'network-only'
       })
 
+      // Summary rows carry no relationship collections and no syncedAttributes.
+      // Synthesize syncedAttributes from the cheap stored `attributes` String so
+      // the existing client-side filter (which reads issue.syncedAttributes) keeps
+      // working without the expensive sync resolver. Detail-on-expand later replaces
+      // this with the real resolved syncedAttributes.
       const issues = response.issues?.map((issue: Issue) => ({
+        ...issue,
+        elements: [] as Element[],
+        syncedAttributes: { attributes: this.parseAttributes(issue.attributes) },
+        issueClass: issue.issueClass && Array.isArray(issue.issueClass) && issue.issueClass.length > 0
+          ? issue.issueClass[0]
+          : issue.issueClass,
+      })) as Issue[] || []
+      return issues
+    } catch (error) {
+      throw error
+    }
+  }
+
+  /**
+   * Safely parse a stored attributes JSON string into a plain object.
+   * Returns {} on empty/invalid input (mirrors the backend parseAttributes guard).
+   */
+  private parseAttributes = (attributesJson?: string): Record<string, any> => {
+    try {
+      const parsed = attributesJson ? JSON.parse(attributesJson) : {}
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * Fetch the full, heavy detail for a single issue (used on row-expand).
+   * Includes syncedAttributes, elementsWithExtendedInfo, issueClass.template, and
+   * the relationship collections flattened into `elements`.
+   * @param issueId - The ID of the issue to fetch detail for
+   * @returns The full issue or null if not found
+   */
+  findIssueDetail = async (
+    { issueId }:
+    { issueId: string }
+  ): Promise<Issue | null> => {
+    try {
+      const response = await this.dtUtils.performQuery<{ issues: Issue[] }>({
+        query: FIND_ISSUE_DETAIL,
+        variables: { condition: { "AND": { id: { eq: issueId } } } },
+        action: 'findIssueDetail',
+        fetchPolicy: 'network-only'
+      })
+
+      const issue = response.issues?.[0]
+      if (!issue) return null
+
+      return {
         ...issue,
         elements: [
           ...(issue.models || []),
@@ -165,8 +219,7 @@ export class DtIssue {
         issueClass: issue.issueClass && Array.isArray(issue.issueClass) && issue.issueClass.length > 0
           ? issue.issueClass[0]
           : issue.issueClass,
-      })) as Issue[] || []
-      return issues
+      } as Issue
     } catch (error) {
       throw error
     }

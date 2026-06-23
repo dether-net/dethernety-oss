@@ -9,10 +9,14 @@ import {
   Class, Issue,
 } from '@dethernety/dt-core'
 import { LocationQueryRaw } from 'vue-router'
+import type { FetchIssuesParams } from '@/utils/issueSearchUtils'
 
 export const useIssueStore = defineStore('issue', () => {
   // State
   const issues = ref<Issue[]>([])
+  // Ids whose heavy detail (syncedAttributes, elementsWithExtendedInfo, template,
+  // elements) has been fetched and merged into `issues`. Reset on every list fetch.
+  const detailLoaded = ref<Set<string>>(new Set())
   const issueClasses = ref<Class[]>([])
   const issueDataClipboard = ref<{
     name: string
@@ -82,6 +86,14 @@ export const useIssueStore = defineStore('issue', () => {
   const removeIssueFromState = (issueId: string): void => {
     issues.value = issues.value.filter(i => i.id !== issueId)
   }
+
+  // Re-insert an issue at a specific index (used to roll back a failed
+  // optimistic delete to its original position rather than the list head).
+  const restoreIssueAtIndex = (issue: Issue, index: number): void => {
+    const next = [...issues.value]
+    next.splice(Math.max(0, Math.min(index, next.length)), 0, issue)
+    issues.value = next
+  }
   const resetStore = (): void => {
     issues.value = []
     issueClasses.value = []
@@ -123,6 +135,9 @@ export const useIssueStore = defineStore('issue', () => {
     }
   }
 
+  // Handle for the clipboard auto-expire timer, so re-arming clears the prior one.
+  let clipboardTimer: ReturnType<typeof setTimeout> | null = null
+
   const setIssueDataClipboard = (data: { name: string, description: string, elementIds: string[], returnTo: { name: string, path: string, query: LocationQueryRaw } }): void => {
     // Validate clipboard data
     if (!data.name?.trim()) {
@@ -131,11 +146,12 @@ export const useIssueStore = defineStore('issue', () => {
     if (!data.elementIds?.length) {
       throw new Error('At least one element ID is required for clipboard data')
     }
-    
+
     issueDataClipboard.value = data
-    
-    // Auto-clear after 30 minutes to prevent memory leaks
-    setTimeout(() => {
+
+    // Auto-expire stale clipboard after 30 minutes (clear any prior timer first).
+    if (clipboardTimer) clearTimeout(clipboardTimer)
+    clipboardTimer = setTimeout(() => {
       if (issueDataClipboard.value === data) {
         issueDataClipboard.value = null
       }
@@ -147,18 +163,23 @@ export const useIssueStore = defineStore('issue', () => {
   }
 
   const clearIssueDataClipboard = (): void => {
+    if (clipboardTimer) { clearTimeout(clipboardTimer); clipboardTimer = null }
     issueDataClipboard.value = null
   }
 
   const fetchIssues = async (
-    { name, issueId, classId, elementIds, classType, moduleId, moduleName, issueStatus }:
-    { name?: string, issueId?: string, classId?: string, elementIds?: string[], classType?: string, moduleId?: string, moduleName?: string, issueStatus?: string }
+    { name, issueId, classId, elementIds, classType, moduleId, moduleName, issueStatus }: FetchIssuesParams
   ): Promise<Issue[]> => {
     try {
       isLoading.value = true
       clearError()
-      
+
       const result = await dtIssue.findIssues({ name, issueId, classId, elementIds, classType, moduleId, moduleName, issueStatus })
+      // Reset detail atomically with the summary swap — doing it before the await
+      // would unmount an open editor card (gated on detailLoaded) for the whole
+      // round-trip. Fresh summaries replace the list; previously-merged detail is
+      // stale, so any still-open panel is re-hydrated by performSearch.
+      detailLoaded.value = new Set()
       issues.value = result
       return result
     } catch (err) {
@@ -176,6 +197,26 @@ export const useIssueStore = defineStore('issue', () => {
     return result ?? null
   }
 
+  // Fetch the heavy per-issue detail (on row-expand) and merge it into the matching
+  // summary item. Reassigns `issues` so the page watcher re-renders; marks
+  // detailLoaded once the fetch resolves so the early-return below skips the
+  // expensive re-fetch. A null result (not found) or a thrown error leaves the id
+  // unset so a re-expand retries. NB: gate on the fetch succeeding, NOT on the
+  // class carrying a template — a class with no attributes form has template:null
+  // yet its detail is fully resolved, and the editor card is gated on detailLoaded.
+  const fetchIssueDetail = async (issueId: string): Promise<void> => {
+    if (detailLoaded.value.has(issueId)) return
+    try {
+      const full = await dtIssue.findIssueDetail({ issueId })
+      if (!full) return
+      issues.value = issues.value.map(i => (i.id === issueId ? { ...i, ...full } : i))
+      detailLoaded.value = new Set(detailLoaded.value).add(issueId)
+    } catch (err) {
+      // Leave detailLoaded unset → re-expand retries.
+      console.error('Error fetching issue detail:', err)
+    }
+  }
+
   const createIssue = async (issue: Issue): Promise<Issue | null> => {
     // Validate input first
     const validationErrors = validateIssue(issue)
@@ -191,9 +232,7 @@ export const useIssueStore = defineStore('issue', () => {
       id: tempId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    } as Issue & { pending?: boolean }
-    // Mark as pending for UI feedback
-    ;(optimisticIssue as any).pending = true
+    } as Issue
     issues.value = [optimisticIssue, ...issues.value]
 
     try {
@@ -213,8 +252,7 @@ export const useIssueStore = defineStore('issue', () => {
       
       if (result) {
         // Step 3: Replace optimistic item with real data
-        const finalResult = { ...result } as Issue & { pending?: boolean }
-        ;(finalResult as any).pending = false
+        const finalResult = { ...result }
         issues.value = issues.value.map(i =>
           i.id === tempId ? finalResult : i
         )
@@ -257,8 +295,7 @@ export const useIssueStore = defineStore('issue', () => {
     const optimisticIssue = {
       ...issue,
       updatedAt: new Date().toISOString()
-    } as Issue & { pending?: boolean }
-    ;(optimisticIssue as any).pending = true
+    } as Issue
     syncIssueUpdate(optimisticIssue)
 
     try {
@@ -280,8 +317,7 @@ export const useIssueStore = defineStore('issue', () => {
       
       if (result) {
         // Step 3: Update with server response
-        const finalResult = { ...result } as Issue & { pending?: boolean }
-        ;(finalResult as any).pending = false
+        const finalResult = { ...result }
         syncIssueUpdate(finalResult)
         return result
       } else {
@@ -310,6 +346,7 @@ export const useIssueStore = defineStore('issue', () => {
     if (!originalIssue) {
       throw new Error('Issue not found in local state')
     }
+    const originalIndex = issues.value.findIndex(i => i.id === issueId)
 
     // Step 1: Optimistically remove from UI
     removeIssueFromState(issueId)
@@ -328,9 +365,9 @@ export const useIssueStore = defineStore('issue', () => {
         throw new Error('Delete operation failed')
       }
     } catch (err) {
-      // Step 3: Rollback optimistic deletion
-      syncIssueUpdate(originalIssue)
-      
+      // Step 3: Rollback optimistic deletion at its original position
+      restoreIssueAtIndex(originalIssue, originalIndex)
+
       const errorMessage = handleApiError(err as Error, 'delete issue')
       error.value = errorMessage
       console.error('Error deleting issue:', err)
@@ -429,7 +466,7 @@ export const useIssueStore = defineStore('issue', () => {
 
   return {
     // State
-    issues, issueClasses, issueDataClipboard,
+    issues, detailLoaded, issueClasses, issueDataClipboard,
     
     // Loading states
     isLoading, isCreating, isUpdating, isDeleting, isAddingElements, isRemovingElement,
@@ -447,7 +484,7 @@ export const useIssueStore = defineStore('issue', () => {
     setIssueDataClipboard, getIssueDataClipboard, clearIssueDataClipboard,
     
     // Fetch operations
-    fetchIssueClasses, fetchIssues, getIssueById,
+    fetchIssueClasses, fetchIssues, getIssueById, fetchIssueDetail,
     
     // CRUD operations
     createIssue, updateIssue, deleteIssue,
