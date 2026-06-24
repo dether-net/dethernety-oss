@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-24
+
+A feature release expanding the Threat Report's reachability analysis, redesigning
+the analysis-run experience, and overhauling the issue-management surface — closed
+out with a full dependency-security pass. Compared against the previous tag, `v0.3.0`.
+
+### Added
+
+- **Threat Report — Blast Radius analysis**: a reachability mode tracing how far an
+  attacker can reach from a node, Pick-Two choke-point identification with first-hop
+  flow, and a "view strip" that jumps from a Blast Radius node into the Pick-Two view.
+- **Analysis dialog redesign**: a `hasDocument` completion signal threaded through
+  `AnalysisStatus`, a status-derived run phase, two-button + overflow row actions
+  driven by that phase, and an Analysis-tab badge when a run needs input.
+- **Maximizable master-detail exposures view** in the diagram UI.
+- **Loading states** across the dataflow editor and model browser.
+- **embeddinggemma** as the default MITRE-framework embedding model, with the
+  generated corpus committed so it no longer regenerates on every build.
+
+### Changed
+
+- **Issue-management surface** (the `/issues` list and editor) substantially reworked
+  for correctness, performance, UX, and accessibility: a summary/detail split with
+  lazy-loaded detail, severity surfaced on collapsed rows, decoupled search and
+  filter inputs, legible loading/empty/error states, a confirmed-and-explained merge
+  flow, accessible selection and filter menus, and coalesced auto-save with a
+  save-state indicator.
+- **Faster module boot** — unchanged modules are no longer re-installed on startup;
+  installation is skipped via a module content hash.
+- **Module bundles share the host JSONForms engine** (via `__HOST_DEPENDENCIES__`)
+  instead of bundling their own copy.
+- **Module packaging** copies external `.graphql` schema fragments into the bundle.
+
+### Fixed
+
+- **dethereal control pipeline**: wrong-kind bindings, push diagnostics, subagent
+  relay, and consent handling.
+- **dethereal enrichment quality**: data-item handling, multi-class Controls, rank
+  scoring, and general hardening.
+- **mitre-frameworks** ships committed framework data instead of regenerating it on
+  every build.
+- **dt-ui** generates UUIDs without requiring a secure (HTTPS) context.
+- **dt-module** keeps analysis runs alive across a stream disconnect.
+
+### Security
+
+- **Dependency maintenance and residual-CVE remediation.** A maintenance sweep plus a
+  follow-up pass raised `pnpm.overrides` floors and eliminated vulnerable transitive
+  versions across `hono`, `@hono/node-server`, `multer`, `dompurify`, `protobufjs`,
+  `@grpc/grpc-js`, `ws`, `esbuild`, `form-data`, `@babel/core`, `undici` (by bumping
+  its sole consumer `testcontainers` from 10 to 12), and `js-yaml` (a scoped override
+  that drops the legacy 3.x copy pulled by coverage tooling). Every advisory was
+  closed by a genuine version fix.
+
 ## [0.3.0] - 2026-06-08
 
 A feature release centred on residual-risk reporting, the finding disposition
@@ -265,6 +319,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.4.0]: https://github.com/dether-net/dethernety-oss/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dether-net/dethernety-oss/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dether-net/dethernety-oss/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dether-net/dethernety-oss/compare/v0.1.3...v0.2.0
