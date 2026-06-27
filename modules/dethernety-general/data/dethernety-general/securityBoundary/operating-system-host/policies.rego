@@ -317,12 +317,6 @@ _at_rest_disk_exposure_detached_snapshotted_volume_def := {
             "property": "attack_id",
             "value": "T1005",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1530",
-            "attributes": {}
         }
     ],
     "attack_vector": "PHYSICAL"

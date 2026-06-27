@@ -44,11 +44,6 @@ _weak_unsalted_fast_password_hashes_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1110.002"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1110"
         }
     ],
     "attack_vector": "LOCAL"

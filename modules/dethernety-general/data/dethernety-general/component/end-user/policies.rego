@@ -21,12 +21,6 @@ _credential_stuffing_password_spraying_def := {
             "property": "attack_id",
             "value": "T1110.003",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1110",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"

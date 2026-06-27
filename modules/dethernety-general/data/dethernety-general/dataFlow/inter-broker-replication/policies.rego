@@ -15,12 +15,6 @@ _cleartext_inter_broker_replication_channel_def := {
             "property": "attack_id",
             "value": "T1040",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1557",
-            "attributes": {}
         }
     ],
     "attack_vector": "ADJACENT"
