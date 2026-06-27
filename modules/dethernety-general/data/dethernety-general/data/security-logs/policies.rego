@@ -223,11 +223,6 @@ _logs_unencrypted_in_transit_at_rest_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1557"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1565.002"
         }
     ],

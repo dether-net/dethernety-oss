@@ -287,6 +287,14 @@ _federation_assertion_security_validated_def := {
             "attributes": {
                 "justification": "Federation assertion validation is fundamentally certificate/key-based authentication of the assertion issuer: per-RP signing keys plus full-assertion signature verification establish the asserting party's identity, which is the D3FEND Certificate-based Authentication countermeasure pattern applied at the federation trust boundary."
             }
+        },
+        {
+            "label": "MitreAttackMitigation",
+            "property": "attack_id",
+            "value": "M1047",
+            "attributes": {
+                "justification": "Signing, audience-restricting, and validating federated SSO assertions per relying-party audits and verifies web-credential authenticity, defeating forgery/replay \u2014 M1047 (Audit) is the ATT&CK mitigation for T1606 / T1606.002 (Forge Web Credentials: SAML)."
+            }
         }
     ],
     "mitigates": [
