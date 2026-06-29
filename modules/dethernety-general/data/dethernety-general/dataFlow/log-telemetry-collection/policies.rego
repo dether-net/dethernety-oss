@@ -165,14 +165,7 @@ _silent_collection_failure_no_dead_man_switch_alarm_def := {
     "category": "",
     "criticality": "high",
     "score": 7.2,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.006",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

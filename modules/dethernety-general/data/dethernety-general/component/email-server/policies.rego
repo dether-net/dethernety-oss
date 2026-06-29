@@ -374,14 +374,7 @@ _no_mail_audit_trail_def := {
     "category": "",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

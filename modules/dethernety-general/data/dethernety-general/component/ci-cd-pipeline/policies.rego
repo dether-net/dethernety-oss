@@ -376,16 +376,7 @@ _insufficient_pipeline_logging_and_visibility_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
-            "attributes": {
-                "justification": "Absent or non-retained off-box pipeline audit logging is precisely the condition an adversary exploits under Disable or Modify (Cloud) Logs \u2014 when logging is already insufficient, the build-system compromise produces no SIEM-visible trail, so the intrusion goes undetected and unreconstructable (OWASP CICD-SEC-10)."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

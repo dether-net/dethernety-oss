@@ -335,16 +335,7 @@ _unmonitored_third_party_interactions_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.3,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
-            "attributes": {
-                "justification": "Absent or tampered logging of third-party interactions (and cleartext secret logging) is the impaired-defense condition that lets adversaries Disable or Modify Cloud Logs / evade detection; without interaction logging the very telemetry this technique targets never exists, so credential abuse, forged callbacks, and provider compromise proceed undetected."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
