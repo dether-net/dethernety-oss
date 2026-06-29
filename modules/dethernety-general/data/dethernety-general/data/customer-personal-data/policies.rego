@@ -286,7 +286,16 @@ _audit_log_tampering_def := {
     "category": "",
     "criticality": "high",
     "score": 7.1,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1070",
+            "attributes": {
+                "justification": "PII access audit logs are mutable \u2014 held on the same host, writable by the same service identity, with no append-only/WORM sink, no off-host shipping, and no integrity proof \u2014 so an attacker who reaches the data tier can erase or alter the trail of their reads. That is Indicator Removal (T1070): MITRE names log entries as explicitly alterable artifacts, and its mitigation M1029 Remote Data Storage (forward events off-host so the adversary cannot locate/manipulate them locally) is exactly the off-host-shipping / WORM / integrity control that closes this weak state \u2014 so T1070 is the exposure\u2194countermeasure join key, not techniqueMappable:false. Parent grain (children .001/.002 are platform-specific). An earlier logging-convention pass had stripped a T1562 ref and marked it a non-mapping; this adds the correct technique without re-adding T1562."
+            }
+        }
+    ],
     "attack_vector": "LOCAL"
 }
 

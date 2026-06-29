@@ -120,18 +120,7 @@ _insufficient_security_event_coverage_def := {
     "category": "",
     "criticality": "high",
     "score": 7.4,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.002"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562"
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 
@@ -282,18 +271,7 @@ _logging_pipeline_failures_undetected_def := {
     "category": "",
     "criticality": "high",
     "score": 7,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.002"
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 

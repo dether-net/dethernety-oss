@@ -237,24 +237,7 @@ _insufficient_traffic_admin_logging_to_external_siem_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
-            "attributes": {
-                "justification": "Absence of off-box SIEM forwarding and tamper-evident retention lets an adversary disable or modify logs on the firewall to impair detection of the compromise and policy tampering."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562",
-            "attributes": {
-                "justification": "Insufficient traffic/admin/config-change logging is an Impair-Defenses condition \u2014 denied-traffic and admin-action telemetry that would surface defense degradation is not retained off-box."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -401,20 +384,7 @@ _unauthorized_config_drift_without_change_control_def := {
     "category": "",
     "criticality": "medium",
     "score": 6,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.004",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.013",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 
