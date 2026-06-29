@@ -53,20 +53,7 @@ _detection_alerting_disabled_or_silently_failing_def := {
     "category": "",
     "criticality": "high",
     "score": 8.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.006",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

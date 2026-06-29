@@ -227,20 +227,7 @@ _no_audit_device_unattributable_access_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.3,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.001",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
