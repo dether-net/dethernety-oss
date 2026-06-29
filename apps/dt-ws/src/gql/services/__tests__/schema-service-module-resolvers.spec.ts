@@ -266,6 +266,13 @@ describe('SchemaService — Module Resolvers', () => {
   });
 
   describe('wrapModuleResolver — timeout', () => {
+    // Snapshot the real timer globals before faking. On Jest 30 + recent Node,
+    // jest.useRealTimers() restores setTimeout but not the global clearTimeout,
+    // leaking a broken clearTimeout into later suites (the success-path tests
+    // call it). Restore both explicitly so the leak can't escape this block.
+    const realSetTimeout = global.setTimeout;
+    const realClearTimeout = global.clearTimeout;
+
     beforeEach(() => {
       jest.useFakeTimers();
     });
@@ -273,6 +280,8 @@ describe('SchemaService — Module Resolvers', () => {
     afterEach(() => {
       jest.clearAllTimers();
       jest.useRealTimers();
+      global.setTimeout = realSetTimeout;
+      global.clearTimeout = realClearTimeout;
     });
 
     it('should timeout after MODULE_RESOLVER_TIMEOUT_MS', async () => {

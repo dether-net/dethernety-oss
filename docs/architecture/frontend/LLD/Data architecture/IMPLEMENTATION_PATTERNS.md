@@ -926,6 +926,79 @@ const itemStats = computed(() => ({
 }))
 ```
 
+### 4. Boundary zoning — buffered tab vs. immediate-persist overview
+
+Boundary zoning has two write surfaces over the same data, each picking a different commit strategy,
+plus a shared read-side built from pure utilities. All three lean on the store's
+[zoning getters](../../FRONTEND_ARCHITECTURE.md#boundary-zoning) and the never-reject `updateNode`
+contract documented in [Flow Store — Error Handling & Rollback](../FLOW_STORE.md#error-handling--rollback).
+
+**Buffered authoring (the Zoning tab).** `SettingsZoningTab.vue` holds **no form state of its own**. The
+parent settings window owns a buffer object (`{ zone, domains, planes, conduits }`); the tab reads
+`props.zoning.*` and re-emits the whole object on every edit through a single `patch` helper. Nothing
+persists until the user clicks the boundary's existing **Save**, which commits the buffer through
+`updateNode`. The conduit picker confirms a uni- or bi-directional channel as **one** `commit-request`
+event carrying 1–2 specs, appended in a single `patch` — emitting two events would race on the prop
+round-trip and drop the first.
+
+```typescript
+// SettingsZoningTab.vue — buffer up, never persist directly
+const patch = (delta: Partial<ZoningBuffer>) =>
+  emit('update:zoning', { ...props.zoning, ...delta })
+
+const onRole = (value: Role) => patch({ planes: roleToPlanes(value) })
+
+// A bi-directional add arrives as ONE event with both specs, appended in one patch.
+const onAddChannel = (specs: ConduitSpec[]) =>
+  patch({ conduits: [...props.zoning.conduits, ...specs] })
+```
+
+**Immediate-persist with Undo (the overview).** `BoundaryZoningOverview.vue` is the model-wide companion.
+It has no buffer — an inline zone select or a bulk set-zone commits at once through `updateNode`. Because
+there is no buffer to discard, **Undo** is the safety net: before a bulk run it snapshots each boundary's
+declared zone (`prevZones`), then re-runs the same write path in reverse if the user taps Undo. `updateNode`
+**never rejects** — on a failed save it re-pins the row to prior server truth and returns `false` — so a
+single failure inside a batch never aborts the rest, and call sites just check the boolean.
+
+```typescript
+// BoundaryZoningOverview.vue — write immediately; updateNode returns false (never throws) on failure
+const writeZone = (id: string, zone: Zone | null): Promise<boolean> =>
+  flowStore.updateNode({ nodeId: id, updates: { data: { zone } } })
+
+const bulkSetZone = async (zone: Zone | null) => {
+  prevZones = selectedIds.value.map(id => ({ id, zone: declaredById.get(id) ?? null })) // Undo snapshot
+  const { done, failed } = await runBatch(selectedIds.value.map(id => ({ id, zone })))
+  // failed never aborts the rest — each writeZone resolves false rather than rejecting
+}
+```
+
+**Read-side: `effectiveZone` + `buildBoundaryTree`.** Both surfaces — and the diagram pill — derive their
+display from the same pure utilities, called **inside the consumer's own `computed`** so the `nodes` ref
+re-tracks (the reason `allBoundaries` is a function, not a computed; see
+[Flow Store](../FLOW_STORE.md#boundary-zoning-getters)):
+
+```typescript
+// effectiveZone drives the per-row resolution caption (declared / inherited / default)
+const rows = computed(() =>
+  flowStore.allBoundaries().map(b => ({
+    id: b.id,
+    declared: (b.data?.zone as Zone | null) ?? null,
+    ez: flowStore.effectiveZone(b.id),          // { zone, source, from? }
+  })),
+)
+
+// buildBoundaryTree turns the flat boundary list into the nesting forest the overview renders,
+// and the same builder + flattenBoundaryTree backs the picker's indented browse list.
+const forest = computed(() =>
+  buildBoundaryTree(flowStore.allBoundaries(), flowStore.defaultBoundaryId ?? ''),
+)
+```
+
+The unclassified roll-up badge on a collapsed parent is a pure post-order count over `forest` of
+descendants whose `ez.source === 'default'` — no extra store state. The picker reuses
+`isAncestorBoundary` (the cycle-safe containment test from `boundaryTree.ts`) to surface its
+warn-not-block nested-conduit notice.
+
 ## Testing Patterns
 
 ### 1. Library Layer Testing

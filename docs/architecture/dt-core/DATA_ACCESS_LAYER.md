@@ -8,6 +8,7 @@
 - [Error Handling](#error-handling)
 - [Query and Mutation Execution](#query-and-mutation-execution)
 - [Utility Methods](#utility-methods)
+- [Boundary Zoning Utilities](#boundary-zoning-utilities)
 ## Overview
 The `DtUtils` class is used by all dt-core domain classes via composition. It handles retry logic, mutex locking, and request deduplication so that individual domain classes only need to define their GraphQL queries and mutations.
 **Source Files:**
@@ -439,3 +440,73 @@ class DtModel {
   }
 }
 ```
+
+---
+
+## Boundary Zoning Utilities
+
+**Source:** `packages/dt-core/src/dt-boundary/boundary-zoning-utils.ts`
+
+Pure helpers (no Apollo, no Vue) that prepare a boundary's zoning fields and conduit edges for the write path. [`DtBoundary.updateBoundaryNode`](./GRAPHQL_OPERATIONS.md#dtboundary) calls them to build its `updateSecurityBoundaries` input. They sanitize declared intent and turn the boundary's conduit buffer into a minimal set of graph edge operations. The zoning types (`Zone`, `Plane`, `Conduit`, `ConduitEdge`, `ConduitDirection`) are defined in the [Domain Model](./DOMAIN_MODEL.md#boundary-zoning).
+
+### Sanitizers
+
+These guard against stale, out-of-range, or duplicate input before it reaches the graph. Each is total — it always returns a valid value, never throws.
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `sanitizeZone` | `(z: Zone \| null \| undefined) => Zone \| null` | Returns `z` if it is a member of the canonical `Zone` set, otherwise `null` (= inherit/undecided). |
+| `sanitizeDomains` | `(domains: string[] \| undefined) => string[]` | Trims each entry, drops empties, de-dupes case-insensitively (keeps first casing), caps entry length to 64 chars and the list to 16 entries. |
+| `normalizePlanes` | `(planes: Plane[] \| undefined) => Plane[]` | Keeps valid `Plane` members, de-dupes, and returns them in a fixed canonical order (`WORKLOAD`, `MANAGEMENT`) so equal sets serialize to equal arrays. |
+| `sanitizeJustification` | `(s: string \| null \| undefined) => string \| undefined` | Trims and caps to 500 chars; empty → `undefined` (so it is not written as an empty string). |
+
+`planes` is stored as a `[String!]` graph field rather than a GraphQL enum list; `normalizePlanes` is the app-side validation that keeps the values constrained to the `Plane` union.
+
+### flattenConduits
+
+```typescript
+flattenConduits(
+  raw: Pick<BoundaryData, 'outboundConduitsConnection' | 'inboundConduitsConnection'> | null | undefined,
+): Conduit[]
+```
+
+Folds the two raw directed-edge connection reads (`outboundConduitsConnection` / `inboundConduitsConnection`) into a single flat `Conduit[]`. Each edge contributes one `Conduit` whose `direction` is derived from **which connection it came from** (`OUTBOUND` for outbound edges, `INBOUND` for inbound) — direction is never a stored field. Edges with no `node.id` are dropped; `justification` / `controlRefs` are lifted off the edge `properties`. This is the inverse of the write reconcile: reads flatten, writes diff.
+
+### buildConduitOps — baseline delta reconcile
+
+```typescript
+buildConduitOps(
+  direction: ConduitDirection,
+  current: Conduit[] | undefined,
+  baseline: Conduit[] | undefined,
+  selfId: string,
+): (ConduitOps | ConduitUpdateOp)[] | undefined
+```
+
+Builds the `outboundConduits` / `inboundConduits` mutation value for **one direction** as a delta of the boundary's current conduit buffer against a **baseline** snapshot. The baseline is the conduits as they were on the server *before* any optimistic edit (the caller snapshots and passes it as `baselineConduits`). Returns `undefined` when there is nothing to do, so the caller can omit the key entirely.
+
+For the given direction it compares `current` against `baseline` (both first passed through `dedupeByPeer`, which drops self-conduits and per-direction duplicates, first-wins) and emits:
+
+- a single membership op `{ connect: [...added], disconnect: [...removed] }` — included only if `connect` or `disconnect` is non-empty;
+- one `{ update: ... }` op per peer present in both whose **justification changed** (justification is compared after `sanitizeJustification`, so whitespace-only and over-cap differences do not produce spurious updates).
+
+**Why a delta and not connect-all.** The graph `CONDUIT` `connect` is **not idempotent**: re-connecting an existing peer creates a *duplicate parallel edge* rather than being a no-op. Membership must therefore be expressed as the difference against the last known server state — connect only the newly added peers, disconnect only the removed ones, and `update` only the peers whose justification changed. A naive connect-all would silently accumulate duplicate edges on every save.
+
+```
+baseline (server)        current (edited)        ops emitted
+─────────────────        ─────────────────       ─────────────────────────────
+A (just: "x")            A (just: "x")           (unchanged → no op)
+B (just: "y")            B (just: "z")           update B → justification "z"
+C (just: "w")            —                       disconnect C
+—                        D (just: "v")           connect D
+
+  result for this direction:
+    { connect: [D], disconnect: [C] }    // single membership op
+    { update: B → justification "z" }    // one update op
+```
+
+After the mutation, `updateBoundaryNode` calls `flattenConduits` on the server response to re-derive the boundary's `conduits` so the caller can re-pin its baseline to server truth before the next edit.
+
+### Framing
+
+These utilities persist **declared intent** only. They sanitize and reconcile what the author asserted about a boundary's trust zone, segmentation domains, planes, and conduits; dt-core computes **no legality verdict** over that intent — it neither validates a conduit against the zones it connects nor flags zone/plane combinations. Any such evaluation is a concern of layers above the data-access layer.

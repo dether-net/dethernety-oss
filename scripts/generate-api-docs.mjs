@@ -87,6 +87,7 @@ const coreTypes = []
 const classTypes = []
 const mitreTypes = []
 const utilityTypes = []
+const inputTypes = []
 const queries = []
 const mutations = []
 const subscriptions = []
@@ -126,6 +127,10 @@ for (const def of doc.definitions) {
       } else {
         coreTypes.push(def)
       }
+      break
+
+    case 'InputObjectTypeDefinition':
+      inputTypes.push(def)
       break
   }
 }
@@ -232,6 +237,7 @@ emit('- [Core types](#core-types)')
 emit('- [Class types](#class-types)')
 emit('- [MITRE framework types](#mitre-framework-types)')
 emit('- [Utility types](#utility-types)')
+emit('- [Input types](#input-types)')
 emit('- [Queries](#queries)')
 emit('- [Mutations](#mutations)')
 emit('- [Subscription](#subscription)')
@@ -303,6 +309,15 @@ for (const def of utilityTypes) {
   emitTypeSection(def)
 }
 
+// Input types
+emit('## Input types')
+emit('')
+emit('Input object types passed as arguments to queries and mutations.')
+emit('')
+for (const def of inputTypes) {
+  emitTypeSection(def)
+}
+
 // Queries
 emit('## Queries')
 emit('')
@@ -362,6 +377,6 @@ for (const field of subscriptions) {
 const content = out.join('\n') + '\n'
 writeFileSync(OUTPUT_PATH, content)
 
-const typeCount = coreTypes.length + classTypes.length + mitreTypes.length + utilityTypes.length + interfaces.length
+const typeCount = coreTypes.length + classTypes.length + mitreTypes.length + utilityTypes.length + interfaces.length + inputTypes.length
 console.log(`Generated ${OUTPUT_PATH}`)
-console.log(`  ${enums.length} enums, ${typeCount} types, ${queries.length} queries, ${mutations.length} mutations, ${subscriptions.length} subscriptions`)
+console.log(`  ${enums.length} enums, ${typeCount} types (${inputTypes.length} input), ${queries.length} queries, ${mutations.length} mutations, ${subscriptions.length} subscriptions`)

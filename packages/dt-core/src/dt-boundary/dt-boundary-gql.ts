@@ -39,6 +39,9 @@ export const ADD_BOUNDARY = gql`
       securityBoundaries {
         id
         name
+        zone
+        domains
+        planes
         positionX
         positionY
         dimensionsWidth
@@ -80,6 +83,9 @@ export const UPDATE_BOUNDARY = gql`
         id
         name
         description
+        zone
+        domains
+        planes
         positionX
         positionY
         dimensionsWidth
@@ -88,6 +94,18 @@ export const UPDATE_BOUNDARY = gql`
         dimensionsMinHeight
         parentBoundary {
           id
+        }
+        outboundConduitsConnection {
+          edges {
+            properties { justification controlRefs }
+            node { id name }
+          }
+        }
+        inboundConduitsConnection {
+          edges {
+            properties { justification controlRefs }
+            node { id name }
+          }
         }
         controls {
           id

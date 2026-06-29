@@ -94,6 +94,8 @@ Internet Boundary (Default)
         └── [Database servers]
 ```
 
+> **Next: classify these boundaries.** Once your boundaries exist, place each one on a trust gradient and declare which boundaries are meant to communicate. See [Boundary Trust Zones](BOUNDARY_TRUST_ZONES.md) for setting a boundary's trust zone, business domains, role, and approved channels.
+
 ## Adding System Components
 
 **Component Placement Options:**
@@ -583,6 +585,7 @@ If the import encounters non-critical issues, warnings are displayed alongside t
 You now have a working threat model with components, data flows, boundaries, analysis results, and tracked issues.
 
 **Next Steps**:
+- **[Boundary Trust Zones](BOUNDARY_TRUST_ZONES.md)**: Place each boundary on a trust gradient and declare approved channels
 - **[Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md)**: Advanced analysis techniques
 - **[Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md)**: Implementing countermeasures
 - **[Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md)**: Track and manage findings with your team

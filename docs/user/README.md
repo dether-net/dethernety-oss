@@ -18,6 +18,7 @@ For platform overview, installation, and architecture, see the [main README](../
 | Guide | Description |
 |-------|-------------|
 | [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) | Step-by-step tutorial for creating a threat model |
+| [Boundary Trust Zones](BOUNDARY_TRUST_ZONES.md) | Record each boundary's trust zone, domains, role, and approved channels — the declared design intent for segmentation |
 | [Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md) | Component setup, class assignment, and attribute configuration |
 | [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) | Running analysis and interpreting results |
 | [Managing Findings](MANAGING_FINDINGS.md) | Affirming findings as confirmed live risk or muting them (not applicable, false positive, waived, superseded); the pending/confirmed/disposed lifecycle |

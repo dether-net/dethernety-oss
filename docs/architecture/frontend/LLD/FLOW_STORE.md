@@ -6,6 +6,7 @@
 - [Three-Phase Node Creation](#three-phase-node-creation)
 - [Deferred Update Mechanism](#deferred-update-mechanism)
 - [Error Handling & Rollback](#error-handling--rollback)
+- [Boundary Zoning Getters](#boundary-zoning-getters)
 - [Vue Flow Integration](#vue-flow-integration)
 - [State Synchronization](#state-synchronization)
 - [DtUtils Concurrency Patterns](#dtutils-concurrency-patterns)
@@ -362,27 +363,109 @@ catch (error) {
 
 ### Update Failure (Non-Pending Node)
 
+`updateNode` **never rejects.** It snapshots the node before the optimistic merge and, on a failed save
+(thrown error **or** falsy return), re-pins local state to that snapshot and returns `false`. On success the
+downstream `updateBoundaryNode` / `updateComponentNode` already splice in the fresh server node, so no revert
+runs. Callers therefore just check the boolean — no per-call-site `try/catch` is needed.
+
 ```typescript
 const updateNode = async ({ nodeId, updates }): Promise<boolean> => {
-  // Store original for rollback
-  const originalNode = structuredClone(nodes.value.find(n => n.id === nodeId))
+  const isDefault = nodeId === defaultBoundaryId.value
+  const node = isDefault ? defaultBoundary.value : nodes.value[getNodeIndexById({ nodeId })]
+  if (!node) return false
 
-  // Optimistic update
-  const nodeIndex = nodes.value.findIndex(n => n.id === nodeId)
-  dtUtils.deepMerge(nodes.value[nodeIndex], updates)
+  // Snapshot prior server truth BEFORE the optimistic merge (safeClone = structuredClone + JSON fallback).
+  const snapshot = safeClone(node)
+  dtUtils.deepMerge(node, updates)
 
   try {
-    await dtComponent.updateNode({ nodeId, updates })
-    return true
+    const ok = node.type === 'BOUNDARY'
+      ? await updateBoundaryNode({ updatedNode: node, baselineConduits })
+      : await updateComponentNode({ updatedNode: node })
+    if (!ok) revertNode(nodeId, isDefault, snapshot)
+    return ok
   } catch (error) {
-    // Rollback to original
-    if (originalNode && nodeIndex !== -1) {
-      nodes.value.splice(nodeIndex, 1, originalNode)
-    }
-    throw error
+    revertNode(nodeId, isDefault, snapshot)   // never re-throws
+    return false
   }
 }
 ```
+
+**`revertNode`** re-resolves the index *fresh* at revert time (a concurrent delete/create/sync can shift it),
+splices the snapshot back (or reassigns `defaultBoundary.value` for the default-boundary path), re-pins
+`selectedItem` if it points at the same node, and **skips entirely** if the node was concurrently removed
+(`getNodeIndexById` returns `-1`) — it never resurrects a deleted node.
+
+---
+
+## Boundary Zoning Getters
+
+Three read-only getters expose a boundary's **zoning** — its declared trust `zone`, business
+`domains`, operational `planes`, and declared "approved channels" (conduits) — to the zoning
+surfaces (the Zoning tab, the peer picker drawer, the model-wide overview, and the diagram pill).
+They are pure reads over `nodes.value` / `defaultBoundary.value`; no GraphQL is issued. Writes
+flow through the existing `updateNode` path — these getters never mutate.
+
+**Source:** `flowStore.ts:815-826`
+
+| Getter | Signature | Returns |
+|--------|-----------|---------|
+| `boundaryById` | `(id: string) => Node \| null \| undefined` | The boundary node for `id` — the default boundary when `id` is `defaultBoundaryId`, otherwise the matching `type === 'BOUNDARY'` node from `nodes.value` (or `undefined` if none). |
+| `allBoundaries` | `() => Node[]` | Every `type === 'BOUNDARY'` node in `nodes.value`. **A function, not a computed** (see note). |
+| `effectiveZone` | `(boundaryId: string) => EffectiveZone` | The boundary's zone after inheritance — delegates to `resolveEffectiveZone(boundaryId, boundaryById, defaultBoundaryId)`. |
+
+```typescript
+const boundaryById = (id: string): Node | null | undefined =>
+  id === defaultBoundaryId.value
+    ? defaultBoundary.value
+    : nodes.value.find(n => n.id === id && n.type === 'BOUNDARY')
+
+// A function (not a computed) to match the store's convention and sidestep the deeply-generic
+// Vue-Flow Node type under computed(); stays reactive when read inside a consumer's computed/render.
+const allBoundaries = (): Node[] => nodes.value.filter((n: any) => n.type === 'BOUNDARY')
+
+const effectiveZone = (boundaryId: string) =>
+  resolveEffectiveZone(boundaryId, boundaryById, defaultBoundaryId.value || '')
+```
+
+### `allBoundaries` is a function, not a computed — by design
+
+`allBoundaries` is exposed as a plain function rather than a `computed`. This matches the store's
+getter convention (`getNodeById`, `boundaryById`) and sidesteps a TypeScript instantiation depth
+issue with the deeply-generic Vue Flow `Node` type under `computed()`. Reactivity is **not** lost:
+because the function reads `nodes.value` on each call, invoking it **inside a consumer's own
+`computed` or render function** re-tracks the `nodes` ref, so the consumer recomputes whenever
+boundaries change. Callers must therefore call it inside their reactive scope — e.g.
+`computed(() => flowStore.allBoundaries().map(...))` — rather than capturing the array once outside
+one. The overview's row list, the picker's browse list, and the zoning tree are all built this way.
+
+### `effectiveZone` and the inheritance contract
+
+`effectiveZone` returns the `EffectiveZone` shape from `utils/effectiveZone.ts`:
+
+```typescript
+type EffectiveZone = {
+  zone: Zone
+  source: 'declared' | 'inherited' | 'default'
+  from?: string // ancestor boundary id when source === 'inherited'
+}
+```
+
+`resolveEffectiveZone` walks `node.parentNode` upward (an empty or null parent resolves to the
+default boundary) to the nearest boundary with a non-null `data.zone`, capped at `MAX_DEPTH` (50)
+and cycle-guarded. A match on the queried boundary itself is `'declared'`; a match on an ancestor
+is `'inherited'` (with `from` set to that ancestor's id); reaching the top with nothing declared
+returns `DEFAULT_ZONE` (`INTERNAL`) and `'default'`. Because the getter passes `boundaryById` as the
+lookup, the walk also crosses into the default boundary. See
+[the zoning utilities](../FRONTEND_ARCHITECTURE.md#boundary-zoning) for the full read-side.
+
+### Server re-pin keeps the baseline correct
+
+`updateBoundaryNode` re-pins `data.zone`, `data.domains`, `data.planes`, and `data.conduits` from the
+mutation response after a successful save (`flowStore.ts:774-778`). This keeps the next save's
+optimistic-merge baseline aligned with server truth, and is the reason `updateNode` snapshots the
+**pre-merge** conduit list as the conduit delta baseline (`flowStore.ts:565-568`), which
+`updateBoundaryNode` then mirrors onto peer boundaries.
 
 ---
 

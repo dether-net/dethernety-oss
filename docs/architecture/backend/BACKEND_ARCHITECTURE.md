@@ -629,7 +629,7 @@ The database stores interconnected security model data:
 - **Folder** - Hierarchical organization for models and controls
 - **Model** - System models containing security boundaries, modules, and analyses
 - **Component** - Key entities in the system (processes, external entities, stores)
-- **SecurityBoundary** - Trust boundaries with hierarchical nesting support
+- **SecurityBoundary** - Trust boundaries with hierarchical nesting support, a trust/exposure `zone`, business-function and operational-plane tags, and approved peer channels (conduits) recording declared design intent
 - **DataFlow** - Data flow connections between components
 - **Data** - Data elements handled by components, flows, and boundaries
 - **Control** - Security controls supporting elements

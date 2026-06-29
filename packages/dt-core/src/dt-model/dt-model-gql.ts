@@ -153,6 +153,9 @@ export const DUMP_MODEL_DATA = gql`
           id
           name
           description
+          zone
+          domains
+          planes
           positionX
           positionY
           dimensionsWidth
@@ -161,6 +164,18 @@ export const DUMP_MODEL_DATA = gql`
           dimensionsMinHeight
           parentBoundary {
             id
+          }
+          outboundConduitsConnection {
+            edges {
+              properties { justification controlRefs }
+              node { id name }
+            }
+          }
+          inboundConduitsConnection {
+            edges {
+              properties { justification controlRefs }
+              node { id name }
+            }
           }
           controls {
             id

@@ -88,7 +88,7 @@ Each domain area has a dedicated class:
 |-------|---------|
 | `DtModel` | Model CRUD, data export |
 | `DtComponent` | System component management |
-| `DtBoundary` | Security boundary/trust zone management |
+| `DtBoundary` | Security boundary management, incl. trust-zone fields (`zone`/`domains`/`planes`) and conduit edges |
 | `DtDataflow` | Data flow edge management |
 | `DtDataItem` | Data classification management |
 | `DtClass` | Entity classification and templates |

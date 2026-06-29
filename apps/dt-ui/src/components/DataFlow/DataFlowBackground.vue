@@ -6,6 +6,7 @@
   import { nodeTypes } from '@/utils/dataFlowUtils'
   import PaletteWindow from '@/components/DataFlow/PaletteWindow.vue'
   import SettingsWindow from '@/components/DataFlow/SettingsWindow.vue'
+  import BoundaryZoningOverview from '@/components/DataFlow/BoundaryZoning/BoundaryZoningOverview.vue'
 
   interface Props {
     openSettings: boolean
@@ -16,6 +17,7 @@
 
   const itemName = ref('Select an item')
   const flowStore = useFlowStore()
+  const showZoningOverview = ref(false)
   const props = defineProps<Props>()
   const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created'])
   const openSettings = ref(props.openSettings)
@@ -193,6 +195,26 @@
       />
     </div>
 
+    <div
+      class="zoning-overview-toggle pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+      role="button"
+      tabindex="0"
+      aria-label="Open zoning overview"
+      title="Zoning overview"
+      @click="showZoningOverview = true"
+      @keydown.enter.prevent="showZoningOverview = true"
+      @keydown.space.prevent="showZoningOverview = true"
+    >
+      <v-icon
+        color="tertiary"
+        icon="mdi-shield-lock-outline"
+        size="large"
+        variant="outlined"
+      />
+    </div>
+
+    <BoundaryZoningOverview v-model="showZoningOverview" />
+
     <div class="vignette-overlay" />
 
     <div class="overlay">
@@ -240,6 +262,16 @@
 .edit-mode-toggle {
   position: fixed;
   top: 120px;
+  left: 80px;
+  z-index: 1000;
+  cursor: pointer;
+  background-color: rgb(var(--v-theme-surface));
+  opacity: 0.9;
+}
+
+.zoning-overview-toggle {
+  position: fixed;
+  top: 175px;
   left: 80px;
   z-index: 1000;
   cursor: pointer;
