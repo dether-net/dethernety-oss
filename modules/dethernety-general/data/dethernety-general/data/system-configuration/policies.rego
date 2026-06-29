@@ -310,13 +310,7 @@ _no_config_backup_or_rollback_to_a_known_good_state_def := {
     "category": "",
     "criticality": "medium",
     "score": 6,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1490"
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

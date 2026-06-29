@@ -233,14 +233,7 @@ _pii_secrets_in_messages_and_broker_logs_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1530",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

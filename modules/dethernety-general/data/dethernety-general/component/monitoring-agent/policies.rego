@@ -259,16 +259,7 @@ _sensitive_data_pii_over_collection_no_masking_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.3,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1530",
-            "attributes": {
-                "justification": "Unmasked credentials, tokens, and PII/PHI forwarded verbatim into the monitoring/SIEM tier broaden the population of data accessible to anyone with backend access; over-collected sensitive data at rest in the monitoring store maps to Data from Information Repositories / stored-data collection."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

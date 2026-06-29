@@ -371,14 +371,7 @@ _no_audit_logging_of_connections_publish_consume_admin_events_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.3,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

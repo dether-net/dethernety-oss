@@ -286,13 +286,7 @@ _audit_log_tampering_def := {
     "category": "",
     "criticality": "high",
     "score": 7.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008"
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 

@@ -17,14 +17,6 @@ _exposed_unauthenticated_admin_management_api_def := {
             "attributes": {
                 "justification": "An Admin API bound to a public interface (admin_listen=0.0.0.0:8001) with RBAC disabled is a directly exploitable public-facing administrative endpoint \u2014 control-plane takeover via the exposed application. CVE-2020-11710 (Docker-Kong default Admin API exposure) is a concrete instance."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1538",
-            "attributes": {
-                "justification": "The unauthenticated Kong Manager admin GUI (admin_gui_auth unset) is an exposed service/management dashboard an adversary browses to enumerate and control routes, plugins and credentials."
-            }
         }
     ],
     "attack_vector": "NETWORK"
