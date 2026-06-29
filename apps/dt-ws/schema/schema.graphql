@@ -68,6 +68,30 @@ enum TrustLevel {
   TRUSTED
 }
 
+"Trust/exposure gradient of a security boundary (replaces TrustLevel)."
+enum Zone {
+  "Open internet / hostile frontier (external)"
+  UNTRUSTED
+  "Internet-facing (your edge)"
+  PUBLIC
+  "Behind the front door (DMZ)"
+  EXPOSED
+  "Trusted zones only"
+  INTERNAL
+  "Specifically-authorized paths only (CDE, secrets, DCs, security tooling)"
+  RESTRICTED
+  "Trusted external party (vetted vendor / connected partner)"
+  VENDOR
+}
+
+"Operational/privilege role of a boundary."
+enum Plane {
+  "Business workload (front to back)"
+  WORKLOAD
+  "Privileged control/admin infrastructure (incl. security tooling)"
+  MANAGEMENT
+}
+
 """CVSS v3.1-aligned attack vector classification for exposures."""
 enum AttackVector {
   "Exploitable from any network without preconditions"
@@ -358,8 +382,18 @@ type SecurityBoundary implements Element  @authentication @node {
   description: String
   "Model this boundary belongs to"
   model: [Model!]! @relationship(type: "CONTAINS", direction: IN)
-  "Trust level of this boundary (untrusted, semi-trusted, trusted)"
-  trustLevel: TrustLevel!
+  "Dormant/deprecated trust level — replaced by `zone`."
+  trustLevel: TrustLevel @deprecated(reason: "Replaced by zone. Slated for removal once the deprecation is fully retired.")
+  "Trust/exposure gradient. NULL = inherit from the nearest declaring ancestor."
+  zone: Zone
+  "Open-vocabulary business functions this boundary serves."
+  domains: [String!]
+  "Operational roles present on this boundary, drawn from the `Plane` vocabulary. NULL/empty = undecided."
+  # Typed as [String!] (not [Plane!]) because @neo4j/graphql v7 generates a broken enum-list update input
+  # (PlaneListEnumScalarMutations marks both `set` and `push` required, but the resolver forbids sending
+  # both), making an enum list unwritable. Values are constrained to the `Plane` union (WORKLOAD/MANAGEMENT)
+  # app-side by dt-core's normalizePlanes. The `Plane` enum is retained as the documented value vocabulary.
+  planes: [String!]
   "Components inside this boundary"
   components: [Component!]! @relationship(type: "BELONGS_TO", direction: IN)
   "Nested child boundaries"
@@ -380,6 +414,12 @@ type SecurityBoundary implements Element  @authentication @node {
   analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
   "Issues associated with this boundary"
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+  "Peers this boundary is declared/intended to reach (egress) — CONDUIT edges OUT. Edge direction = approved flow direction. Declared intent, not an enforced permission."
+  outboundConduits: [SecurityBoundary!]!
+    @relationship(type: "CONDUIT", direction: OUT, properties: "ConduitProperties")
+  "Peers declared/intended to be able to reach this boundary (ingress) — CONDUIT edges IN. Declared intent, not an enforced permission."
+  inboundConduits: [SecurityBoundary!]!
+    @relationship(type: "CONDUIT", direction: IN, properties: "ConduitProperties")
   "X position on the canvas"
   positionX: Float
   "Y position on the canvas"
@@ -429,6 +469,14 @@ type SecurityBoundary implements Element  @authentication @node {
       """,
       columnName: "df"
     )
+}
+
+"Disposition metadata on a CONDUIT edge. Carries intent only — never asserts legality."
+type ConduitProperties @relationshipProperties {
+  "Optional free-text rationale, written by the modeler (e.g. 'payment service to Stripe, sanctioned')."
+  justification: String
+  "Optional reference(s) to the mediating control(s) that make it safe. Scalar id(s) this round."
+  controlRefs: [ID!]
 }
 
 """A data element handled by components and data flows (e.g., PII, credentials, API keys)."""

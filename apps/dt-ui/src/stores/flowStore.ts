@@ -1,9 +1,10 @@
 // useFlowStore.ts
 
 import { defineStore } from 'pinia'
-import { nextTick, ref } from 'vue'
+import { nextTick, ref, toRaw } from 'vue'
 import apolloClient from '@/plugins/apolloClient'
 import { Edge, Node } from '@vue-flow/core'
+import { resolveEffectiveZone } from '@/utils/effectiveZone'
 import {
   // Core classes
   DtBoundary, DtClass, DtComponent, DtControl, DtDataflow, DtDataItem,
@@ -16,7 +17,7 @@ import {
   Exposure, Class, Control, DataItem, DirectDescendant, Model, Module,
   MitreAttackTactic, MitreAttackTechnique,
   ChangeElementBindingResult,
-  DispositionKind, DispositionMutationResult,
+  DispositionKind, DispositionMutationResult, Conduit,
 } from '@dethernety/dt-core'
 
 // Crown-jewel components carry a `crown-jewel` class on the vue-flow wrapper so the
@@ -505,12 +506,45 @@ export const useFlowStore = defineStore('flow', () => {
     }
   }
 
+  // Deep-clone a node for the optimistic-revert snapshot. structuredClone is correct for these
+  // plain GraphQL/JSON-derived nodes (Vue Flow's function-bearing internals live in its own GraphNode
+  // store, not in `nodes.value`); the JSON fallback + undefined degrade are latent-footgun insurance so
+  // a future function-valued node field can never throw *before* the network call and brick the save.
+  const safeClone = (value: Node): Node | undefined => {
+    try {
+      return structuredClone(toRaw(value))
+    } catch {
+      try {
+        return JSON.parse(JSON.stringify(toRaw(value)))
+      } catch {
+        return undefined
+      }
+    }
+  }
+
+  // Re-pin local state to the pre-merge snapshot after a failed save (throw or falsy return), so the
+  // unsaved optimistic edit never lingers. Re-resolves the index fresh (a concurrent delete/create/sync
+  // could have shifted it) and skips the revert if the node was concurrently removed — never resurrects it.
+  const revertNode = (nodeId: string, isDefault: boolean, snapshot: Node | undefined): void => {
+    if (!snapshot) return // safeClone failed → best-effort no-op rather than pinning a half-merged object
+    if (isDefault) {
+      defaultBoundary.value = snapshot
+      if (selectedItem.value && selectedItem.value.id === nodeId) selectedItem.value = snapshot
+      return
+    }
+    const i = getNodeIndexById({ nodeId })
+    if (i === -1) return // concurrently deleted — do not re-insert
+    nodes.value.splice(i, 1, snapshot)
+    nodes.value = [...nodes.value]
+    if (selectedItem.value && selectedItem.value.id === nodeId) selectedItem.value = snapshot
+  }
+
   const updateNode = async ({ nodeId, updates, skipDeferredQueue = false }: { nodeId: string, updates: object, skipDeferredQueue?: boolean }): Promise<boolean> => {
     // Check if this is a temporary node from optimistic update
     if (!skipDeferredQueue && isPendingNode(nodeId)) {
       console.log(`Queueing update for temporary node ${nodeId}:`, updates)
       queueUpdateForTempNode(nodeId, updates)
-      
+
       // Also update the optimistic node in the UI for immediate feedback
       const tempNodeIndex = nodes.value.findIndex(n => n.id === nodeId)
       if (tempNodeIndex !== -1) {
@@ -519,19 +553,37 @@ export const useFlowStore = defineStore('flow', () => {
         // Trigger reactivity
         nodes.value = nodes.value.slice()
       }
-      
+
       return true // Return true to indicate the update was handled
     }
-    
+
     const index = getNodeIndexById({ nodeId })
     if (index !== -1 || nodeId === defaultBoundaryId.value) {
-      const node = nodeId === defaultBoundaryId.value ? defaultBoundary.value : nodes.value[index]
+      const isDefault = nodeId === defaultBoundaryId.value
+      const node = isDefault ? defaultBoundary.value : nodes.value[index]
+      if (!node) return false
+      // Snapshot the conduits BEFORE the optimistic merge — this is the only correct baseline for the
+      // dt-core conduit delta. It also makes a position-only save a conduit no-op (buffer === baseline),
+      // so a drag never re-connects an existing peer (CONDUIT connect is not idempotent → duplicate edge).
+      const baselineConduits = node.type === 'BOUNDARY' && Array.isArray(node.data?.conduits)
+        ? [...node.data.conduits]
+        : undefined
+      // Snapshot prior server truth before the optimistic merge. `updateNode` NEVER rejects: on a failed
+      // save (throw or falsy return) it reverts the node to this snapshot and returns false. On success the
+      // downstream updateBoundaryNode/updateComponentNode re-pin to the fresh server node, so no revert runs.
+      const snapshot = safeClone(node)
       dtUtils.deepMerge(node, updates)
 
-      if (node && node.type === 'BOUNDARY') {
-        return updateBoundaryNode({ updatedNode: node })
-      } else if (node) {
-        return updateComponentNode({ updatedNode: node })
+      try {
+        const ok = node.type === 'BOUNDARY'
+          ? await updateBoundaryNode({ updatedNode: node, baselineConduits })
+          : await updateComponentNode({ updatedNode: node })
+        if (!ok) revertNode(nodeId, isDefault, snapshot)
+        return ok
+      } catch (error) {
+        console.error(`updateNode: save failed for ${nodeId}, reverting to server truth`, error)
+        revertNode(nodeId, isDefault, snapshot)
+        return false
       }
     } else {
       console.error(`Node with ID ${nodeId} not found`)
@@ -626,8 +678,60 @@ export const useFlowStore = defineStore('flow', () => {
     return false
   }
 
-  const updateBoundaryNode = async ({ updatedNode }: { updatedNode: Node }): Promise<boolean> => {
-    const updatedBoundary = await dtBoundary.updateBoundaryNode({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '' })
+  // Mirror a saved boundary's conduit delta onto its peer boundaries in memory. A CONDUIT is ONE directed
+  // edge, so a peer sees the same edge from the opposite direction (the read path flattens both connections).
+  // The mutation re-pins only the saved boundary, so without this a peer's settings would show a stale
+  // conduit list until a full model reload. We synthesise the mirror entry (no refetch): the mirror's
+  // peerName is the saved boundary's label; the peer node's own data is otherwise untouched.
+  const syncPeerConduits = (selfId: string, selfLabel: string, baseline: Conduit[], current: Conduit[]) => {
+    const mirrorDir = (d: Conduit['direction']): Conduit['direction'] => (d === 'OUTBOUND' ? 'INBOUND' : 'OUTBOUND')
+    const ckey = (c: Conduit) => `${c.peerId}|${c.direction}`
+    const baseMap = new Map(baseline.map(c => [ckey(c), c]))
+    const curMap = new Map(current.map(c => [ckey(c), c]))
+
+    const ops: { peerId: string; mirror: Conduit; remove: boolean }[] = []
+    // Added or justification-changed → upsert the mirror on the peer.
+    for (const [k, c] of curMap) {
+      const prev = baseMap.get(k)
+      if (!prev || prev.justification !== c.justification) {
+        ops.push({
+          peerId: c.peerId,
+          remove: false,
+          mirror: { peerId: selfId, peerName: selfLabel, direction: mirrorDir(c.direction), justification: c.justification, controlRefs: c.controlRefs },
+        })
+      }
+    }
+    // Removed → drop the mirror on the peer.
+    for (const [k, c] of baseMap) {
+      if (!curMap.has(k)) ops.push({ peerId: c.peerId, remove: true, mirror: { peerId: selfId, direction: mirrorDir(c.direction) } })
+    }
+    if (!ops.length) return
+
+    let changed = false
+    for (const op of ops) {
+      const idx = nodes.value.findIndex((n: any) => n.id === op.peerId && n.type === 'BOUNDARY')
+      if (idx === -1) continue // peer isn't a canvas boundary node (e.g. the default boundary) — nothing to show
+      const node = nodes.value[idx]
+      const existing: Conduit[] = Array.isArray(node.data?.conduits) ? node.data.conduits : []
+      // Replace any existing entry for this (peerId, direction), then re-add unless removing.
+      const filtered = existing.filter(c => !(c.peerId === op.mirror.peerId && c.direction === op.mirror.direction))
+      const next = op.remove ? filtered : [...filtered, op.mirror]
+      const newNode = { ...node, data: { ...node.data, conduits: next } }
+      nodes.value.splice(idx, 1, newNode)
+      if (selectedItem.value && selectedItem.value.id === op.peerId) selectedItem.value = newNode
+      changed = true
+    }
+    if (changed) nodes.value = [...nodes.value]
+  }
+
+  const updateBoundaryNode = async ({ updatedNode, baselineConduits }: { updatedNode: Node, baselineConduits?: Conduit[] }): Promise<boolean> => {
+    // Gate concurrent saves of the same boundary: dt-core's `update-boundary-<id>` deduplicationKey shares
+    // the in-flight promise, so a second overlapping save would resolve to the first's result and silently
+    // drop its own edit. The UI binds this flag to disable Save while a save is in flight.
+    const saveOp = `updateBoundary-${updatedNode.id}`
+    setOperationLoading(saveOp, true)
+    try {
+    const updatedBoundary = await dtBoundary.updateBoundaryNode({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '', baselineConduits })
     if (updatedBoundary) {
       if (updatedNode.id === defaultBoundaryId.value) {
         // @ts-ignore
@@ -667,6 +771,11 @@ export const useFlowStore = defineStore('flow', () => {
               minHeight: updatedBoundary.dimensionsMinHeight,
               controls: updatedBoundary.controls?.map((control: Control) => control.id),
               dataItems: updatedBoundary.dataItems?.map((dataItem: DataItem) => dataItem.id),
+              // Re-pin zoning to server truth so the next save's baseline snapshot is correct.
+              zone: updatedBoundary.zone,
+              domains: updatedBoundary.domains,
+              planes: updatedBoundary.planes,
+              conduits: updatedBoundary.conduits,
             },
             position: {
               x: updatedBoundary.positionX || 0,
@@ -690,12 +799,31 @@ export const useFlowStore = defineStore('flow', () => {
           // Use synchronization helpers
           syncDataItems(updatedBoundary.dataItems || [])
           syncControls(updatedBoundary.controls || [])
+          // Mirror the conduit delta onto peer boundaries so their settings reflect the new/removed edge
+          // without a full reload (the server response only re-pins this boundary).
+          syncPeerConduits(updatedBoundary.id, updatedBoundary.name, baselineConduits ?? [], updatedBoundary.conduits ?? [])
           return true
         }
       }
     }
     return false
+    } finally {
+      setOperationLoading(saveOp, false)
+    }
   }
+
+  // ── boundary zoning getters (read-only; consumed by the Zoning tab, picker, and diagram pill) ──
+  const boundaryById = (id: string): Node | null | undefined =>
+    id === defaultBoundaryId.value
+      ? defaultBoundary.value
+      : nodes.value.find(n => n.id === id && n.type === 'BOUNDARY')
+
+  // A function (not a computed) to match the store's convention and sidestep the deeply-generic
+  // Vue-Flow Node type under computed(); stays reactive when read inside a consumer's computed/render.
+  const allBoundaries = (): Node[] => nodes.value.filter((n: any) => n.type === 'BOUNDARY')
+
+  const effectiveZone = (boundaryId: string) =>
+    resolveEffectiveZone(boundaryId, boundaryById, defaultBoundaryId.value || '')
 
   const deleteComponentNode = async ({ componentId }: { componentId: string }) => {
     if (await dtComponent.deleteComponent({ componentId })) {
@@ -1167,6 +1295,9 @@ export const useFlowStore = defineStore('flow', () => {
     // Node functions
     createComponentNode, createBoundaryNode, updateNode, updateNodeClass, updateComponentNode,
     updateBoundaryNode, deleteComponentNode, deleteBoundaryNode,
+
+    // Boundary zoning getters
+    boundaryById, allBoundaries, effectiveZone,
 
     // Edge / DataFlow functions
     createDataFlow, updateDataFlow, updateDataFlowClass, deleteDataFlow,

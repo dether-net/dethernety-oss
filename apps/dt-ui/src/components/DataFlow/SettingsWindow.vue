@@ -4,11 +4,12 @@
   import { useFlowStore } from '@/stores/flowStore'
   import { useRouter } from 'vue-router'
   import { Class, Control, Exposure, Model } from '@dethernety/dt-core'
-  import type { ChangeElementBindingResult } from '@dethernety/dt-core'
+  import type { ChangeElementBindingResult, Zone, Plane, Conduit } from '@dethernety/dt-core'
   import { getPageDisplayName, flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import type { UISchemaElement } from '@jsonforms/core'
   import SettingsGeneralTab from '@/components/DataFlow/SettingsTabs/SettingsGeneralTab.vue'
+  import SettingsZoningTab from '@/components/DataFlow/SettingsTabs/SettingsZoningTab.vue'
   // import SettingsAttributesTab from '@/components/DataFlow/SettingsTabs/SettingsAttributesTab.vue'
   import SettingsDataTab from '@/components/DataFlow/SettingsTabs/SettingsDataTab.vue'
   import SettingsControlsTab from '@/components/DataFlow/SettingsTabs/SettingsControlsTab.vue'
@@ -42,7 +43,7 @@
   // Data
   const itemClass = ref<Class | null>(null)
   const representedModel = ref<Model | null>(null)
-  const tab = ref<'general' | 'attributes' | 'data' | 'controls' | 'exposures'>('general')
+  const tab = ref<'general' | 'zoning' | 'attributes' | 'data' | 'controls' | 'exposures'>('general')
   const controls = ref<Control[]>([])
   const exposures = ref<Exposure[]>([])
   // Stale-disposition count emitted by SettingsExposuresTab; drives the
@@ -72,7 +73,7 @@
   const pendingAttributes = ref<object>({})
 
   // Dirty tab tracking — the toolbar Save / Revert buttons key off isDirty; tab labels show a marker per tab id.
-  type TabId = 'general' | 'attributes' | 'data' | 'controls' | 'exposures'
+  type TabId = 'general' | 'zoning' | 'attributes' | 'data' | 'controls' | 'exposures'
   const dirtyTabs = ref<Set<TabId>>(new Set())
   const isDirty = computed(() => dirtyTabs.value.size > 0)
   const markDirty = (id: TabId) => { dirtyTabs.value.add(id); dirtyTabs.value = new Set(dirtyTabs.value) }
@@ -114,6 +115,90 @@
 
   const isEdge = (item: Node | Edge | null): item is Edge => {
     return item !== null && typeof item === 'object' && 'source' in item && 'target' in item
+  }
+
+  // ── Zoning tab (boundary-only) ──
+  interface ZoningBuffer {
+    zone: Zone | null;
+    domains: string[];
+    planes: Plane[];
+    conduits: Conduit[];
+  }
+  const isBoundary = computed(() => isNode(selectedItem.value) && selectedItem.value.type === 'BOUNDARY')
+  // The Zoning tab is gated off the default/root boundary: its zoning isn't in the model-dump read and
+  // doesn't re-pin to server truth, so an edit there would silently not persist. The default boundary is
+  // the implicit Internal fallback anyway (real boundaries inherit from it), so it has no editable zone.
+  const showZoningTab = computed(
+    () => isBoundary.value && isNode(selectedItem.value) && selectedItem.value.id !== flowStore.defaultBoundaryId,
+  )
+  // Pending zoning buffer — the Zoning tab binds to this; saveZoning commits it via the store path.
+  const pendingZoning = ref<ZoningBuffer>({ zone: null, domains: [], planes: [], conduits: [] })
+
+  // Re-seed the buffer from the selected boundary's node data (server truth). A light reset — does NOT
+  // re-fetch class/attributes (unlike the full updateForm), so it's safe to call after a zoning save.
+  const seedZoningFromSelected = () => {
+    const d = isNode(selectedItem.value) ? selectedItem.value.data : null
+    pendingZoning.value = {
+      zone: (d?.zone as Zone | null) ?? null,
+      domains: [...(d?.domains ?? [])],
+      planes: [...(d?.planes ?? [])],
+      conduits: [...(d?.conduits ?? [])],
+    }
+  }
+
+  const onPendingZoningUpdate = (v: ZoningBuffer) => {
+    pendingZoning.value = v
+    markDirty('zoning')
+  }
+
+  // Save-disable while a boundary save is in flight: dt-core's `update-boundary-<id>` deduplicationKey
+  // shares the in-flight promise, so a second overlapping Save would silently drop its edit.
+  const isBoundarySaving = computed(() =>
+    isBoundary.value &&
+    !!selectedItem.value &&
+    flowStore.isOperationLoading('updateBoundary-' + selectedItem.value.id),
+  )
+
+  const saveZoning = async (): Promise<boolean> => {
+    if (!selectedItem.value || !isNode(selectedItem.value)) return false
+
+    // Strip conduits whose peer boundary no longer exists (e.g. a freshly-added peer deleted before Save).
+    // A zero-match nested `connect` would otherwise error the WHOLE mutation — rolling back the user's
+    // zone/domains/planes edits too. Mutate the buffer (not the node) so Revert restores.
+    const liveIds = new Set(
+      [...flowStore.allBoundaries().map(b => b.id), flowStore.defaultBoundaryId].filter(Boolean) as string[],
+    )
+    const liveConduits = pendingZoning.value.conduits.filter(c => liveIds.has(c.peerId))
+    if (liveConduits.length !== pendingZoning.value.conduits.length) {
+      const dropped = pendingZoning.value.conduits.length - liveConduits.length
+      pendingZoning.value = { ...pendingZoning.value, conduits: liveConduits }
+      showSnackbar(
+        `${dropped} channel${dropped === 1 ? '' : 's'} to a removed boundary ${dropped === 1 ? 'was' : 'were'} dropped`,
+        'warning',
+      )
+    }
+
+    const res = await flowStore.updateNode({
+      nodeId: selectedItem.value.id,
+      updates: {
+        data: {
+          zone: pendingZoning.value.zone,
+          domains: pendingZoning.value.domains,
+          planes: pendingZoning.value.planes,
+          conduits: pendingZoning.value.conduits,
+        },
+      },
+    })
+    if (res) {
+      clearDirty('zoning')
+      if (isFreshlyCreated.value) emit('clear-freshly-created')
+      showSnackbar('Zoning saved successfully', 'success')
+      seedZoningFromSelected()
+    } else {
+      // Buffer stays dirty so the user can retry without losing their edit.
+      showSnackbar('Failed to save zoning', 'error')
+    }
+    return res
   }
 
   const loadExposures = async () => {
@@ -279,6 +364,12 @@
 
     // Initialize controls for the selected item
     initializeControls()
+
+    // Seed the zoning buffer from the boundary's node data; for non-boundaries leave the tab inert and
+    // never let the active tab rest on the (now-hidden) zoning tab.
+    seedZoningFromSelected()
+    if (!showZoningTab.value && tab.value === 'zoning') tab.value = 'general'
+    clearDirty('zoning')
 
     clearDirty('general')
     // Don't auto-mark fresh drafts dirty — that artificial dirt makes the navigation guard fire
@@ -472,6 +563,9 @@
     if (dirtyTabs.value.has('attributes')) {
       await saveAttributes()
     }
+    if (dirtyTabs.value.has('zoning')) {
+      await saveZoning()
+    }
   }
 
   const resetPendingFormDataFromSelectedItem = () => {
@@ -495,6 +589,7 @@
   const revertPending = () => {
     resetPendingFormDataFromSelectedItem()
     resetPendingAttributesFromLoaded()
+    seedZoningFromSelected()
     clearAllDirty()
   }
 
@@ -755,6 +850,9 @@
             <v-tab prepend-icon="mdi-cog-outline" value="general">
               General<span v-if="dirtyTabs.has('general')" class="dirty-dot" aria-label="Unsaved changes">●</span>
             </v-tab>
+            <v-tab v-if="showZoningTab" prepend-icon="mdi-shield-lock-outline" value="zoning">
+              Zoning<span v-if="dirtyTabs.has('zoning')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+            </v-tab>
             <v-tab prepend-icon="mdi-tune-vertical" value="attributes">
               Attributes<span v-if="dirtyTabs.has('attributes')" class="dirty-dot" aria-label="Unsaved changes">●</span>
             </v-tab>
@@ -789,6 +887,14 @@
                 @update:formData="onPendingFormDataUpdate"
                 @update:isFromClass="isFromClass = $event"
                 @update:crownJewel="onCrownJewelToggle"
+              />
+            </v-tabs-window-item>
+
+            <v-tabs-window-item v-if="showZoningTab" value="zoning">
+              <SettingsZoningTab
+                :zoning="pendingZoning"
+                :boundaryId="selectedItem?.id ?? ''"
+                @update:zoning="onPendingZoningUpdate"
               />
             </v-tabs-window-item>
 
@@ -872,7 +978,7 @@
           <v-btn
             class="mx-8 ma-3"
             color="secondary"
-            :disabled="!isDirty && !isFreshlyCreated"
+            :disabled="(!isDirty && !isFreshlyCreated) || isBoundarySaving"
             icon="mdi-content-save-outline"
             size="x-large"
             type="submit"

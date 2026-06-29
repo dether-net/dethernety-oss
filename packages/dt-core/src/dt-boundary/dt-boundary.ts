@@ -2,9 +2,10 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { BoundaryData, Control, DataItem, DirectDescendant, Model } from '../interfaces/core-types-interface.js'
+import { BoundaryData, Control, DataItem, DirectDescendant, Model, Conduit } from '../interfaces/core-types-interface.js'
 import { Node } from '@vue-flow/core'
 import { ADD_BOUNDARY, UPDATE_BOUNDARY, GET_DIRECT_DESCENDANTS, DELETE_BOUNDARY, GET_BOUNDARY_REPRESENTED_MODEL } from './dt-boundary-gql.js'
+import { sanitizeZone, sanitizeDomains, normalizePlanes, buildConduitOps, flattenConduits } from './boundary-zoning-utils.js'
 
 export class DtBoundary {
   private dtUtils: DtUtils
@@ -92,8 +93,8 @@ export class DtBoundary {
    * @returns The updated node or null if the node is not a boundary
    */
   updateBoundaryNode = async (
-    { updatedNode, defaultBoundaryId }:
-    { updatedNode: Node, defaultBoundaryId: string }
+    { updatedNode, defaultBoundaryId, baselineConduits = [] }:
+    { updatedNode: Node, defaultBoundaryId: string, baselineConduits?: Conduit[] }
   ): Promise<BoundaryData | null> => {
     try {
       let parentBoundaryInput = undefined
@@ -112,6 +113,18 @@ export class DtBoundary {
         }
       }
       
+      // Conduits reconcile only when the buffer is present (undefined = leave edges untouched,
+      // mirroring controls/dataItems). Membership is a baseline-driven delta — `connect` is NOT
+      // idempotent for CONDUIT (re-connecting an existing peer duplicates the edge), so we connect
+      // only added peers, disconnect only removed, and `update` only changed-justification peers.
+      const conduitsBuf: Conduit[] | undefined = updatedNode.data.conduits
+      const outboundOps = conduitsBuf === undefined
+        ? undefined
+        : buildConduitOps('OUTBOUND', conduitsBuf, baselineConduits, updatedNode.id)
+      const inboundOps = conduitsBuf === undefined
+        ? undefined
+        : buildConduitOps('INBOUND', conduitsBuf, baselineConduits, updatedNode.id)
+
       const variables = {
         boundaryId: updatedNode.id,
         input: {
@@ -123,6 +136,15 @@ export class DtBoundary {
           dimensionsHeight: { set: updatedNode.height },
           dimensionsMinWidth: { set: updatedNode.data.minWidth },
           dimensionsMinHeight: { set: updatedNode.data.minHeight },
+          zone: { set: sanitizeZone(updatedNode.data.zone ?? null) },
+          domains: { set: sanitizeDomains(updatedNode.data.domains) },
+          // `planes` is a `[String!]` field (NOT a GraphQL enum): @neo4j/graphql v7 generates a broken
+          // enum-list mutation input (both `set` and `push` required, resolver forbids both), so the enum
+          // form was unwritable. Stored as String, the values stay constrained to the `Plane` union by
+          // `normalizePlanes` (app-side validation). Same shape as `domains`.
+          planes: { set: normalizePlanes(updatedNode.data.planes) },
+          ...(outboundOps !== undefined && { outboundConduits: outboundOps }),
+          ...(inboundOps !== undefined && { inboundConduits: inboundOps }),
           ...(parentBoundaryInput !== undefined && { parentBoundary: parentBoundaryInput }),
           controls: {
             disconnect: updatedNode.data.controls === undefined ? {} : {
@@ -175,6 +197,9 @@ export class DtBoundary {
               ? dataItem.dataClass[0]
               : dataItem.dataClass,
           })),
+          // Re-derive the flattened conduits from the server response so the store can re-pin its
+          // baseline to server truth after the reconcile.
+          conduits: flattenConduits(result),
         }
         return updatedBoundary
       }

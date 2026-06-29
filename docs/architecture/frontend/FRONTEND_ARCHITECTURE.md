@@ -220,6 +220,76 @@ Interactive diagram editor built on Vue Flow.
 - Nested boundaries with parent-child relationships
 - Real-time property editing with JSONForms
 
+#### Boundary Zoning
+
+Boundary **zoning** lets the modeller classify each security boundary by a trust tier and record how
+it connects to its peers. A boundary carries four zoning fields in `node.data`:
+
+| Field | Shape | Meaning |
+|-------|-------|---------|
+| `zone` | `Zone \| null` | Declared trust tier (`PUBLIC`, `EXPOSED`, `INTERNAL`, `RESTRICTED`, `UNTRUSTED`, `VENDOR`). `null` means "inherit". |
+| `domains` | `string[]` | Free-form business-function tags (e.g. `payments`, `erp`). |
+| `planes` | `Plane[]` | Operational role, projected to/from a 4-state `Role` (`UNDECIDED` / `WORKLOAD` / `MANAGEMENT` / `BOTH`). |
+| `conduits` | `Conduit[]` | Directed "approved channels" to peer boundaries (a declared, justified connection). |
+
+Zoning records **declared design intent, not a verified verdict.** The frontend computes no legality
+or compliance result — it captures what the modeller asserts and presents it for review. A prospective
+"does this channel hold up" verdict is deliberately left unimplemented in this surface.
+
+**Effective zone and inheritance.** A boundary with `zone === null` inherits the nearest ancestor's
+declared zone by walking the containment chain (`node.parentNode`). With no ancestor declaring a zone,
+it resolves to a default of `INTERNAL`. The resolution is a pure tree walk — no backend call:
+
+```
+Resolution of a boundary's effective zone (walk node.parentNode upward):
+
+  default boundary  ──────────────  no zone declared anywhere
+        │                                  ↓
+   ┌────┴─────────┐               source = 'default'  → INTERNAL  (pill hidden)
+   │  "Corp net"  │  zone = INTERNAL
+   │              │               source = 'declared' → INTERNAL  (solid pill)
+   │   ┌──────────┴──┐
+   │   │ "App tier"  │  zone = null
+   │   │             │            source = 'inherited' from "Corp net" → INTERNAL  (dimmed pill)
+   │   │   ┌─────────┴──┐
+   │   │   │ "CDE"      │  zone = RESTRICTED
+   │   │   │            │         source = 'declared' → RESTRICTED  (solid pill)
+   │   │   └────────────┘
+   │   └─────────────────┘
+   └──────────────────────┘
+```
+
+`resolveEffectiveZone` returns `{ zone, source: 'declared' | 'inherited' | 'default', from? }`, where
+`from` names the ancestor for an `'inherited'` result. The walk is depth-capped (`MAX_DEPTH = 50`) and
+cycle-guarded, mirroring the server-side containment traversal ceiling.
+
+**Supporting pure utilities.** The read-side logic lives in framework-free, unit-testable modules under
+`apps/dt-ui/src/utils/`, so the components stay thin consumers:
+
+| Module | Key exports | Role |
+|--------|-------------|------|
+| `effectiveZone.ts` | `resolveEffectiveZone`, `EffectiveZone`, `DEFAULT_ZONE` (`INTERNAL`), `MAX_DEPTH` | Inheritance walk over the boundary graph. |
+| `boundaryTree.ts` | `buildBoundaryTree`, `flattenBoundaryTree`, `isAncestorBoundary` | Flat `Node[]` → containment forest; pre-order flatten with depth; cycle-safe ancestor test. |
+| `zoneColor.ts` | `ZONE_LABEL`, `ZONE_PILL_WORD`, `ZONE_HINT`, `ZONE_COLOR`, `zonePill`, `Role`, `planesToRole` / `roleToPlanes` | Display vocabulary: plain-language labels, short pill words, "reachable by" hints, the colour ramp, the pill decision, and the `planes` ↔ `Role` mapping. |
+
+Colour is **reinforcement only** — the pill always shows a word, so the encoding stays colourblind-safe.
+
+**Components.** Zoning is authored, reviewed, and rendered through four surfaces, all reading the store's
+[zoning getters](./LLD/FLOW_STORE.md#boundary-zoning-getters) (`boundaryById`, `allBoundaries`,
+`effectiveZone`):
+
+| Component | File | Role |
+|-----------|------|------|
+| **Zone pill** | [`DataFlow/Nodes/BoundaryNode.vue`](../../../apps/dt-ui/src/components/DataFlow/Nodes/BoundaryNode.vue) | Renders the effective zone on the boundary in the diagram via `zonePill`: solid for `declared`, dimmed + italic for `inherited`, hidden for `default`. |
+| **Zoning tab** | [`DataFlow/SettingsTabs/SettingsZoningTab.vue`](../../../apps/dt-ui/src/components/DataFlow/SettingsTabs/SettingsZoningTab.vue) | Buffered authoring of `zone` / `domains` / role / conduits for one boundary; the parent owns the buffer and commits via the boundary's existing **Save**. |
+| **Peer picker** | [`DataFlow/BoundaryPicker/BoundaryPickerSheet.vue`](../../../apps/dt-ui/src/components/DataFlow/BoundaryPicker/BoundaryPickerSheet.vue) + [`BoundaryPeerPreview.vue`](../../../apps/dt-ui/src/components/DataFlow/BoundaryPicker/BoundaryPeerPreview.vue) | Drawer for declaring a directed conduit to a peer boundary; previews the peer's resolved zone/role/domains and warns (never blocks) on a structurally-nested pick. |
+| **Zoning overview** | [`DataFlow/BoundaryZoning/BoundaryZoningOverview.vue`](../../../apps/dt-ui/src/components/DataFlow/BoundaryZoning/BoundaryZoningOverview.vue) | Model-wide nesting tree with inline zone edit, bulk-set + Undo, an unclassified count/filter, and collapsed-parent roll-up badges. Opened from the canvas toolbar's shield button in [`DataFlow/DataFlowBackground.vue`](../../../apps/dt-ui/src/components/DataFlow/DataFlowBackground.vue). |
+
+The overview is an **immediate-persist** surface (each edit writes at once, with Undo as the safety net),
+whereas the tab is **buffered** (edits accumulate and commit on Save). Both write through the store's
+`updateNode`. See [Implementation Patterns — Boundary zoning](./LLD/Data%20architecture/IMPLEMENTATION_PATTERNS.md#4-boundary-zoning--buffered-tab-vs-immediate-persist-overview)
+for the buffer-vs-immediate-persist mechanics.
+
 ### 4. Dynamic Module System
 
 Runtime-extensible architecture for frontend plugins.

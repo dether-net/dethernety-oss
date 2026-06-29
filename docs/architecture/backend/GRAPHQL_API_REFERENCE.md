@@ -18,6 +18,7 @@
 - [Class types](#class-types)
 - [MITRE framework types](#mitre-framework-types)
 - [Utility types](#utility-types)
+- [Input types](#input-types)
 - [Queries](#queries)
 - [Mutations](#mutations)
 - [Subscription](#subscription)
@@ -40,38 +41,6 @@ Component type (process, database, external entity, etc.).
 | `DATA_FLOW` | A data flow connection between components |
 | `DATA` | A data class |
 | `CONTROL` | A control class |
-
-### ModelingDepth
-
-The depth at which a model reasons about the system (a `Model` scope field).
-
-| Value | Description |
-|-------|-------------|
-| `ARCHITECTURE` | Architecture level (systems and trust zones) |
-| `DESIGN` | Design level (components and interfaces) |
-| `IMPLEMENTATION` | Implementation level (concrete code and config) |
-
-### ModelingIntent
-
-Why a model exists; frames which findings matter (a `Model` scope field).
-
-| Value | Description |
-|-------|-------------|
-| `INITIAL` | Initial pass to establish a baseline model |
-| `SECURITY_REVIEW` | Focused security review of an existing system |
-| `COMPLIANCE` | Driven by a compliance obligation |
-| `INCIDENT_RESPONSE` | Modeling in support of an active incident response |
-
-### SensitivityLevel
-
-Author-asserted data sensitivity classification, lowest to highest (`Data.sensitivity`).
-
-| Value | Description |
-|-------|-------------|
-| `PUBLIC` | No confidentiality requirement |
-| `INTERNAL` | Restricted to the organization |
-| `CONFIDENTIAL` | Limited distribution |
-| `RESTRICTED` | Strict need-to-know |
 
 ### ClassLabelEnum
 
@@ -126,6 +95,28 @@ Trust level assigned to a security boundary.
 | `SEMI_TRUSTED` | Partial trust — DMZ or shared zone |
 | `TRUSTED` | Full trust — internal or protected zone |
 
+### Zone
+
+Trust/exposure gradient of a security boundary (replaces TrustLevel).
+
+| Value | Description |
+|-------|-------------|
+| `UNTRUSTED` | Open internet / hostile frontier (external) |
+| `PUBLIC` | Internet-facing (your edge) |
+| `EXPOSED` | Behind the front door (DMZ) |
+| `INTERNAL` | Trusted zones only |
+| `RESTRICTED` | Specifically-authorized paths only (CDE, secrets, DCs, security tooling) |
+| `VENDOR` | Trusted external party (vetted vendor / connected partner) |
+
+### Plane
+
+Operational/privilege role of a boundary.
+
+| Value | Description |
+|-------|-------------|
+| `WORKLOAD` | Business workload (front to back) |
+| `MANAGEMENT` | Privileged control/admin infrastructure (incl. security tooling) |
+
 ### AttackVector
 
 CVSS v3.1-aligned attack vector classification for exposures.
@@ -148,6 +139,95 @@ Value types for dynamic attributes.
 | `NUMBER` | A numeric value (integer or float) |
 | `BOOLEAN` | A true/false value |
 | `DATE` | A date or datetime value |
+
+### DispositionKind
+
+Structured argument the user authors for treating a SYSTEM finding differently.
+
+| Value | Description |
+|-------|-------------|
+| `NOT_APPLICABLE` | Finding does not apply to this element / model context |
+| `FALSE_POSITIVE` | Finding is incorrect — the underlying weakness does not exist as described |
+| `COMPENSATING_CONTROL` | A compensating control mitigates the finding to an acceptable residual risk |
+| `RISK_ACCEPTED` | Risk has been formally accepted; finding remains documented |
+| `WAIVED` | We have decided not to implement this control (control waiver). Countermeasure-only. |
+| `SUPERSEDED` | Finding has been replaced by a user-authored exposure that better fits the model |
+| `AFFIRMED` | Finding reviewed and confirmed as a real, live risk. The one disposition kind that keeps the finding live (not muted). |
+
+### DispositionErrorCode
+
+Error taxonomy for disposeExposure / clearDisposition mutations.
+
+| Value | Description |
+|-------|-------------|
+| `VALIDATION_ERROR` | Input failed validation (reason empty, kind missing, exposureId malformed) |
+| `EXPOSURE_NOT_FOUND` | No Exposure matched the supplied exposureId |
+| `DATABASE_ERROR` | Underlying graph write failed for an infrastructure reason |
+
+### MitreKind
+
+MITRE corpus selector for matchMitreTechniques. Determines which HNSW index is consulted.
+
+| Value | Description |
+|-------|-------------|
+| `ATTACK_TECHNIQUE` | MITRE ATT&CK adversary technique (T-codes; e.g. T1003, T1003.001) |
+| `DEFEND_TECHNIQUE` | MITRE D3FEND defensive technique (D3-codes; e.g. D3-PMAD) |
+| `ATTACK_MITIGATION` | MITRE ATT&CK mitigation (M-codes; e.g. M1041) |
+
+### MitreMatchType
+
+How a MITRE candidate matched the user's query. Distinct vocabulary from MatchType (matchClasses): MITRE matching cascades through id / name / description / vector tiers.
+
+| Value | Description |
+|-------|-------------|
+| `EXACT_ID` | Query exactly equals the MITRE id (e.g. 'T1003' → T1003) |
+| `PREFIX_ID` | Query is a prefix of the MITRE id (e.g. 'T100' → T1003) |
+| `NAME_MATCH` | Query substring matched the candidate's name |
+| `DESCRIPTION_MATCH` | Query substring matched the candidate's description |
+| `VECTOR_SIMILARITY` | Server-computed embedding cosine-similarity match against the HNSW index |
+
+### VectorDisabledReason
+
+Why the vector tier of matchMitreTechniques is disabled. Drives the picker caption and lets it differentiate deployment-lacks-vector from module-misalignment.
+
+| Value | Description |
+|-------|-------------|
+| `EMBEDDING_DISABLED` | EMBEDDING_ENABLED is false in the deployment's environment |
+| `NO_INDEX_MODULE` | Graph backend lacks the vector_search procedure (Neo4j, or older Memgraph) |
+| `NO_VECTORS` | MITRE module shipped no embeddings, or per-label coverage is incomplete (partial install) |
+| `MODEL_MISMATCH` | Module's embeddingModel disagrees with the platform's runtime EMBEDDING_MODEL |
+
+### ModelingDepth
+
+Modeling depth the author asserts the model reaches.
+
+| Value | Description |
+|-------|-------------|
+| `ARCHITECTURE` | Reasoning at the architecture level (systems and trust zones) |
+| `DESIGN` | Reasoning at the design level (components and interfaces) |
+| `IMPLEMENTATION` | Reasoning at the implementation level (concrete code and config) |
+
+### ModelingIntent
+
+Why this model is being built — drives the analysis-phase emphasis.
+
+| Value | Description |
+|-------|-------------|
+| `INITIAL` | Initial pass to establish a baseline model |
+| `SECURITY_REVIEW` | Focused security review of an existing system |
+| `COMPLIANCE` | Driven by a compliance obligation |
+| `INCIDENT_RESPONSE` | Modeling in support of an active incident response |
+
+### SensitivityLevel
+
+Author-asserted data sensitivity classification.
+
+| Value | Description |
+|-------|-------------|
+| `PUBLIC` | Public — no confidentiality requirement |
+| `INTERNAL` | Internal — restricted to the organization |
+| `CONFIDENTIAL` | Confidential — limited distribution |
+| `RESTRICTED` | Restricted — strict need-to-know |
 
 ### ElementBindingKind
 
@@ -175,69 +255,6 @@ human-readable string suitable for snackbar display.
 | `REPRESENTED_MODEL_NOT_ALLOWED` |  |
 | `MODULE_ERROR` |  |
 | `DATABASE_ERROR` |  |
-
-### DispositionKind
-
-Structured argument the user authors for treating a SYSTEM finding
-differently. Applies to both Exposure and Countermeasure.
-
-| Value | Description |
-|-------|-------------|
-| `AFFIRMED` | Reviewed and confirmed — a real risk for an Exposure, in place for a Countermeasure. The only kind that keeps the finding live; every other kind mutes it |
-| `NOT_APPLICABLE` | Finding does not apply to this element / model context |
-| `FALSE_POSITIVE` | Finding is incorrect — the underlying weakness does not exist as described |
-| `COMPENSATING_CONTROL` | A compensating control mitigates the finding to an acceptable residual risk (exposure-only) |
-| `RISK_ACCEPTED` | Risk has been formally accepted; finding remains documented (exposure-only) |
-| `WAIVED` | The control will not be implemented (control waiver; countermeasure-only) |
-| `SUPERSEDED` | Finding has been replaced by a user-authored finding that better fits the model (system-set by the Supersede flow) |
-
-### DispositionErrorCode
-
-Error taxonomy for the disposition mutations. Null on success;
-`errorMessage` carries a sanitised human-readable string. Domain errors
-return as `success: false` rather than throwing.
-
-| Value | Description |
-|-------|-------------|
-| `VALIDATION_ERROR` | Input failed validation (reason empty, kind not pickable for the node type, id malformed, actor absent) |
-| `EXPOSURE_NOT_FOUND` | No node matched the supplied id (reused for both Exposure and Countermeasure) |
-| `DATABASE_ERROR` | Underlying graph write failed for an infrastructure reason |
-
-### MitreKind
-
-MITRE corpus selector for matchMitreTechniques. Determines which HNSW
-index is consulted.
-
-| Value | Description |
-|-------|-------------|
-| `ATTACK_TECHNIQUE` | MITRE ATT&CK adversary technique (T-codes; e.g. T1003, T1003.001) |
-| `DEFEND_TECHNIQUE` | MITRE D3FEND defensive technique (D3-codes; e.g. D3-PMAD) |
-| `ATTACK_MITIGATION` | MITRE ATT&CK mitigation (M-codes; e.g. M1041) |
-
-### MitreMatchType
-
-How a MITRE candidate matched the user's query. Distinct vocabulary from
-`MatchType` (matchClasses).
-
-| Value | Description |
-|-------|-------------|
-| `EXACT_ID` | Query exactly equals the MITRE id |
-| `PREFIX_ID` | Query is a prefix of the MITRE id |
-| `NAME_MATCH` | Query substring matched the candidate's name |
-| `DESCRIPTION_MATCH` | Query substring matched the candidate's description |
-| `VECTOR_SIMILARITY` | Server-computed embedding cosine-similarity match against the HNSW index |
-
-### VectorDisabledReason
-
-Why the vector tier of matchMitreTechniques is disabled. Drives the picker
-caption.
-
-| Value | Description |
-|-------|-------------|
-| `EMBEDDING_DISABLED` | Embedding is disabled in the deployment's environment |
-| `NO_INDEX_MODULE` | Graph backend lacks the `vector_search` procedure (Neo4j, or older Memgraph) |
-| `NO_VECTORS` | MITRE module shipped no embeddings, or per-label coverage is incomplete |
-| `MODEL_MISMATCH` | The module's `embeddingModel` disagrees with the platform's runtime model |
 
 ## Interfaces
 
@@ -280,11 +297,6 @@ Implements: `Element`
 | `id` | `ID!` | Unique identifier |
 | `name` | `String!` | Model name |
 | `description` | `String` | Free-text description |
-| `depth` | `ModelingDepth` | Author-asserted modeling depth (`ARCHITECTURE` / `DESIGN` / `IMPLEMENTATION`). Nullable |
-| `modelingIntent` | `ModelingIntent` | Why the model exists (`INITIAL` / `SECURITY_REVIEW` / `COMPLIANCE` / `INCIDENT_RESPONSE`). Nullable |
-| `complianceDrivers` | `[String!]` | Regulatory/standards obligations in scope, free-text (e.g. `PCI-DSS`, `HIPAA`). Nullable |
-| `exclusions` | `[String!]` | Areas deliberately out of scope. Nullable |
-| `trustAssumptions` | `[String!]` | What the model treats as trusted (e.g. "cloud control plane"). Nullable |
 | `defaultBoundary` | `[SecurityBoundary!]!` | Top-level security boundaries in this model (→ `CONTAINS`) |
 | `modules` | `[Module!]!` | Modules previously attached to this model. UI-deprecated as of 2026-05 —
 the class picker uses the global module catalogue via listClasses / matchClasses.
@@ -297,6 +309,11 @@ class-picker design. (→ `HAS_MODULE`) |
 | `analyses` | `[Analysis!]!` | Analyses run against this model (→ `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this model (→ `HAS_ISSUE`) |
 | `folder` | `[Folder!]!` | Folder containing this model (← `FOLDER_CONTAINS`) |
+| `depth` | `ModelingDepth` | Modeling depth asserted by the author (architecture / design / implementation) |
+| `modelingIntent` | `ModelingIntent` | Why this model is being built (drives the analysis-phase emphasis) |
+| `complianceDrivers` | `[String!]` | Compliance frameworks driving this model (free-text, e.g. PCI-DSS, HIPAA) |
+| `exclusions` | `[String!]` | Areas the author explicitly declared out of scope |
+| `trustAssumptions` | `[String!]` | Trust assumptions the author is making about the environment |
 
 ### Component
 
@@ -310,7 +327,6 @@ Implements: `Element`
 | `name` | `String!` | Component name |
 | `description` | `String` | Free-text description |
 | `type` | `ComponentType!` | Component type (process, store, external entity, etc.) |
-| `crownJewel` | `Boolean` | Author-asserted high-value asset marker. Nullable — `null` ⇒ not a crown jewel |
 | `parentBoundary` | `[SecurityBoundary!]!` | Security boundary this component belongs to (→ `BELONGS_TO`) |
 | `flowsFrom` | `[DataFlow!]!` | Outgoing data flows from this component (→ `FLOWS`) |
 | `flowsTo` | `[DataFlow!]!` | Incoming data flows to this component (← `FLOWS`) |
@@ -325,6 +341,7 @@ Implements: `Element`
 | `positionY` | `Float` | Y position on the canvas |
 | `dimensionsWidth` | `Float` | Width on the canvas |
 | `dimensionsHeight` | `Float` | Height on the canvas |
+| `crownJewel` | `Boolean` | Author flag marking this component a crown jewel (high-value asset). Null ⇒ false. |
 
 ### DataFlow
 
@@ -361,7 +378,10 @@ Implements: `Element`
 | `name` | `String!` | Boundary name |
 | `description` | `String` | Free-text description |
 | `model` | `[Model!]!` | Model this boundary belongs to (← `CONTAINS`) |
-| `trustLevel` | `TrustLevel!` | Trust level of this boundary (untrusted, semi-trusted, trusted) |
+| `trustLevel` | `TrustLevel` | Dormant/deprecated trust level — replaced by `zone`. |
+| `zone` | `Zone` | Trust/exposure gradient. NULL = inherit from the nearest declaring ancestor. |
+| `domains` | `[String!]` | Open-vocabulary business functions this boundary serves. |
+| `planes` | `[String!]` | Operational roles present on this boundary, drawn from the `Plane` vocabulary. NULL/empty = undecided. |
 | `components` | `[Component!]!` | Components inside this boundary (← `BELONGS_TO`) |
 | `childBoundaries` | `[SecurityBoundary!]!` | Nested child boundaries (← `BELONGS_TO`) |
 | `parentBoundary` | `[SecurityBoundary!]!` | Parent boundary (if nested) (→ `BELONGS_TO`) |
@@ -372,6 +392,8 @@ Implements: `Element`
 | `representedModel` | `[Model!]!` | Model represented by this boundary (for model-in-model composition) (→ `REPRESENTS_MODEL`) |
 | `analyses` | `[Analysis!]!` | Analyses run against this boundary (→ `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this boundary (→ `HAS_ISSUE`) |
+| `outboundConduits` | `[SecurityBoundary!]!` | Peers this boundary is declared/intended to reach (egress) — CONDUIT edges OUT. Edge direction = approved flow direction. Declared intent, not an enforced permission. (→ `CONDUIT`) |
+| `inboundConduits` | `[SecurityBoundary!]!` | Peers declared/intended to be able to reach this boundary (ingress) — CONDUIT edges IN. Declared intent, not an enforced permission. (← `CONDUIT`) |
 | `positionX` | `Float` | X position on the canvas |
 | `positionY` | `Float` | Y position on the canvas |
 | `dimensionsWidth` | `Float` | Width on the canvas |
@@ -381,6 +403,15 @@ Implements: `Element`
 | `allDescendantBoundaries` | `[SecurityBoundary!]!` | All nested boundaries at any depth (computed via Cypher traversal) |
 | `allDescendantComponents` | `[Component!]!` | All components inside this boundary or any nested boundary (computed) |
 | `allDescendantDataFlows` | `[DataFlow!]!` | All data flows touching components in this boundary or nested boundaries (computed) |
+
+### ConduitProperties
+
+Disposition metadata on a CONDUIT edge. Carries intent only — never asserts legality.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `justification` | `String` | Optional free-text rationale, written by the modeler (e.g. 'payment service to Stripe, sanctioned'). |
+| `controlRefs` | `[ID!]` | Optional reference(s) to the mediating control(s) that make it safe. Scalar id(s) this round. |
 
 ### Data
 
@@ -393,8 +424,6 @@ Implements: `Element`
 | `id` | `ID!` | Unique identifier |
 | `name` | `String!` | Data element name |
 | `description` | `String` | Free-text description |
-| `sensitivity` | `SensitivityLevel` | Author-asserted sensitivity. Nullable — `null` ⇒ unclassified (not `PUBLIC`) |
-| `regulatoryFlags` | `[String!]` | Free-text compliance labels (see [canonical vocabulary](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary)). Nullable — `null` ⇒ none |
 | `model` | `[Model!]!` | Model this data element belongs to (← `CONTAINS`) |
 | `dataClass` | `[DataClass!]!` | Class this data element is an instance of (→ `IS_INSTANCE_OF`) |
 | `component` | `[Component!]!` | Components that handle this data (← `HANDLES`) |
@@ -404,6 +433,8 @@ Implements: `Element`
 | `exposures` | `[Exposure!]!` | Security exposures related to this data (→ `HAS_EXPOSURE`) |
 | `analyses` | `[Analysis!]!` | Analyses involving this data (→ `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this data (→ `HAS_ISSUE`) |
+| `sensitivity` | `SensitivityLevel` | Author-asserted sensitivity classification of this data. Null ⇒ unclassified. |
+| `regulatoryFlags` | `[String!]` | Regulatory scopes this data falls under (free-text, e.g. "PCI cardholder", "PHI"). Null ⇒ []. |
 
 ### Control
 
@@ -488,11 +519,11 @@ Implements: `Element`
 | `attackVector` | `AttackVector` | CVSS-aligned attack vector classification |
 | `createdBy` | `String` | Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Null on legacy data is treated as SYSTEM by the cleanup paths. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides any client-supplied value with 'USER'. The SYSTEM write path goes via Cypher (SetInstantiationAttributesService) and bypasses this directive. |
 | `authoredBy` | `String` | Creator reference, populated server-side at CREATE time. For USER findings: the authenticated user identifier (JWT sub claim) from context, set by the @populatedBy callback. For SYSTEM findings: an optional module-provided attribution string (feed name, advisory id, researcher name) that the module includes in its return; the module value flows through the resolver's sanitised \$attrs allowlist. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback. |
-| `dispositionKind` | `DispositionKind` | User-recorded decision on a SYSTEM finding (null = active). Set via `disposeExposure`; cleared via `clearDisposition`. The auto-generated update input exposes it as writeable, but the structured mutations are the preferred path. |
-| `dispositionReason` | `String` | Free-text justification, mandatory (non-empty after trim) when `dispositionKind` is non-null. |
-| `dispositionedBy` | `String` | Authenticating user (JWT sub claim), stamped server-side. `@settable(onCreate: false, onUpdate: false)` — the structured mutation is the only writer. |
-| `dispositionedAt` | `DateTime` | ISO-8601 timestamp of the current disposition, stamped server-side. `@settable(onCreate: false, onUpdate: false)`. |
-| `dispositionStale` | `Boolean` | True when an instantiation attribute value changed since the disposition was last authored / re-affirmed. Deliberately NOT `@settable`-locked so the generated update mutation and the USER-copy-delete companion can flip it. |
+| `dispositionKind` | `DispositionKind` | Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeExposure / Supersede flows; cleared via clearDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises. AFFIRMED is the one kind that keeps the finding live (reviewed and confirmed a real risk) rather than muting it. |
+| `dispositionReason` | `String` | Free-text justification authored by the user. Mandatory (non-empty after trim) when dispositionKind is non-null. Captured at dispose time and on every modification / re-affirm. For SUPERSEDED dispositions populated via the frontend Supersede flow, defaults to "Superseded by user-authored exposure '<name>'" — user-editable after. The single-quote wrapping around the clone's name is load-bearing for the USER-copy-delete companion staleness flip. |
+| `dispositionedBy` | `String` | User id (JWT sub claim) of the user who authored the current disposition. Stamped by the disposeExposure resolver from context.user.sub. Null when dispositionKind is null. Updated on every dispose call (including re-affirm — the backend treats them identically). Server-stamped via the structured mutation only — the @settable(onCreate/onUpdate: false) directives prevent direct-GraphQL spoofing of this forensic-provenance field, matching the posture of createdBy / authoredBy above. |
+| `dispositionedAt` | `DateTime` | ISO-8601 timestamp when the current disposition was authored or last modified / re-affirmed. Stamped by the resolver. Null when dispositionKind is null. Updated on every dispose call. Server-stamped only — @settable directives prevent backdating via direct-GraphQL. |
+| `dispositionStale` | `Boolean` | True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeExposure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked). |
 | `component` | `[Component!]!` | Components affected by this exposure (← `HAS_EXPOSURE`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |
@@ -520,17 +551,17 @@ Implements: `Element`
 | `tags` | `[String!]` | Tags for filtering and grouping |
 | `createdBy` | `String` | Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides client input. See the matching field on Exposure for full rationale. |
 | `authoredBy` | `String` | Creator reference, populated server-side at CREATE time. See the matching field on Exposure for full rationale. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback. |
-| `dispositionKind` | `DispositionKind` | User-recorded decision on a SYSTEM finding (null = active). Set via `disposeCountermeasure`; cleared via `clearCountermeasureDisposition`. |
-| `dispositionReason` | `String` | Free-text justification, mandatory (non-empty after trim) when `dispositionKind` is non-null. |
-| `dispositionedBy` | `String` | Authenticating user (JWT sub claim), stamped server-side. `@settable(onCreate: false, onUpdate: false)`. |
-| `dispositionedAt` | `DateTime` | ISO-8601 timestamp of the current disposition, stamped server-side. `@settable(onCreate: false, onUpdate: false)`. |
-| `dispositionStale` | `Boolean` | True when an instantiation attribute value changed since the disposition was last authored / re-affirmed. Not `@settable`-locked. |
+| `dispositionKind` | `DispositionKind` | Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeCountermeasure / Supersede flows; cleared via clearCountermeasureDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises. AFFIRMED is the one kind that keeps the finding live (reviewed and confirmed in place) rather than muting it. |
+| `dispositionReason` | `String` | Free-text justification authored by the user. Mandatory (non-empty after trim) when dispositionKind is non-null. Captured at dispose time and on every modification / re-affirm. For SUPERSEDED dispositions populated via the frontend Supersede flow, defaults to "Superseded by user-authored countermeasure '<name>'" — user-editable after. The single-quote wrapping around the clone's name is load-bearing for the USER-copy-delete companion staleness flip. |
+| `dispositionedBy` | `String` | User id (JWT sub claim) of the user who authored the current disposition. Stamped by the disposeCountermeasure resolver from context.user.sub. Null when dispositionKind is null. Updated on every dispose call (including re-affirm — the backend treats them identically). Server-stamped via the structured mutation only — the @settable(onCreate/onUpdate: false) directives prevent direct-GraphQL spoofing of this forensic-provenance field, matching the posture of createdBy / authoredBy above. |
+| `dispositionedAt` | `DateTime` | ISO-8601 timestamp when the current disposition was authored or last modified / re-affirmed. Stamped by the resolver. Null when dispositionKind is null. Updated on every dispose call. Server-stamped only — @settable directives prevent backdating via direct-GraphQL. |
+| `dispositionStale` | `Boolean` | True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeCountermeasure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearCountermeasureDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked). |
 | `mitigations` | `[MitreAttackMitigation!]!` | ATT&CK mitigations implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `defendedTechniques` | `[MitreDefendTechnique!]!` | D3FEND techniques implemented by this countermeasure (→ `RESPONDS_WITH`) |
-| `mitigates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure mitigates (→ `COUNTERMEASURE_MITIGATES`). Distinct from `mitigations` — those target ATT&CK Mitigation nodes via `RESPONDS_WITH`; these target ATT&CK Techniques. |
-| `protectsAgainst` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure hardens against (→ `COUNTERMEASURE_PROTECTS_AGAINST`) |
-| `detects` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure detects (→ `COUNTERMEASURE_DETECTS`) |
-| `isolates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure isolates (→ `COUNTERMEASURE_ISOLATES`) |
+| `mitigates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure mitigates (COUNTERMEASURE_MITIGATES). Distinct from `mitigations` — those are the ATT&CK Mitigation nodes this countermeasure implements, via RESPONDS_WITH; these are the ATT&CK Techniques it counters. (→ `COUNTERMEASURE_MITIGATES`) |
+| `protectsAgainst` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure hardens against (COUNTERMEASURE_PROTECTS_AGAINST) (→ `COUNTERMEASURE_PROTECTS_AGAINST`) |
+| `detects` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure detects (COUNTERMEASURE_DETECTS) (→ `COUNTERMEASURE_DETECTS`) |
+| `isolates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure isolates (COUNTERMEASURE_ISOLATES) (→ `COUNTERMEASURE_ISOLATES`) |
 | `control` | `[Control!]!` | Control that provides this countermeasure (← `HAS_COUNTERMEASURE`) |
 | `controlClass` | `[ControlClass!]!` | Control class this countermeasure belongs to (→ `IS_COUNTERMEASURE_OF`) |
 | `issues` | `[Issue!]!` | Issues associated with this countermeasure (→ `HAS_ISSUE`) |
@@ -596,6 +627,26 @@ Implements: `Element`
 | `syncedAttributes` | `JSON` | Attributes synced from external system (resolved at runtime) (custom resolver) |
 | `issueClass` | `[IssueClass!]!` | Class this issue is an instance of (→ `IS_INSTANCE_OF`) |
 | `elementsWithExtendedInfo` | `[IssueElement!]!` | All linked elements with model context and exposure info (computed via Cypher) |
+
+### OrphanSweepLabelCount
+
+One (label, count) row in an OrphanSweepReport — `count` is the number of nodes of `label` deleted (or, on a dry-run, that would be deleted).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `String!` | Node label swept (e.g. 'Data', 'Exposure'). Loaded modules contribute their own label values at runtime — the platform treats them as opaque strings. |
+| `count` | `Int!` | Orphan nodes of this label deleted (planned, if dryRun=true). |
+
+### OrphanSweepReport
+
+Result of sweepOrphans. Counts are 'planned' if dryRun=true, 'applied' otherwise. `byLabel` is the per-label breakdown aggregated across the core sweep and every module's orphan-sweep hook.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dryRun` | `Boolean!` | True if this was a dry-run (no writes performed). |
+| `totalNodes` | `Int!` | Total orphan nodes deleted (or planned). |
+| `totalRelationships` | `Int!` | Total relationships removed from the orphan nodes (or planned). |
+| `byLabel` | `[OrphanSweepLabelCount!]!` | Per-label orphan breakdown. |
 
 ### IdentityMigrationReport
 
@@ -920,6 +971,71 @@ all deltas zero, no graph mutation persisted.
 | `errorCode` | `ElementBindingErrorCode` |  |
 | `errorMessage` | `String` |  |
 
+### SetInstantiationAttributesResult
+
+Result envelope returned by setInstantiationAttributes. `staleFlippedCount`
+is non-null when the attribute write succeeded; the value is the number of
+dispositioned exposures on the element whose `dispositionStale` was flipped
+to true by the second statement of the staleness Cypher. Zero on no-op saves (no value
+change) or when the element has no dispositioned exposures.
+
+On failure (`success: false`), `errorCode` and `errorMessage` carry a diagnosis
+of why the write was rejected (e.g. the element or class id does not exist, or
+the class id resolves to a non-Control class so no IS_INSTANCE_OF edge exists).
+Both are null on success. The diagnosis is computed only on the failure path, so
+the happy path stays a single round trip.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | `Boolean!` | True when the attribute write succeeded; false when validation or DB failure prevented the write. |
+| `staleFlippedCount` | `Int` | Number of dispositioned exposures on the element whose `dispositionStale` was flipped to true. Zero on no-op saves or when the element carries no dispositions. |
+| `errorCode` | `String` | Stable failure category (e.g. DATABASE_ERROR, VALIDATION_ERROR). Null on success. |
+| `errorMessage` | `String` | Human-readable diagnosis of the failure, naming the offending id and the precise reason. Null on success. |
+
+### DispositionMutationResult
+
+Result envelope returned by both disposeExposure and clearDisposition. On
+success: errorCode and errorMessage are null; the five disposition fields
+echo the state landed on the Exposure (cleared mutation returns all five
+as null). On failure: success = false, errorCode set, disposition fields
+mirror the pre-mutation state (no graph change persisted).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | `Boolean!` |  |
+| `exposureId` | `ID!` |  |
+| `dispositionKind` | `DispositionKind` |  |
+| `dispositionReason` | `String` |  |
+| `dispositionedBy` | `String` |  |
+| `dispositionedAt` | `DateTime` |  |
+| `dispositionStale` | `Boolean` |  |
+| `errorCode` | `DispositionErrorCode` |  |
+| `errorMessage` | `String` |  |
+
+### MatchMitreTechniquesResult
+
+Result envelope returned by matchMitreTechniques. matches[] is parallel to
+input.queries (same order, same length). unmatched[] lists queries that
+produced no candidates. vectorAvailable and vectorDisabledReason describe
+the runtime's vector-tier health at request time so the picker can surface
+the right caption.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `matches` | `[TechniqueQueryMatch!]!` |  |
+| `unmatched` | `[String!]!` |  |
+| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the vector_search module is absent, embedding is disabled, or the module-shipped vectors mismatch the platform's runtime model. |
+| `vectorDisabledReason` | `VectorDisabledReason` | When vectorAvailable is false, names the specific reason — drives the picker caption. Null when vectorAvailable is true. |
+
+### TechniqueQueryMatch
+
+Candidate list returned for a single TechniqueQueryInput.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | `String!` | Echoes the input query string so clients can correlate batched results. |
+| `candidates` | `[MitreCandidate!]!` |  |
+
 ## Class types
 
 Class types define the categories available within modules. Components, data flows,
@@ -1193,59 +1309,19 @@ A reference to a MITRE ATT&CK or D3FEND entity.
 | `id` | `String!` |  |
 | `name` | `String!` |  |
 
-### MatchMitreTechniquesInput
-
-Input envelope for matchMitreTechniques. Batch shape — the picker sends
-single-element arrays. Server clamps `queries` to 25 and `topN` to `[1, 50]`.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `queries` | `[TechniqueQueryInput!]!` | One or more query strings; each becomes a parallel entry in `matches[]` |
-| `kind` | `MitreKind!` | Corpus to match against — determines which HNSW index is consulted |
-| `topN` | `Int` | Per-query result cap. Clamped to `[1, 50]`. Defaults to 3 |
-
-### TechniqueQueryInput
-
-A single query within a `MatchMitreTechniquesInput.queries` batch.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `query` | `String!` | User-typed text — a MITRE id (T1003), a partial id (T100), a name fragment, or free-form intent. Capped at 500 chars |
-
-### MatchMitreTechniquesResult
-
-Top-level result for the matchMitreTechniques query.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `matches` | `[TechniqueQueryMatch!]!` | Match results per query, parallel to `input.queries` (same order, same length) |
-| `unmatched` | `[String!]!` | Queries that produced no candidates |
-| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the `vector_search` module is absent, embedding is disabled, or shipped vectors mismatch the runtime model |
-| `vectorDisabledReason` | `VectorDisabledReason` | Set when `vectorAvailable` is false; null otherwise |
-
-### TechniqueQueryMatch
-
-Candidate list returned for a single `TechniqueQueryInput`.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `query` | `String!` | Echoes the input query string so clients can correlate batched results |
-| `candidates` | `[MitreCandidate!]!` | Ordered list of candidate matches (best first) |
-
 ### MitreCandidate
 
-A single MITRE candidate. The shape is uniform across the three `MitreKind`
-values; `mitreId` reads from `attack_id` (ATT&CK) or `d3fendId` (D3FEND).
+A single MITRE candidate. Shape is uniform across the three MitreKind values; mitreId reads from attack_id (ATT&CK) or d3fendId (D3FEND).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `mitreId` | `String!` | T1003 / T1003.001 / D3-PMAD / M1041 |
-| `name` | `String!` | Candidate name |
-| `description` | `String` | Free-text description |
-| `tactic` | `String` | ATT&CK or D3FEND tactic name (same field; distinct vocabularies) |
-| `kind` | `MitreKind!` | Corpus this candidate came from |
-| `matchType` | `MitreMatchType!` | Which tier produced the match |
-| `similarityScore` | `Float` | Populated for `VECTOR_SIMILARITY` matches; null for the deterministic tiers |
+| `mitreId` | `String!` | T1003 / T1003.001 / D3-PMAD / M1041 — read from attack_id (ATT&CK) or d3fendId (D3FEND). |
+| `name` | `String!` |  |
+| `description` | `String` |  |
+| `tactic` | `String` | ATT&CK tactic name or D3FEND tactic name (same field; distinct vocabularies). |
+| `kind` | `MitreKind!` |  |
+| `matchType` | `MitreMatchType!` |  |
+| `similarityScore` | `Float` | Populated for VECTOR_SIMILARITY matches; null for the deterministic tiers (EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH). |
 
 ## Utility types
 
@@ -1260,7 +1336,7 @@ Status of a running or completed analysis.
 | `createdAt` | `String!` | When the analysis was started |
 | `updatedAt` | `String!` | When the status was last updated |
 | `status` | `String!` | Current status (e.g., running, completed, failed) |
-| `hasDocument` | `Boolean!` | True once a run has completed successfully and a viewable result exists — distinguishes a never-run analysis from a completed one (both report `status: idle`) |
+| `hasDocument` | `Boolean!` | True once a run has completed successfully and a viewable result exists |
 | `interrupts` | `JSON` | Pending human-in-the-loop interrupts |
 | `messages` | `[JSON!]` | Analysis messages and log entries |
 | `metadata` | `JSON` | Additional metadata |
@@ -1292,26 +1368,6 @@ Statistics returned after deleting a model.
 |-------|------|-------------|
 | `nodesDeleted` | `Int!` | Number of graph nodes deleted |
 | `relationshipsDeleted` | `Int!` | Number of graph relationships deleted |
-
-### OrphanSweepReport
-
-Result of `sweepOrphans`. Counts are 'planned' if `dryRun=true`, 'applied' otherwise. `byLabel` is the per-label breakdown aggregated across the core sweep and every module's orphan-sweep hook.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `dryRun` | `Boolean!` | True if this was a dry-run (no writes performed). |
-| `totalNodes` | `Int!` | Total orphan nodes deleted (or planned). |
-| `totalRelationships` | `Int!` | Total relationships removed from the orphan nodes (or planned). On a dry-run this is `0` — the count-only preview reports node counts only. |
-| `byLabel` | `[OrphanSweepLabelCount!]!` | Per-label orphan breakdown. |
-
-### OrphanSweepLabelCount
-
-One (label, count) row in an `OrphanSweepReport` — `count` is the number of nodes of `label` deleted (or, on a dry-run, that would be deleted).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `label` | `String!` | Node label swept (e.g. `Data`, `Exposure`). Loaded modules contribute their own label values at runtime — the platform treats them as opaque strings. |
-| `count` | `Int!` | Orphan nodes of this label deleted (planned, if `dryRun=true`). |
 
 ### Session
 
@@ -1357,28 +1413,90 @@ A streamed response from an AI analysis agent.
 | `usage_metadata` | `JSON` | Token usage statistics |
 | `tool_call_chunks` | `[JSON!]` | Partial tool call data from streaming chunks |
 
-### DispositionMutationResult
+## Input types
 
-Result envelope returned by all four disposition mutations. On success,
-`errorCode` and `errorMessage` are null and the five disposition fields echo
-the state that landed (a clear mutation returns all five as null). On
-failure, `success` is false, `errorCode` is set, and no graph change
-persists.
+Input object types passed as arguments to queries and mutations.
 
-`exposureId` is shared across both node types — it carries the finding id for
-Exposure *and* Countermeasure (a deliberate no-rename decision).
+### MatchElementInput
+
+A single element to match against the class catalog.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `success` | `Boolean!` | True for applied and cleared dispositions; false on any error path |
-| `exposureId` | `ID!` | The finding id (Exposure or Countermeasure) |
-| `dispositionKind` | `DispositionKind` | Kind that landed; null after a clear |
-| `dispositionReason` | `String` | Reason that landed; null after a clear |
-| `dispositionedBy` | `String` | Actor (JWT sub) stamped server-side; null after a clear |
-| `dispositionedAt` | `DateTime` | Timestamp stamped server-side; null after a clear |
-| `dispositionStale` | `Boolean` | Always false after a dispose (re-affirm clears staleness); null after a clear |
-| `errorCode` | `DispositionErrorCode` | Null on success |
-| `errorMessage` | `String` | Sanitised human-readable string; null on success |
+| `name` | `String!` | Element name to match |
+| `type` | `ComponentType` | Element type (for context; the componentType filter on MatchClassesInput controls catalog filtering) |
+| `description` | `String` | Optional free-text description (used by vector matching in a future phase) |
+
+### MatchClassesInput
+
+Input for the matchClasses query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `elements` | `[MatchElementInput!]!` | Elements to match (max 100) |
+| `classLabel` | `ClassLabelEnum!` | Which class node label to search |
+| `componentType` | `ComponentType` | Filter ComponentClass nodes by type (only when classLabel = COMPONENT) |
+| `moduleIds` | `[ID!]` | Restrict search to classes from these modules |
+| `topN` | `Int` | Number of top candidates per element |
+| `fields` | `[MatchClassFieldEnum!]` | Which optional fields to include on candidates |
+
+### ListClassesInput
+
+Input for the listClasses query — paginated, server-aggregated class catalogue.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `classLabel` | `ClassLabelEnum!` | Which class node label to list |
+| `componentType` | `ComponentType` | Filter ComponentClass nodes by type (only when classLabel = COMPONENT) |
+| `search` | `String` | Case-insensitive substring filter on class name |
+| `categories` | `[String!]` | OR within: classes matching any of these categories |
+| `moduleIds` | `[ID!]` | OR within: classes provided by any of these modules |
+| `offset` | `Int` | Result offset for pagination |
+| `limit` | `Int` | Maximum number of items to return (clamped server-side to [1, 200]) |
+
+### ControlGapsInput
+
+Input for the controlGaps query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `modelId` | `ID!` | Model ID to analyze |
+| `topN` | `Int` | Number of top recommended controls to return |
+| `limit` | `Int` | Maximum number of unmitigated exposures to return |
+
+### ElementBindingInput
+
+Input shape for the desired post-mutation binding. Exactly one of
+`classIds` / `modelId` must be set, gated by `kind`:
+- kind = CLASS: `classIds` non-empty (length 1 for non-Controls; 0+ for Controls).
+- kind = REPRESENTED_MODEL: `modelId` non-null.
+- kind = NONE: both `classIds` and `modelId` null.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kind` | `ElementBindingKind!` |  |
+| `classIds` | `[ID!]` |  |
+| `modelId` | `ID` |  |
+
+### MatchMitreTechniquesInput
+
+Input envelope for matchMitreTechniques. Batch shape — the picker sends
+single-element arrays today. Server clamps queries to MAX_QUERIES (25) and
+topN to [1, 50].
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `queries` | `[TechniqueQueryInput!]!` | One or more query strings. Each becomes an entry in matches[] in result. |
+| `kind` | `MitreKind!` | Corpus to match against — determines which HNSW index the server consults. |
+| `topN` | `Int` | Per-query result cap. Clamped to [1, 50] server-side. Defaults to 3. |
+
+### TechniqueQueryInput
+
+Single query as part of a MatchMitreTechniquesInput.queries batch.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | `String!` | User-typed text. May be a MITRE id (T1003), a partial id (T100), a name fragment, or free-form intent. Hard cap MAX_QUERY_LENGTH (500). |
 
 ## Queries
 
@@ -1398,7 +1516,11 @@ Get all exposures attached to a specific element
 
 ### dataInRegulatoryScope
 
-All `Data` whose `regulatoryFlags` contains the given flag. Exact, **case-sensitive** match — a typo (`"phi"` vs `"PHI"`) returns `[]` silently, so query with the [canonical casing](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary). Backed by an `@cypher` full `:Data` scan (O(|Data|); `regulatoryFlags` is a list, not indexable on Memgraph) and finds **direct handlers only** — CDE-adjacency is an analysis-phase traversal composed on top.
+All Data whose regulatoryFlags contains the given flag (exact, case-sensitive).
+Intentional full :Data scan (regulatoryFlags is a list — not indexable on Memgraph);
+finds direct handlers only. A producer typo ("phi" vs "PHI") returns [] silently,
+so producers must emit the canonical casing — see the canonical regulatory-flag
+vocabulary in docs/architecture/dethereal/THREAT_MODELING_WORKFLOW.md.
 
 **Returns:** `[Data!]!`
 
@@ -1490,13 +1612,12 @@ Match elements against class catalog nodes using a multi-priority pipeline
 
 ### matchMitreTechniques
 
-Resolve user-typed text to MITRE technique or mitigation candidates via a
-five-tier cascade (EXACT_ID → PREFIX_ID → NAME_MATCH → DESCRIPTION_MATCH →
-VECTOR_SIMILARITY), short-circuiting at the first non-empty tier. The `kind`
-arg selects one of three corpora. The `vectorAvailable` /
-`vectorDisabledReason` envelope fields describe vector-tier health at request
-time; the deterministic tiers still serve results when the vector tier is
-off.
+Match MITRE techniques / mitigations against user queries using the full
+priority cascade (EXACT_ID → PREFIX_ID → NAME_MATCH → DESCRIPTION_MATCH →
+VECTOR_SIMILARITY). Mirrors matchClasses; consumed by the TechniquePicker.
+The server returns at most
+one tier of results per query; the picker is responsible for displaying
+the server's tier-5 results below client-computed tiers 1–4.
 
 **Returns:** `MatchMitreTechniquesResult!`
 
@@ -1657,16 +1778,6 @@ ANALYZED_BY bindings to other elements are NOT pruned: an Analysis can
 legitimately span multiple elements per the schema's `Analysis.element`
 list-cardinality field.
 
-The element binding is best-effort: `elementId` is bound via `ANALYZED_BY`
-only when the target node carries an analyzable label (`Model`, `Component`,
-`DataFlow`, `SecurityBoundary`, `Control`, `Data`, `Exposure`,
-`Countermeasure`). If the element is outside that set — e.g. a module-specific
-label such as Studio's `StudioClass`, which links the Analysis through its own
-relationship — the Analysis is still created, bound to its `AnalysisClass`, and
-returned; the mutation does not return null. (The element MATCH is an
-`OPTIONAL MATCH` + conditional `MERGE` so a non-listed element cannot empty the
-result pipeline.)
-
 **Returns:** `Analysis`
 
 **Arguments:**
@@ -1683,9 +1794,15 @@ result pipeline.)
 
 ### setInstantiationAttributes
 
-Set configuration attributes on a component's class instantiation relationship
+Set configuration attributes on a component's class instantiation
+relationship. Returns a structured result envelope: `success`
+is true on the attribute write succeeding; `staleFlippedCount` is the
+number of dispositioned exposures on the component whose
+`dispositionStale` flipped to true as a result of an attribute value
+change. Zero when no value change is detected
+(no-op save), or when the component has no dispositioned exposures.
 
-**Returns:** `Boolean!`
+**Returns:** `SetInstantiationAttributesResult!`
 
 **Arguments:**
 
@@ -1720,11 +1837,11 @@ transaction counts (deleted/instantiated derived; preserved custom).
 ### disposeExposure
 
 Author, modify, or re-affirm the disposition on an Exposure. Stamps
-`dispositionedBy` and `dispositionedAt` from the authenticated user and
-current time, and clears `dispositionStale` unconditionally — re-affirming a
-stale disposition is a successful dispose call. If a disposition already
-exists, last-writer-wins. Mandatory: `kind`, `reason` (non-empty after trim,
-≤2000 chars). Domain errors return as `success: false`.
+dispositionedBy and dispositionedAt from the authenticated user / current
+time. Clears dispositionStale unconditionally — re-affirming a stale
+disposition is a successful dispose call with prior kind and (possibly
+edited) reason. If a disposition already exists, last-writer-wins.
+Mandatory fields: kind, reason (non-empty after trim).
 
 **Returns:** `DispositionMutationResult!`
 
@@ -1738,8 +1855,8 @@ exists, last-writer-wins. Mandatory: `kind`, `reason` (non-empty after trim,
 
 ### clearDisposition
 
-Clear the disposition from an Exposure. Nulls all five disposition fields in
-a single SET. Idempotent when no disposition exists.
+Clear the disposition from an Exposure. Nulls all five disposition fields
+in a single SET. Idempotent when no disposition exists.
 
 **Returns:** `DispositionMutationResult!`
 
@@ -1751,9 +1868,12 @@ a single SET. Idempotent when no disposition exists.
 
 ### disposeCountermeasure
 
-Author, modify, or re-affirm the disposition on a Countermeasure. Same
-semantics as `disposeExposure`; the result envelope's `exposureId` field
-carries the countermeasure id in this path.
+Author, modify, or re-affirm the disposition on a Countermeasure. Validates
+kind ∈ {NOT_APPLICABLE, FALSE_POSITIVE, WAIVED} (SUPERSEDED accepted only from
+the Supersede orchestrator). Stamps dispositionedBy / dispositionedAt
+server-side. Clears dispositionStale unconditionally. Mandatory fields: kind,
+reason (non-empty after trim). Returns the shared DispositionMutationResult —
+the exposureId field carries the countermeasure id in this path.
 
 **Returns:** `DispositionMutationResult!`
 
@@ -1947,24 +2067,11 @@ end state.
 ### sweepOrphans
 
 Admin: one-time sweep of pre-existing orphan nodes (nodes whose owner was
-deleted before the delete path cascaded fully). `dryRun=true` (the default)
-counts the orphans per label without writing — a count-only preview run on a
-read transaction; `dryRun=false` deletes them on a write transaction.
-
-The platform sweeps its core labels (`Data`, `Exposure`) and dispatches an
-orphan-sweep lifecycle hook to every loaded module so each removes its own
-labels on the same transaction, then aggregates every contributor's per-label
-counts into one report (`byLabel`). The report is label-agnostic — each module
-contributes its own label values at runtime, surfaced as opaque strings. On a
-dry-run, `totalRelationships` is `0` (the preview reports node counts only).
-Idempotent — a second apply is a no-op. Modules participate via the
-`onOrphanSweep` lifecycle hook — see
-[`DT_MODULE_INTERFACE.md`](../modules/DT_MODULE_INTERFACE.md).
-
-Admin-gated at resolver entry via `requireAdmin(ctx)` — the schema directive is
-`@authentication` (token validity), and the role check happens in TypeScript,
-not in the schema (same posture as the class-identity admin mutations above).
-Audit-logged before the work runs.
+deleted before the delete path cascaded fully). dryRun=true (default) counts
+the orphans per label without writing; dryRun=false deletes them. The
+platform sweeps core labels and dispatches an orphan-sweep hook to every
+loaded module for its own labels, aggregating the per-label counts.
+Idempotent — a second apply is a no-op.
 
 **Returns:** `OrphanSweepReport!`
 
@@ -1972,7 +2079,7 @@ Audit-logged before the work runs.
 
 | Argument | Type |
 |----------|------|
-| `dryRun` | `Boolean! = true` |
+| `dryRun` | `Boolean!` |
 
 ## Subscription
 

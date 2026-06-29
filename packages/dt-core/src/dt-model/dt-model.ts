@@ -2,6 +2,7 @@ import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module } from '../interfaces/core-types-interface.js'
+import { flattenConduits } from '../dt-boundary/boundary-zoning-utils.js'
 import { ModelScopeLocal, localScopeToPlatform } from '../schemas/index.js'
 import { Node, Edge } from '@vue-flow/core'
 
@@ -175,6 +176,10 @@ export class DtModel {
                 dataItems: boundary.dataItems?.map(dataItem => dataItem.id),
                 classId: firstId(boundary.securityBoundaryClass),
                 representedModelId: firstId(boundary.representedModel),
+                zone: boundary.zone,
+                domains: boundary.domains,
+                planes: boundary.planes,
+                conduits: flattenConduits(boundary),
               },
               width: boundary.dimensionsWidth || 0,
               height: boundary.dimensionsHeight || 0,

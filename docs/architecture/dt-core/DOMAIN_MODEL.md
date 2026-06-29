@@ -48,10 +48,13 @@ The domain model defines all entities in the Dethernety threat modeling framewor
 │  │  └─────────┬─────────┘                                          │    │
 │  │            │                                                    │    │
 │  │            ▼                                                    │    │
-│  │  ┌─────────────────┐      ┌─────────────────┐                   │    │
-│  │  │   Boundary      │◀────▶│   Boundary      │ (nested)          │    │
-│  │  └────────┬────────┘      └─────────────────┘                   │    │
-│  │           │                                                     │    │
+│  │  ┌─────────────────┐ CONDUIT ┌─────────────────┐                │    │
+│  │  │   Boundary      │◀───────▶│   Boundary      │ (nested)       │    │
+│  │  │ zone/domains/   │ (directed│  zone/domains/  │               │    │
+│  │  │ planes          │  edge)   │  planes         │               │    │
+│  │  └────────┬────────┘         └─────────────────┘                │    │
+│  │           │  (CONDUIT = declared boundary-to-boundary link,     │    │
+│  │           │   outbound/inbound from each boundary's view)       │    │
 │  │           ▼                                                     │    │
 │  │  ┌─────────────────┐                                            │    │
 │  │  │   Component     │ (processes, services, databases)           │    │
@@ -298,7 +301,7 @@ interface ComponentData extends Element {
 
 ### BoundaryData
 
-Security boundary or trust zone:
+Security boundary or trust zone. Carries the optional **zoning** fields (`zone`, `domains`, `planes`) and the boundary-to-boundary **conduit** connections described under [Boundary Zoning](#boundary-zoning) below:
 
 ```typescript
 interface BoundaryData extends Element {
@@ -314,8 +317,63 @@ interface BoundaryData extends Element {
   parentBoundary?: { id: string } // Parent boundary (nesting)
   controls?: Control[]
   dataItems?: DataItem[]
+
+  // ── Zoning ──
+  zone?: Zone | null              // Trust/exposure gradient; null = inherit/undecided
+  domains?: string[]              // Free-text segmentation domains (sanitized, capped)
+  planes?: Plane[]                // Operational/privilege role(s) of the boundary
+
+  // Raw directed CONDUIT edge reads (flattened by mapBoundary / updateBoundaryNode):
+  outboundConduitsConnection?: { edges: ConduitEdge[] }
+  inboundConduitsConnection?: { edges: ConduitEdge[] }
+  conduits?: Conduit[]            // Flattened outbound + inbound union, for node.data
 }
 ```
+
+### Boundary Zoning
+
+Zoning attaches declared trust-and-segmentation **intent** to a boundary, plus directed **conduit** relationships between boundaries. These types capture intent only — dt-core persists what the author declared and computes no legality verdict against it.
+
+**Source:** [`packages/dt-core/src/interfaces/core-types-interface.ts`](../../../packages/dt-core/src/interfaces/core-types-interface.ts).
+
+```typescript
+// Trust/exposure gradient on a boundary.
+type Zone = 'UNTRUSTED' | 'PUBLIC' | 'EXPOSED' | 'INTERNAL' | 'RESTRICTED' | 'VENDOR'
+
+// Operational/privilege role of a boundary.
+type Plane = 'WORKLOAD' | 'MANAGEMENT'
+
+// Which side of a directed CONDUIT edge a peer sits on, from this boundary's view.
+type ConduitDirection = 'OUTBOUND' | 'INBOUND'
+```
+
+A **conduit** is a directed `CONDUIT` edge between two boundaries that declares an intended/allowed connection. The graph stores each conduit once as a directed edge; from a given boundary's perspective the same edge reads as `OUTBOUND` or `INBOUND` depending on which connection it was returned from. `Conduit` is the UI-facing flattened shape (outbound + inbound unioned, each tagged with its `direction`); `ConduitEdge` is the raw per-edge read shape before flattening.
+
+```typescript
+// UI-facing flattened conduit.
+interface Conduit {
+  peerId: string
+  peerName?: string               // denormalised for display; source of truth is the peer node
+  direction: ConduitDirection
+  justification?: string
+  controlRefs?: string[]
+}
+
+// Raw edge shape from an outbound/inboundConduitsConnection read, before flattening.
+interface ConduitEdge {
+  properties?: { justification?: string | null; controlRefs?: string[] | null }
+  node: { id: string; name?: string }
+}
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `zone` | `Zone \| null` | Trust/exposure gradient. `null` means inherit/undecided — not a distinct level |
+| `domains` | `string[]` | Free-text segmentation domains. Trimmed, de-duped case-insensitively, capped per-entry and per-count |
+| `planes` | `Plane[]` | Operational role(s). De-duped and emitted in a fixed canonical order so equal sets compare equal |
+| `conduits` | `Conduit[]` | Flattened union of the directed `CONDUIT` edges incident to this boundary |
+
+The sanitizers, the conduit flattening (`flattenConduits`), and the baseline-delta write reconcile (`buildConduitOps`) live in [`boundary-zoning-utils.ts`](./DATA_ACCESS_LAYER.md#boundary-zoning-utilities); the boundary write path that persists these fields is [`DtBoundary.updateBoundaryNode`](./GRAPHQL_OPERATIONS.md#dtboundary).
 
 ### DataFlowData
 

@@ -23,11 +23,39 @@ enum ComponentType {
 
 ### TrustLevel
 
+Dormant/deprecated. Replaced by [`Zone`](#zone) on `SecurityBoundary` — see the deprecation note under [SecurityBoundary](#securityboundary). Retained read-only for back-compat; slated for removal once the deprecation is fully retired.
+
 ```graphql
 enum TrustLevel {
   UNTRUSTED
   SEMI_TRUSTED
   TRUSTED
+}
+```
+
+### Zone
+
+Trust/exposure gradient of a `SecurityBoundary` (replaces `TrustLevel`). A `null` stored value means the boundary inherits its zone from the nearest declaring ancestor boundary; if no ancestor declares one, consumers resolve it to a default of `INTERNAL`. Inheritance is resolved by consumers — the stored field is simply nullable.
+
+```graphql
+enum Zone {
+  UNTRUSTED      # open internet / hostile frontier (external)
+  PUBLIC         # internet-facing (your edge)
+  EXPOSED        # behind the front door (DMZ)
+  INTERNAL       # trusted zones only
+  RESTRICTED     # specifically-authorized paths only (CDE, secrets, DCs, security tooling)
+  VENDOR         # trusted external party (vetted vendor / connected partner)
+}
+```
+
+### Plane
+
+Operational/privilege role present on a boundary. This enum is the documented value vocabulary; the `planes` field on `SecurityBoundary` stores these values as `[String!]` (see the note under [SecurityBoundary](#securityboundary)).
+
+```graphql
+enum Plane {
+  WORKLOAD       # business workload (front to back)
+  MANAGEMENT     # privileged control/admin infrastructure (incl. security tooling)
 }
 ```
 
@@ -197,7 +225,10 @@ Represents a trust boundary within the system.
 - `id` (ID!) — Unique identifier
 - `name` (String!) — Boundary name
 - `description` (String) — Boundary description
-- `trustLevel` (TrustLevel!) — Trust level
+- `trustLevel` (TrustLevel) — **Deprecated.** Dormant trust level, replaced by `zone`. Now nullable and read-only for back-compat (see [Zoning](#zoning) below).
+- `zone` (Zone) — Trust/exposure gradient. `null` = inherit from the nearest declaring ancestor boundary (see [Zoning](#zoning) below).
+- `domains` ([String!]) — Open-vocabulary business-function tags this boundary serves.
+- `planes` ([String!]) — Operational roles present on this boundary, drawn from the [`Plane`](#plane) vocabulary. Stored as strings (not `[Plane!]`); `null`/empty = undecided.
 - `positionX` (Float) — X coordinate on canvas
 - `positionY` (Float) — Y coordinate on canvas
 - `dimensionsWidth` (Float) — Width on canvas
@@ -217,11 +248,30 @@ Represents a trust boundary within the system.
 - `(SecurityBoundary)-[:REPRESENTS_MODEL]->(Model)` — Model represented by this boundary
 - `(SecurityBoundary)-[:ANALYZED_BY]->(Analysis)` — Analyses of this boundary
 - `(SecurityBoundary)-[:HAS_ISSUE]->(Issue)` — Issues associated with this boundary
+- `(SecurityBoundary)-[:CONDUIT {justification, controlRefs}]->(SecurityBoundary)` — Approved channel to a peer boundary. Edge direction is the approved flow direction: OUT = `outboundConduits` (egress), IN = `inboundConduits` (ingress). Edge properties carried by [`ConduitProperties`](#conduitproperties).
+
+#### Zoning
+
+`zone`, `domains`, `planes`, and conduits make up the boundary's security-zoning surface. `zone` carries a `null`-means-inherit semantic: when unset, consumers resolve it from the nearest ancestor boundary that declares one, falling back to a default of `INTERNAL` if none does. This inheritance is resolved by consumers; the stored field is simply nullable. A `CONDUIT` records **declared design intent** — an approved channel the modeler asserts — **not a verified or enforced verdict**. The platform does not compute conduit legality in this version.
 
 **Cypher computed fields:**
-- `allDescendantBoundaries` — All nested boundaries (recursive up to depth 10)
+- `allDescendantBoundaries` — All nested boundaries (recursive up to depth 50)
 - `allDescendantComponents` — All components in nested boundaries
 - `allDescendantDataFlows` — All data flows touching nested components
+
+### ConduitProperties
+
+Edge type on the `CONDUIT` relationship between two `SecurityBoundary` nodes (`@relationshipProperties`). Carries disposition metadata describing the declared intent behind an approved channel — it never asserts that the channel is legal or enforced.
+
+```graphql
+type ConduitProperties @relationshipProperties {
+  justification: String
+  controlRefs: [ID!]
+}
+```
+
+- `justification` (String) — Optional free-text rationale, written by the modeler (e.g. "payment service to vendor X, sanctioned").
+- `controlRefs` ([ID!]) — Optional reference(s) to the mediating control(s) that make the channel safe. Scalar control id(s).
 
 ### Folder
 

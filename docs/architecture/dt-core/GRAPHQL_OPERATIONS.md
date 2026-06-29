@@ -187,13 +187,27 @@ Manages security boundaries and trust zones.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `createBoundaryNode` | Create new boundary | `{ newNode, classId, parentBoundaryId }` | `Promise<Node \| null>` |
-| `updateBoundaryNode` | Update boundary properties | `{ boundaryId, name?, description?, x?, y?, width?, height? }` | `Promise<BoundaryData>` |
+| `createBoundaryNode` | Create new boundary | `{ newNode, classId, defaultBoundaryId }` | `Promise<Node \| null>` |
+| `updateBoundaryNode` | Update boundary properties, zoning, and conduits | `{ updatedNode, defaultBoundaryId, baselineConduits? }` | `Promise<BoundaryData \| null>` |
 | `getBoundaryRepresentedModel` | Get linked model | `{ boundaryId }` | `Promise<Model \| null>` |
-| `getDescendants` | Get direct children | `{ boundaryId }` | `Promise<DirectDescendant[]>` |
+| `getDescendants` | Get direct children | `{ boundaryId }` | `Promise<{ components, securityBoundaries } \| null>` |
 | `deleteBoundary` | Delete boundary | `{ boundaryId }` | `Promise<boolean>` |
 
 > Class / model binding changes route through [`DtClass.changeElementBinding`](#dtclass) — see the DtComponent block above.
+
+#### `updateBoundaryNode` — zoning and conduit reconcile
+
+Beyond the position/dimension properties, `updateBoundaryNode` also persists the boundary's **zoning** fields and reconciles its **conduit** edges in the same `updateSecurityBoundaries` mutation. The values are read off `updatedNode.data` and pass through the [boundary zoning utilities](./DATA_ACCESS_LAYER.md#boundary-zoning-utilities) before being sent:
+
+- `zone` — sanitized via `sanitizeZone` (invalid/garbage → `null`).
+- `domains` — sanitized via `sanitizeDomains` (trim, drop empties, case-insensitive de-dupe, length/count caps).
+- `planes` — normalized via `normalizePlanes` (valid members only, de-duped, canonical order). Persisted as a `[String!]` field — the values are constrained to the `Plane` union app-side, not by a GraphQL enum.
+
+**Conduit reconcile (baseline delta).** Conduits are reconciled **only when** `updatedNode.data.conduits` is present; an `undefined` buffer leaves the edges untouched (the same convention as `controls` / `dataItems`). When present, the method calls `buildConduitOps('OUTBOUND', …)` and `buildConduitOps('INBOUND', …)` to compute a **delta against `baselineConduits`** — peers added are `connect`-ed, peers removed are `disconnect`-ed, and justification-only changes become `update` ops. This is deliberately a delta and not a connect-all: the graph `CONDUIT` `connect` is **not idempotent**, so re-connecting an existing peer would create a duplicate parallel edge. See [`buildConduitOps`](./DATA_ACCESS_LAYER.md#buildconduitops--baseline-delta-reconcile) for the full rationale.
+
+`baselineConduits` is the boundary's conduits **as they were on the server before the optimistic edit** — the caller snapshots them and passes them in (defaults to `[]`). On success the method re-derives `conduits` from the server response via `flattenConduits` so the caller can re-pin its baseline to server truth.
+
+The `ADD_BOUNDARY` / `UPDATE_BOUNDARY` selections both return `zone`, `domains`, and `planes`; `UPDATE_BOUNDARY` additionally returns the `outboundConduitsConnection` / `inboundConduitsConnection` edge reads that `flattenConduits` consumes.
 
 ### Example Usage
 
@@ -209,14 +223,30 @@ const boundary = await dtBoundary.createBoundaryNode({
     data: { label: 'DMZ', description: 'Demilitarized zone' }
   },
   classId: 'class-network-zone',
-  parentBoundaryId: 'root-boundary-123'
+  defaultBoundaryId: 'root-boundary-123'
 })
 
-// Update boundary dimensions
+// Update boundary dimensions + zoning + conduits.
+// `baselineConduits` is the server-truth snapshot taken before the optimistic edit;
+// buildConduitOps diffs updatedNode.data.conduits against it (delta, not connect-all).
 await dtBoundary.updateBoundaryNode({
-  boundaryId: 'boundary-456',
-  width: 500,
-  height: 400
+  updatedNode: {
+    id: 'boundary-456',
+    position: { x: 50, y: 50 },
+    width: 500,
+    height: 400,
+    data: {
+      label: 'DMZ',
+      zone: 'EXPOSED',
+      domains: ['payments'],
+      planes: ['WORKLOAD'],
+      conduits: [
+        { peerId: 'boundary-internal', direction: 'OUTBOUND', justification: 'app → db' },
+      ],
+    },
+  },
+  defaultBoundaryId: 'root-boundary-123',
+  baselineConduits: serverConduitsBeforeEdit,
 })
 
 // Get child elements

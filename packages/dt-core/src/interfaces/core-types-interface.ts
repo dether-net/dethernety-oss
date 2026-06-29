@@ -205,6 +205,29 @@ export interface ComponentData extends Element {
   crownJewel?: boolean
 }
 
+// ── Boundary zoning ──
+// Trust/exposure gradient on a boundary (replaces the dormant TrustLevel).
+export type Zone = 'UNTRUSTED' | 'PUBLIC' | 'EXPOSED' | 'INTERNAL' | 'RESTRICTED' | 'VENDOR'
+// Operational/privilege role of a boundary.
+export type Plane = 'WORKLOAD' | 'MANAGEMENT'
+// Which side of a directed CONDUIT edge a peer sits on, from this boundary's view.
+export type ConduitDirection = 'OUTBOUND' | 'INBOUND'
+
+// UI-facing flattened conduit (outbound + inbound unioned, each tagged with direction).
+export interface Conduit {
+  peerId: string
+  peerName?: string // denormalised for display; source of truth is the peer node
+  direction: ConduitDirection
+  justification?: string
+  controlRefs?: string[]
+}
+
+// Raw edge shape from an `outbound/inboundConduitsConnection` read, before flattening.
+export interface ConduitEdge {
+  properties?: { justification?: string | null; controlRefs?: string[] | null }
+  node: { id: string; name?: string }
+}
+
 export interface BoundaryData extends Element {
   id: string
   name: string
@@ -220,6 +243,13 @@ export interface BoundaryData extends Element {
   dataItems?: DataItem[]
   securityBoundaryClass?: { id: string }[]
   representedModel?: { id: string }[]
+  // ── zoning ──
+  zone?: Zone | null // null = inherit/undecided
+  domains?: string[]
+  planes?: Plane[]
+  outboundConduitsConnection?: { edges: ConduitEdge[] } // raw read (flattened by mapBoundary/updateBoundaryNode)
+  inboundConduitsConnection?: { edges: ConduitEdge[] } // raw read
+  conduits?: Conduit[] // flattened union, for node.data + updateBoundaryNode return
 }
 
 export interface DataFlowData extends Element {
