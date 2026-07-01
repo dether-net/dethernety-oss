@@ -1167,6 +1167,12 @@ export class ModuleManagementService {
         });
       });
 
+      // Post-commit: the :Module node is committed + visible. Run afterInstall
+      // on its own session — a requirement, not a backstop (design §9.2 #H12):
+      // an operator "reset a broken module" must re-run the hook too, else the
+      // reset re-installs classes but never re-does the hook's graph work.
+      await this.runAfterInstall(session, moduleInstalled, moduleInstance);
+
       const duration = Date.now() - startTime;
       this.recordOperation('resetSingleModule', duration, {
         moduleName: moduleInstalled,
@@ -1184,6 +1190,63 @@ export class ModuleManagementService {
       throw new Error(`Module reset failed: ${error.message}`, { cause: error });
     } finally {
       await session.close();
+    }
+  }
+
+  /**
+   * Runs a module's optional `afterInstall` hook POST-COMMIT, once its
+   * `:Module` node is committed and visible. The hook opens its own session on
+   * the raw driver; a throw OR a timeout is caught, logged, and downgrades ONLY
+   * this module's `lastInstallStatus` to 'partial' so the content-hash skip gate
+   * reinstalls it next boot and re-invokes the hook (design §9.2 #H9 self-heal).
+   * Never throws — failure is isolated so sibling modules are unaffected.
+   *
+   * @param session   An OPEN session to issue the partial-downgrade write on
+   *                  (reused post-commit; distinct from the hook's own session).
+   * @param moduleName The module's name === its `:Module {name}`.
+   * @param instance   The module instance (may be undefined / lack the hook).
+   */
+  private async runAfterInstall(
+    session: any,
+    moduleName: string,
+    instance: DTModule | undefined,
+  ): Promise<void> {
+    if (!instance?.afterInstall) return;
+    const databaseName = this.configService.get('database.name') || 'neo4j';
+    // `this.config` is absent in some test harnesses (ConfigService.get → undefined);
+    // fall back to the MODULE_LOAD_TIMEOUT default so we never TypeError.
+    const timeoutMs = this.config?.moduleLoadTimeout ?? 30_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        instance.afterInstall({ driver: this.neo4jDriver, moduleName, databaseName }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('afterInstall timeout')),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } catch (error) {
+      this.logger.error('afterInstall failed — downgrading module to partial', {
+        moduleName,
+        error: error?.message,
+      });
+      try {
+        await session.executeWrite((tx: DatabaseTransaction) =>
+          tx.run(
+            `MATCH (m:Module {name: $moduleName}) SET m.lastInstallStatus = 'partial'`,
+            { moduleName },
+          ),
+        );
+      } catch (downgradeError) {
+        this.logger.error('afterInstall partial-downgrade write failed', {
+          moduleName,
+          error: downgradeError?.message,
+        });
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -1313,6 +1376,15 @@ export class ModuleManagementService {
           await this.deleteOldModules(tx, modulesInstalled);
         }
       });
+
+      // Post-commit: every :Module node is committed + visible to a fresh
+      // session. Fire afterInstall on each installed OR content-hash-skipped
+      // module (iterate `modulesInstalled`, NOT `resolved` — a skipped module
+      // must still re-run its hook; a failure self-heals via the partial
+      // downgrade next boot). Isolated + timeout-bounded (design §4.3, §9.2 #H9).
+      for (const name of modulesInstalled) {
+        await this.runAfterInstall(session, name, modules.get(name));
+      }
 
       const duration = Date.now() - startTime;
       this.recordOperation('updateAllModules', duration, {

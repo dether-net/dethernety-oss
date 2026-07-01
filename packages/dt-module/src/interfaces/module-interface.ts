@@ -9,6 +9,26 @@ export interface ExtendedPubSubEngine extends PubSubEngine {
   asyncIterator<T>(triggers: string | string[]): AsyncIterator<T>;
 }
 
+/**
+ * Context handed to {@link DTModule.afterInstall}. Unlike the in-transaction
+ * hooks ({@link DTModule.onModelDeleted} / {@link DTModule.onOrphanSweep}),
+ * which receive a live `tx`, this carries the raw `driver` — the hook runs
+ * POST-COMMIT and manages its own session/transaction.
+ */
+export interface ModuleInstallContext {
+  /**
+   * Raw neo4j-driver `Driver`. Typed `any` to match this package's
+   * transaction-callback convention and avoid pulling a neo4j-driver
+   * dependency into the module base library. Not sandboxed — modules are
+   * fully trusted (same posture as the raw `tx` the in-tx hooks receive).
+   */
+  driver: any;
+  /** This module's name — equals its `:Module {name}` in the graph. */
+  moduleName: string;
+  /** The database the platform installed into (for `driver.session({ database })`). */
+  databaseName: string;
+}
+
 export interface DTModule {
   getMetadata(): DTMetadata | Promise<DTMetadata>;
   getModuleTemplate?(): Promise<string>;
@@ -108,6 +128,37 @@ export interface DTModule {
     nodesDeleted: number;
     relationshipsDeleted: number;
   } | void>;
+
+  /**
+   * Lifecycle event — the platform has finished installing this module's
+   * `:Module` node (and its element classes). Runs ONCE per install/reinstall,
+   * AFTER the multi-module write transaction commits, so the module's own
+   * `:Module` node is guaranteed to exist and be visible to a fresh session.
+   * Modules that must do graph work referencing their own node — e.g. linking
+   * a bespoke node to `(:Module {name})` — implement this. There is no earlier
+   * hook that can see the node: every other module hook fires *before* the node
+   * is written.
+   *
+   * Contrast with {@link onModelDeleted} / {@link onOrphanSweep}: those run
+   * INSIDE a platform-managed transaction on a passed `tx`. This one runs
+   * POST-COMMIT on the module's OWN session, opened from `ctx.driver` — the
+   * platform does not manage or roll back its writes.
+   *
+   * Contract — the implementation MUST:
+   *   - open its own session/transaction on `ctx.driver` (do NOT hold it open
+   *     beyond the call); and
+   *   - be idempotent (MERGE, not CREATE): on any failure OR timeout the
+   *     platform downgrades this module's install status so the next boot
+   *     reinstalls it and re-invokes this hook — the hook may therefore run
+   *     more than once across boots for the same logical state.
+   *
+   * Failure isolation: a throw (or exceeding the platform's module-load
+   * timeout) is caught, logged, and downgrades ONLY this module — sibling
+   * modules in the same batch are unaffected. It never fails the install.
+   *
+   * @param ctx { driver, moduleName, databaseName } — see {@link ModuleInstallContext}.
+   */
+  afterInstall?(ctx: ModuleInstallContext): Promise<void>;
 
   getSyncedIssueAttributes?(issueId: string, attributes: string, lastSyncAt: string): Promise<string>;
 
