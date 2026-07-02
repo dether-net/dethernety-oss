@@ -83,7 +83,7 @@ Architecture documentation lives in `docs/architecture/`:
 | `docs/architecture/dt-core/` | Shared data access layer |
 | `docs/architecture/modules/` | DTModule system and development guide |
 | `docs/architecture/dethereal/` | MCP server architecture |
-| `docs/architecture/decisions/` | Architecture Decision Records (ADR 001–006) |
+| `docs/architecture/decisions/` | Architecture Decision Records (indexed in `decisions/README.md`) |
 
 Other documentation:
 - `docs/CONFIGURATION_GUIDE.md` — Environment and deployment configuration

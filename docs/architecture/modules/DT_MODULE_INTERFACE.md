@@ -73,6 +73,7 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │  │              Lifecycle Hooks (Optional)                         │    │
 │  │  • onModelDeleted(tx, modelId, analysisIds)                     │    │
 │  │  • onOrphanSweep(tx, { apply })                                 │    │
+│  │  • afterInstall(ctx)                                            │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -87,6 +88,14 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 
 export interface ExtendedPubSubEngine extends PubSubEngine {
   asyncIterator<T>(triggers: string | string[]): AsyncIterator<T>;
+}
+
+// Context handed to the post-commit afterInstall hook. Unlike the in-transaction
+// hooks, this carries the raw driver — the hook opens its own session.
+export interface ModuleInstallContext {
+  driver: any;          // Raw neo4j-driver Driver (typed `any` to keep neo4j out of the base lib)
+  moduleName: string;   // This module's name — equals its `:Module {name}` in the graph
+  databaseName: string; // The database installed into — for `driver.session({ database })`
 }
 
 export interface DTModule {
@@ -154,6 +163,22 @@ export interface DTModule {
 
   // Optional - Pre-computed class embeddings (offline-install support)
   getEmbedding?(className: string, embeddingModel: string): number[] | null;
+
+  // Optional - Lifecycle hooks (see Lifecycle Hooks section below)
+  onModelDeleted?(
+    tx: any,
+    modelId: string,
+    analysisIds: string[],
+  ): Promise<{ nodesDeleted: number; relationshipsDeleted: number } | void>;
+  onOrphanSweep?(
+    tx: any,
+    opts: { apply: boolean },
+  ): Promise<{
+    byLabel: Record<string, number>;
+    nodesDeleted: number;
+    relationshipsDeleted: number;
+  } | void>;
+  afterInstall?(ctx: ModuleInstallContext): Promise<void>;
 }
 ```
 
@@ -995,11 +1020,16 @@ The `context` parameter in `ResolverFunction` is typed as `any` intentionally �
 
 ## Lifecycle Hooks (Optional)
 
-Lifecycle hooks are **push-style** callbacks: the platform invokes them on a platform event or a maintenance operation, rather than the module pulling state on a user request. They run inside a transaction the platform owns, so the module's writes commit or roll back together with the platform's.
+Lifecycle hooks are **push-style** callbacks: the platform invokes them on a platform event or a maintenance operation, rather than the module pulling state on a user request.
+
+They split into two kinds by **when** they run relative to the platform's transaction:
+
+- **In-transaction hooks** — `onModelDeleted` and `onOrphanSweep`. The platform hands the hook a live `tx` and the module's writes commit or roll back **together** with the platform's.
+- **Post-commit hook** — `afterInstall`. The platform hands the hook the raw `driver` (not a `tx`) **after** its write transaction has committed; the hook opens its own session and the platform does **not** roll back its writes. See [afterInstall(ctx)](#afterinstallctx) for the carve-out that follows from this timing.
 
 The division of responsibility is by **label ownership**. The platform owns the core/structural labels (`Model`, `SecurityBoundary`, `Component`, `DataFlow`, `Data`, `Exposure`) and removes them itself. Each module owns — and is the only participant that removes — the labels *it* defines. A hook is the seam through which the platform tells a module "a model was deleted" or "remove your orphans" without the platform surface ever naming a module's labels.
 
-All lifecycle hooks share the same discipline:
+The **in-transaction** hooks (`onModelDeleted`, `onOrphanSweep`) share the same discipline (`afterInstall` deliberately differs — see its subsection):
 
 - **Transaction-bound.** Perform graph operations **only** on the passed `tx`. Do not open your own session or transaction — a rollback must be able to revert the hook's writes.
 - **Idempotent.** The platform runs the work inside a managed transaction that may re-run the whole callback (and therefore the hook) on a retriable error. Re-running `DETACH DELETE`-style graph operations is safe; a second invocation on already-clean data is a no-op.
@@ -1066,6 +1096,55 @@ Counts or removes the module's own orphaned nodes during an admin-run, graph-wid
 - Perform no non-transactional side effects.
 - A throw aborts the whole sweep — for example, a violated data-integrity precondition that would make deletion risk live data. The throw rolls the transaction back and surfaces as an error.
 
+### afterInstall(ctx)
+
+```typescript
+afterInstall?(ctx: ModuleInstallContext): Promise<void>
+```
+
+Runs graph work that must reference the module's **own** committed `:Module` node — for example, a module that links a bespoke node it seeds to its `(:Module {name})`.
+
+**Unlike the in-transaction hooks above, this one runs *post-commit* on a session the module opens itself.** It fires **once per install/reinstall**, strictly **after** the multi-module write transaction commits — the first (and only) lifecycle point at which the module's own `:Module` node is committed and visible to a fresh session. Every other module hook fires *before* that node is written. Because the platform hands over the raw `driver` rather than a `tx`, the module's writes are **not** part of a platform transaction and are **not** rolled back by the platform.
+
+**Called by:** the platform's post-commit install step, once the module upsert transaction has committed. It runs on both freshly-installed modules and content-hash-skipped (unchanged) modules — an unchanged module still re-runs its hook on each boot. See [ModuleManagementService → afterInstall invocation](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#afterinstall-post-commit-hook-invocation) for the mechanism.
+
+**Parameters:**
+- `ctx` — a `ModuleInstallContext` with exactly three fields:
+  - `driver` — the raw neo4j-driver `Driver`. Typed `any` to keep a neo4j-driver dependency out of the base library. The hook opens its **own** session from it (`ctx.driver.session({ database: ctx.databaseName })`); this is **not** a `tx`.
+  - `moduleName` — this module's name, equal to its `:Module {name}` in the graph. Use it to `MATCH` the module's own node.
+  - `databaseName` — the database the platform installed into, for opening the session.
+
+**Returns:** `Promise<void>`.
+
+**Contract rules:**
+- **Open your own session** from `ctx.driver` and close it before returning — do not hold it open beyond the call. (This is the deliberate opposite of the in-transaction hooks, which forbid opening a session.)
+- **Be idempotent — MERGE, not CREATE.** The hook re-runs on every boot for an unchanged module, and it re-runs after a self-heal reinstall, so it may execute more than once for the same logical state.
+- **Failure is isolated and self-healing.** A throw — or exceeding the module-load timeout (`MODULE_LOAD_TIMEOUT`, default 30 000 ms) — is caught and logged, and downgrades **only this module** (`SET m.lastInstallStatus = 'partial'`) so the content-hash skip gate reinstalls and re-invokes it on the next boot. Sibling modules in the same batch are unaffected, and the install itself never fails.
+- **The platform does not roll back the hook's writes.** Because it runs post-commit on your own session, a partial write survives a later throw; idempotent MERGE-based writes keep re-runs safe.
+
+**Example** — link the module's own `:Module` node to a node it seeds, proving post-commit visibility:
+
+```typescript
+import type { ModuleInstallContext } from '@dethernety/dt-module';
+
+async afterInstall(ctx: ModuleInstallContext): Promise<void> {
+  const session = ctx.driver.session({ database: ctx.databaseName });
+  try {
+    await session.executeWrite((tx: any) =>
+      tx.run(
+        `MATCH (m:Module {name: $name})
+         MERGE (m)-[:AFTER_INSTALL_MARKER]->(:ReferenceData {n: $name})`,
+        { name: ctx.moduleName },
+      ),
+    );
+  } finally {
+    await session.close();
+  }
+}
+```
+
+The `MATCH (m:Module {name})` succeeds only because the hook runs post-commit — this is the guarantee no earlier hook can offer. The `MERGE` keeps the write idempotent across the re-runs described above.
+
 ---
 
 ## Related Documentation
@@ -1076,3 +1155,4 @@ Counts or removes the module's own orphaned nodes during an admin-run, graph-wid
 | [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps) |
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Step-by-step development guide |
 | [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md) | Custom resolver architecture (LLD) |
+| [MODULE_MANAGEMENT_SERVICE.md](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md) | Module upsert + `afterInstall` invocation mechanism (LLD) |
