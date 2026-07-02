@@ -323,6 +323,25 @@ async updateAllModules(modules: Map<string, DTModule>): Promise<void> {
 }
 ```
 
+### afterInstall post-commit hook invocation
+
+`updateAllModules` upserts every module's `:Module` node and element classes inside **one write transaction**. Only *after* that transaction commits is a module's own `:Module` node visible to a fresh session — so the platform runs each module's optional [`afterInstall`](../../modules/DT_MODULE_INTERFACE.md#afterinstallctx) hook **post-commit**, once the write transaction has returned.
+
+The private helper `runAfterInstall(session, moduleName, instance)` performs one invocation:
+
+```typescript
+// After the upsert write transaction commits, iterate the installed set
+// (installed OR content-hash-skipped) and fire each module's hook.
+for (const name of modulesInstalled) {
+  await this.runAfterInstall(session, name, modules.get(name));
+}
+```
+
+- **When it fires.** From `updateAllModules` at boot for every module in the installed set — which includes **content-hash-skipped (unchanged) modules**, so an unchanged module still re-runs its hook each boot. Also from `resetSingleModule` (the operator "reset a broken module" path), which re-runs the hook for the single reset module post-commit.
+- **What it passes.** The hook receives `{ driver, moduleName, databaseName }` — the raw driver (not a `tx`), so the hook opens its **own** session. The authoring contract for that session lives in the [DTModule interface → afterInstall(ctx)](../../modules/DT_MODULE_INTERFACE.md#afterinstallctx).
+- **Timeout bound.** The call is wrapped in a `Promise.race` against `MODULE_LOAD_TIMEOUT` (default 30 000 ms). A hook that exceeds it is treated as a failure.
+- **Failure isolation + self-heal.** A throw *or* a timeout is caught and logged, then downgrades **only this module** — `SET m.lastInstallStatus = 'partial'` on its `:Module` node. The content-hash skip gate reinstalls a `partial` module on the next boot and re-invokes its hook, so a transient failure self-heals. `runAfterInstall` **never throws**: a failing hook never aborts the batch, and sibling modules in the same run are unaffected.
+
 ## Health Monitoring
 ```typescript
 getStatistics(): ModuleStatistics {

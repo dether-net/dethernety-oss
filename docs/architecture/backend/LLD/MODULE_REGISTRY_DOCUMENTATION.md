@@ -37,8 +37,10 @@ ModuleRegistryService
 
 ### Module Lifecycle
 ```
-Discovery → Security Validation → Loading → Interface Validation → Registration → Health Monitoring
+Discovery → Security Validation → Loading → Interface Validation → Registration → afterInstall → Health Monitoring
 ```
+
+Registration upserts each module's `:Module` node and classes inside one write transaction. Immediately **after that transaction commits**, the platform runs each module's optional `afterInstall` hook — the post-commit install step, and the first point at which a module's own `:Module` node is committed and visible to a fresh session. The invocation mechanism (timeout bound, isolated `partial` downgrade, self-heal) is documented in [ModuleManagementService → afterInstall invocation](MODULE_MANAGEMENT_SERVICE.md#afterinstall-post-commit-hook-invocation); the authoring contract lives in the [DTModule interface → afterInstall(ctx)](../../modules/DT_MODULE_INTERFACE.md#afterinstallctx).
 
 ### Data Flow
 ```
