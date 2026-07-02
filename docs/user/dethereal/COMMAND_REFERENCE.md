@@ -334,7 +334,7 @@ Quality dashboard with score breakdown, gap analysis, and readiness assessment. 
 > /dethereal:review
 ```
 
-Shows quality score (7-factor breakdown), quality gate evaluation (Gate 1/2/3), common gaps checklist, top issues, and analysis readiness assessment.
+Shows quality score (7-factor breakdown), quality gate evaluation (Gate 1/2/3), common gaps checklist, top issues, analysis readiness assessment, and — if the model carries trust zoning — an advisory [zoning-coherence roll-up](REVIEW_AND_ANALYSIS.md#zoning-coherence-advisory) (the six findings, never sync-blocking).
 
 **Structure-only review:**
 
@@ -443,6 +443,8 @@ Or to resume an existing model:
 ```
 
 This is the recommended approach for new models. It chains together discovery, classification, enrichment, validation, and sync with checkpoints between phases. You can stop at any point and resume later.
+
+**Trust zoning** is ratified inline as you go: the trust skeleton (zones, planes) at Step 4, approved channels (conduits) at Step 5, `RESTRICTED` promotion at Step 7, and advisory zoning-coherence findings at Step 9. See [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md) for the concepts and the GUI equivalent.
 
 **Resume + drift detection.** When resuming a model with a prior baseline (`state.lastReconcileCommit` set at end of discovery), the workflow detects in-scope file changes since the baseline and routes them through `/dethereal:add` / `/dethereal:remove` / `/dethereal:enrich`. See [Drift detection on resume](GUIDED_WORKFLOW.md#drift-detection-on-resume).
 

@@ -6,6 +6,7 @@ import { DtModel } from '../dt-model/dt-model.js'
 import { DtClass } from '../dt-class/dt-class.js'
 import { DtComponent } from '../dt-component/dt-component.js'
 import { DtBoundary } from '../dt-boundary/dt-boundary.js'
+import { prepareConduitsForWrite } from '../dt-boundary/boundary-zoning-utils.js'
 import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
@@ -173,6 +174,11 @@ export class DtImport {
         // Step 7: Associate controls with elements (after all elements are created)
         await this.processControlAssociations()
 
+        // Conduits LAST — after every boundary exists and is id-mapped (peers are often created later
+        // in the hierarchy walk) AND after controls are set (this pass leaves controls untouched, but
+        // must not run before them). Not a distinct progress step to avoid renumbering totalSteps.
+        await this.associateConduitsWithBoundaries(jsonData)
+
         this.updateProgress(8, 'Import completed')
 
         return {
@@ -318,7 +324,10 @@ export class DtImport {
           controls: [],
           dataItems: [],
           minWidth: boundaryData.dimensionsMinWidth || 200,
-          minHeight: boundaryData.dimensionsMinHeight || 150
+          minHeight: boundaryData.dimensionsMinHeight || 150,
+          zone: boundaryData.zone,
+          domains: boundaryData.domains,
+          planes: boundaryData.planes
         },
         position: {
           x: boundaryData.positionX || 0,
@@ -556,6 +565,31 @@ export class DtImport {
       }
 
       this.idMapping.set(boundaryData.id, newBoundary.id)
+
+      // Persist zoning — createBoundaryNode (ADD_BOUNDARY) has no zoning input, so follow up with an
+      // update when the boundary declares any. Reuse the create node shape (label/position/size are written
+      // unconditionally) with the real id; parentNode is cleared so no redundant parent op fires (the parent
+      // was bound at create). Guarded so a zoneless boundary incurs no extra mutation.
+      if (
+        boundaryData.zone !== undefined ||
+        boundaryData.domains !== undefined ||
+        boundaryData.planes !== undefined
+      ) {
+        await this.dtBoundary.updateBoundaryNode({
+          updatedNode: {
+            ...newNode,
+            id: newBoundary.id,
+            parentNode: undefined,
+            data: {
+              ...newNode.data,
+              zone: boundaryData.zone,
+              domains: boundaryData.domains,
+              planes: boundaryData.planes
+            }
+          },
+          defaultBoundaryId: this.defaultBoundaryId
+        })
+      }
 
       // Set attributes after creation (class was already assigned during creation)
       if (classId && boundaryData.attributes) {
@@ -888,6 +922,73 @@ export class DtImport {
     if (element.boundaries && Array.isArray(element.boundaries)) {
       for (const boundary of element.boundaries) {
         await this.processElementForDataItemAssociation(boundary)
+      }
+    }
+  }
+
+  /**
+   * Final pass: write boundary conduits once every boundary exists and every id is mapped.
+   * Conduits reference peer boundaries by `peerId`, and a peer is frequently created LATER in the
+   * hierarchy walk — so, like `associateDataItemsWithElements`, this must run after Step 5. On a fresh
+   * import the baseline is empty and `prepareConduitsForWrite` keeps OUTBOUND only (each physical edge
+   * connected once from its source; the peer's INBOUND mirror is re-derived on read), so no duplicate
+   * parallel edge is created.
+   */
+  private associateConduitsWithBoundaries = async (importData: any): Promise<void> => {
+    if (importData.defaultBoundary) {
+      await this.processElementForConduitAssociation(importData.defaultBoundary)
+    }
+  }
+
+  private processElementForConduitAssociation = async (element: any): Promise<void> => {
+    // Conduits are boundary-only. Skip components (default boundary carries no `type`).
+    const isBoundary = element.type === 'BOUNDARY' || !element.type
+    if (isBoundary && Array.isArray(element.conduits)) {
+      const newBoundaryId = this.idMapping.get(element.id)
+      if (newBoundaryId) {
+        const { conduits, dropped } = prepareConduitsForWrite(
+          element.conduits,
+          (oldId: string) => this.idMapping.get(oldId),
+        )
+        for (const peerId of dropped) {
+          this.warnings.push(`Dropped conduit on ${element.name || newBoundaryId}: peer ${peerId} could not be resolved`)
+        }
+        if (conduits.length > 0) {
+          try {
+            // Safe node: re-send name/description/position/dimensions (updateBoundaryNode always `set`s
+            // them), carry conduits, and OMIT controls/dataItems/zoning so they are left untouched.
+            // NB: `controls: []` would disconnect-ALL — never send it here (controls are set just above).
+            const updatedNode = {
+              id: newBoundaryId,
+              type: 'BOUNDARY',
+              data: {
+                label: element.name,
+                description: element.description || '',
+                conduits,
+                minWidth: element.dimensionsMinWidth || 200,
+                minHeight: element.dimensionsMinHeight || 150,
+              },
+              position: { x: element.positionX || 0, y: element.positionY || 0 },
+              width: element.dimensionsWidth || 400,
+              height: element.dimensionsHeight || 300,
+              parentNode: element.parentBoundary?.id ? this.idMapping.get(element.parentBoundary.id) : undefined,
+            }
+            await this.dtBoundary.updateBoundaryNode({
+              updatedNode,
+              defaultBoundaryId: this.findDefaultBoundaryId(),
+              baselineConduits: [], // fresh model — every edge is an add
+            })
+          } catch (error) {
+            this.warnings.push(`Could not associate conduits with boundary ${element.name}: ${error}`)
+          }
+        }
+      }
+    }
+
+    // Recurse into child boundaries (components carry no conduits).
+    if (element.boundaries && Array.isArray(element.boundaries)) {
+      for (const boundary of element.boundaries) {
+        await this.processElementForConduitAssociation(boundary)
       }
     }
   }

@@ -373,7 +373,7 @@ interface ConduitEdge {
 | `planes` | `Plane[]` | Operational role(s). De-duped and emitted in a fixed canonical order so equal sets compare equal |
 | `conduits` | `Conduit[]` | Flattened union of the directed `CONDUIT` edges incident to this boundary |
 
-The sanitizers, the conduit flattening (`flattenConduits`), and the baseline-delta write reconcile (`buildConduitOps`) live in [`boundary-zoning-utils.ts`](./DATA_ACCESS_LAYER.md#boundary-zoning-utilities); the boundary write path that persists these fields is [`DtBoundary.updateBoundaryNode`](./GRAPHQL_OPERATIONS.md#dtboundary).
+The sanitizers, the conduit flattening (`flattenConduits`), and the baseline-delta write reconcile (`buildConduitOps`) live in [`boundary-zoning-utils.ts`](./DATA_ACCESS_LAYER.md#boundary-zoning-utilities); the boundary write path that persists these fields is [`DtBoundary.updateBoundaryNode`](./GRAPHQL_OPERATIONS.md#dtboundary); and the pure engine that *reads* these fields to derive advisory trust tiers and coherence findings is the [zone determination engine](./ZONE_DETERMINATION.md).
 
 ### DataFlowData
 

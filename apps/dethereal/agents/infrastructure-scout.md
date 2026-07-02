@@ -116,6 +116,16 @@ Each discovered element receives two confidence dimensions:
 3. Prefer the source with higher classification confidence for type/class assignment
 4. Store all sources in provenance for auditability
 
+## Zone & Plane Suggestion
+
+For each **boundary** element, propose a trust `zone` where topology gives strong evidence (its `classificationConfidence` is the confidence of the proposal). Display names are in `guidelines-core.md`; the raw enum goes in `suggestedZone`.
+
+- Public IP / `0.0.0.0/0` ingress / internet gateway **on the subnet itself** → `PUBLIC`; reachable only via an upstream load balancer / edge → `EXPOSED`. When the front door is ambiguous, **lean to the more-exposed `PUBLIC`** and say why in the boundary's rationale.
+- Subnet with no inbound internet route → `INTERNAL`.
+- Third-party SaaS / external entity → `VENDOR` (vetted partner) or `UNTRUSTED` (open / unknown).
+- **No signal → propose nothing** (leave the field for Step 4). `plane` is usually code-invisible — propose it only on clear evidence.
+- **Never propose `RESTRICTED`** — it depends on the flow graph and asset classification that don't exist at discovery; it is a later Step-7 promotion.
+
 ## Pre-Classification Flow
 
 For each discovered component:
@@ -153,12 +163,15 @@ Sources checked: IaC/Terraform (12), Containers (3), K8s (—), API defs (1), ..
 | 4 | Auth0 | EXTERNAL_ENTITY | — | medium | low | src/auth/config.ts:12 |
 
 ### Suggested Boundaries
-| Boundary | Contains | Rationale |
-|----------|----------|-----------|
-| Internet Zone | End Users | External actors |
-| DMZ | API Gateway, CDN | Internet-facing services |
-| Internal Network | API Server, Workers | Internal services |
-| Data Tier | PostgreSQL, Redis | Data stores |
+
+Zone uses the display names from `guidelines-core.md` (`[hi/med/lo]` = the boundary's `classificationConfidence`); leave it blank when there is no topology signal.
+
+| Boundary | Contains | Proposed zone | Rationale |
+|----------|----------|---------------|-----------|
+| Internet Zone | End Users | Open internet | External actors |
+| DMZ | API Gateway, CDN | Internet-facing [hi] | Public IP / IGW on the subnet |
+| Internal Network | API Server, Workers | Internal | No inbound internet route |
+| Data Tier | PostgreSQL, Redis | Internal | No inbound internet route |
 
 ### Data Flows (Inferred)
 
@@ -234,12 +247,16 @@ Each discovered element follows this structure:
   suggestedDescription: string,
   suggestedComponentType?: 'PROCESS' | 'STORE' | 'EXTERNAL_ENTITY',
   suggestedClass?: { id: string, name: string },
+  suggestedZone?: 'UNTRUSTED' | 'PUBLIC' | 'EXPOSED' | 'INTERNAL' | 'RESTRICTED' | 'VENDOR',  // boundary elements only; see Zone & Plane Suggestion
+  suggestedPlane?: 'WORKLOAD' | 'MANAGEMENT',  // boundary elements only; omit when there is no signal (usually code-invisible)
   existenceConfidence: 'high' | 'medium' | 'low',
   classificationConfidence: 'high' | 'medium' | 'low',
   sources: [{ type, file, line?, resource? }],
   confirmed: boolean
 }
 ```
+
+The element's existing `classificationConfidence` **is** the confidence of its `suggestedZone` — there is no separate zone-confidence field. `suggestedZone`/`suggestedPlane` are proposals only; nothing is committed until the operator confirms (a re-proposed zone never overwrites a previously ratified one).
 
 **Evidence traceability for data flows:** The `sources` array must be populated with structured evidence for data flows, not just components. When inferring flows from configuration (reverse proxy configs, connection strings, service mesh routes, gRPC imports), set `file` to the specific file where the flow was inferred, and `line` to the line number when identifiable. The `type` should match a discovery source category (e.g., `"network_config"`, `"connection_string"`, `"api_definition"`, `"code"`). Freetext-only evidence fields are insufficient for audit traceability.
 

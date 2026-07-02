@@ -9,11 +9,12 @@ import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 import { Node, Edge } from '@vue-flow/core'
 import { DtUtils } from '../dt-utils/dt-utils.js'
-import { Model, Module } from '../interfaces/core-types-interface.js'
+import { Model, Module, Conduit } from '../interfaces/core-types-interface.js'
 import { DtModel } from '../dt-model/dt-model.js'
 import { DtClass } from '../dt-class/dt-class.js'
 import { DtComponent } from '../dt-component/dt-component.js'
 import { DtBoundary } from '../dt-boundary/dt-boundary.js'
+import { flattenConduits, prepareConduitsForWrite } from '../dt-boundary/boundary-zoning-utils.js'
 import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
@@ -81,6 +82,11 @@ export class DtUpdate {
   private existingDataflowIds: Set<string> = new Set()
   private existingDataitemIds: Set<string> = new Set()
 
+  // Server-side conduit baseline per boundary id (flattened from the fetched structure). Feeds the
+  // conduit reconcile as `baselineConduits` so an unchanged edge is not re-connected (connect is
+  // non-idempotent — a re-connect would duplicate the parallel edge).
+  private existingConduitsByBoundary: Map<string, Conduit[]> = new Map()
+
   // Track processed elements to identify orphans
   private processedBoundaryIds: Set<string> = new Set()
   private processedComponentIds: Set<string> = new Set()
@@ -124,6 +130,7 @@ export class DtUpdate {
     this.existingComponentIds = new Set()
     this.existingDataflowIds = new Set()
     this.existingDataitemIds = new Set()
+    this.existingConduitsByBoundary = new Map()
 
     this.processedBoundaryIds = new Set()
     this.processedComponentIds = new Set()
@@ -289,6 +296,11 @@ export class DtUpdate {
         )
       }
 
+      // Conduits — after every boundary is created/mapped, and BEFORE orphan deletion (a conduit peer
+      // that is being deleted must not be connected). Uses the fetched server baseline for a correct
+      // delta (unchanged edge → no re-connect). Not a distinct progress step (avoids renumbering).
+      await this.associateConduitsWithBoundaries(jsonData)
+
       this.updateProgress(7, 'Updating data flows')
 
       // Step 9: Update/create data flows
@@ -360,9 +372,14 @@ export class DtUpdate {
           this.idMapping.set(component.id, component.id)
         }
 
+        // Conduit baseline: flatten the root's own conduit connections + every descendant's.
+        // (getModelData = DUMP_MODEL_DATA selects outbound/inboundConduitsConnection on both.)
+        this.existingConduitsByBoundary.set(this.defaultBoundaryId, flattenConduits(defaultBoundary))
+
         for (const boundary of allBoundaries) {
           this.existingBoundaryIds.add(boundary.id)
           this.idMapping.set(boundary.id, boundary.id)
+          this.existingConduitsByBoundary.set(boundary.id, flattenConduits(boundary))
         }
 
         for (const dataflow of allDataFlows) {
@@ -578,7 +595,10 @@ export class DtUpdate {
         },
         data: {
           label: boundaryData.name || 'Default Boundary',
-          description: boundaryData.description || ''
+          description: boundaryData.description || '',
+          zone: boundaryData.zone,
+          domains: boundaryData.domains,
+          planes: boundaryData.planes
         },
         width: boundaryData.dimensionsWidth,
         height: boundaryData.dimensionsHeight
@@ -744,7 +764,10 @@ export class DtUpdate {
         },
         data: {
           label: boundaryData.name,
-          description: boundaryData.description || ''
+          description: boundaryData.description || '',
+          zone: boundaryData.zone,
+          domains: boundaryData.domains,
+          planes: boundaryData.planes
         },
         parentNode: parentBoundaryId,
         width: boundaryData.dimensionsWidth || 0,
@@ -840,7 +863,13 @@ export class DtUpdate {
         const resolvedControls = await this.resolveControls(boundaryData.controls)
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
-        if (followUpControls || followUpDataItems.length > 0) {
+        // createBoundaryNode (ADD_BOUNDARY) can't set zoning, so the follow-up must also fire when the
+        // boundary declares any zoning — not only for controls/dataItems (else a zoning-only boundary loses it).
+        const followUpZoning =
+          boundaryData.zone !== undefined ||
+          boundaryData.domains !== undefined ||
+          boundaryData.planes !== undefined
+        if (followUpControls || followUpDataItems.length > 0 || followUpZoning) {
           const updateNode: Node = {
             id: createdBoundary.id,
             type: 'SECURITY_BOUNDARY',
@@ -848,6 +877,9 @@ export class DtUpdate {
             data: {
               label: boundaryData.name,
               description: boundaryData.description || '',
+              zone: boundaryData.zone,
+              domains: boundaryData.domains,
+              planes: boundaryData.planes,
               ...(followUpControls ? { controls: followUpControls } : {}),
               ...(followUpDataItems.length > 0 ? { dataItems: followUpDataItems } : {})
             },
@@ -871,6 +903,89 @@ export class DtUpdate {
         error: (e as Error).message
       })
       return null
+    }
+  }
+
+  /**
+   * Final conduit pass. Runs after every boundary is created/updated/mapped and BEFORE orphan deletion.
+   * Writes each edge once from its OUTBOUND source (prepareConduitsForWrite), translating peer ids through
+   * idMapping and passing the fetched server baseline so an unchanged edge is NOT re-connected (connect is
+   * non-idempotent). A peer that is an orphan (present on the server but omitted from this update, so it is
+   * about to be deleted) is dropped — its edge legitimately goes away.
+   */
+  private associateConduitsWithBoundaries = async (jsonData: any): Promise<void> => {
+    const root = jsonData.defaultBoundary
+    if (!root) return
+    // The root host is always the server default boundary (updateDefaultBoundary resolves it the same
+    // way, not via idMapping — the JSON's default id may not match the server's).
+    await this.writeConduitsForBoundary(root, this.defaultBoundaryId)
+    if (Array.isArray(root.boundaries)) {
+      for (const child of root.boundaries) {
+        await this.processElementForConduitAssociation(child)
+      }
+    }
+  }
+
+  private processElementForConduitAssociation = async (element: any): Promise<void> => {
+    // Child boundaries resolve their server id through idMapping (existing → self, new → new id).
+    const hostServerId = this.idMapping.get(element.id)
+    if (hostServerId) {
+      await this.writeConduitsForBoundary(element, hostServerId)
+    }
+    // Recurse into child boundaries (components carry no conduits).
+    if (element.boundaries && Array.isArray(element.boundaries)) {
+      for (const boundary of element.boundaries) {
+        await this.processElementForConduitAssociation(boundary)
+      }
+    }
+  }
+
+  private writeConduitsForBoundary = async (element: any, hostServerId: string): Promise<void> => {
+    // Decision 4: reconcile only when a conduits array is present (incl. []); absent ⇒ leave alone.
+    if (!Array.isArray(element.conduits)) return
+
+    const { conduits, dropped } = prepareConduitsForWrite(element.conduits, (oldId: string) => {
+      const n = this.idMapping.get(oldId)
+      // Drop unresolved peers and peers pending orphan-deletion (existing but not processed).
+      if (!n || (this.existingBoundaryIds.has(n) && !this.processedBoundaryIds.has(n))) return undefined
+      return n
+    })
+    for (const peerId of dropped) {
+      this.warnings.push(`Dropped conduit on ${element.name || hostServerId}: peer ${peerId} unresolved or pending deletion`)
+    }
+    const baseline = this.existingConduitsByBoundary.get(hostServerId) ?? []
+    // Write is OUTBOUND-canonical: prepareConduitsForWrite strips the INBOUND mirror from `conduits`, so
+    // the baseline must be OUTBOUND-only too. Passing the full baseline (which includes the re-derived
+    // INBOUND mirror) makes updateBoundaryNode's INBOUND reconcile see empty current vs a populated INBOUND
+    // baseline and disconnect every inbound mirror — silently deleting an A→B channel that peer A still
+    // declares, on any boundary that both sends and receives conduits. (Import is safe: its baseline is [].)
+    const baselineOutbound = baseline.filter(c => c.direction === 'OUTBOUND')
+    // Skip only when there is genuinely nothing to reconcile (no desired + no existing outbound).
+    if (conduits.length === 0 && baselineOutbound.length === 0) return
+
+    try {
+      // Safe node: carry conduits, re-send name/description/position/dimensions, and OMIT
+      // controls/dataItems/zoning/parentNode so they are left untouched (controls were set in
+      // Step 7; `controls: []` would disconnect-ALL — never send it here).
+      const updatedNode = {
+        id: hostServerId,
+        type: 'SECURITY_BOUNDARY',
+        data: {
+          label: element.name,
+          description: element.description || '',
+          conduits,
+        },
+        position: { x: element.positionX || 0, y: element.positionY || 0 },
+        width: element.dimensionsWidth || 0,
+        height: element.dimensionsHeight || 0,
+      }
+      await this.dtBoundary.updateBoundaryNode({
+        updatedNode: updatedNode as Node,
+        defaultBoundaryId: this.defaultBoundaryId,
+        baselineConduits: baselineOutbound,
+      })
+    } catch (e) {
+      this.warnings.push(`Could not associate conduits with boundary ${element.name}: ${(e as Error).message}`)
     }
   }
 

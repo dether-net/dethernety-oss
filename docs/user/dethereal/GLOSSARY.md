@@ -49,6 +49,48 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 ---
 
+## Trust Zoning and Conduits
+
+Zoning records the *declared design intent* of your segmentation — which trust tier each boundary sits on and which boundaries are meant to talk. The plugin stores it on each boundary in `structure.json` (`zone`, `planes`, `domains`, `conduits`) and round-trips it to the platform. For the full how-to (setting zones in the GUI, inheritance, the Zoning overview), see the platform guide [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md).
+
+**Trust Zone** — The exposure tier a boundary sits on: *who can reach it*. Stored as the `zone` field on each boundary. Six values on an exposure gradient (plus an off-gradient external tier). A boundary with no zone **inherits** one (see *Zone Inheritance*).
+
+**The Six Zones** — The fixed set of trust-zone values the plugin writes to `zone`. Ordered by exposure, with the platform guide's friendly label in parentheses:
+
+| Value | Friendly label | Reachable by |
+|-------|----------------|--------------|
+| `UNTRUSTED` | Open internet | Anonymous, hostile — the open internet |
+| `PUBLIC` | Internet-facing | Directly reachable from the internet |
+| `EXPOSED` | Behind the front door (DMZ) | Reachable only through a public edge |
+| `INTERNAL` | Internal | Reachable only from trusted zones; the default fallback |
+| `RESTRICTED` | Restricted | CDE, secrets, domain controllers, regulated-data stores |
+| `VENDOR` | Trusted external | Vetted vendor / partner — kept **off** the exposure gradient |
+
+**Zone Inheritance** — A boundary with no zone of its own (`zone: null`) resolves to the zone of its nearest ancestor boundary that declares one. If nothing up the chain declares a zone, it falls back to the default `INTERNAL` and is flagged (the `unclassified` finding).
+
+**Structural Container** — A boundary that mainly *nests* other boundaries (a VPC, a cluster, a cloud account). It usually spans several tiers at once, so it **abstains** — the plugin proposes it no zone and does not nag it as unclassified. Zone the **leaf** boundaries inside it, not the wrapper. The model review renders a container's span as a **display roll-up** (`— structural · spans <min>…<max>`).
+
+**Plane** — A boundary's operational role, stored in the `planes` array: `WORKLOAD` (runs application workload) and/or `MANAGEMENT` (runs admin / control-plane infrastructure). A `MANAGEMENT` plane that resolves to an exposed tier is a finding (`mgmt-plane`).
+
+**Domain** — A free-text business-function tag on a boundary, stored in the `domains` array (e.g. `payments`, `identity`). Advisory grouping; the only finding that reads it is `cross-tier-domain`.
+
+**Conduit (Approved Channel)** — A declared, directional channel recording that one boundary is *meant* to communicate with a peer, with an optional justification. Stored in the `conduits` array and written **OUTBOUND-canonical** (a crossing is recorded once, as `OUTBOUND` on the source; the inbound view is re-derived on read). The plugin authors only the `justification`; enforcement is left to analysis.
+
+**Zoning Findings** — Six **advisory** findings the model review rolls up from your zoning. They inform; they **never** block a sync:
+
+| Finding | Fires when |
+|---------|-----------|
+| `unclassified` | A boundary has no zone anywhere up its chain (falls back to default `INTERNAL`). |
+| `under-protected` | A boundary holding an asset directly resolves looser than `RESTRICTED`. |
+| `mgmt-plane` | A `MANAGEMENT` plane resolves to an exposed tier. |
+| `external-ingress` | An external-tier boundary reaches a trusted tier with no approved channel. |
+| `flow-channel` | A risk-bearing crossing diverges from its declared conduit (undeclared path, dead intent, or unreviewable declaration). |
+| `cross-tier-domain` | A shared `domains` tag couples an externally-reachable boundary with a protected one. Dormant until you hand-author matching tags. |
+
+**Declared Intent (not enforcement)** — Zoning and conduits document how trust is *meant* to flow; the platform does **not** verify or enforce them. Setting a zone does not block traffic, and declaring a conduit does not prove the channel exists. That judgement is the job of security analysis, which reads zoning as its baseline.
+
+---
+
 ## Workflow and State
 
 **State** — The current maturity level of a model. 6 states: INITIALIZED, SCOPE_DEFINED, DISCOVERED, STRUCTURE_COMPLETE, ENRICHING, REVIEWED.

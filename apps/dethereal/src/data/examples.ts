@@ -84,6 +84,17 @@ export const webAppExample: ExampleModel = {
           id: 'boundary-dmz',
           name: 'DMZ',
           description: 'Public-facing components',
+          zone: 'EXPOSED',
+          // Illustrates the on-disk `conduits[]` shape: a declared directional "approved channel" to the
+          // internal tier (matches the Web → App Server flow). OUTBOUND-only on the source; the inbound
+          // view is re-derived on read.
+          conduits: [
+            {
+              peerId: 'boundary-internal',
+              direction: 'OUTBOUND',
+              justification: 'Web tier calls the application server over the internal service API'
+            }
+          ],
           position: { x: 50, y: 50 },
           dimensions: { width: 300, height: 200 },
           components: [
@@ -100,6 +111,7 @@ export const webAppExample: ExampleModel = {
           id: 'boundary-internal',
           name: 'Internal Network',
           description: 'Backend services',
+          zone: 'INTERNAL',
           position: { x: 400, y: 50 },
           dimensions: { width: 350, height: 200 },
           components: [

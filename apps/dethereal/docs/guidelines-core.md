@@ -45,6 +45,25 @@ defaultBoundary/
 - Network zones, cloud VPCs, containers should be separate boundaries
 - External entities should ALWAYS be in a separate boundary from internal systems
 
+### Trust zones, planes, domains
+
+A boundary can carry a trust `zone`, operational `planes`, and free-text `domains`. **Raw enums live only in on-disk JSON; operator-facing copy always uses the display names below** (this table is the single source for that mapping):
+
+| On-disk `zone` | Display name |
+|---|---|
+| `UNTRUSTED` | Open internet |
+| `PUBLIC` | Internet-facing |
+| `EXPOSED` | DMZ |
+| `INTERNAL` | Internal |
+| `RESTRICTED` | Restricted |
+| `VENDOR` | Trusted external |
+| _conduit_ | approved channel |
+
+- `planes`: `WORKLOAD` / `MANAGEMENT` — affirmative default **Undecided** (distinct from Workload).
+- `domains`: free-text business tags (e.g. "payments", "identity").
+- Zones **inherit** down the tree to the nearest declaring ancestor; unclassified resolves to **Internal**.
+- **Which tier a boundary _should_ be is computed by `validate_model_json` `action:'zoning'`** — don't reason the determination cascade inline; call the tool and render its result.
+
 ## ID Handling
 
 - When creating new models, use **temporary reference IDs** (e.g., UUIDs you generate)

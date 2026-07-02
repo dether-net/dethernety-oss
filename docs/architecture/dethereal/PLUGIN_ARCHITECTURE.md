@@ -261,12 +261,12 @@ This is the "golden path" -- a template-driven skill that orchestrates the full 
 1. **Scope Definition** -- System description, modeling intent, compliance drivers, crown jewels
 2. **Discovery** -- Delegates to `infrastructure-scout` agent for auto-discovery
 3. **Model Review** -- Presents discovered components for confirmation. Runs `get_classes(action: 'classify_components')` to pre-fill high-confidence classifications in the confirmation table (R6/F6: deterministic pass only, saves 3-5K tokens at Step 6). **After confirmation, if validated inventory exceeds complexity thresholds (D55/D56), presents decomposition recommendation** — scope narrowing (default) or decomposition plan, per D57. See THREAT_MODELING_WORKFLOW.md Section 9.
-4. **Boundary Refinement** -- Identifies and organizes trust boundaries. For each boundary, prompts for enforcement status: "Is this boundary enforced by network controls?" Captures `implicit_deny_enabled` and `allow_any_inbound` attributes (see OPERATIONAL_REQUIREMENTS.md Section 1). If platform models exist and user is connected, prompts for `representedModel` links using `getNotRepreseningModels(modelId)` (D59).
-5. **Data Flow Mapping** -- Connects components with data flows. Data flow attributes include `auth_failure_mode: "deny" | "fallback" | "fail_open" | "unknown"`. Flows with `fail_open` or `fallback` generate an inline warning during enrichment.
+4. **Boundary Refinement** -- Identifies and organizes trust boundaries. For each boundary, prompts for enforcement status: "Is this boundary enforced by network controls?" Captures `implicit_deny_enabled` and `allow_any_inbound` attributes (see OPERATIONAL_REQUIREMENTS.md Section 1). Also proposes each leaf boundary's **trust skeleton** (`zone` + `plane`) via `validate_model_json(action: 'zoning', assets: 'skeleton')` as a batched accept-all/adjust gate — structural containers abstain and are not nagged (see [TRUST_ZONING.md](TRUST_ZONING.md)). If platform models exist and user is connected, prompts for `representedModel` links using `getNotRepreseningModels(modelId)` (D59).
+5. **Data Flow Mapping** -- Connects components with data flows. Data flow attributes include `auth_failure_mode: "deny" | "fallback" | "fail_open" | "unknown"`. Flows with `fail_open` or `fallback` generate an inline warning during enrichment. Risk-bearing crossings (external → trusted) are surfaced for the operator to ratify as **approved channels (conduits)**, appended OUTBOUND-canonical to `structure.json`; an un-ratified crossing stays a plain flow and re-surfaces as a zoning finding at validation.
 6. **Classification** -- Assigns classes from platform modules. High-confidence matches are pre-filled from Step 3; this step handles low-confidence and ambiguous cases using boundary context (R6/F6)
 7. **Data Item Classification** -- Classifies data sensitivity on flows
 8. **Enrichment** -- Populates security-relevant attributes. Components are prioritized by security impact: crown jewels first, then cross-boundary components, then internet-facing, then internal-only. Users can choose to enrich tier 1 only (crown jewels) for a quick analysis pass.
-9. **Validation** -- Quality gate check
+9. **Validation** -- Quality gate check; the model-reviewer also rolls up the advisory **zoning-coherence findings** (full-phase determination, with qualifying boundaries promoted to `RESTRICTED`) as a non-blocking block. See [TRUST_ZONING.md](TRUST_ZONING.md).
 10. **Sync** -- Push to platform
 11. **Post-sync linking** -- If countermeasures exist, read back platform-computed exposures and present a batch linking table. If the user defers, warn that unlinked controls will not be credited in analysis defense coverage (R6/F3)
 
@@ -420,7 +420,7 @@ tools:
 
 #### `model-reviewer` -- Validation Agent
 
-**Purpose:** Audits threat models for completeness, correctness, and security coverage. Produces quality reports.
+**Purpose:** Audits threat models for completeness, correctness, and security coverage. Produces quality reports. Rolls up the advisory zoning-coherence findings via `validate_model_json(action: 'zoning')` at the validation step (see [TRUST_ZONING.md](TRUST_ZONING.md)).
 
 **Tools:** Read, Glob, Grep, `mcp__plugin_dethereal_dethereal__validate_model_json`, `mcp__plugin_dethereal_dethereal__get_classes`, `mcp__plugin_dethereal_dethereal__manage_exposures`, `mcp__plugin_dethereal_dethereal__manage_countermeasures`
 **Disallowed tools:** Write, Edit, Bash (read-only reviewer)
@@ -518,7 +518,7 @@ The `threat-modeler` is the orchestrating agent (set via skill `agent` frontmatt
 | `refresh_token` | No | Refresh expired tokens |
 | `get_model_schema` | No | Schema + modeling guidelines |
 | `get_example_models` | No | Example model templates |
-| `validate_model_json` | No | Offline structural validation + quality score computation. Input: `{ action: 'validate'\|'quality', directory_path: string }`. `validate` = structural checks, `quality` = quality score computation |
+| `validate_model_json` | No | Offline structural validation, quality score, control-coverage, and boundary trust zoning. Input: `{ action: 'validate'\|'quality'\|'coverage'\|'zoning', directory_path: string, assets?: 'full'\|'skeleton' }`. `zoning` computes per-boundary trust determination + advisory findings offline (skeleton/full phases) — see [TRUST_ZONING.md](TRUST_ZONING.md) |
 | `get_classes` | Yes | Query available classes from installed modules |
 | `create_threat_model` | Yes | Import local model to platform |
 | `import_model` | Yes | Import model from directory |

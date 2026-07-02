@@ -26,7 +26,8 @@ You have access to `manage_exposures` and `manage_countermeasures` tools, but yo
 2. **Run validation** via `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'validate')` for structural checks
 3. **Run quality score** via `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality')` for the 7-factor quality assessment
 4. **Check classifications** via `mcp__plugin_dethereal_dethereal__get_classes` to verify assigned classes are valid
-5. **Check platform data** (if authenticated): list exposures and countermeasures for coverage gaps
+5. **Run zoning coherence** via `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'zoning')` for the per-boundary trust findings (`unclassified`, `under-protected`, `mgmt-plane`, `external-ingress`, `flow-channel`, `cross-tier-domain`). Read-only and **advisory** — these never block sync
+6. **Check platform data** (if authenticated): list exposures and countermeasures for coverage gaps
 
 ## Quality Checks
 
@@ -78,6 +79,12 @@ Check the model for these frequently missing elements. Display as a checklist wi
 6. Human actors (developers, operators, support staff)
 7. Bidirectional flows (request + response pairs)
 8. Error and fallback paths (circuit breakers, retry queues)
+9. Trust zones declared (unclassified boundaries fall back to Internal) — from the `unclassified` zoning finding
+10. Assets in adequately-restricted boundaries (no `under-protected`/misplaced asset boundary)
+11. Management-plane boundaries not externally reachable (no `mgmt-plane` exposure)
+12. External-tier ingress declared as an approved channel (no `external-ingress` — a `VENDOR`/`UNTRUSTED` boundary reaching a trusted tier without a ratified conduit)
+13. Modelled risk-bearing crossings reconciled with declared channels (no `flow-channel` — undeclared path, dead intent, or unreviewable blank-justification channel)
+14. Shared `domains` tags don't couple an exposed segment with a protected one (no `cross-tier-domain` — dormant unless boundaries carry hand-authored `domains` tags)
 
 ## Attack Surface Analysis
 
@@ -178,6 +185,17 @@ When reviewing or analyzing a model, check for cross-model boundaries:
 2. **[Warning]** Database component has no attribute file — security properties unknown
 3. **[Info]** No data items defined — data sensitivity cannot be assessed
 
+### Zoning Coherence (advisory — does not block sync)
+- **[Warning]** 2 boundaries hold high-value assets but aren't Restricted: payment-db (reached from a DMZ), secrets-vault, +1 more
+- **[Warning]** 1 external-tier boundary reaches a trusted tier without an approved channel: Vendor API → App Tier
+- **[Warning]** 1 risk-bearing crossing has no declared channel (undeclared path): Edge → payment-db
+- **[Warning]** 1 management-plane boundary is externally reachable: Admin VPC (DMZ)
+- **[Info]** 2 declared channels are unbacked (dead intent / blank justification): Legacy VPN, Backup link
+- **[Info]** 1 domain tag couples an exposed and a protected segment: `payments` (Edge → secrets-vault)
+- **[Info]** 3 boundaries unclassified — fall back to Internal: Logging, Cache, Queue
+
+*Zoning asserts network-reachability tiers only. Shared-identity blast radius and node co-tenancy are not evaluated from topology; where you hand-author matching `domains` tags, a heuristic flags a tag that couples an exposed and a protected tier — but a clean or tag-free result does not imply cross-tier isolation.*
+
 ### Recommendations
 - Run `/dethereal:classify` to assign classes to unclassified components
 - Run `/dethereal:enrich` to populate security attributes
@@ -189,3 +207,13 @@ When reviewing or analyzing a model, check for cross-model boundaries:
 
 If quality score exceeds 70 but `control_coverage_rate` and `credential_coverage_rate` are both 0, add:
 > Your model is structurally ready for analysis, but analysis quality will improve significantly with credentials (for lateral movement paths) and controls (for defense coverage gaps).
+
+**Rendering the `### Zoning Coherence` block** from the `action: 'zoning'` findings — deliberately shaped unlike the flat, curated top-3 `### Top Issues` list, because zoning findings are per-boundary and can be numerous:
+- **Roll up by kind (and severity)** — one line per finding kind, never one row per boundary. `flow-channel` spans both severities, so split it: undeclared paths on a `[Warning]` line, dead-intent / unreviewable channels on an `[Info]` line.
+- **Order actionable-first** — `[Warning]` kinds (`under-protected`, `external-ingress`, `flow-channel` undeclared paths, `mgmt-plane`) before `[Info]` (`flow-channel` dead-intent / unreviewable, `cross-tier-domain`, `unclassified`).
+- **Map severity** — `warning` → `[Warning]`, `info` → `[Info]`. The zoning engine emits no `critical`, so this block never uses `[Critical]`.
+- **Cap per kind** — name up to 3 boundaries, then `+N more`.
+- **`cross-tier-domain` is pre-grouped** — the engine emits one `[Info]` finding per shared `domains` tag (its coupled members are already named in the `detail`), so render one line per finding and do **not** re-apply the per-boundary "up to 3 + N more" cap to the names inside the detail. Its `boundaryId` is the protected (at-risk) member and `peerId` is the externally-reachable coupling source. Dormant unless boundaries carry hand-authored `domains` tags.
+- **Exclude structural containers, but surface their roll-up** — a boundary the payload marks `structural: true` (it nests child boundaries) **abstains**: it has no well-defined single zone, so render it `— structural` in any per-boundary view and **never** count it in the `unclassified` roll-up. Trust lives in its leaves; the container is in scope via its planes and controls, not a declared zone. When the payload carries a `summary` on that boundary, make the abstention legible rather than silent: render `— structural · spans <range.min>…<range.max>` (the trust tiers actually inside it — a display-only view, not a declared zone), appending `· contains crown jewels` when `summary.containsAssets`, `· includes a vendor enclave` when `summary.containsVendor`, and `· <summary.unclassifiedDescendants> descendant segments still unclassified` when that count > 0.
+- **Advisory only** — omit the *findings* block entirely when there are no findings; it never affects the Gate 1/2/3 verdicts.
+- **Scope disclaimer — always print it once whenever the review reports zoning, INCLUDING when there are no findings** (a clean result is exactly when the caveat matters), as a standalone italic line (not inside the findings list): *Zoning asserts network-reachability tiers only. Shared-identity blast radius and node co-tenancy are not evaluated from topology; where you hand-author matching `domains` tags, a heuristic flags a tag that couples an exposed and a protected tier — but a clean or tag-free result does not imply cross-tier isolation.*

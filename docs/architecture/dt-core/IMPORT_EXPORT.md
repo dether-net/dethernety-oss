@@ -7,6 +7,7 @@
 - [Export Process](#export-process)
 - [Import Process](#import-process)
 - [ID Mapping](#id-mapping)
+- [Boundary Zoning and Conduits](#boundary-zoning-and-conduits)
 - [Resolution Strategies](#resolution-strategies)
 - [Progress Tracking](#progress-tracking)
 - [Error Handling](#error-handling)
@@ -395,6 +396,38 @@ const targetId = this.idMapping.get(dataFlow.target.id)
 ```
 
 `DtImportSplit` exposes the ID mapping in its result, enabling callers to update source files with server-generated IDs after import.
+
+---
+
+## Boundary Zoning and Conduits
+
+A boundary's **zoning intent** (`zone` / `domains` / `planes`) and its declared **conduit** edges round-trip through import, update, and export **clobber-safe** — a model that carries no zoning imports and exports cleanly, and a re-sync neither invents zoning nor duplicates conduit edges. The field shapes are in [Domain Model — Boundary Zoning](./DOMAIN_MODEL.md#boundary-zoning); the trust-model semantics are in [dethereal/TRUST_ZONING.md](../dethereal/TRUST_ZONING.md); this section covers only how they are threaded through the serialization paths.
+
+**Source files:** `dt-import/dt-import.ts`, `dt-update/dt-update.ts` (mutable re-sync), `dt-export/dt-export-split.ts`, and the `DUMP_MODEL_DATA` selection in `dt-model/dt-model-gql.ts`.
+
+### The wire selection
+
+`DUMP_MODEL_DATA` (used by `getModelData`, which feeds both export and the update baseline) selects `zone`, `domains`, `planes`, and the `outboundConduitsConnection` / `inboundConduitsConnection` edge reads on **both** the default boundary and every descendant boundary. Every zoning-carrying read therefore comes from the same selection.
+
+### Zoning scalars (zone / domains / planes)
+
+The three scalars ride the boundary create and update passes:
+
+- On **import**, they are passed at boundary creation, and a follow-up boundary update writes them for the auto-created default boundary. Both `DtImport` and `DtUpdate` **guard** the write: a boundary that declares none of `zone` / `domains` / `planes` incurs no extra mutation (`boundaryData.zone !== undefined || domains !== undefined || planes !== undefined`), so a zoneless model produces no spurious zoning writes.
+- The values reach the graph through [`DtBoundary.updateBoundaryNode`](./GRAPHQL_OPERATIONS.md#dtboundary), whose **partial-update semantics** emit a `{ set }` for a scalar only when its key is present on the node data. An absent key leaves the field untouched; an explicit `null` / `[]` still writes (a deliberate clear/inherit). This is what protects the controls/data-item association passes — which rebuild node data without zoning — from clobbering fields the boundary already carries.
+
+### Conduits — a dedicated final pass
+
+Conduits reference peer boundaries by `peerId`, and a peer is frequently created *later* in the hierarchy walk. So conduit writes are **not** interleaved with boundary creation; they run in a single pass (`associateConduitsWithBoundaries`) **after every boundary exists and every id is mapped**:
+
+- **Import** runs the pass after the hierarchy, data items, and controls are in place (it is folded into the final step rather than adding a numbered step). Its baseline is empty — every surviving edge is a fresh `connect`.
+- **Update** runs the pass after every boundary is created/updated/mapped and **before** orphan deletion (a conduit peer that is about to be deleted must not be connected). Its baseline is the fetched **server** state, flattened per boundary via `flattenConduits`, so an unchanged edge is **not** re-connected.
+
+Both paths write **OUTBOUND-canonical**: `prepareConduitsForWrite` keeps only the OUTBOUND end of each physical edge (translating each `peerId` through the id mapping and dropping — with a warning — any peer that does not resolve), and the baseline is filtered to OUTBOUND before the delta so the INBOUND mirror is never disconnected. Because the graph `CONDUIT` `connect` is not idempotent, this delta-against-baseline discipline (see [`buildConduitOps`](./DATA_ACCESS_LAYER.md#buildconduitops--baseline-delta-reconcile)) is what keeps a re-sync from accumulating duplicate parallel edges. The conduit-carrying update deliberately **omits** controls / data items / zoning so the pass leaves those untouched.
+
+### Export (split)
+
+`DtExportSplit` re-derives conduits from the raw connection reads via `flattenConduits`, and writes each zoning field **only when it carries a value** — `zone` only when non-null, `domains` / `planes` / `conduits` only when non-empty. A zoneless boundary therefore serializes with no zoning keys at all, closing the round-trip: nothing written on export, nothing to clobber on the next import.
 
 ---
 

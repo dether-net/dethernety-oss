@@ -40,10 +40,24 @@ describe('updateBoundaryNode — zoning scalars', () => {
     })
   })
 
-  it('sends planes with an empty set when none are declared (no push — [String!] field)', async () => {
+  it('omits zone/domains/planes entirely when absent from node.data (NO-CLOBBER)', async () => {
+    // The import/update controls & dataItems association passes rebuild node.data without zoning; the
+    // partial-update guard must leave the persisted zone untouched rather than reset it to null/[].
     const { dtBoundary, performMutation } = make()
     await dtBoundary.updateBoundaryNode({ updatedNode: node({ label: 'B' }), defaultBoundaryId: 'b0' })
-    expect(inputOf(performMutation).planes).toEqual({ set: [] })
+    const input = inputOf(performMutation)
+    expect(input).not.toHaveProperty('zone')
+    expect(input).not.toHaveProperty('domains')
+    expect(input).not.toHaveProperty('planes')
+  })
+
+  it('writes a present-but-empty/null value (explicit clear/inherit — only absence omits)', async () => {
+    const { dtBoundary, performMutation } = make()
+    await dtBoundary.updateBoundaryNode({ updatedNode: node({ label: 'B', zone: null, domains: [], planes: [] }), defaultBoundaryId: 'b0' })
+    const input = inputOf(performMutation)
+    expect(input.zone).toEqual({ set: null })
+    expect(input.domains).toEqual({ set: [] })
+    expect(input.planes).toEqual({ set: [] })
   })
 
   it('coerces an invalid zone to null (inherit)', async () => {

@@ -8,6 +8,7 @@
 import * as Apollo from '@apollo/client'
 
 import { DtExport, ExportedModel, ExportedBoundary, ExportedComponent, ExportedDataFlow, ExportedDataItem } from './dt-export.js'
+import { flattenConduits } from '../dt-boundary/boundary-zoning-utils.js'
 import {
   SplitModel,
   ModelManifest,
@@ -178,6 +179,24 @@ export class DtExportSplit {
         id: boundary.representedModel.id,
         name: boundary.representedModel.name || '',
       }
+    }
+
+    // Zoning — first-class fields mirroring the platform; write only meaningful values
+    // (null/empty ⇒ omit, matching the crownJewel idiom). Absent ≡ null = inherit, so this round-trips.
+    if (boundary.zone != null) {
+      result.zone = boundary.zone
+    }
+    if (boundary.domains && boundary.domains.length > 0) {
+      result.domains = boundary.domains
+    }
+    if (boundary.planes && boundary.planes.length > 0) {
+      result.planes = boundary.planes
+    }
+    // Conduits — flatten the raw outbound/inbound connection reads into the stored Conduit[]
+    // (guarded-omit, matching the zoning idiom). Empty ⇒ omit, re-reads as undefined.
+    const conduits = flattenConduits(boundary)
+    if (conduits.length > 0) {
+      result.conduits = conduits
     }
 
     // Convert nested boundaries

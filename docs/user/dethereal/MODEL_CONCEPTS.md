@@ -96,6 +96,27 @@ Each boundary can have enforcement attributes that describe how it controls traf
 
 These attributes feed into the attack surface analysis — a boundary with `implicit_deny_enabled: true` and `egress_filtering: deny_all` provides stronger isolation than one with `allow_any_inbound: true`.
 
+### Trust Zones, Planes, Domains, and Conduits
+
+Beyond enforcement posture, each boundary can carry **zoning** — your declared segmentation intent. Zoning is stored on the boundary in `structure.json` and round-trips to the platform:
+
+| Field | What It Captures |
+|-------|-----------------|
+| `zone` | The **trust zone** — the exposure tier the boundary sits on: *who can reach it*. One of `UNTRUSTED`, `PUBLIC`, `EXPOSED`, `INTERNAL`, `RESTRICTED`, or `VENDOR`. |
+| `planes` | The boundary's operational **role**: `WORKLOAD`, `MANAGEMENT`, or both. |
+| `domains` | Free-text business-function **tags** (e.g. `payments`, `identity`). |
+| `conduits` | **Approved channels** — directional peer boundaries this one is *meant* to talk to, each with an optional justification. |
+
+**A trust zone inherits down.** A boundary with no zone of its own takes the zone of its nearest declaring ancestor; if nothing up the chain declares one, it falls back to the default `INTERNAL` (and is flagged). Set a zone explicitly wherever the trust level genuinely changes — especially when a child is *stricter* than its parent (a `RESTRICTED` store inside an `INTERNAL` tier), since inheritance would otherwise understate it.
+
+**Structural containers abstain — zone the leaves, not the wrapper.** A boundary that mainly *nests* other boundaries (a VPC, a Kubernetes cluster, a cloud account) usually spans several tiers at once, so no single zone is correct for it. Leave it unset and zone the leaf boundaries inside; the review shows the container's span as a display roll-up rather than forcing one zone onto the whole subtree.
+
+**Domains and planes are tags, not structure.** Use them to describe *what* a boundary is for and *how* it operates, separate from *who can reach it*. Model identity, compute-node, location, and business grouping as `domains`/`planes` tags rather than as zone-bearing boundaries.
+
+**Conduits are approved crossings.** A conduit records that a boundary is *supposed* to communicate with a peer, in a chosen direction, with a reason. It is declared design intent — the platform records it but does **not** verify or enforce it. Whether the real flows match your declared conduits is the job of security analysis, which reads your zoning as its baseline.
+
+Zoning is authored two ways that write the same fields: the guided workflow ratifies it step by step (see [Guided Workflow](GUIDED_WORKFLOW.md)), and the platform GUI edits it directly. For the complete how-to — inheritance rules, the Zoning overview, worked examples — see the platform guide [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md).
+
 ---
 
 ## Data Flows

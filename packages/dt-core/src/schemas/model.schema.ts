@@ -25,6 +25,7 @@ import type {
   StructureComponent,
 } from './structure.schema.js';
 import { flattenStructure } from './structure.schema.js';
+import type { Zone, Plane, Conduit } from '../interfaces/core-types-interface.js';
 import type { DataFlow, DataFlowsFile } from './dataflows.schema.js';
 import type { DataItem, DataItemsFile } from './data-items.schema.js';
 import type {
@@ -74,6 +75,10 @@ export interface MonolithicBoundary {
   controls?: ControlReference[];
   dataItemIds?: UUID[];
   representedModel?: ModelReference;
+  zone?: Zone | null;
+  domains?: string[];
+  planes?: Plane[];
+  conduits?: Conduit[];
   boundaries?: MonolithicBoundary[];
   components?: MonolithicComponent[];
 }
@@ -285,6 +290,10 @@ function extractStructureBoundary(boundary: MonolithicBoundary): StructureBounda
     controls: boundary.controls,
     dataItemIds: boundary.dataItemIds,
     representedModel: boundary.representedModel,
+    zone: boundary.zone,
+    domains: boundary.domains,
+    planes: boundary.planes,
+    conduits: boundary.conduits,
     boundaries: boundary.boundaries?.map(extractStructureBoundary),
     components: boundary.components?.map(extractStructureComponent),
   };
@@ -403,6 +412,10 @@ function injectAttributesBoundary(
     controls: boundary.controls,
     dataItemIds: boundary.dataItemIds,
     representedModel: boundary.representedModel,
+    zone: boundary.zone,
+    domains: boundary.domains,
+    planes: boundary.planes,
+    conduits: boundary.conduits,
     boundaries: boundary.boundaries?.map(b => injectAttributesBoundary(b, attributes)),
     components: boundary.components?.map(c => {
       const componentAttrs = attributes.components?.[c.id];

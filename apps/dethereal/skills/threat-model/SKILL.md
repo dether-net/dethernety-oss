@@ -39,7 +39,7 @@ This workflow is local-first: model files are created on disk now and synced to 
 
 ## Presentation Discipline
 
-Every mandated artifact in this workflow — the progress table (Step 0), discovery confirmation table (Step 2), boundary hierarchy tree (Step 4), enrichment/control-pass decision tables (Step 8), quality dashboard (Step 9), and push summary (Step 10) — is rendered as a **markdown text block in the conversation BEFORE any `AskUserQuestion`**. The confirmation modal never substitutes for the presentation: render the table/tree/dashboard first, then let the modal carry only the blocking question (and, where useful, mirror modify-variants into an `AskUserQuestion` `preview`). Information that travels only inside option labels is information the operator cannot review, compare, or scroll back to.
+Every mandated artifact in this workflow — the progress table (Step 0), discovery confirmation table (Step 2), boundary hierarchy tree (Step 4), approved-channels ratification gate (Step 5), enrichment/control-pass decision tables (Step 8), quality dashboard (Step 9), and push summary (Step 10) — is rendered as a **markdown text block in the conversation BEFORE any `AskUserQuestion`**. The confirmation modal never substitutes for the presentation: render the table/tree/dashboard first, then let the modal carry only the blocking question (and, where useful, mirror modify-variants into an `AskUserQuestion` `preview`). Information that travels only inside option labels is information the operator cannot review, compare, or scroll back to.
 
 This applies equally to the subagent-delegated steps (6, 8, 9): when a step delegates to `Agent(...)`, the orchestrator relays the subagent's returned tables into the conversation before prompting — the subagent cannot reach the user itself (see the relay obligations in Steps 8 and 9).
 
@@ -231,24 +231,53 @@ No state transition — stays at `DISCOVERED`.
 
 ## Step 4: Boundary Refinement
 
-Review and refine the trust boundary hierarchy.
+Review and refine the trust boundary hierarchy, then ratify the **trust skeleton** (zone + plane) alongside the boundary enforcement posture — both decision families in **one batched `accept-all / adjust` gate**, never a per-boundary interrogation.
 
 1. Display current boundary hierarchy as a tree view — rendered in the conversation before any refinement prompt (see Presentation Discipline)
 2. Check for structural issues:
    - Single-component boundaries (may need merging)
    - Flat hierarchy (no nesting — consider adding sub-boundaries)
    - External entities inside internal boundaries (should be in an external boundary)
-3. Prompt for boundary enforcement attributes on each boundary:
-   - `implicit_deny_enabled` (boolean) — boundary blocks traffic by default
-   - `allow_any_inbound` (boolean) — boundary allows unrestricted inbound
-   - `egress_filtering` (`"deny_all"` | `"allow_list"` | `"allow_all"` | `"unknown"`) — outbound traffic policy (D50)
-4. Apply user refinements to `structure.json`
+3. Compute the trust skeleton: call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'zoning', assets: 'skeleton')`. The `skeleton` phase sets external + exposure tiers + the `INTERNAL` default only — **`RESTRICTED` is deferred** to the close of Step 7 (its inputs, the flow graph and asset classification, don't exist yet). Never propose `RESTRICTED` here.
+4. Render the **two stacked tables** under one gate. Use the display names from `guidelines-core.md` (never raw enums):
 
-**Auto-skip:** If `boundary_hierarchy_quality` factor = 1.0 (hierarchy depth ≥ 2, no single-child boundaries, no external entities in internal boundaries), show:
+   ```
+   ## Boundary Refinement
+
+   Trust classification (proposed from discovery + scope)
+   | Boundary    | Zone            | Role (plane) | Resolved              |
+   |-------------|-----------------|--------------|-----------------------|
+   | Edge / DMZ  | DMZ       [hi]  | Workload     | declared              |
+   | App Tier    | Internal        | Workload     | declared              |
+   | payment-db  | Internal        | Workload     | declared              |
+   | Logging     | —               | Undecided    | inherited · App Tier  |
+
+   Enforcement posture
+   | Boundary    | Implicit deny   | Any inbound  | Egress                |
+   | …           | …               | …            | …                     |
+
+   Proposed from discovery + scope. Accept all, or adjust specific rows?
+   ```
+
+   - **Zone** — the proposed trust tier (display name). The proposal comes from the scout's `suggestedZone` in `.dethereal/discovery.json` (topology-derived at discovery); the `assets:'skeleton'` payload cross-checks the external/exposure tiers and is authoritative for the **Resolved** column. The inline **`[hi/med/lo]`** is the scout's `classificationConfidence` for that boundary — leave it blank when there is no topology signal. (Do **not** render the payload's own `confidence` here — under the skeleton it is `low` for every internal boundary by construction.)
+   - **Resolved** — computed platform-side by the payload (`resolvedSource`/`resolvedFrom`); **never walk the tree yourself**. Shown as a glyph, not prose: `⬆` = declared **and stricter than its parent** (the one case the operator must catch); a plain zone name = declared; `· inherited · <ancestor>` = resolves from a named ancestor; `—` = unclassified (surfaces in the Step 9 count); `— structural` = a container that nests child boundaries — it abstains and is **not** in the Step 9 count. The operator scans this one column for `⬆`.
+   - **Role (plane)** — `Workload` / `Management` from the scout's `suggestedPlane`; default **Undecided** (distinct from Workload). A mixed `Workload + Management` boundary carries an inline ⚠.
+   - **Propose zones for LEAF segments only.** A boundary the payload marks `structural: true` (it nests child boundaries) **abstains** — render its **Zone** cell `— structural`, propose no zone, and do not nag. Its subtree can span multiple tiers, so it has no single well-defined zone; trust classification lives at the leaves, and the container stays unzoned unless the operator manually declares one for inheritance leverage. (What the container actually spans is surfaced as a display roll-up in the Step-9 review, once assets are known — the skeleton table here shows only the bare glyph.)
+   - **Boundaries model network containment; identity, compute-node, location, and business domain are `domains`/`planes` tags, not zone-bearing boundaries.** A boundary that groups by identity or node co-tenancy forces heterogeneous tiers into one segment and will (correctly) abstain. Tag the co-resident segments with a shared `domains` value instead: when such a tag couples an externally-reachable segment with a protected one, Step 9 surfaces it as a `cross-tier-domain` blast-radius/co-tenancy finding (the signal is otherwise invisible to zoning). Prefer a logical (k8s-first) perspective for workloads.
+   - **Do not re-propose a ratified row.** A boundary the payload reports with `resolvedSource: 'declared'` is already operator-ratified — show it as `declared`; never overwrite it with a fresh scout proposal (on resume/drift too).
+   - **Provenance on adjust only.** The one-line "why" ("public subnet, IGW → Internet-facing") appears only when the operator chooses to *adjust* a row — it stays off the accept path.
+   - The **Enforcement posture** table carries the D50 attributes: `implicit_deny_enabled` (boundary blocks traffic by default), `allow_any_inbound` (allows unrestricted inbound), `egress_filtering` (`"deny_all"` | `"allow_list"` | `"allow_all"` | `"unknown"` — outbound policy).
+5. Apply the accepted refinements as a **split write** — **proposed ≠ set**, so only accepted rows persist:
+   - ratified `zone` / `planes` → `structure.json` (the boundary's own fields)
+   - enforcement attributes → `attributes/boundaries/<id>.json`
+
+   An unconfirmed boundary persists **no** zone — it stays `—` and is counted as unclassified at Step 9, **unless** it is a structural container (`structural: true`), which renders `— structural` and is excluded from the unclassified count.
+
+**Auto-skip:** Skip refinement only when `boundary_hierarchy_quality` factor = 1.0 (hierarchy depth ≥ 2, no single-child boundaries, no external entities in internal boundaries) **AND there are no unratified zone proposals**, showing:
 ```
-Boundary hierarchy is well-structured (quality factor: 1.0). Skipping refinement.
+Boundary hierarchy is well-structured (quality factor: 1.0), no zone proposals pending. Skipping refinement.
 ```
-Mark as `[auto-skip]` in progress table. User can still jump to Step 4 explicitly.
+Mark as `[auto-skip]` in the progress table. A perfect hierarchy that *still* has zone proposals renders the trust table as the Step-4 interaction (the hierarchy is what's "already well-structured"); only a perfect hierarchy with no proposals skips. User can still jump to Step 4 explicitly.
 
 Update state: `currentState` → `STRUCTURE_COMPLETE`, add `STRUCTURE_COMPLETE` to `completedStates`.
 
@@ -271,6 +300,32 @@ Connect components with data flows to complete the structural model.
    - Set description and protocol
 5. Write new flows to `dataflows.json`
 6. Validate: `mcp__plugin_dethereal_dethereal__validate_model_json`
+7. **Ratify risk-bearing crossings as approved channels.** Now that the flows exist, surface the boundary crossings that carry trust risk and let the operator declare **approved channels** (conduits) for them — one batched gate, in the same step (not a second round-trip). This is selective by design: do **not** elicit every crossing; ordinary in-zone and child↔parent crossings are inheritance-implied and never surfaced.
+
+   - Compute the crossings: call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'zoning', assets: 'skeleton')` and read its `findings`. The **`external-ingress`** findings are the risk-bearing crossings to ratify — an external-tier boundary (Open internet / Trusted external) with a modelled flow into a trusted tier (Internal / Restricted) and no approved channel. Each finding carries `boundaryId` (the **source**) and `peerId` (the **target** boundary) — use them directly; **never re-walk the flow graph yourself**. **If there are no such findings, skip this sub-step** (no empty prompt).
+   - For each finding, lift a **draft justification** from the description of the flow crossing `boundaryId → peerId`. **Do not re-propose** a crossing whose source boundary already carries a conduit to that peer (Read its `conduits[]` first — resume/drift safety, mirroring Step 4's "don't re-propose a ratified row").
+   - Render **one batched gate**, in display names (never raw enums — see `guidelines-core.md`):
+
+     ```
+     ## Approved channels
+
+     Risk-bearing crossings — declared intent, not enforcement. Ratify as approved channels, or adjust:
+
+     | Channel (source → peer)      | Draft justification                          |
+     |------------------------------|----------------------------------------------|
+     | Trusted external → Internal  | Vendor sync pushes orders into the order svc |
+
+     Ratify all, or adjust specific rows?
+     ```
+
+   - Apply as a **split write — proposed ≠ set**, so only ratified rows persist. For each ratified row, append an **OUTBOUND-only** conduit to the **source** boundary's `conduits[]` in `structure.json` (via `Edit`, the same split-write locus as Step 4):
+
+     ```json
+     { "peerId": "<target boundary id>", "direction": "OUTBOUND", "justification": "<non-empty>" }
+     ```
+
+     Write the **OUTBOUND end only** — never an INBOUND mirror (the read path re-derives it, and a lone inbound conduit is rejected by validation). **Never populate `controlRefs`** — an approved channel is declared intent, not an enforced control (flow analysis never reads channel-absence as a deny).
+   - A risk-bearing crossing the operator does **not** ratify stays a plain flow and re-surfaces at Step 9 as an `external-ingress` finding (advisory, never sync-blocking). Crossings into **asset-bearing** boundaries aren't classifiable yet (assets are set at Step 7) — those surface at Step 9 too.
 
 Update state: `currentState` → `ENRICHING`, add `ENRICHING` to `completedStates`. Per the canonical Phase-to-Step Mapping, Steps 5-8 all operate within the ENRICHING state.
 
@@ -360,6 +415,24 @@ Model each sensitive data type once, then associate it with **every element that
    ```
 4. Write confirmed data items to `data-items.json` and link them via `dataItemIds` on each handling element
 5. Classify the confirmed data items against platform DATA classes: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`, confirm matches (auto-accept `exact_name`), write confirmed `classData` onto the items in `data-items.json`, then call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` so `attributes/dataItems/<id>.json` stubs exist before Step 8 enrichment. If no suitable DATA class exists, leave the item unclassified and note the gap
+6. **Restricted promotion (completes the Step-4 trust skeleton).** Now that data sensitivity (this step) and the flow graph (Step 5) exist, re-derive the cascade in full: call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'zoning')` (no `assets` arg — the full phase, assets populated). This is the promotion **deferred at Step 4**, and it only ever tightens.
+   - **Eligibility (offer a row only when all three hold):** payload `proposedTier === 'RESTRICTED'` **AND** `resolvedZone !== 'RESTRICTED'` (not already there) **AND** `declaredZone` is `null` or `INTERNAL`. Never touch a row the operator declared `PUBLIC`/`EXPOSED`/`VENDOR`/`UNTRUSTED` (exposure outranks asset pull — the engine keeps those as-is).
+   - **Proposed-and-confirmed, never an auto-write.** Present the batched confirm below; write `zone: 'RESTRICTED'` to `structure.json` **only for rows the operator confirms this turn**. A boundary the operator explicitly *declared* `INTERNAL` is *offered* here (the human decides) — it is never silently overwritten, consistent with the Step-4 "don't overwrite a ratified zone" rule. Frame it as **completion, not reversal** (display names, never raw enums):
+     ```
+     ## Restricted promotion — completing the trust skeleton
+
+     The promotion we deferred at Step 4: now that data sensitivity and the flow graph exist, these
+     Internal boundaries qualify for Restricted. This is a safe-direction change (Internal → Restricted)
+     — tightening only; declared zones are never loosened or overwritten.
+
+     | Boundary   | Now      | → Proposed | Why                                               |
+     |------------|----------|------------|---------------------------------------------------|
+     | payment-db | Internal | Restricted | holds Card data (PCI), ingress only from App Tier |
+
+     Promote all, or adjust? Boundaries that hold assets but can't be Restricted yet (reachable from a
+     DMZ, or vendor-touched) stay Internal and are flagged at Step 9 — not promoted here.
+     ```
+   - Write confirmed promotions to `structure.json` (`zone: 'RESTRICTED'` on the boundary; same split-write locus as Step 4). Boundaries that hold an asset but did not qualify are left untouched — they surface as the Step-9 *under-protected* finding, not here.
 
 State: no transition — already at ENRICHING.
 
@@ -429,6 +502,7 @@ Delegate to `Agent(model-reviewer)` for quality assessment.
    - Factor breakdown table
    - Quality gate evaluation (Gate 1/2/3)
    - Top issues
+   - Zoning coherence findings (the reviewer's `### Zoning Coherence` block) — **advisory, never sync-blocking** (Gate 3 is unchanged). The rolled-up "N unclassified" line here **is** the unclassified count the Step-4 trust gate forward-references — one mechanism, not two. A structural container is rendered with its display roll-up (`— structural · spans <min>…<max>`, plus `· contains crown jewels` / `· includes a vendor enclave` / `· N descendant segments still unclassified` from the payload's `summary`) — the abstention is made legible, not silent. The roll-up is full-phase (Step 9) only; the Step-4 skeleton table shows the bare `— structural` glyph.
 
 **If Gate 3 passes (quality ≥ 70, all Gate 3 criteria met):**
 - Update state: `currentState` → `REVIEWED`, add `ENRICHING` to `completedStates`

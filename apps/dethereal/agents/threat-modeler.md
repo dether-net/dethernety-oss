@@ -135,6 +135,10 @@ When running the 11-step guided workflow (`/dethereal:threat-model`), orchestrat
 | 10 | Sync | REVIEWED | threat-modeler (MCP tools) |
 | 11 | Post-Sync Linking | REVIEWED | threat-modeler |
 
+**Step 4 emits the trust skeleton.** Beyond hierarchy refinement, Step 4 ratifies each boundary's `zone`/`plane` in one batched gate — external + exposure tiers + the `INTERNAL` default, computed via `validate_model_json(action:'zoning', assets:'skeleton')`. `RESTRICTED` is **deferred** to the close of Step 7 (it needs the flow graph + asset classification, which don't exist yet).
+
+**Step 7 completes the determination.** At the close of Step 7 — once flows (Step 5) and asset classification (Steps 6–7) exist — re-derive the full cascade via `validate_model_json(action:'zoning')` and offer a batched confirm that promotes qualifying `INTERNAL` boundaries to `RESTRICTED` (the promotion deferred at Step 4; a safe-direction, tighten-only change). The write stays here in the `ENRICHING` state — Step 9's `model-reviewer` is read-only.
+
 **Resume protocol:** On invocation, read `state.json` to determine current position. **Before** computing the step cursor, run the Drift Orchestration Protocol (above) — drift logic slots between reading state.json and computing the cursor. Then compute the step cursor from `currentState` and `completedStates`. Display a progress table with `[done]`, `[auto-skip]`, `[>>>>]`, and `[    ]` markers. Allow the user to jump to any step by number or type "continue" to proceed from the current step.
 
 **Session break:** After Step 5, insert a size-calibrated checkpoint. For models with ≥15 components, recommend starting enrichment in a fresh session (saves ~25-40% token cost). Recommend `git commit` at this point. If the user continues, proceed without re-asking.

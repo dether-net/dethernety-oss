@@ -36,13 +36,13 @@ Each state represents a maturity level. The guided workflow advances through the
 | 1 | Scope Definition | Define system, crown jewels, compliance | SCOPE_DEFINED |
 | 2 | Discovery | Scan codebase for infrastructure | DISCOVERED |
 | 3 | Model Review | Confirm components, initial classification | DISCOVERED |
-| 4 | Boundary Refinement | Adjust trust boundaries and enforcement | STRUCTURE_COMPLETE |
-| 5 | Data Flow Mapping | Connect components, add operational flows | ENRICHING |
+| 4 | Boundary Refinement | Adjust trust boundaries and enforcement; ratify the trust skeleton (zones, planes) | STRUCTURE_COMPLETE |
+| 5 | Data Flow Mapping | Connect components, add operational flows; ratify risk-bearing crossings as approved channels | ENRICHING |
 | — | *Session Break* | *Checkpoint — resume later or continue* | — |
 | 6 | Classification | Classify remaining elements, tag crown jewels | ENRICHING |
-| 7 | Data Item Classification | Classify sensitive data on flows | ENRICHING |
+| 7 | Data Item Classification | Classify sensitive data on flows; promote qualifying boundaries to RESTRICTED | ENRICHING |
 | 8 | Enrichment | Security attributes, credentials, MITRE | ENRICHING |
-| 9 | Validation | Quality score, gate checks, readiness | REVIEWED |
+| 9 | Validation | Quality score, gate checks, readiness; advisory zoning-coherence findings | REVIEWED |
 | 10 | Sync | Push to platform | REVIEWED |
 | 11 | Post-Sync Linking | Link countermeasures to exposures | REVIEWED |
 
@@ -242,6 +242,30 @@ For each boundary, it prompts for enforcement attributes:
 | `allow_any_inbound` | true / false | Boundary allows unrestricted inbound |
 | `egress_filtering` | deny_all / allow_list / allow_all / unknown | Outbound traffic policy |
 
+#### Trust skeleton — zones and planes
+
+The plugin then proposes a **trust zone** and **operational plane** for each *leaf* boundary and asks you to ratify them in a single batched accept-all / adjust gate — it computes the proposal, it never silently sets it:
+
+```
+Trust skeleton (accept all / adjust):
+| Boundary        | Proposed zone | Plane      |
+|-----------------|---------------|------------|
+| External        | UNTRUSTED     | —          |
+| DMZ             | EXPOSED       | WORKLOAD   |
+| Internal Network| INTERNAL      | WORKLOAD   |
+| Data Tier       | INTERNAL      | WORKLOAD   |
+| — VPC (wrapper) | — structural  | —          |
+
+Accept all, or adjust rows?
+```
+
+- **Zones** place each boundary on the exposure gradient (`UNTRUSTED` / `PUBLIC` / `EXPOSED` / `INTERNAL` / `RESTRICTED` / `VENDOR`). A boundary you leave unset **inherits** its nearest declaring ancestor's zone, falling back to `INTERNAL`.
+- **Structural containers abstain.** A boundary that only nests other boundaries renders `— structural` and is not nagged — zone the leaves inside it, not the wrapper.
+- This is the **skeleton** phase: it sets external, exposed, and internal tiers but **defers `RESTRICTED`**, which needs asset classification (promoted at Step 7).
+- Identity, compute-node, location, and business grouping are steered to `domains` / `planes` **tags**, not zone-bearing boundaries.
+
+For the concepts and the GUI equivalent, see [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md).
+
 **Auto-skip:** If the boundary hierarchy is already well-structured (depth >= 2, no single-child boundaries, no external entities in internal boundaries), this step shows "Boundary hierarchy is well-structured" and skips automatically. You can still jump to Step 4 explicitly if needed.
 
 **State after:** STRUCTURE_COMPLETE
@@ -260,6 +284,22 @@ Connect components with data flows to complete the structural model. The plugin:
    - **Backup/recovery** — databases to backup destinations
 
 For each new flow, you specify the source, target, protocol, and description.
+
+#### Ratify approved channels (conduits)
+
+Once flows exist, the plugin surfaces the **risk-bearing crossings** — flows where an external-tier boundary reaches a trusted one. You ratify the few that are legitimate as **approved channels** (conduits), each with a short justification:
+
+```
+Risk-bearing crossings — ratify as approved channels?
+| Crossing                          | Ratify? | Why                              |
+|-----------------------------------|---------|----------------------------------|
+| External → DMZ (Nginx)            | Y       | public entry point               |
+| DMZ → Internal (Payment API)      | Y       | front-end forwards requests      |
+
+Ratify selected as approved channels?
+```
+
+Ratified crossings are recorded as directional conduits on the source boundary. A crossing you **don't** ratify stays a plain flow and re-surfaces as an advisory `external-ingress` finding at Step 9 — that divergence between declared intent and modeled reality is the review working as designed. Conduits are declared intent only; the platform records them but does not verify or enforce them.
 
 ```
 [done] Data flow mapping complete. Quality: 45/100.
@@ -348,6 +388,21 @@ Sensitivity levels:
 
 Compliance drivers from your scope definition inform the regulatory mapping.
 
+#### RESTRICTED promotion
+
+Now that assets and sensitive data are classified, the plugin re-runs the trust determination it deferred at Step 4 and proposes promoting qualifying boundaries to **`RESTRICTED`** — the strictest tier, for boundaries that hold high-value assets and take ingress only from other trusted tiers. Promotions are folded into a batched confirm:
+
+```
+Promote to RESTRICTED (assets now classified)?
+| Boundary   | Was      | Now proposed | Because                         |
+|------------|----------|--------------|---------------------------------|
+| Data Tier  | INTERNAL | RESTRICTED   | holds cardholder data           |
+
+Confirm promotions?
+```
+
+A zone you ratified by hand at Step 4 is never overwritten. If a boundary holds an asset but resolves looser than `RESTRICTED`, that surfaces as an `under-protected` finding at Step 9.
+
 **State:** No transition — already at ENRICHING.
 
 ---
@@ -404,6 +459,18 @@ Quality Gates:
   Gate 2 (Sync):      PASS
   Gate 3 (Analysis):  PASS — quality >= 70, all criteria met
 ```
+
+#### Zoning coherence (advisory)
+
+The review also rolls up your **zoning coherence** as an advisory block — up to six findings that check whether your declared segmentation hangs together:
+
+```
+Zoning coherence (advisory — never blocks sync):
+  [info] external-ingress: DMZ reaches Data Tier with no approved channel
+  [info] unclassified: "Legacy Gateway" has no zone (defaults to INTERNAL)
+```
+
+The six findings are `unclassified`, `under-protected`, `mgmt-plane`, `external-ingress`, `flow-channel`, and `cross-tier-domain`. They are always **advisory** — they inform you and never block a sync. See [Review and Analysis](REVIEW_AND_ANALYSIS.md#zoning-coherence-advisory) for what each finding means.
 
 **If Gate 3 passes** (quality >= 70 and all criteria met): the state advances to REVIEWED and the workflow proceeds to sync.
 

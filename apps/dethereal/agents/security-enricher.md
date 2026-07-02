@@ -294,6 +294,8 @@ For each boundary, prompt for enforcement attributes:
 
 Write to `attributes/boundaries/<id>.json`.
 
+Enforcement posture is the enforcement counterpart to a boundary's **trust zone** (the skeleton set at Step 4, promoted to Restricted at the close of Step 7): an unenforced boundary sitting in an Internal or Restricted zone is a coherence gap the model-reviewer surfaces at Step 9. Capture these attributes even when the zone is still Undecided.
+
 Flag unenforced boundaries:
 ```
 WARNING: Boundary "Internal Network" has no implicit deny and allows any inbound.

@@ -62,12 +62,12 @@ The plugin provides an 11-step guided workflow (`/dethereal:threat-model`) that 
 | 1. Scope Definition | System description, crown jewels, compliance drivers, adversary classes | `scope.json` |
 | 2. Discovery | Auto-scan codebase for infrastructure components | Raw inventory |
 | 3. Model Review | Confirm/adjust discovered components, deterministic classification | Validated inventory |
-| 4. Boundary Refinement | Define trust boundaries, enforcement status, hierarchy | `structure.json` |
-| 5. Data Flow Mapping | Connect components with data flows, auth modes, protocols | `dataflows.json` |
+| 4. Boundary Refinement | Define trust boundaries + the **trust skeleton** (zone + plane), enforcement status, hierarchy | `structure.json` |
+| 5. Data Flow Mapping | Connect components with data flows; ratify risk-bearing crossings as **approved channels (conduits)** | `dataflows.json` + `conduits[]` |
 | 6. Classification | Assign component classes from platform module definitions | Class assignments in `structure.json` |
 | 7. Data Item Classification | Classify data sensitivity on flows | `data-items.json` |
 | 8. Enrichment | Populate security attributes (auth, encryption, logging, credentials) | `attributes/*.json` |
-| 9. Validation | Quality gate check (score 0-100) | Readiness assessment |
+| 9. Validation | Quality gate check (score 0-100) + advisory zoning-coherence findings | Readiness assessment |
 | 10. Publish | Push to platform | Platform model + ID mapping |
 | 11. Post-publish linking | Link countermeasures to platform-computed exposures | Defense coverage |
 
@@ -91,6 +91,7 @@ Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`,
 | [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) | Plugin structure, skills, subagents, hooks, settings |
 | [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | MCP server architecture — tool system, auth flow, dt-core integration |
 | [THREAT_MODELING_WORKFLOW.md](THREAT_MODELING_WORKFLOW.md) | End-to-end workflow, discovery, classification, MITRE integration, quality gates |
+| [TRUST_ZONING.md](TRUST_ZONING.md) | Trust zones, planes, domains & conduits — data model, `validate_model_json` determination (incl. structural-container abstention), guided-flow ratification, persistence |
 | [USER_EXPERIENCE.md](USER_EXPERIENCE.md) | User journey, interaction patterns, file presentation, error handling |
 | [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) | Publish/pull architecture, conflict taxonomy, push flow, state bootstrap |
 | [OPERATIONAL_REQUIREMENTS.md](OPERATIONAL_REQUIREMENTS.md) | Attack surface accuracy, detection readiness, compliance, trustworthiness |
