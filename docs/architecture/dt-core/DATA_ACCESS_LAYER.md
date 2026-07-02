@@ -509,4 +509,4 @@ After the mutation, `updateBoundaryNode` calls `flattenConduits` on the server r
 
 ### Framing
 
-These utilities persist **declared intent** only. They sanitize and reconcile what the author asserted about a boundary's trust zone, segmentation domains, planes, and conduits; dt-core computes **no legality verdict** over that intent — it neither validates a conduit against the zones it connects nor flags zone/plane combinations. Any such evaluation is a concern of layers above the data-access layer.
+These utilities persist **declared intent** only. They sanitize and reconcile what the author asserted about a boundary's trust zone, segmentation domains, planes, and conduits; they compute **no verdict** over that intent — they neither validate a conduit against the zones it connects nor flag zone/plane combinations. dt-core does carry a separate, pure-computation module — the [zone determination engine](./ZONE_DETERMINATION.md) — that derives *advisory* trust tiers and coherence findings from a model, but it is read-side only and shares no state with these write utilities; it likewise computes no enforced verdict.

@@ -22,6 +22,7 @@ import type {
   ModelReference,
   Identifiable,
 } from './common.schema.js';
+import type { Zone, Plane, Conduit } from '../interfaces/core-types-interface.js';
 
 /**
  * Component in the threat model (Process, External Entity, or Store).
@@ -91,6 +92,18 @@ export interface StructureBoundary extends Identifiable {
 
   /** If this boundary represents another model */
   representedModel?: ModelReference;
+
+  /** Trust zone; null = inherit from nearest declaring ancestor */
+  zone?: Zone | null;
+
+  /** Free-text business domain tags (≤16, ≤64 chars each) */
+  domains?: string[];
+
+  /** Operational planes */
+  planes?: Plane[];
+
+  /** Flattened boundary-crossing conduits (declared channels); peers referenced by `peerId` */
+  conduits?: Conduit[];
 
   /** Child boundaries nested within this boundary */
   boundaries?: StructureBoundary[];

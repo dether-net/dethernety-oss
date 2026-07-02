@@ -868,6 +868,17 @@ function updateBoundaryIds(boundary: StructureBoundary, idMapping: Map<string, s
     updated.dataItemIds = boundary.dataItemIds.map(id => idMapping.get(id) || id)
   }
 
+  // Update conduit peer references. A conduit's `peerId` is a boundary id, so it must be remapped
+  // through the same idMapping as every other id — otherwise, after the first import rewrites all
+  // boundary ids to platform UUIDs, the local peerId keeps its pre-import (author) value and the
+  // next update_model can no longer resolve the peer, silently dropping the declared channel.
+  if (boundary.conduits) {
+    updated.conduits = boundary.conduits.map(conduit => ({
+      ...conduit,
+      peerId: idMapping.get(conduit.peerId) || conduit.peerId,
+    }))
+  }
+
   // Update control IDs
   if (boundary.controls) {
     updated.controls = boundary.controls.map(ctrl => ({

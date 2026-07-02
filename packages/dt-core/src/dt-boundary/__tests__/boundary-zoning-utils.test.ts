@@ -6,6 +6,7 @@ import {
   sanitizeJustification,
   flattenConduits,
   buildConduitOps,
+  prepareConduitsForWrite,
 } from '../boundary-zoning-utils.js'
 import { Conduit } from '../../interfaces/core-types-interface.js'
 
@@ -137,5 +138,45 @@ describe('buildConduitOps — baseline-driven delta', () => {
     expect(buildConduitOps('INBOUND', mixed, [], SELF)).toEqual([
       { connect: [{ where: { node: { id: { eq: 'p2' } } }, edge: { justification: 'y' } }] },
     ])
+  })
+})
+
+describe('prepareConduitsForWrite — OUTBOUND-only + peerId translation', () => {
+  const id = (x: string) => `srv-${x}` // resolver: old id → server id
+
+  it('keeps OUTBOUND conduits and translates their peerId', () => {
+    const conduits: Conduit[] = [{ peerId: 'p1', direction: 'OUTBOUND', justification: 'why' }]
+    expect(prepareConduitsForWrite(conduits, id)).toEqual({
+      conduits: [{ peerId: 'srv-p1', direction: 'OUTBOUND', justification: 'why' }],
+      dropped: [],
+    })
+  })
+
+  it('drops INBOUND conduits (the read-side mirror is never written — avoids the two-sided dup)', () => {
+    const conduits: Conduit[] = [
+      { peerId: 'p1', direction: 'OUTBOUND' },
+      { peerId: 'p2', direction: 'INBOUND' },
+    ]
+    expect(prepareConduitsForWrite(conduits, id)).toEqual({
+      conduits: [{ peerId: 'srv-p1', direction: 'OUTBOUND' }],
+      dropped: [],
+    })
+  })
+
+  it('drops + reports an OUTBOUND peer that does not resolve', () => {
+    const conduits: Conduit[] = [
+      { peerId: 'good', direction: 'OUTBOUND' },
+      { peerId: 'gone', direction: 'OUTBOUND' },
+    ]
+    const resolve = (x: string) => (x === 'gone' ? undefined : `srv-${x}`)
+    expect(prepareConduitsForWrite(conduits, resolve)).toEqual({
+      conduits: [{ peerId: 'srv-good', direction: 'OUTBOUND' }],
+      dropped: ['gone'],
+    })
+  })
+
+  it('returns empty for undefined / empty input', () => {
+    expect(prepareConduitsForWrite(undefined, id)).toEqual({ conduits: [], dropped: [] })
+    expect(prepareConduitsForWrite([], id)).toEqual({ conduits: [], dropped: [] })
   })
 })

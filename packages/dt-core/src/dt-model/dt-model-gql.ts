@@ -124,6 +124,21 @@ export const DUMP_MODEL_DATA = gql`
         id
         name
         description
+        zone
+        domains
+        planes
+        outboundConduitsConnection {
+          edges {
+            properties { justification controlRefs }
+            node { id name }
+          }
+        }
+        inboundConduitsConnection {
+          edges {
+            properties { justification controlRefs }
+            node { id name }
+          }
+        }
         allDescendantComponents {
           id
           name
@@ -281,6 +296,9 @@ export const GET_MODEL_BOUNDARIES = gql`
           id
           name
           description
+          zone
+          domains
+          planes
           positionX
           positionY
           dimensionsWidth
@@ -289,6 +307,18 @@ export const GET_MODEL_BOUNDARIES = gql`
           dimensionsMinHeight
           parentBoundary {
             id
+          }
+          outboundConduitsConnection {
+            edges {
+              properties { justification controlRefs }
+              node { id name }
+            }
+          }
+          inboundConduitsConnection {
+            edges {
+              properties { justification controlRefs }
+              node { id name }
+            }
           }
           controls {
             id

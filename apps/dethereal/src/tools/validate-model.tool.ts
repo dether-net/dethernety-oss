@@ -11,7 +11,15 @@ import {
   validateControlFile,
   listControlFiles,
   readControlFile,
+  flattenStructure,
+  buildZoningContext,
+  resolveEffectiveZone,
+  determineZoneTier,
+  computeZoningFindings,
+  isStructuralContainer,
+  computeContainerSummary,
 } from '@dethernety/dt-core'
+import type { Zone, ZoneTierResult, EffectiveZone, ZoningFinding, ContainerSummary } from '@dethernety/dt-core'
 import { ClientFreeTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
@@ -49,8 +57,11 @@ const ManifestSchema = z.object({
   exportedAt: z.string().optional()
 })
 
-const StructureSchema = z.object({
-  defaultBoundary: z.object({
+// Recursive so nested-boundary zoning is validated too (z.array(z.any()) would skip it).
+// Permissive (no .strict()): unknown keys pass through, so no currently-valid model is newly rejected —
+// only malformed zone/plane enums get flagged. Components carry no zoning, so they stay z.any().
+const BoundarySchema: z.ZodType<any> = z.lazy(() =>
+  z.object({
     id: z.string(),
     name: z.string(),
     description: z.string().optional(),
@@ -58,9 +69,23 @@ const StructureSchema = z.object({
     positionY: z.number().optional(),
     dimensionsWidth: z.number().optional(),
     dimensionsHeight: z.number().optional(),
-    boundaries: z.array(z.any()).optional(),
+    zone: z.enum(['UNTRUSTED', 'PUBLIC', 'EXPOSED', 'INTERNAL', 'RESTRICTED', 'VENDOR']).nullable().optional(),
+    domains: z.array(z.string()).optional(),
+    planes: z.array(z.enum(['WORKLOAD', 'MANAGEMENT'])).optional(),
+    conduits: z.array(z.object({
+      peerId: z.string(),
+      peerName: z.string().optional(),
+      direction: z.enum(['OUTBOUND', 'INBOUND']),
+      justification: z.string().optional(),
+      controlRefs: z.array(z.string()).optional()
+    })).optional(),
+    boundaries: z.array(BoundarySchema).optional(),
     components: z.array(z.any()).optional()
   })
+)
+
+const StructureSchema = z.object({
+  defaultBoundary: BoundarySchema
 })
 
 const DataFlowSchema = z.object({
@@ -94,10 +119,11 @@ const AttributesSchema = z.object({
 const FileTypeEnum = z.enum(['manifest', 'structure', 'dataflows', 'data-items', 'attributes'])
 type FileType = z.infer<typeof FileTypeEnum>
 
-const ActionEnum = z.enum(['validate', 'quality', 'coverage']).optional().default('validate')
+const ActionEnum = z.enum(['validate', 'quality', 'coverage', 'zoning']).optional().default('validate')
 
 const InputSchema = z.object({
-  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100), 'coverage' analyzes control coverage"),
+  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100), 'coverage' analyzes control coverage, 'zoning' computes per-boundary trust determination (zone/tier/findings) offline"),
+  assets: z.enum(['full', 'skeleton']).optional().default('full').describe("For action 'zoning' only: 'skeleton' omits the asset join so RESTRICTED is never proposed (the Step-4 trust skeleton — external + exposure + INTERNAL); 'full' (default) is the close-of-Step-7 / Step-9 determination where qualifying internal boundaries can promote to RESTRICTED"),
   directory_path: z.string().optional().describe('Path to model directory to validate (validates entire directory)'),
   model_id: z.string().optional().describe('Model ID for online coverage analysis (requires authentication)'),
   data: z.union([z.string(), z.record(z.string(), z.any())]).optional().describe('JSON data to validate (string or object)'),
@@ -194,16 +220,56 @@ interface CoverageOutput {
   details?: any
 }
 
-export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput | CoverageOutput> {
+// Per-boundary trust determination for the `zoning` action. Superset of the offline zoning payload:
+// {id, declaredZone, resolvedZone, proposedTier, reason, confidence, provenance} plus the
+// resolution columns (resolvedSource/from), blockedBy for finding remediation, and `structural`
+// (a boundary that nests child boundaries — it abstains, so the caller proposes no zone for it).
+interface ZoningBoundary {
+  id: string
+  name: string
+  declaredZone: Zone | null
+  resolvedZone: Zone
+  resolvedSource: EffectiveZone['source']
+  resolvedFrom?: string
+  proposedTier: Zone
+  reason: string
+  blockedBy?: NonNullable<ZoneTierResult['blockedBy']>
+  confidence: 'high' | 'medium' | 'low'
+  provenance: string
+  /** True when the boundary nests child boundaries — a structural container that abstains (propose no zone). */
+  structural: boolean
+  /**
+   * Display-only roll-up of the trust tiers inside a structural container (range/maxExposure/presence flags
+   * + unclassified-descendant coverage count). Present only on structural containers in the FULL phase; never
+   * persisted, never a declared zone. See dt-core `ContainerSummary`.
+   */
+  summary?: ContainerSummary
+}
+
+interface ZoningOutput {
+  boundaries: ZoningBoundary[]
+  findings: ZoningFinding[]
+}
+
+export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput | CoverageOutput | ZoningOutput> {
   readonly name = 'validate_model_json'
-  readonly description = 'Validate a threat model JSON structure, compute a quality score (0-100), or analyze control coverage. Use action "validate" for schema checks, "quality" for enrichment progress, or "coverage" for control gap analysis.'
+  readonly description = 'Validate a threat model JSON structure, compute a quality score (0-100), analyze control coverage, or compute boundary trust zoning. Use action "validate" for schema checks, "quality" for enrichment progress, "coverage" for control gap analysis, or "zoning" for per-boundary trust determination.'
   readonly inputSchema = InputSchema
 
-  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput | CoverageOutput>> {
+  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput | CoverageOutput | ZoningOutput>> {
     try {
       // Coverage action
       if (input.action === 'coverage') {
         return await this.computeCoverage(input, context)
+      }
+
+      // Zoning action — offline per-boundary trust determination
+      if (input.action === 'zoning') {
+        if (!input.directory_path) {
+          return { success: false, error: 'directory_path is required for zoning action' }
+        }
+        await validatePathConfinement(input.directory_path)
+        return await this.computeZoning(input.directory_path, input.assets)
       }
 
       // Quality score action
@@ -237,6 +303,103 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         error: error instanceof Error ? error.message : 'Validation failed'
       }
     }
+  }
+
+  /**
+   * Offline boundary trust determination. Reads the local split files, runs the dt-core
+   * determination engine (S6a/S6b), and returns the per-boundary zone/tier + coherence findings.
+   * The asset signals (crownJewel / sensitivity / regulatory_flags) are first-class on the
+   * structure + data items, so no attribute read is needed.
+   *
+   * `assets` selects the determination phase (S9): 'skeleton' blanks `ctx.assetIds` so rule 3
+   * (RESTRICTED) is structurally unreachable — the Step-4 trust skeleton sets external + exposure +
+   * INTERNAL only, with RESTRICTED deferred to the close-of-Step-7 promotion. The blanked context is
+   * fed to BOTH the per-boundary cascade and `computeZoningFindings`, so asset-dependent findings
+   * (under-protected/misplaced) also defer — only `unclassified`/`mgmt-plane` surface at Step 4.
+   * 'full' (default) is the unchanged S7 behaviour (Step 9 / model-reviewer, where assets are known).
+   */
+  private async computeZoning(
+    dirPath: string,
+    assets: 'full' | 'skeleton' = 'full',
+  ): Promise<ToolResult<ZoningOutput>> {
+    if (!await pathExists(dirPath)) {
+      return { success: false, error: `Directory not found: ${dirPath}` }
+    }
+    if (!await isModelDirectory(dirPath)) {
+      return { success: false, error: `Not a valid model directory: ${dirPath}` }
+    }
+
+    const structure = await readStructure(dirPath)
+    const dataFlows = await readDataFlows(dirPath) // normalizes [] and { dataFlows: [] }
+    const dataItems = await readDataItems(dirPath)
+    const ctx = buildZoningContext(structure, dataFlows, dataItems)
+    // Skeleton phase: empty BOTH asset sets once and use them for the cascade AND the findings, so no
+    // boundary can reach rule 3 (RESTRICTED) and no asset-dependent finding fires at Step 4. (The RESTRICTED
+    // gate reads directAssetIds, so blanking assetIds alone would let the skeleton wrongly promote.)
+    const effCtx =
+      assets === 'skeleton'
+        ? { ...ctx, assetIds: new Set<string>(), directAssetIds: new Set<string>() }
+        : ctx
+
+    const boundaries: ZoningBoundary[] = []
+    for (const [id, boundary] of effCtx.boundariesById) {
+      if (id === effCtx.defaultBoundaryId) continue // the root container is not a classified segment
+      const resolved = resolveEffectiveZone(id, effCtx.boundariesById, effCtx.defaultBoundaryId)
+      const tier = determineZoneTier(boundary, effCtx)
+      // Display roll-up: structural containers only, and never at skeleton (both asset sets are blanked
+      // there, so containsAssets/RESTRICTED would silently understate — the roll-up is a full-phase artifact).
+      const summary =
+        assets !== 'skeleton' && isStructuralContainer(boundary)
+          ? computeContainerSummary(boundary, effCtx)
+          : null
+      boundaries.push({
+        id,
+        name: boundary.name,
+        declaredZone: boundary.zone ?? null,
+        resolvedZone: resolved.zone,
+        resolvedSource: resolved.source,
+        ...(resolved.from !== undefined && { resolvedFrom: resolved.from }),
+        proposedTier: tier.tier,
+        reason: tier.reason,
+        ...(tier.blockedBy !== undefined && { blockedBy: tier.blockedBy }),
+        confidence: this.zoningConfidence(tier),
+        provenance: this.zoningProvenance(resolved, effCtx.boundariesById),
+        structural: isStructuralContainer(boundary),
+        ...(summary != null && { summary }),
+      })
+    }
+
+    return { success: true, data: { boundaries, findings: computeZoningFindings(effCtx) } }
+  }
+
+  /**
+   * Deterministic cascade-certainty confidence for the OFFLINE payload (the post-hoc / Step-9
+   * model-reviewer audience, where no scout output is in context). A firm tier with no block is high;
+   * an asset blocked from Restricted by exposure/vendor ingress is medium; an unprovable residual
+   * (no ingress / no asset) is low.
+   *
+   * This is intentionally distinct from the scout's discovery-time `classificationConfidence` on a
+   * `suggestedZone` (S8) — that confidence is rendered agent-side in the Step-4 trust table (S9). The
+   * two coexist by design: structure.json carries no per-boundary confidence to join them on, so the
+   * offline determination derives its own certainty rather than depending on a discovery artifact.
+   */
+  private zoningConfidence(tier: ZoneTierResult): 'high' | 'medium' | 'low' {
+    if (tier.blockedBy === 'no-ingress' || tier.blockedBy === 'no-asset') return 'low'
+    if (tier.blockedBy === 'exposure' || tier.blockedBy === 'vendor') return 'medium'
+    return 'high'
+  }
+
+  /** One-line resolution story for the "Resolved" column (distinct from the cascade `reason`). */
+  private zoningProvenance(
+    resolved: EffectiveZone,
+    boundariesById: Map<string, { name: string }>,
+  ): string {
+    if (resolved.source === 'declared') return `operator-declared ${resolved.zone}`
+    if (resolved.source === 'inherited') {
+      const fromName = (resolved.from && boundariesById.get(resolved.from)?.name) || resolved.from
+      return `inherited from ${fromName}`
+    }
+    return `unclassified — defaults to ${resolved.zone}`
   }
 
   private async computeQuality(dirPath: string): Promise<ToolResult<QualityOutput>> {
@@ -821,21 +984,17 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     return count
   }
 
+  // Component → containing-boundary map. Delegates to dt-core's nesting projection (the single
+  // source of truth — `flattenStructure().parentMap`) rather than keeping a third hand-rolled walk
+  // ("unify, not a third copy"). Equivalent to the old recursion for well-formed trees; the
+  // id-presence guard preserves the prior defensive behavior on malformed input.
   private buildComponentBoundaryMap(boundary: any): Map<string, string> {
+    const { components, parentMap } = flattenStructure({ defaultBoundary: boundary })
     const map = new Map<string, string>()
-    const process = (b: any, boundaryId: string): void => {
-      if (b.components) {
-        for (const c of b.components) {
-          if (c.id) map.set(c.id, boundaryId)
-        }
-      }
-      if (b.boundaries) {
-        for (const nested of b.boundaries) {
-          process(nested, nested.id || boundaryId)
-        }
-      }
+    for (const c of components) {
+      const boundaryId = parentMap.get(c.id)
+      if (c.id && boundaryId != null) map.set(c.id, boundaryId)
     }
-    process(boundary, boundary.id || 'root')
     return map
   }
 
@@ -1056,6 +1215,46 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       // Collect all component and boundary IDs for reference validation
       allComponentIds = this.collectComponentIds(structure.defaultBoundary)
       allBoundaryIds = this.collectBoundaryIds(structure.defaultBoundary)
+
+      // Conduit peerId integrity — a conduit is a boundary↔boundary edge, so its peer must be a known
+      // boundary (tested against allBoundaryIds ONLY, unlike the flow-ref check which also allows a
+      // component endpoint). A self-conduit (peerId === own id) validates as a "known" boundary but is
+      // silently dropped by the write path's dedupeByPeer, so flag it here to keep validate and write in sync.
+      const conduitBoundaries = flattenStructure(structure).boundaries
+      // The write path is OUTBOUND-canonical: each physical edge is persisted once from its source's
+      // OUTBOUND conduit; an INBOUND conduit is only the read-side mirror. So an INBOUND conduit whose
+      // peer carries no matching OUTBOUND back would be silently dropped on write — flag it (validate
+      // rejects exactly what write can't persist). Lone-OUTBOUND is fine (write persists it; the inbound
+      // view is re-derived on read).
+      const outboundEdges = new Set<string>()
+      for (const boundary of conduitBoundaries) {
+        for (const conduit of boundary.conduits ?? []) {
+          if (conduit.direction === 'OUTBOUND') outboundEdges.add(`${boundary.id}->${conduit.peerId}`)
+        }
+      }
+      for (const boundary of conduitBoundaries) {
+        for (const conduit of boundary.conduits ?? []) {
+          if (conduit.peerId === boundary.id) {
+            errors.push({
+              file: 'structure.json',
+              path: `${boundary.name || boundary.id}.conduits.${conduit.peerId}`,
+              message: `Self-conduit: boundary references itself as a conduit peer (${conduit.peerId})`
+            })
+          } else if (!allBoundaryIds.has(conduit.peerId)) {
+            errors.push({
+              file: 'structure.json',
+              path: `${boundary.name || boundary.id}.conduits.${conduit.peerId}`,
+              message: `Invalid conduit peerId: ${conduit.peerId} not found in structure`
+            })
+          } else if (conduit.direction === 'INBOUND' && !outboundEdges.has(`${conduit.peerId}->${boundary.id}`)) {
+            errors.push({
+              file: 'structure.json',
+              path: `${boundary.name || boundary.id}.conduits.${conduit.peerId}`,
+              message: `Lone inbound conduit: peer ${conduit.peerId} declares no matching outbound conduit to this boundary (asymmetric; the write would drop it)`
+            })
+          }
+        }
+      }
       filesValidated.push('structure.json')
     } catch (e) {
       errors.push({

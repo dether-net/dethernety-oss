@@ -122,6 +122,8 @@ Write or update model files with confirmed elements:
 - `structure.json` — confirmed components and boundaries with coordinates (use layout guidelines from guidelines-layout.md)
 - `dataflows.json` — confirmed data flows
 
+A boundary's zone/plane **proposals** (`suggestedZone`/`suggestedPlane`) stay in `discovery.json` — do **not** write them into `structure.json`'s `zone`/`planes` here. They are ratified at Step 4 (Boundary Refinement); persisting an unratified proposal would set the field and silently drop the boundary from the Step 9 unclassified count (*proposed ≠ set*).
+
 If this is the first discovery in the project, write `.dethernety/discovery-cache.json` with the full raw inventory for potential multi-model reuse.
 
 ### 9. Update State

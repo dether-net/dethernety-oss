@@ -621,17 +621,19 @@ Returns example model templates for reference.
 
 #### `validate_model_json`
 
-Offline structural validation and quality score computation.
+Offline structural validation, quality scoring, control-coverage analysis, and boundary trust zoning.
 
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientFreeTool` |
-| **Input** | `{ action: 'validate' \| 'quality', directory_path: string }` |
-| **Output** | Validation errors (for `validate`) or quality score breakdown (for `quality`) |
-| **dt-core class** | None (local file validation) |
+| **Input** | `{ action: 'validate' \| 'quality' \| 'coverage' \| 'zoning', directory_path: string, assets?: 'full' \| 'skeleton', model_id? }` |
+| **Output** | Validation errors (`validate`), quality score breakdown (`quality`), coverage summary (`coverage`), or per-boundary trust determination + advisory findings (`zoning`) |
+| **dt-core class** | None for `validate`/`quality`/`zoning` (local file computation; zoning runs the `dt-boundary` determination engine); `DtControl` for online `coverage` |
 
-- `validate`: Structural checks — required fields, ID uniqueness, reference integrity, schema compliance
+- `validate`: Structural checks — required fields, ID uniqueness, reference integrity, schema compliance. Includes conduit `peerId` integrity (peer must be a known boundary; self-conduits and lone-inbound conduits are rejected, so `validate` matches what the OUTBOUND-canonical write can persist).
 - `quality`: Quality score computation using the formula from THREAT_MODELING_WORKFLOW.md (component classification rate, attribute completion, boundary hierarchy quality, data flow coverage, data classification, control coverage, credential coverage)
+- `coverage`: Control-coverage analysis — online (authoritative MITRE-chain, requires `model_id` + auth) or offline (assignment heuristic from local files)
+- `zoning`: Offline per-boundary trust determination — computes each boundary's `{ declaredZone, resolvedZone, proposedTier, structural, summary? }` plus advisory coherence findings, entirely over the local files (the plugin computes; it never asks the LLM to walk the tree). The `assets` parameter selects the phase: `skeleton` sets external + exposure + `INTERNAL` and defers `RESTRICTED` (the Step-4 trust skeleton), `full` (default) is the close-of-Step-7 / Step-9 determination where qualifying `INTERNAL` boundaries promote to `RESTRICTED`. See [TRUST_ZONING.md](TRUST_ZONING.md) for the cascade, the six finding kinds, and the guided-workflow ratification points.
 
 ### Model CRUD Tools (Client-Dependent)
 

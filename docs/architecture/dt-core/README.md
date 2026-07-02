@@ -129,7 +129,9 @@ dt-core/src/
 │   └── dt-component-gql.ts
 ├── dt-boundary/
 │   ├── dt-boundary.ts
-│   └── dt-boundary-gql.ts
+│   ├── dt-boundary-gql.ts
+│   ├── boundary-zoning-utils.ts # Zoning sanitizers + conduit write reconcile
+│   └── zone-determination.ts    # Pure trust-tier + findings engine (no I/O)
 ├── dt-dataflow/
 │   ├── dt-dataflow.ts
 │   └── dt-dataflow-gql.ts
@@ -238,7 +240,8 @@ const result = await dtImport.importModel(data, { folderId })
 | Document | Description |
 |----------|-------------|
 | [DOMAIN_MODEL.md](./DOMAIN_MODEL.md) | Core interfaces and entity relationships |
-| [DATA_ACCESS_LAYER.md](./DATA_ACCESS_LAYER.md) | DtUtils patterns (retry, mutex, deduplication) |
+| [DATA_ACCESS_LAYER.md](./DATA_ACCESS_LAYER.md) | DtUtils patterns (retry, mutex, deduplication) and boundary zoning write utilities |
+| [ZONE_DETERMINATION.md](./ZONE_DETERMINATION.md) | Pure boundary trust-tier + coherence-findings engine |
 | [GRAPHQL_OPERATIONS.md](./GRAPHQL_OPERATIONS.md) | Domain classes and method signatures |
-| [IMPORT_EXPORT.md](./IMPORT_EXPORT.md) | Model serialization and ID mapping |
+| [IMPORT_EXPORT.md](./IMPORT_EXPORT.md) | Model serialization, ID mapping, and zoning/conduit threading |
 | [Architecture Overview](../README.md) | Overall platform architecture |

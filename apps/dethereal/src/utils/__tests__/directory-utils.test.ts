@@ -25,6 +25,7 @@ import {
   localOnlyCrownJewelNotice,
   writeModelDirectory,
   readModelDirectory,
+  applyIdMapping,
 } from '../directory-utils.js'
 import type { ModelStructure, ClassReference, SplitModel } from '@dethernety/dt-core'
 import { flattenStructure } from '@dethernety/dt-core'
@@ -577,5 +578,54 @@ describe('asset-context round-trip + scope strip', () => {
     const manifestRaw = JSON.parse(await fs.readFile(path.join(tmpDir, 'manifest.json'), 'utf-8'))
     expect(manifestRaw.model).not.toHaveProperty('scope')
     expect(await readScope(tmpDir)).toEqual({ depth: 'design', compliance_drivers: ['PCI cardholder'] })
+  })
+})
+
+describe('applyIdMapping — conduit peerId remap (regression: conduit lost on re-sync)', () => {
+  let tmpDir: string
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-idmap-'))
+  })
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  const write = async (obj: Record<string, unknown>) => {
+    for (const [file, data] of Object.entries(obj)) {
+      await fs.writeFile(path.join(tmpDir, file), JSON.stringify(data), 'utf-8')
+    }
+  }
+
+  it('remaps conduits[].peerId through the idMapping, not just boundary/component ids', async () => {
+    // A conduit's peerId is a boundary id. Before the fix, the first import rewrote every id to a
+    // platform UUID but left the conduit peerId as the author string, so the next update_model could
+    // not resolve the peer and silently dropped the channel.
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': {
+        defaultBoundary: {
+          id: 'root', name: 'root', components: [], boundaries: [
+            { id: 'edge', name: 'edge', components: [], conduits: [{ peerId: 'internal', direction: 'OUTBOUND', justification: 'approved edge → app channel' }] },
+            { id: 'internal', name: 'internal', components: [] },
+          ],
+        },
+      },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [] },
+    })
+
+    const idMapping = new Map([
+      ['root', 'ROOT-uuid'],
+      ['edge', 'EDGE-uuid'],
+      ['internal', 'INTERNAL-uuid'],
+    ])
+    await applyIdMapping(tmpDir, idMapping, 'ROOT-uuid')
+
+    const s = JSON.parse(await fs.readFile(path.join(tmpDir, 'structure.json'), 'utf-8'))
+    const edge = s.defaultBoundary.boundaries.find((b: { name: string }) => b.name === 'edge')
+    expect(edge.id).toBe('EDGE-uuid') // sanity: boundary ids remap
+    expect(edge.conduits[0].peerId).toBe('INTERNAL-uuid') // the fix: peerId remaps too
+    expect(edge.conduits[0].direction).toBe('OUTBOUND') // other conduit fields preserved
+    expect(edge.conduits[0].justification).toBe('approved edge → app channel')
   })
 })

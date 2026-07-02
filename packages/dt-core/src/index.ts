@@ -3,6 +3,8 @@ export * from './dt-utils/dt-utils.js'
 export * from './dt-model/dt-model.js'
 export * from './dt-component/dt-component.js'
 export * from './dt-boundary/dt-boundary.js'
+// Pure determination engine — exported directly (not via dt-boundary.ts) to keep it free of Vue-Flow/Apollo.
+export * from './dt-boundary/zone-determination.js'
 export * from './dt-dataflow/dt-dataflow.js'
 export * from './dt-dataitem/dt-dataitem.js'
 export * from './dt-exposure/dt-exposure.js'

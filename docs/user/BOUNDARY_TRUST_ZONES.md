@@ -68,6 +68,8 @@ Edge Network        →  Internet-facing      (set here — "declared")
 
 If nothing up the chain is set, the boundary is **unclassified**: it falls back to the default **Internal** tier and is flagged so you can review it later. In the dropdown, an unset boundary shows a muted, italic placeholder naming the value it would resolve to — for example *Internal (inherited from App Tier)* or *Internal (default)*.
 
+> **Structural containers span tiers — zone the leaves, not the wrapper.** A boundary that mainly *groups* other boundaries — a VPC, a Kubernetes cluster, a cloud account — usually spans several trust levels at once (a public front end and a restricted data store can live under the same VPC), so no single zone is correct for it. Model the trust on the **leaf** boundaries inside it, each of which maps to one trust level, and leave the structural wrapper unset — it stays transparent to inheritance, and its child segments carry the real classification. Declare a zone on such a container only when you deliberately want the whole subtree to inherit one.
+
 ### How zones appear on the canvas
 
 Each boundary can show a small **pill** with its zone word (`Internet-facing` shows as **Public**, `Behind the front door (DMZ)` as **DMZ**, and so on):
@@ -196,6 +198,7 @@ That judgement — whether the real or modeled flows match your declared intent 
 
 - **Declare the outer tiers first, then let the inside inherit.** Set zones on the boundaries that face the world (Internet-facing, DMZ) and on each tier where the trust level genuinely changes. Leave boundaries that share their parent's trust level unset and let inheritance do the work.
 - **Always override when a child is stricter.** A Restricted store inside an Internal tier must be declared Restricted — inheritance would otherwise understate it.
+- **Zone leaf segments, not structural containers.** A boundary that only nests other boundaries (a VPC, cluster, or account) spans several trust levels — classify the leaves inside it and leave the wrapper unset rather than forcing one zone onto the whole subtree.
 - **Drive the unclassified count to zero.** Use the Zoning overview's **Show only unclassified** filter as a worklist.
 - **Write a reason on every approved channel.** The *Why* is what makes the declared intent reviewable later.
 - **Heed, but don't fear, the nesting warning.** A flagged channel is usually redundant with inheritance — but it is allowed when a child genuinely overrides to a different tier.

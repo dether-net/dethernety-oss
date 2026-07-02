@@ -90,6 +90,16 @@ const StructureBoundarySchema: z.ZodType<any> = z.lazy(() => z.object({
   controls: z.array(ControlReferenceSchema).optional().describe('Security controls applied'),
   dataItemIds: z.array(z.string()).optional().describe('IDs of data items in scope'),
   representedModel: ModelReferenceSchema.optional().describe('For composite boundaries'),
+  zone: z.enum(['UNTRUSTED', 'PUBLIC', 'EXPOSED', 'INTERNAL', 'RESTRICTED', 'VENDOR']).nullable().optional().describe('Trust zone; null = inherit from nearest declaring ancestor'),
+  domains: z.array(z.string()).optional().describe('Free-text business domain tags'),
+  planes: z.array(z.enum(['WORKLOAD', 'MANAGEMENT'])).optional().describe('Operational planes'),
+  conduits: z.array(z.object({
+    peerId: z.string(),
+    peerName: z.string().optional(),
+    direction: z.enum(['OUTBOUND', 'INBOUND']),
+    justification: z.string().optional(),
+    controlRefs: z.array(z.string()).optional()
+  })).optional().describe('Flattened boundary-crossing conduits (declared channels); peer referenced by peerId'),
   boundaries: z.array(z.lazy(() => StructureBoundarySchema)).optional().describe('Nested boundaries'),
   components: z.array(StructureComponentSchema).optional().describe('Components within this boundary')
 })).describe('Trust boundary containing components and nested boundaries')

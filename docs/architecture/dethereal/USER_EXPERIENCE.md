@@ -964,6 +964,8 @@ When the model reaches analysis readiness (quality >= 70), `/dethereal:review` a
 Model based on: code analysis (10 components) + manual (2). Known gaps: 3.
 ```
 
+When the model carries trust zones, the review also rolls up an advisory **zoning-coherence** block — non-blocking findings such as unclassified boundaries, under-protected asset holders, management planes resolving to an exposed tier, undeclared external ingress, and flow-vs-conduit divergences. These inform the operator; they never lower the quality score or block a sync. See [TRUST_ZONING.md](TRUST_ZONING.md).
+
 ### V1.1 Target: Model Confidence Summary and Board-Ready Statement
 
 > D53: Full confidence summary (discovery method, component counts by confidence, model freshness, board-ready statement with editorial workflow) is deferred to V1.1. The V1 review output focuses on quality score, structural checks, and improvement actions — the information developers need. Executive communication features require validation against actual board-level use, which is premature for V1.

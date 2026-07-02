@@ -139,3 +139,37 @@ export const buildConduitOps = (
   ops.push(...updates)
   return ops.length ? ops : undefined
 }
+
+/**
+ * Prepare a boundary's conduits for a WRITE pass (import/update).
+ *
+ * Keeps only OUTBOUND conduits: a conduit A→B is the same physical graph edge stored on both ends of
+ * the split file (`{peerId:B,OUTBOUND}` on A, `{peerId:A,INBOUND}` on B). Writing only the OUTBOUND end
+ * connects each edge exactly once from its source — the INBOUND mirror is never written, only re-derived
+ * on read by `flattenConduits`. This is what prevents the two-sided duplicate-parallel-edge that a bulk
+ * create/re-import would otherwise produce (`connect` is non-idempotent — see the note above).
+ *
+ * Each surviving `peerId` is translated through `resolvePeerId` (old id → new/server id). A peer that does
+ * not resolve (unmapped, or e.g. pending orphan-deletion) is dropped and reported in `dropped` so the caller
+ * can warn rather than fail silently.
+ *
+ * (Lone-INBOUND conduits — an INBOUND with no mirror OUTBOUND on the peer — are dropped by the direction
+ * filter; that asymmetric shape is rejected up-front at validate, so it cannot reach a write.)
+ */
+export const prepareConduitsForWrite = (
+  conduits: Conduit[] | undefined,
+  resolvePeerId: (oldId: string) => string | undefined,
+): { conduits: Conduit[]; dropped: string[] } => {
+  const out: Conduit[] = []
+  const dropped: string[] = []
+  for (const c of conduits ?? []) {
+    if (c?.direction !== 'OUTBOUND' || !c.peerId) continue
+    const newPeer = resolvePeerId(c.peerId)
+    if (!newPeer) {
+      dropped.push(c.peerId)
+      continue
+    }
+    out.push({ ...c, peerId: newPeer })
+  }
+  return { conduits: out, dropped }
+}

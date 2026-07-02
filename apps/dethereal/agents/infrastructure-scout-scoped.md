@@ -99,8 +99,10 @@ Fresh discovery on the file allowlist. Output is a JSON array matching the full-
     suggestedDescription: string,
     suggestedComponentType?: 'PROCESS' | 'STORE' | 'EXTERNAL_ENTITY',
     suggestedClass?: { id: string, name: string },
+    suggestedZone?: 'UNTRUSTED' | 'PUBLIC' | 'EXPOSED' | 'INTERNAL' | 'RESTRICTED' | 'VENDOR',  // boundary elements only
+    suggestedPlane?: 'WORKLOAD' | 'MANAGEMENT',  // boundary elements only; omit when no signal
     existenceConfidence: 'high' | 'medium' | 'low',
-    classificationConfidence: 'high' | 'medium' | 'low',
+    classificationConfidence: 'high' | 'medium' | 'low',  // also the confidence of suggestedZone
     sources: [{ type, file, line?, resource? }],
     confirmed: false
   }

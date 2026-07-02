@@ -138,6 +138,30 @@ Credential "db-admin" is used in both "API Layer" and "Data Platform".
 Lateral movement analysis cannot trace credential reuse across model boundaries.
 ```
 
+#### Zoning Coherence (Advisory)
+
+If your model carries [trust zoning](MODEL_CONCEPTS.md#trust-zones-planes-domains-and-conduits), the review rolls up its **zoning coherence** — a set of advisory findings that check whether your declared segmentation hangs together. They are **always advisory**: they inform you and **never** block a sync or fail a quality gate.
+
+```
+Zoning Coherence (advisory)
+  [info] external-ingress: DMZ reaches Data Tier with no approved channel
+  [info] unclassified:      "Legacy Gateway" has no zone (defaults to INTERNAL)
+  [info] under-protected:   Data Tier holds an asset but resolves INTERNAL
+```
+
+The six findings:
+
+| Finding | Meaning | Typical fix |
+|---------|---------|-------------|
+| `unclassified` | A boundary has no zone anywhere up its chain and falls back to the default `INTERNAL`. | Set its zone (or a declaring ancestor's) at Step 4. |
+| `under-protected` | A boundary holding an asset directly resolves looser than `RESTRICTED`. | Declare it `RESTRICTED`, or confirm the asset placement is intended. |
+| `mgmt-plane` | A `MANAGEMENT` plane resolves to an exposed tier — an admin surface sitting where the internet can reach it. | Segment the management plane behind a stricter boundary. |
+| `external-ingress` | An external-tier boundary reaches a trusted tier with no approved channel declared. | Ratify the crossing as an approved channel, or remove the flow. |
+| `flow-channel` | A risk-bearing crossing diverges from its declared conduit (undeclared path, dead intent, or an unreviewable declaration). | Reconcile the flow and its approved channel — declare, remove, or add a justification. |
+| `cross-tier-domain` | A shared `domains` tag couples an externally-reachable boundary with a protected one — a co-tenancy / blast-radius shape. Fires only when you hand-author matching tags. | Review whether the exposed and protected segments should share that domain. |
+
+Zoning records *declared design intent* — the platform records it but does not verify or enforce it. These findings surface where the modeled reality diverges from what you declared. For setting zones and approved channels, see the platform guide [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md); for where zoning is ratified during modeling, see the [Guided Workflow](GUIDED_WORKFLOW.md).
+
 ---
 
 ### Structure-Only Mode

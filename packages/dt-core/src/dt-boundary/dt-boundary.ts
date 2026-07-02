@@ -136,13 +136,17 @@ export class DtBoundary {
           dimensionsHeight: { set: updatedNode.height },
           dimensionsMinWidth: { set: updatedNode.data.minWidth },
           dimensionsMinHeight: { set: updatedNode.data.minHeight },
-          zone: { set: sanitizeZone(updatedNode.data.zone ?? null) },
-          domains: { set: sanitizeDomains(updatedNode.data.domains) },
+          // Zoning scalars are partial-update: emit a `{ set }` only when the key is present on node.data.
+          // An absent key leaves the field untouched (mirrors controls/dataItems/conduits below); a present
+          // `null`/`[]` still writes (explicit clear/inherit). This protects callers that rebuild node.data
+          // without zoning (the import/update controls & dataItems association passes) from clobbering it.
+          ...(updatedNode.data.zone !== undefined && { zone: { set: sanitizeZone(updatedNode.data.zone ?? null) } }),
+          ...(updatedNode.data.domains !== undefined && { domains: { set: sanitizeDomains(updatedNode.data.domains) } }),
           // `planes` is a `[String!]` field (NOT a GraphQL enum): @neo4j/graphql v7 generates a broken
           // enum-list mutation input (both `set` and `push` required, resolver forbids both), so the enum
           // form was unwritable. Stored as String, the values stay constrained to the `Plane` union by
           // `normalizePlanes` (app-side validation). Same shape as `domains`.
-          planes: { set: normalizePlanes(updatedNode.data.planes) },
+          ...(updatedNode.data.planes !== undefined && { planes: { set: normalizePlanes(updatedNode.data.planes) } }),
           ...(outboundOps !== undefined && { outboundConduits: outboundOps }),
           ...(inboundOps !== undefined && { inboundConduits: inboundOps }),
           ...(parentBoundaryInput !== undefined && { parentBoundary: parentBoundaryInput }),

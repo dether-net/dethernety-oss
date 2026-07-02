@@ -9,7 +9,7 @@ tags: ['dethereal', 'plugin', 'claude-code', 'threat-modeling', 'overview']
 
 # Dethereal — Claude Code Plugin for Threat Modeling
 
-Dethereal is a Claude Code plugin that guides you through building structured threat models using conversational AI. You describe your system in natural language, and the plugin discovers infrastructure, maps trust boundaries and data flows, enriches security attributes, and publishes the model to the Dethernety platform for analysis.
+Dethereal is a Claude Code plugin that guides you through building structured threat models using conversational AI. You describe your system in natural language, and the plugin discovers infrastructure, maps trust boundaries and data flows, places each boundary on a trust gradient with approved channels (see [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md)), enriches security attributes, and publishes the model to the Dethernety platform for analysis.
 
 The plugin provides 14 slash commands, 4 specialized AI agents, 22 MCP tools, and an 11-step guided workflow that takes you from a system description to a fully enriched, analysis-ready threat model. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
@@ -57,6 +57,7 @@ For the **platform GUI experience** (web-based diagram editor, analysis dashboar
 - [Security Analysis Workflow](../SECURITY_ANALYSIS_WORKFLOW.md) — Running analysis on the platform
 - [Working with Security Controls](../WORKING_WITH_SECURITY_CONTROLS.md) — Creating controls in the GUI
 - [Component Configuration Guide](../COMPONENT_CONFIGURATION_GUIDE.md) — Component setup in the GUI
+- [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md) — Zoning boundaries and declaring approved channels (conduits) in the GUI
 
 Both workflows produce the same threat model format. You can create a model with Dethereal, push it to the platform, and continue editing in the GUI — or pull a GUI-created model and enrich it locally.
 
