@@ -125,6 +125,9 @@
   // v-autocomplete behaviour of writing the new class up-front and leaving
   // formData dirty on cancel.
   const pendingClassId = ref<string | null>(null)
+  // Staged unassign: the "Remove class" action routes through the same confirm
+  // dialog (in 'remove' mode) and the same three resolution events.
+  const pendingUnassign = ref(false)
   // Remember last picked class so toggling isFromClass off-then-on restores it.
   const lastPickedClass = ref<string>(props.formData.class || '')
 
@@ -138,7 +141,22 @@
     }
   }
 
+  const onRemoveClassRequest = () => {
+    // Only reachable when a class is bound (button visibility gates on itemClass),
+    // so this is always a destructive unassign — always confirm.
+    pendingUnassign.value = true
+    showClassOrModelChangeDialog.value = true
+  }
+
   const applyPendingClass = () => {
+    if (pendingUnassign.value) {
+      // Empty class + bound itemClass is the parent's unassign signal.
+      updateFormData('class', '')
+      lastPickedClass.value = ''
+      pendingUnassign.value = false
+      blurredFields.value.clear()
+      return
+    }
     if (pendingClassId.value !== null) {
       updateFormData('class', pendingClassId.value)
       lastPickedClass.value = pendingClassId.value
@@ -166,6 +184,7 @@
   const onClassChangeCancel = () => {
     showClassOrModelChangeDialog.value = false
     pendingClassId.value = null
+    pendingUnassign.value = false
     emit('class-change-cancel')
   }
 
@@ -290,6 +309,18 @@
               variant="outlined"
               @click="openModel"
             />
+            <!-- Unassign — icon-only mirror of the open-model button above; the
+                 two are mutually exclusive via the class/model switch. -->
+            <v-btn
+              v-if="isFromClass && itemClass"
+              aria-label="Remove class"
+              class="mx-3 my-0"
+              color="warning"
+              icon="mdi-link-variant-off"
+              size="x-large"
+              variant="outlined"
+              @click="onRemoveClassRequest"
+            />
           </div>
         </v-col>
         <v-col cols="5">
@@ -345,6 +376,7 @@
   <ConfirmClassOrModelChangeDialog
     v-if="showClassOrModelChangeDialog"
     :has-dirty-edits="props.hasDirtyEdits"
+    :mode="pendingUnassign ? 'remove' : 'change'"
     :show="showClassOrModelChangeDialog"
     @cancel="onClassChangeCancel"
     @commit-and-change="onClassChangeCommit"

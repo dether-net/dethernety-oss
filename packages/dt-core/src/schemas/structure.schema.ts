@@ -43,8 +43,9 @@ export interface StructureComponent extends Identifiable {
   /** Reference to parent boundary */
   parentBoundary?: ElementReference;
 
-  /** Class assigned to this component (defines available attributes) */
-  classData?: ClassReference;
+  /** Class assigned to this component (defines available attributes).
+   *  Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
 
   /** Controls associated with this component */
   controls?: ControlReference[];
@@ -81,8 +82,9 @@ export interface StructureBoundary extends Identifiable {
   /** Reference to parent boundary (undefined for root/default boundary) */
   parentBoundary?: ElementReference;
 
-  /** Class assigned to this boundary (defines available attributes) */
-  classData?: ClassReference;
+  /** Class assigned to this boundary (defines available attributes).
+   *  Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
 
   /** Controls associated with this boundary */
   controls?: ControlReference[];

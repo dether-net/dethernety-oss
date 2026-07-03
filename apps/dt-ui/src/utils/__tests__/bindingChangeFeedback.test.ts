@@ -197,6 +197,35 @@ describe('emitBindingChangeFeedback', () => {
     )
     expect(out?.message).toBe('Model link removed. 3 exposures of yours kept.')
   })
+
+  it('renders the class→none copy when no findings preserved', () => {
+    const out = emitBindingChangeFeedback(
+      success({ ...ZERO, deletedDerivedExposures: 4 }, 'none'),
+      { kind: 'exposures', transition: 'class-removed' },
+    )
+    expect(out?.message).toBe('Class removed. 4 auto-generated exposures deleted.')
+    expect(out?.kind).toBe('delta')
+  })
+
+  it('renders the class→none copy with preserved-count callout when non-zero', () => {
+    const out = emitBindingChangeFeedback(
+      success({ ...ZERO, deletedDerivedExposures: 4, preservedCustomExposures: 1 }, 'none'),
+      { kind: 'exposures', transition: 'class-removed' },
+    )
+    expect(out?.message).toBe('Class removed. 4 auto-generated exposures deleted. 1 exposure of yours kept.')
+  })
+
+  it('confirms a class removal even when the deltas are all zero (binding still changed)', () => {
+    // A class with zero derived findings unassigns with all-zero deltas —
+    // "No changes to apply." would be wrong; the binding was removed.
+    const out = emitBindingChangeFeedback(success(ZERO, 'none'), {
+      kind: 'exposures',
+      transition: 'class-removed',
+    })
+    expect(out?.message).toBe('Class removed.')
+    expect(out?.kind).toBe('delta')
+    expect(out?.color).toBe('success')
+  })
 })
 
 describe('formatDeltaCopy direct callers', () => {

@@ -601,9 +601,11 @@ export const useFlowStore = defineStore('flow', () => {
 
   const updateNodeClass = async (
     { nodeId, classId }:
-    { nodeId: string, classId: string }
+    { nodeId: string, classId: string | null }
   ): Promise<ChangeElementBindingResult | null> => {
-    // Check if this is a temporary node from optimistic update
+    // Check if this is a temporary node from optimistic update.
+    // A queued null is safe: temp nodes are created unbound, so the deferred
+    // flush's `if (classId)` gate skipping it converges on the correct end state.
     if (isPendingNode(nodeId)) {
       console.log(`Queueing class update for temporary node ${nodeId}: ${classId}`)
       queueUpdateForTempNode(nodeId, { classId })
@@ -618,9 +620,13 @@ export const useFlowStore = defineStore('flow', () => {
         node = getNodeById({ nodeId }) || null
       }
       if (node) {
+        // null classId = unassign. The backend NONE rebind clears the class edge
+        // and sweeps SYSTEM-derived exposures (user-authored ones are preserved).
         const result = await dtClass.changeElementBinding({
           elementId: nodeId,
-          target: { kind: 'CLASS', classIds: [classId] },
+          target: classId
+            ? { kind: 'CLASS', classIds: [classId] }
+            : { kind: 'NONE' },
         })
         if (result.success) writeLocalClassId(nodeId, classId)
         return result
@@ -942,12 +948,15 @@ export const useFlowStore = defineStore('flow', () => {
   }
 
   const updateDataFlowClass = async (
-    { dataFlowId, classId }: { dataFlowId: string, classId: string }
+    { dataFlowId, classId }: { dataFlowId: string, classId: string | null }
   ): Promise<ChangeElementBindingResult | null> => {
     try {
+      // null classId = unassign (NONE rebind — see updateNodeClass).
       return await dtClass.changeElementBinding({
         elementId: dataFlowId,
-        target: { kind: 'CLASS', classIds: [classId] },
+        target: classId
+          ? { kind: 'CLASS', classIds: [classId] }
+          : { kind: 'NONE' },
       })
     } catch (error) {
       dtUtils.handleError({ action: 'updateDataFlowClass', error })

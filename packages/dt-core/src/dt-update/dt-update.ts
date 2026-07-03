@@ -627,11 +627,18 @@ export class DtUpdate {
     }
 
     try {
-      // Update class if provided
+      // Update class if provided. Explicit null is the unassign sentinel: fire a
+      // NONE rebind (idempotent — the platform sweeps SYSTEM-derived exposures and
+      // keeps user-authored ones). Absent classData leaves the binding untouched.
       if (boundaryData.classData?.id) {
         await this.dtClass.changeElementBinding({
           elementId: this.defaultBoundaryId,
           target: { kind: 'CLASS', classIds: [boundaryData.classData.id] }
+        })
+      } else if (boundaryData.classData === null) {
+        await this.dtClass.changeElementBinding({
+          elementId: this.defaultBoundaryId,
+          target: { kind: 'NONE' }
         })
       }
 
@@ -652,7 +659,9 @@ export class DtUpdate {
             dataItemId: itemId,
             name: itemData.name,
             description: itemData.description || '',
-            classId: itemData.classData?.id,
+            // Explicit null classData must reach updateDataItem as null (its NONE
+            // unassign path); `?.` alone would collapse it to undefined (no-op).
+            classId: itemData.classData === null ? null : itemData.classData?.id,
             // Asset-context (REPLACE on update). Local snake `regulatory_flags`.
             sensitivity: itemData.sensitivity,
             regulatoryFlags: itemData.regulatory_flags
@@ -791,7 +800,8 @@ export class DtUpdate {
         defaultBoundaryId: this.defaultBoundaryId
       })
 
-      // Update class if provided
+      // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
+      // absent classData leaves the binding untouched.
       if (boundaryData.classData?.id) {
         await this.dtClass.changeElementBinding({
           elementId: boundaryId,
@@ -807,6 +817,11 @@ export class DtUpdate {
             boundaryData.name
           )
         }
+      } else if (boundaryData.classData === null) {
+        await this.dtClass.changeElementBinding({
+          elementId: boundaryId,
+          target: { kind: 'NONE' }
+        })
       }
 
     } catch (e) {
@@ -1068,7 +1083,8 @@ export class DtUpdate {
         defaultBoundaryId: this.defaultBoundaryId
       })
 
-      // Update class if provided
+      // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
+      // absent classData leaves the binding untouched.
       if (componentData.classData?.id) {
         await this.dtClass.changeElementBinding({
           elementId: componentId,
@@ -1084,6 +1100,11 @@ export class DtUpdate {
             componentData.name
           )
         }
+      } else if (componentData.classData === null) {
+        await this.dtClass.changeElementBinding({
+          elementId: componentId,
+          target: { kind: 'NONE' }
+        })
       }
 
     } catch (e) {
@@ -1260,7 +1281,8 @@ export class DtUpdate {
         }
       })
 
-      // Update class if provided
+      // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
+      // absent classData leaves the binding untouched.
       if (flowData.classData?.id) {
         await this.dtClass.changeElementBinding({
           elementId: flowId,
@@ -1276,6 +1298,11 @@ export class DtUpdate {
             flowData.name
           )
         }
+      } else if (flowData.classData === null) {
+        await this.dtClass.changeElementBinding({
+          elementId: flowId,
+          target: { kind: 'NONE' }
+        })
       }
 
     } catch (e) {

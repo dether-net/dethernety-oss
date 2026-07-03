@@ -40,8 +40,9 @@ export interface DataFlow extends Identifiable {
   /** Connection point on target component */
   targetHandle?: ConnectionHandle;
 
-  /** Class assigned to this data flow */
-  classData?: ClassReference;
+  /** Class assigned to this data flow.
+   *  Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
 
   /** Controls associated with this data flow */
   controls?: ControlReference[];

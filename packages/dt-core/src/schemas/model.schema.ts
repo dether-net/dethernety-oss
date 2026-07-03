@@ -48,7 +48,8 @@ export interface MonolithicComponent {
   positionX: number;
   positionY: number;
   parentBoundary?: ElementReference;
-  classData?: ClassReference;
+  /** Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
   attributes?: Attributes;
   controls?: ControlReference[];
   dataItemIds?: UUID[];
@@ -70,7 +71,8 @@ export interface MonolithicBoundary {
   dimensionsMinWidth?: number;
   dimensionsMinHeight?: number;
   parentBoundary?: ElementReference;
-  classData?: ClassReference;
+  /** Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
   attributes?: Attributes;
   controls?: ControlReference[];
   dataItemIds?: UUID[];
@@ -94,7 +96,8 @@ export interface MonolithicDataFlow {
   target: ElementReference;
   sourceHandle?: string;
   targetHandle?: string;
-  classData?: ClassReference;
+  /** Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
   attributes?: Attributes;
   controls?: ControlReference[];
   dataItemIds?: UUID[];
@@ -107,7 +110,8 @@ export interface MonolithicDataItem {
   id: UUID;
   name: string;
   description?: string;
-  classData?: ClassReference;
+  /** Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
   attributes?: Attributes;
   sensitivity?: string;
   regulatory_flags?: string[];
@@ -237,7 +241,9 @@ export function splitToMonolithic(split: SplitModel): MonolithicModel {
     const attrs = split.attributes.dataFlows?.[flow.id];
     return {
       ...flow,
-      classData: flow.classData ?? attrs?.classData,
+      // `!== undefined` (not `??`): an explicit null is the unassign sentinel and
+      // must not be swallowed by falling back to the attributes-bag classData.
+      classData: flow.classData !== undefined ? flow.classData : attrs?.classData,
       attributes: attrs?.attributes ?? flow.attributes,
     } as MonolithicDataFlow;
   });
@@ -247,7 +253,8 @@ export function splitToMonolithic(split: SplitModel): MonolithicModel {
     const attrs = split.attributes.dataItems?.[item.id];
     return {
       ...item,
-      classData: item.classData ?? attrs?.classData,
+      // `!== undefined` (not `??`): preserve the explicit-null unassign sentinel.
+      classData: item.classData !== undefined ? item.classData : attrs?.classData,
       attributes: attrs?.attributes ?? item.attributes,
     } as MonolithicDataItem;
   });
@@ -407,7 +414,8 @@ function injectAttributesBoundary(
     dimensionsMinWidth: boundary.dimensionsMinWidth,
     dimensionsMinHeight: boundary.dimensionsMinHeight,
     parentBoundary: boundary.parentBoundary,
-    classData: boundary.classData ?? boundaryAttrs?.classData,
+    // `!== undefined` (not `??`): preserve the explicit-null unassign sentinel.
+    classData: boundary.classData !== undefined ? boundary.classData : boundaryAttrs?.classData,
     attributes: boundaryAttrs?.attributes,
     controls: boundary.controls,
     dataItemIds: boundary.dataItemIds,
@@ -427,7 +435,8 @@ function injectAttributesBoundary(
         positionX: c.positionX,
         positionY: c.positionY,
         parentBoundary: c.parentBoundary,
-        classData: c.classData ?? componentAttrs?.classData,
+        // `!== undefined` (not `??`): preserve the explicit-null unassign sentinel.
+        classData: c.classData !== undefined ? c.classData : componentAttrs?.classData,
         attributes: componentAttrs?.attributes,
         controls: c.controls,
         dataItemIds: c.dataItemIds,
