@@ -80,6 +80,25 @@ describe('ValidateModelTool', () => {
       expect((result.data as any)?.valid).toBe(true)
     })
 
+    it('should accept an explicit-null classData on a data item (unassign sentinel)', async () => {
+      // The `data` input accepts string | object — arrays ride in as JSON strings.
+      const result = await validateModelTool.run(
+        {
+          data: JSON.stringify([
+            { id: 'di-1', name: 'PII', classData: null },
+            { id: 'di-2', name: 'Logs', classData: { id: 'k1', name: 'Log Data' } },
+            { id: 'di-3', name: 'Cache' },
+          ]),
+          file_type: 'data-items',
+        },
+        context,
+      )
+
+      expect(result.success).toBe(true)
+      expect((result.data as any)?.valid).toBe(true)
+      expect((result.data as any)?.errors).toHaveLength(0)
+    })
+
     it('should validate zoning on the default and a nested boundary', async () => {
       const result = await validateModelTool.run(
         {

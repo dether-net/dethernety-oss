@@ -67,8 +67,8 @@ export interface TransitionContext {
   kind: FindingKind
   /** Optional — used only by the mixed `class → representedModel` template. */
   modelName?: string
-  /** Discriminator for the `representedModel → none` copy template. */
-  transition?: 'class-change' | 'class-to-model' | 'model-removed'
+  /** Discriminator for the `representedModel → none` / `class → none` copy templates. */
+  transition?: 'class-change' | 'class-to-model' | 'model-removed' | 'class-removed'
 }
 
 export function isAllZeroDeltas(deltas: ElementBindingDeltas): boolean {
@@ -120,6 +120,12 @@ export function formatDeltaCopy(
       : 'Model link removed. This element no longer represents any model.'
   }
 
+  if (ctx.transition === 'class-removed') {
+    return preserved > 0
+      ? `Class removed. ${nPhrase(deleted, plural, 'auto-generated')} deleted. ${nPhrase(preserved, plural)} of yours kept.`
+      : `Class removed. ${nPhrase(deleted, plural, 'auto-generated')} deleted.`
+  }
+
   if (ctx.transition === 'class-to-model' && ctx.modelName) {
     return `Class removed; this element is now linked to the ${ctx.modelName} model. ${nPhrase(deleted, plural, 'auto-generated')} deleted; ${nPhrase(preserved, plural)} of yours kept.`
   }
@@ -158,6 +164,16 @@ export function emitBindingChangeFeedback(
   }
 
   if (isAllZeroDeltas(result.deltas)) {
+    // A successful unassign of a class with zero derived findings still changed
+    // the binding — "No changes to apply." would be wrong. Confirm the removal.
+    if (ctx.transition === 'class-removed') {
+      return {
+        show: true,
+        color: 'success',
+        kind: 'delta',
+        message: 'Class removed.',
+      }
+    }
     return {
       show: true,
       color: 'success',

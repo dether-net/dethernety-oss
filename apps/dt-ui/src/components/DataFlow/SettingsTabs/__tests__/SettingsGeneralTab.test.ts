@@ -36,12 +36,12 @@ const stubs = {
   ConfirmClassOrModelChangeDialog: {
     name: 'ConfirmClassOrModelChangeDialog',
     template:
-      '<div class="confirm-dialog-stub" v-if="show">'
+      '<div class="confirm-dialog-stub" :data-mode="mode" v-if="show">'
       + '<button class="stub-dlg-commit" @click="$emit(\'commit-and-change\')">commit-and-change</button>'
       + '<button class="stub-dlg-discard" @click="$emit(\'discard-and-change\')">discard-and-change</button>'
       + '<button class="stub-dlg-cancel" @click="$emit(\'cancel\')">cancel</button>'
       + '</div>',
-    props: ['show', 'hasDirtyEdits'],
+    props: ['show', 'hasDirtyEdits', 'mode'],
     emits: ['commit-and-change', 'discard-and-change', 'cancel'],
   },
   ContentSelectDialog: { template: '<div class="content-select-stub" />' },
@@ -158,6 +158,71 @@ describe('SettingsGeneralTab — commit-request flow (prior class, dialog gated)
     expect(wrapper.emitted('update:formData')).toBeFalsy()
     expect(wrapper.emitted('class-change-commit')).toBeFalsy()
     expect(wrapper.emitted('class-change-cancel')).toBeTruthy()
+  })
+})
+
+describe('SettingsGeneralTab — remove-class flow', () => {
+  // Icon-only button (mirror of the open-model button) — findable by aria-label.
+  const removeBtn = (wrapper: Awaited<ReturnType<typeof mountAndSettle>>) => {
+    const btn = wrapper.find('button[aria-label="Remove class"]')
+    return btn.exists() ? btn : undefined
+  }
+
+  it('button hidden when no class is bound', async () => {
+    const wrapper = await mountAndSettle() // itemClass: null
+    expect(removeBtn(wrapper)).toBeUndefined()
+  })
+
+  it('button hidden in represents-a-model mode even with a bound class', async () => {
+    const wrapper = await mountAndSettle({ ...propsWithPriorClass, isFromClass: false })
+    expect(removeBtn(wrapper)).toBeUndefined()
+  })
+
+  it('click opens the confirm dialog in remove mode without writing formData', async () => {
+    const wrapper = await mountAndSettle(propsWithPriorClass)
+    await removeBtn(wrapper)!.trigger('click')
+    await nextTick()
+    const dlg = wrapper.find('.confirm-dialog-stub')
+    expect(dlg.exists()).toBe(true)
+    expect(dlg.attributes('data-mode')).toBe('remove')
+    expect(wrapper.emitted('update:formData')).toBeFalsy()
+  })
+
+  it('confirm clears formData.class and emits class-change-commit', async () => {
+    const wrapper = await mountAndSettle(propsWithPriorClass)
+    await removeBtn(wrapper)!.trigger('click')
+    await wrapper.find('.stub-dlg-commit').trigger('click')
+    await nextTick()
+    const formDataEvents = wrapper.emitted('update:formData')
+    expect(formDataEvents).toBeTruthy()
+    expect((formDataEvents!.at(-1)![0] as { class: string }).class).toBe('')
+    expect(wrapper.emitted('class-change-commit')).toBeTruthy()
+    expect(wrapper.find('.confirm-dialog-stub').exists()).toBe(false)
+  })
+
+  it('cancel is a no-op: no formData write, dialog reverts to change mode next open', async () => {
+    const wrapper = await mountAndSettle(propsWithPriorClass)
+    await removeBtn(wrapper)!.trigger('click')
+    await wrapper.find('.stub-dlg-cancel').trigger('click')
+    await nextTick()
+    expect(wrapper.emitted('update:formData')).toBeFalsy()
+    expect(wrapper.emitted('class-change-cancel')).toBeTruthy()
+    // A subsequent picker commit must open the dialog in 'change' mode —
+    // the cancelled unassign must not leak its mode into the next session.
+    await wrapper.find('.stub-commit').trigger('click')
+    await nextTick()
+    expect(wrapper.find('.confirm-dialog-stub').attributes('data-mode')).toBe('change')
+  })
+
+  it('discard-and-remove clears formData.class and emits class-change-discard', async () => {
+    const wrapper = await mountAndSettle({ ...propsWithPriorClass, hasDirtyEdits: true })
+    await removeBtn(wrapper)!.trigger('click')
+    await wrapper.find('.stub-dlg-discard').trigger('click')
+    await nextTick()
+    const formDataEvents = wrapper.emitted('update:formData')
+    expect(formDataEvents).toBeTruthy()
+    expect((formDataEvents!.at(-1)![0] as { class: string }).class).toBe('')
+    expect(wrapper.emitted('class-change-discard')).toBeTruthy()
   })
 })
 

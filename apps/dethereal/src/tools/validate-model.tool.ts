@@ -100,10 +100,11 @@ const DataItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
+  // Explicit null = unassign the class on the next update push (absent = leave untouched).
   classData: z.object({
     id: z.string(),
     name: z.string()
-  }).optional(),
+  }).nullable().optional(),
   // Asset-context fields (snake_case local). Flag *values* are free-text — not enumed.
   sensitivity: z.enum(['restricted', 'confidential', 'internal', 'public']).optional(),
   regulatory_flags: z.array(z.string()).optional()

@@ -625,6 +625,38 @@
       }
       updateForm()
     } else if (
+      !pendingFormData.value.class &&
+      itemClass.value &&
+      isFromClass.value &&
+      selectedItem.value &&
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Complex type inference issue
+      (isNode(selectedItem.value) || isEdge(selectedItem.value))
+    ) {
+      // Class removal (unassign). Only the Remove-class flow clears formData.class
+      // while a class is still bound — the picker flow always sets it. The store
+      // sends a NONE rebind; the backend sweeps auto-generated exposures.
+      if (isNode(selectedItem.value)) {
+        res = await flowStore.updateNodeClass({
+          nodeId: selectedItem.value.id,
+          classId: null,
+        })
+      } else if (isEdge(selectedItem.value)) {
+        res = await flowStore.updateDataFlowClass({
+          dataFlowId: selectedItem.value.id,
+          classId: null,
+        })
+      }
+      if (res?.success) {
+        if (isFreshlyCreated.value) emit('clear-freshly-created')
+        const toast = emitBindingChangeFeedback(res, { kind: 'exposures', transition: 'class-removed' })
+        if (toast) showSnackbar(toast.message, toast.color)
+      } else {
+        const toast = emitBindingChangeFeedback(res, { kind: 'exposures' })
+        showSnackbar(toast?.message ?? 'Failed to remove class', 'error')
+      }
+      updateForm()
+    } else if (
       pendingFormData.value.model &&
       selectedItem.value &&
       isNode(selectedItem.value)

@@ -22,8 +22,9 @@ import type {
  * and have attributes defined by their class.
  */
 export interface DataItem extends Identifiable {
-  /** Class assigned to this data item for categorization */
-  classData?: ClassReference;
+  /** Class assigned to this data item for categorization.
+   *  Explicit `null` unassigns the class on update; absent leaves the binding untouched. */
+  classData?: ClassReference | null;
 
   /**
    * Inline attributes for the data item.

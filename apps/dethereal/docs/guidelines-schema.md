@@ -71,7 +71,7 @@ Each boundary's `boundaries` and `components` arrays hold the full objects, not 
 | `dimensionsMinWidth` | number | No | Minimum width constraint |
 | `dimensionsMinHeight` | number | No | Minimum height constraint |
 | `parentBoundary` | `{ id: ID }` | No | Omit for root boundary |
-| `classData` | ClassReference | No | Class assignment (enables attributes) |
+| `classData` | ClassReference \| null | No | Class assignment (enables attributes). Explicit `null` unassigns on the next `update_model` push (the platform deletes the class's auto-generated exposures, keeping user-authored ones); an absent key leaves the binding untouched |
 | `boundaries` | StructureBoundary[] | No | Nested child boundaries |
 | `components` | StructureComponent[] | No | Components inside this boundary |
 | `controls` | `{ id, name? }[]` | No | Security controls applied |
@@ -88,7 +88,7 @@ Each boundary's `boundaries` and `components` arrays hold the full objects, not 
 | `positionX` | number | Yes | Relative to parent boundary |
 | `positionY` | number | Yes | |
 | `parentBoundary` | `{ id: ID }` | No | Reference to containing boundary |
-| `classData` | ClassReference | No | |
+| `classData` | ClassReference \| null | No | Explicit `null` unassigns on update; absent = untouched |
 | `controls` | `{ id, name? }[]` | No | |
 | `dataItemIds` | ID[] | No | Data items this component originates, processes, or stores (data at rest / in use). Valid for all component types — `STORE`, `PROCESS`, and `EXTERNAL_ENTITY` (e.g. user-originated data) |
 
@@ -111,7 +111,7 @@ Wrapper object with a `dataFlows` array:
 | `target` | `{ id: ID }` | Yes | Target component reference |
 | `sourceHandle` | `"top"` `"right"` `"bottom"` `"left"` | No | Connection point on source |
 | `targetHandle` | `"top"` `"right"` `"bottom"` `"left"` | No | Connection point on target |
-| `classData` | ClassReference | No | |
+| `classData` | ClassReference \| null | No | Explicit `null` unassigns on update; absent = untouched |
 | `controls` | `{ id, name? }[]` | No | |
 | `dataItemIds` | ID[] | No | Data items carried by this flow |
 
@@ -132,7 +132,7 @@ Wrapper object with a `dataItems` array:
 | `id` | ID | Yes | Work-name during creation (e.g., `di-user-pii`); UUID after import |
 | `name` | string | Yes | e.g., "User Credentials", "Payment Information" |
 | `description` | string | No | |
-| `classData` | ClassReference | No | Data classification class |
+| `classData` | ClassReference \| null | No | Data classification class. Explicit `null` unassigns on update; absent = untouched |
 
 ## attributes/{type}/{elementId}.json
 

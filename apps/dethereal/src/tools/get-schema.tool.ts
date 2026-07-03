@@ -69,7 +69,7 @@ const StructureComponentSchema: z.ZodType<any> = z.object({
   positionX: z.number().describe('X position relative to parent boundary'),
   positionY: z.number().describe('Y position relative to parent boundary'),
   parentBoundary: ElementReferenceSchema.optional().describe('Reference to parent boundary'),
-  classData: ClassReferenceSchema.optional().describe('Reference to component class'),
+  classData: ClassReferenceSchema.nullable().optional().describe('Reference to component class. Explicit null unassigns the class on update (deletes auto-generated exposures); absent leaves the binding untouched'),
   controls: z.array(ControlReferenceSchema).optional().describe('Security controls applied'),
   dataItemIds: z.array(z.string()).optional().describe('IDs of data items stored/processed'),
   representedModel: ModelReferenceSchema.optional().describe('For composite components')
@@ -86,7 +86,7 @@ const StructureBoundarySchema: z.ZodType<any> = z.lazy(() => z.object({
   dimensionsMinWidth: z.number().optional().describe('Minimum width constraint'),
   dimensionsMinHeight: z.number().optional().describe('Minimum height constraint'),
   parentBoundary: ElementReferenceSchema.optional().describe('Reference to parent boundary'),
-  classData: ClassReferenceSchema.optional().describe('Reference to boundary class'),
+  classData: ClassReferenceSchema.nullable().optional().describe('Reference to boundary class. Explicit null unassigns the class on update; absent leaves the binding untouched'),
   controls: z.array(ControlReferenceSchema).optional().describe('Security controls applied'),
   dataItemIds: z.array(z.string()).optional().describe('IDs of data items in scope'),
   representedModel: ModelReferenceSchema.optional().describe('For composite boundaries'),
@@ -117,7 +117,7 @@ const DataFlowSchema = z.object({
   target: ElementReferenceSchema.describe('Target component/boundary ID'),
   sourceHandle: z.enum(['top', 'right', 'bottom', 'left']).optional().describe('Connection point on source'),
   targetHandle: z.enum(['top', 'right', 'bottom', 'left']).optional().describe('Connection point on target'),
-  classData: ClassReferenceSchema.optional().describe('Reference to data flow class'),
+  classData: ClassReferenceSchema.nullable().optional().describe('Reference to data flow class. Explicit null unassigns the class on update; absent leaves the binding untouched'),
   controls: z.array(ControlReferenceSchema).optional().describe('Security controls on this flow'),
   dataItemIds: z.array(z.string()).optional().describe('IDs of data items carried by this flow')
 }).describe('Data flow connection between components')
@@ -129,7 +129,7 @@ const DataItemSchema = z.object({
   id: z.string().describe('Data item ID'),
   name: z.string().describe('Data item name'),
   description: z.string().optional(),
-  classData: ClassReferenceSchema.optional().describe('Reference to data classification class')
+  classData: ClassReferenceSchema.nullable().optional().describe('Reference to data classification class. Explicit null unassigns the class on update; absent leaves the binding untouched')
 }).describe('Data item representing a type of data in the system')
 
 const DataItemsFileSchema = z.array(DataItemSchema).describe('Array of all data items in the model')
