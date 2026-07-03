@@ -8,6 +8,8 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['frontend/**/*.test.{js,mjs}'],
+    // Frontend pure-logic tests (.js/.mjs) plus the backend adapter test (.ts under src/). vitest
+    // transpiles TS via esbuild, so no extra transform config is needed.
+    include: ['frontend/**/*.test.{js,mjs}', 'src/**/*.test.ts'],
   },
 })

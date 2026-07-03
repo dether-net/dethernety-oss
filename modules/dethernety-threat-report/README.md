@@ -9,7 +9,8 @@ Running the report computes a **point-in-time snapshot** of the model and persis
 it on the standing `Analysis` node; opening the results renders a single Vue
 application over that snapshot. The application presents six analyst-facing
 surfaces — a **Posture Summary** roll-up, a **Coverage & Gaps** MITRE ATT&CK
-matrix, **Reachability** flow-route analysis, structural **Boundary Crossings**, the
+matrix, **Reachability** flow-route analysis, **Boundary Crossings** (structural
+membranes + a declared-zone data-flow policy check), the
 **Residual Risk** findings ledger, and a per-element **Component Profile**
 drill-down. The report is engineered to under-claim: at every step it prefers an
 honest gap to a flattering aggregate (no single risk score, no coverage

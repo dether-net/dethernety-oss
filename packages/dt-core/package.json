@@ -12,6 +12,10 @@
     "./schemas": {
       "types": "./dist/schemas/index.d.ts",
       "import": "./dist/schemas/index.js"
+    },
+    "./zone-determination": {
+      "types": "./dist/dt-boundary/zone-determination.d.ts",
+      "import": "./dist/dt-boundary/zone-determination.js"
     }
   },
   "scripts": {

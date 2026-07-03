@@ -1,19 +1,24 @@
 <!--
   BoundaryCrossings.vue — the Boundary Crossings ledger view.
 
-  Presentational over computeCrossings(modelGraph, ledger) (pure TS). A crossing
-  is STRUCTURAL: it is the symmetric difference of the two endpoints'
-  boundary-nesting stacks — NEVER a trust gradient (trustLevel is dormant).
-  Direction is EXIT/ENTER (containment), not a trust comparison.
+  Presentational over computeCrossings(modelGraph, ledger, zoning) (pure JS). Two
+  distinct layers per flow:
+    - STRUCTURAL membranes: the symmetric difference of the two endpoints'
+      boundary-nesting stacks. Direction is EXIT/ENTER (containment), never a
+      trust comparison; membranes carry the crossed boundary's own posture.
+    - A DECLARED-zone POLICY line: the flow's declared source-zone ↦ target-zone
+      verdict (violation / warning / advisory / allowed) from the data-flow policy.
+      A verdict means "the model as drawn encodes an illegal crossing," NOT "we
+      verified the flow cannot occur"; zones are the operator's DECLARATION, never
+      recomputed by the report.
 
-  Honesty contracts: flows are GROUPED so each one's containment story stays
-  intact (operational EXIT-then-ENTER order); flows with any signal (classified
-  data carried, a live on-flow / crossed-boundary exposure, or a control present)
-  are the ranked worklist; flows with zero signal everywhere collapse into a
-  muted "under-modeled crossings" tail (present, never green, never dropped).
-  Null data sensitivity reads "unknown", never "low"; unclassified data in motion
-  is a flagged modeling gap. Crossed-boundary posture renders as muted
-  weakening/hardening context — no trust chips, no risk score.
+  Honesty contracts: allowed crossings stay silent (a muted zone-pair only —
+  absence is the encoding, never a green/pass claim); only non-clean rows get an
+  accent bar + UPPERCASE word. Worklist = a policy escalation OR any structural
+  signal (classified data, a live exposure, a control); everything else collapses
+  into one muted "under-modeled" tail (present, never dropped). Null data
+  sensitivity reads "unknown", never "low". Declared conduits that authorize an
+  illegal crossing are surfaced as errors (conduits never legalize a violation).
 
   The minimap (real layout) is the spatial home: clicking a crossing highlights
   its flow's endpoints on the map.
@@ -49,19 +54,56 @@
       <div class="trd-cross-main">
         <div class="trd-summary">
           <strong>{{ totals.crossingFlows }}</strong> flows pierce membranes ·
-          <strong>{{ totals.signalFlows }}</strong> carry data or posture ·
-          <strong>{{ totals.underModeledFlows }}</strong> under-modeled <span class="trd-muted">(no data, no posture)</span>
+          <span v-if="policy.violations" class="trd-count-violation"><strong>{{ policy.violations }}</strong> violation{{ policy.violations === 1 ? '' : 's' }}</span>
+          <span v-if="policy.warnings" class="trd-count-warning"><strong>{{ policy.warnings }}</strong> warning{{ policy.warnings === 1 ? '' : 's' }}</span>
+          <span v-if="policy.advisories" class="trd-muted"><strong>{{ policy.advisories }}</strong> advisor{{ policy.advisories === 1 ? 'y' : 'ies' }}</span>
+          <span class="trd-muted">· {{ totals.underModeledFlows }} under-modeled</span>
           <span v-if="totals.hiddenByCap" class="trd-muted">· {{ totals.hiddenByCap }} outer membranes collapsed</span>
         </div>
 
         <p class="trd-caveat">
-          Structural membrane crossings — the symmetric difference of each flow's boundary nesting, <strong>not</strong>
-          a trust gradient. Direction is <strong>EXIT</strong> (data leaves a boundary) / <strong>ENTER</strong> (data
-          enters one) — containment, never a trust comparison. The data-sensitivity band orders the worklist; it is not a
-          risk score. Per membrane: <span class="trd-key-weaken">⚠ live on boundary</span> = a weakening signal (easier
-          crossing); <span class="trd-key-harden">✓ boundary control</span> = a hardening signal (costlier crossing) —
-          context, never coverage.
+          Each flow carries two things. A <strong>declared policy line</strong> — the operator's declared source-zone
+          <span class="trd-zone-arrow">↦</span> target-zone and its verdict. Zones are <strong>declared</strong> (an
+          administrative decision the report never recomputes); a verdict means the model <em>as drawn</em> encodes an
+          illegal crossing — <strong>declared intent, not verified enforcement</strong>, and never a claim the flow cannot
+          occur. Allowed crossings stay silent (a muted zone-pair, never a “pass”). Below it, <strong>structural
+          membranes</strong> — the symmetric difference of the flow's boundary nesting; <strong>EXIT</strong> (leaves a
+          boundary) / <strong>ENTER</strong> (enters one) is containment, not a trust comparison. Per membrane:
+          <span class="trd-key-weaken">⚠ live on boundary</span> = a weakening signal;
+          <span class="trd-key-harden">✓ boundary control</span> = a hardening signal — context, never coverage.
         </p>
+
+        <!-- Collapsed zone legend — declared exposure position, never a safety verdict. -->
+        <details class="trd-zone-legend">
+          <summary>Zone tiers (declared)</summary>
+          <p class="trd-zone-legend-body">
+            <span class="trd-zone trd-zone--untrusted">UNTRUSTED</span> external (the internet) ·
+            <span class="trd-zone trd-zone--public">PUBLIC</span> the front door ·
+            <span class="trd-zone trd-zone--exposed">EXPOSED</span> externally reachable by design ·
+            <span class="trd-zone trd-zone--internal">INTERNAL</span> not directly reachable ·
+            <span class="trd-zone trd-zone--restricted">RESTRICTED</span> declared to hold the most sensitive assets ·
+            <span class="trd-zone trd-zone--vendor">VENDOR</span> partner (off-gradient).
+            A zone is the operator's <strong>declared exposure position</strong> — RESTRICTED means "declared most
+            sensitive," not "protected"; the chips are never a safety verdict.
+          </p>
+        </details>
+
+        <!-- Conduit errors: declared channels that authorize an illegal crossing (fail-closed). -->
+        <details v-if="conduitErrors.length" class="trd-conduiterrors" open>
+          <summary>{{ conduitErrors.length }} declared conduit{{ conduitErrors.length === 1 ? '' : 's' }} authorize an illegal crossing — a conduit does not legalize a policy violation</summary>
+          <p v-for="c in conduitErrors" :key="`${c.sourceId}>${c.peerId}`" class="trd-conduiterr">
+            <span class="trd-verdict-word trd-verdict-word--error">CONDUIT ERROR</span>
+            <button type="button" class="trd-drill-mini" @click="$emit('drill', c.sourceId)">{{ c.sourceName }}</button>
+            <span class="trd-zone-climb">
+              <span class="trd-zone" :class="tierClass(c.srcZone)">{{ c.srcZone }}</span>
+              <span class="trd-zone-arrow" aria-hidden="true">↦</span>
+              <span class="trd-zone" :class="tierClass(c.tgtZone)">{{ c.tgtZone }}</span>
+            </span>
+            <button type="button" class="trd-drill-mini" @click="$emit('drill', c.peerId)">{{ c.peerName }}</button>
+            <span v-if="c.dead" class="trd-qual trd-qual--dead">dead (no live flow)</span>
+            <span class="trd-conduiterr-detail">{{ c.detail }}</span>
+          </p>
+        </details>
 
         <!-- Empty states (honest — never "perfectly segmented") -->
         <p v-if="boundariesCount === 0" class="trd-empty">
@@ -85,7 +127,7 @@
           v-for="g in crossings"
           :key="g.flowId"
           class="trd-flow"
-          :class="{ 'trd-flow--sel': g.flowId === selectedFlowId }"
+          :class="[verdictAccentClass(g), { 'trd-flow--sel': g.flowId === selectedFlowId }]"
           role="button"
           tabindex="0"
           :aria-pressed="g.flowId === selectedFlowId"
@@ -111,6 +153,23 @@
             <span v-if="g.flowHasControl" class="trd-flow-ctrl">flow control present</span>
             <span class="trd-flow-hint" aria-hidden="true">▸ highlight on map</span>
           </header>
+
+          <!-- Declared-zone policy line (one zone-pair per flow). Verdict word +
+               accent only on non-clean rows; allowed stays a muted zone-pair. -->
+          <p v-if="g.verdict" class="trd-policy">
+            <span class="trd-policy-label">declared</span>
+            <span class="trd-zone-climb">
+              <span class="trd-zone" :class="tierClass(g.verdict.srcZone)">{{ g.verdict.srcZone }}</span>
+              <span class="trd-zone-arrow" aria-hidden="true">↦</span>
+              <span class="trd-zone" :class="tierClass(g.verdict.tgtZone)">{{ g.verdict.tgtZone }}</span>
+            </span>
+            <span v-if="g.verdict.domainRel !== 'n/a'" class="trd-policy-dim">· {{ g.verdict.domainRel === 'same' ? 'same-domain' : 'cross-domain' }}</span>
+            <span v-if="g.verdict.planeClass === 'management'" class="trd-policy-dim">· management plane</span>
+            <span v-if="verdictWord(g)" class="trd-verdict-word" :class="verdictWordClass(g)">{{ verdictWord(g) }}</span>
+            <span v-if="conduitToken(g)" class="trd-conduit-token">conduit: {{ conduitToken(g) }}</span>
+          </p>
+          <p v-if="policyDetail(g)" class="trd-policy-detail">{{ policyDetail(g) }}</p>
+
           <ul class="trd-membranes">
             <li v-for="(m, i) in g.membranes" :key="i" class="trd-membrane" :class="{ 'trd-membrane--context': !m.signal }">
               <span class="trd-dir" :class="`trd-dir--${m.direction.toLowerCase()}`">{{ m.direction }}</span>
@@ -151,6 +210,13 @@
               :title="`Open ${g.flowName || 'flow'} profile`"
             >{{ g.flowName || '(unnamed flow)' }}</button>
               <span class="trd-sens" :class="sensClass(g)">{{ sensChipLabel(g) }}</span>
+              <!-- No-verdict rows (response-shaped / out-of-scope) must not read "allowed" —
+                   the engine deliberately withheld a verdict; absence is the encoding. -->
+              <span v-if="g.verdict" class="trd-zone-climb trd-zone-climb--muted" :title="`declared ${g.verdict.srcZone} ↦ ${g.verdict.tgtZone} (${g.verdict.verdict ?? 'no verdict'})`">
+                <span class="trd-zone" :class="tierClass(g.verdict.srcZone)">{{ g.verdict.srcZone }}</span>
+                <span class="trd-zone-arrow" aria-hidden="true">↦</span>
+                <span class="trd-zone" :class="tierClass(g.verdict.tgtZone)">{{ g.verdict.tgtZone }}</span>
+              </span>
             </header>
             <ul class="trd-membranes">
               <li v-for="(m, i) in g.membranes" :key="i" class="trd-membrane trd-membrane--context">
@@ -159,6 +225,19 @@
               </li>
             </ul>
           </section>
+        </details>
+
+        <!-- Dead conduits: legally declared, no matching modeled flow — dead intent
+             worth a review, rendered muted (never alarming, never a verdict). -->
+        <details v-if="deadConduits.length" class="trd-deadconduits">
+          <summary>{{ deadConduits.length }} declared conduit{{ deadConduits.length === 1 ? '' : 's' }} with no matching modeled flow (dead intent)</summary>
+          <p v-for="c in deadConduits" :key="`${c.sourceId}>${c.peerId}`" class="trd-deadconduit">
+            <button type="button" class="trd-drill-mini" @click="$emit('drill', c.sourceId)">{{ c.sourceName }}</button>
+            <span class="trd-ep-arrow" aria-hidden="true">→</span>
+            <button type="button" class="trd-drill-mini" @click="$emit('drill', c.peerId)">{{ c.peerName }}</button>
+            <span v-if="c.unreviewable" class="trd-qual trd-qual--unreviewable">no justification — unreviewable</span>
+            <span v-else class="trd-deadconduit-just">{{ c.justification }}</span>
+          </p>
         </details>
       </div>
     </div>
@@ -169,6 +248,7 @@
   import { computed, ref } from 'vue'
   import ModelMinimap from './ModelMinimap.vue'
   import { computeCrossings, sensitivityLabel } from '../lib/boundaryCrossings.js'
+  import { tierClass } from '../lib/zoningPolicy.js'
 
   const props = defineProps({
     // The snapshot doc's modelGraph (boundaries/components/flows + geometry).
@@ -177,6 +257,10 @@
     // boundary posture (findings + supporting controls), so this view needs no
     // own query.
     ledger: { type: Array, default: () => [] },
+    // The snapshot zoning block — declared effective zones per boundary, driving
+    // the per-flow data-flow policy verdicts. Defaulted so the pure engine never
+    // sees undefined on a pre-zoning snapshot.
+    zoning: { type: Object, default: () => ({ findings: [], effectiveZones: {} }) },
   })
 
   // Drill into the Component Profile for a crossed boundary or a flow endpoint
@@ -188,11 +272,14 @@
   )
   const compName = (id) => componentById.value.get(id)?.name ?? '(unknown)'
 
-  const result = computed(() => computeCrossings(props.modelGraph, props.ledger))
+  const result = computed(() => computeCrossings(props.modelGraph, props.ledger, props.zoning))
   const crossings = computed(() => result.value.crossings)
   const underModeled = computed(() => result.value.underModeled)
   const underModeledCount = computed(() => result.value.underModeledCount)
   const totals = computed(() => result.value.totals)
+  const conduitErrors = computed(() => result.value.conduitErrors)
+  const deadConduits = computed(() => result.value.deadConduits)
+  const policy = computed(() => result.value.policy)
   // When the worklist has nothing rankable (no classified data, no exposures,
   // no controls anywhere), drop the misleading "ranked" framing.
   const worklistUnranked = computed(() => result.value.worklistUnranked)
@@ -248,6 +335,28 @@
     if (g.unclassifiedInMotion) return 'trd-sens--unclassified'
     return 'trd-sens--nodata'
   }
+
+  // ── policy verdict presentation ────────────────────────────────────────────
+  // Allowed / no-verdict rows stay silent (no word, no accent) — absence is the
+  // encoding. Only violation / warning / advisory escalate.
+  const VERDICT_WORDS = { violation: 'VIOLATION', warning: 'WARNING', advisory: 'ADVISORY' }
+  const verdictWord = (g) => VERDICT_WORDS[g.verdict?.verdict] ?? ''
+  const verdictWordClass = (g) => (g.verdict?.verdict ? `trd-verdict-word--${g.verdict.verdict}` : '')
+  const verdictAccentClass = (g) => {
+    const v = g.verdict?.verdict
+    return v === 'violation' || v === 'warning' || v === 'advisory' ? `trd-flow--${v}` : ''
+  }
+  // The conduit clause as an inline token: an error (a conduit blessing an illegal
+  // crossing — the 2-errors read) or a missing required conduit. Present conduits
+  // are context, never surfaced.
+  const conduitToken = (g) => {
+    const c = g.verdict?.conduitClause
+    if (c === 'error') return 'error'
+    if (c === 'required-missing') return 'missing'
+    return ''
+  }
+  // Show the verdict rationale only on escalated rows (allowed rows stay silent).
+  const policyDetail = (g) => (g.verdictRank > 0 ? g.verdict?.detail || '' : '')
 </script>
 
 <style scoped>
@@ -374,4 +483,70 @@
   .trd-collapsed-note { font-size: 0.72rem; opacity: 0.55; margin: 0.3rem 0 0; }
 
   .trd-undermodeled summary { cursor: pointer; font-size: 0.82rem; opacity: 0.75; margin: 0.4rem 0; }
+
+  /* ── declared-zone policy surface ──────────────────────────────────────── */
+  /* Summary counts — muted tones, not a scorecard. */
+  .trd-count-violation { color: #a02020; }
+  .trd-count-warning { color: #8a5a00; }
+
+  /* Zone chips — an ordinal EXPOSURE ramp blue→violet; VENDOR off-gradient warm +
+     dashed; UNTRUSTED cool. Outlined, low-saturation; a position marker, no green. */
+  .trd-zone-climb { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .trd-zone-climb--muted { opacity: 0.7; }
+  .trd-zone {
+    display: inline-block; border: 1px solid currentColor; border-radius: 10px;
+    padding: 0 7px; font-size: 0.66rem; letter-spacing: 0.04em;
+    text-transform: uppercase; background: transparent;
+  }
+  .trd-zone-arrow { opacity: 0.55; }
+  .trd-zone--untrusted { color: #5b8bb0; }
+  .trd-zone--public { color: #5877bd; }
+  .trd-zone--exposed { color: #6168c4; }
+  .trd-zone--internal { color: #7a5fc0; }
+  .trd-zone--restricted { color: #9455bb; }
+  .trd-zone--vendor { color: #a08154; border-style: dashed; }
+
+  /* The per-flow policy line — declared zone-pair + verdict. */
+  .trd-policy {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+    margin: 0.35rem 0 0; font-size: 0.76rem;
+  }
+  .trd-policy-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.62rem; opacity: 0.55; }
+  .trd-policy-dim { opacity: 0.6; }
+  .trd-policy-detail { font-size: 0.74rem; opacity: 0.72; margin: 0.25rem 0 0; line-height: 1.45; }
+
+  /* Verdict word — the ONLY escalation vocabulary; absent on allowed rows. */
+  .trd-verdict-word {
+    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em;
+    padding: 0 5px; border-radius: 3px; white-space: nowrap;
+  }
+  .trd-verdict-word--violation, .trd-verdict-word--error { color: #a02020; background: rgba(192, 57, 43, 0.1); }
+  .trd-verdict-word--warning { color: #8a5a00; background: rgba(199, 119, 0, 0.1); }
+  .trd-verdict-word--advisory { color: #5f6a6a; background: rgba(127, 127, 127, 0.12); }
+  .trd-conduit-token { font-size: 0.68rem; color: #a02020; }
+
+  /* Left accent bar on non-clean rows only (allowed rows keep the neutral border). */
+  .trd-flow--violation { border-left: 3px solid #a02020; }
+  .trd-flow--warning { border-left: 3px solid #8a5a00; }
+  .trd-flow--advisory { border-left: 3px solid rgba(127, 127, 127, 0.55); }
+
+  /* Conduit-error surface — a declared channel that authorizes an illegal crossing. */
+  .trd-conduiterrors { margin: 0 0 0.8rem; border: 1px solid rgba(192, 57, 43, 0.3); border-radius: 4px; padding: 0.2rem 0.6rem; }
+  .trd-conduiterrors summary { cursor: pointer; font-size: 0.8rem; color: #a02020; margin: 0.3rem 0; }
+  .trd-conduiterr { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; margin: 0.35rem 0; }
+  .trd-conduiterr-detail { opacity: 0.7; font-size: 0.72rem; flex-basis: 100%; }
+  .trd-qual { display: inline-block; border: 1px solid currentColor; border-radius: 10px; padding: 0 7px; font-size: 0.66rem; }
+  .trd-qual--dead { color: #8a5a00; }
+  .trd-qual--unreviewable { color: #8a5a00; }
+
+  /* Zone legend — collapsed, informational. */
+  .trd-zone-legend { margin: 0 0 0.8rem; }
+  .trd-zone-legend summary { cursor: pointer; font-size: 0.78rem; opacity: 0.7; }
+  .trd-zone-legend-body { font-size: 0.74rem; opacity: 0.75; line-height: 1.8; margin: 0.3rem 0 0; }
+
+  /* Dead conduits — muted review surface (dead intent, never a verdict). */
+  .trd-deadconduits { margin: 0.6rem 0 0; opacity: 0.75; }
+  .trd-deadconduits summary { cursor: pointer; font-size: 0.8rem; margin: 0.3rem 0; }
+  .trd-deadconduit { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.78rem; margin: 0.3rem 0; }
+  .trd-deadconduit-just { opacity: 0.7; font-size: 0.74rem; }
 </style>

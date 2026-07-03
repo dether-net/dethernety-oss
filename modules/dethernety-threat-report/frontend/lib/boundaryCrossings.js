@@ -6,14 +6,21 @@
 // on-flow and crossed-boundary posture, so this engine needs no separate posture
 // query). No Vue, no network — pure functions, unit-tested with fixtures.
 //
-// Boundary Crossings is STRUCTURAL: `trustLevel` is a dormant placeholder
-// (uniformly UNTRUSTED), so a crossing NEVER ranks on a trust gradient. The
-// crossing is the symmetric difference of the two endpoints' ancestor-boundary
-// stacks; the primary signals are the data sensitivity carried + the crossed
-// boundary's own posture — all real, populated fields. Direction is structural
-// (EXIT/ENTER), never a trust comparison. No single risk score, no coverage %.
+// Boundary Crossings has TWO layers, kept distinct:
+//   - STRUCTURAL (membranes): the symmetric difference of the two endpoints'
+//     ancestor-boundary stacks. Direction is containment (EXIT/ENTER), never a
+//     trust comparison; membranes carry the crossed boundary's own posture.
+//   - POLICY (per flow): the DECLARED-zone data-flow verdict from
+//     evaluateDataFlowPolicy (zoningPolicy.js) — one zone-pair per flow, judged
+//     against the operator's declared zones/domains/planes/conduits. A verdict
+//     means "the model as drawn encodes an illegal crossing," NOT "we verified the
+//     flow cannot occur." Verdict severity is the PRIMARY worklist rank (a
+//     violation on an unclassified flow must surface, not sink), with the data
+//     sensitivity + boundary posture as secondary signals. Still no single risk
+//     score, no coverage %.
 
 import { isLive, scoreBand } from './aggregateLedger.js'
+import { evaluateDataFlowPolicy } from './zoningPolicy.js'
 
 // SensitivityLevel ordering (schema enum). null/absent ⇒ unknown (rank 0) —
 // NEVER silently treated as low; an unclassified flow in motion is a modeling
@@ -159,11 +166,15 @@ function flowRankKey(g) {
     if (m.boundaryLiveCount > 0) worstBoundaryLive = 1
     if (!m.boundaryHasControl) worstControlAbsent = 1
   }
-  // NB: term positions intentionally mix scales — term 2 is a band rank (0–4),
-  // terms 3–5 are presence bits (0/1). That is the intended ordering; lexicographic
-  // comparison never weighs term 2 against term 3, so the mix is safe. Do NOT
-  // "normalise" term 2 to a presence bit — it would silently flatten ranking.
+  // Verdict severity is the PRIMARY term (correctness, not cosmetic): a policy
+  // violation can ride on a flow with NO data classification and must surface to
+  // the top, not sink into the muted tail behind classified-but-allowed flows.
+  // NB: remaining term positions intentionally mix scales — the sensitivity term is
+  // a rank (0–4), the rest are presence bits (0/1). Lexicographic comparison never
+  // weighs one term against another, so the mix is safe. Do NOT "normalise" a rank
+  // term to a presence bit — it would silently flatten ranking.
   return [
+    g.verdictRank ?? 0, // policy severity: violation(3) > warning(2) > advisory(1) > allowed/none(0)
     SENSITIVITY_RANK[g.maxSensitivity] ?? 0, // unknown ⇒ 0 (sorts low, never "low")
     g.flowLiveCount > 0 ? BAND_RANK[g.flowWorstBand] ?? 0 : 0,
     worstBoundaryLive,
@@ -180,6 +191,7 @@ function flowRankKey(g) {
 function worklistHasDifferentiator(crossings) {
   return crossings.some(
     (g) =>
+      (g.verdictRank ?? 0) > 0 ||
       (SENSITIVITY_RANK[g.maxSensitivity] ?? 0) > 0 ||
       g.flowLiveCount > 0 ||
       g.flowHasControl ||
@@ -206,19 +218,34 @@ function byFlowRankDesc(a, b) {
  * (present, never green, never dropped). Worklist flows are ranked by their worst
  * membrane's tuple.
  *
+ * A flow is also in the worklist if it carries a POLICY verdict (warning /
+ * violation / advisory) even with zero structural signal — the declared-zone
+ * policy is a first-class reason to surface a crossing. Allowed + zero-signal
+ * flows fall to the single muted tail.
+ *
  * @param {{boundaries:Array,components:Array,flows:Array}} modelGraph
  * @param {Array} ledger  the RAW snapshot `ledger` (LedgerElement[])
- * @returns {{ crossings, underModeled, underModeledCount, totals, flags }}
- *   crossings: signal-bearing flow groups, ranked desc, membranes per-flow capped.
- *   underModeled: zero-signal flow groups (collapsed in UI).
+ * @param {{effectiveZones?:Object}} [zoning]  the snapshot zoning block (declared effective zones)
+ * @returns {{ crossings, underModeled, underModeledCount, worklistUnranked, totals, flags,
+ *             conduitErrors, deadConduits, policy }}
+ *   crossings: worklist flow groups (signal- OR verdict-bearing), ranked desc.
+ *   underModeled: allowed + zero-signal flow groups (one muted tail).
+ *   worklistUnranked: worklist exists but nothing differentiates its ranking.
  *   totals: { crossingFlows, membranes, signalFlows, underModeledFlows, hiddenByCap }
+ *   conduitErrors: declared conduits authorizing an illegal crossing.
+ *   deadConduits: legally-declared conduits with no matching modeled flow (dead intent).
+ *   policy: { fails, violations, warnings, advisories } (per-flow verdict rollup).
  *   flags: completeness flags ({ key, label, severity }).
  */
-export function computeCrossings(modelGraph, ledger) {
+export function computeCrossings(modelGraph, ledger, zoning) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
   const boundaries = Array.isArray(mg.boundaries) ? mg.boundaries : []
   const flows = Array.isArray(mg.flows) ? mg.flows : []
   const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+
+  // Declared-zone data-flow policy — per-flow verdicts keyed by flowId, computed
+  // over the same modelGraph + the snapshot's declared effective zones.
+  const { byFlow: verdictByFlow, conduitErrors, deadConduits, rollup } = evaluateDataFlowPolicy(mg, zoning)
 
   const { stackOfComponent, boundaryById, truncatedBoundaries, danglingParents } =
     makeStackResolver(mg)
@@ -294,6 +321,13 @@ export function computeCrossings(modelGraph, ledger) {
       membranes = [...membranes.slice(0, head), ...membranes.slice(membranes.length - tail)]
     }
 
+    // Per-flow declared-zone policy verdict (null when the flow doesn't cross a
+    // zone boundary the policy judges — e.g. intra-boundary or a down-gradient
+    // response). `escalated` = a warning / violation / advisory (rank > 0); an
+    // allowed / no verdict does not escalate a flow out of the muted tail.
+    const verdict = verdictByFlow[flow.id] ?? null
+    const verdictRank = verdict?.verdictRank ?? 0
+
     groups.push({
       flowId: flow.id,
       flowName: flow.name ?? '',
@@ -307,12 +341,16 @@ export function computeCrossings(modelGraph, ledger) {
       flowHasControl: flowPosture.hasControl,
       membranes,
       hiddenMembranes: cappedHidden,
+      verdict,
+      verdictRank,
+      escalated: verdictRank > 0,
       signal: membranes.some((m) => m.signal),
     })
   }
 
-  const crossings = groups.filter((g) => g.signal).sort(byFlowRankDesc)
-  const underModeled = groups.filter((g) => !g.signal).sort(byFlowRankDesc)
+  // Worklist = structural signal OR a policy escalation; one muted tail for the rest.
+  const crossings = groups.filter((g) => g.signal || g.escalated).sort(byFlowRankDesc)
+  const underModeled = groups.filter((g) => !(g.signal || g.escalated)).sort(byFlowRankDesc)
 
   const flags = []
   if (boundaries.length === 0) {
@@ -344,14 +382,29 @@ export function computeCrossings(modelGraph, ledger) {
     })
   }
 
+  // Per-flow verdict rollup for the summary line (counts, never a score).
+  const policy = { fails: rollup?.fails ?? false, violations: 0, warnings: 0, advisories: 0 }
+  for (const g of groups) {
+    if (g.verdict?.verdict === 'violation') policy.violations++
+    else if (g.verdict?.verdict === 'warning') policy.warnings++
+    else if (g.verdict?.verdict === 'advisory') policy.advisories++
+  }
+
   return {
     crossings,
     underModeled,
     underModeledCount: underModeled.length,
     // True when the worklist exists but nothing in it can be meaningfully ranked
-    // (no known sensitivity, no exposures, no controls anywhere) — the view drops
-    // the "ranked" framing and states the order is just by name.
+    // (no verdict, no known sensitivity, no exposures, no controls anywhere) — the
+    // view drops the "ranked" framing and states the order is just by name.
     worklistUnranked: crossings.length > 0 && !worklistHasDifferentiator(crossings),
+    // Declared conduits authorizing an illegal crossing (dead or live) — the
+    // fail-closed allowlist surface, rendered separately from the per-flow worklist.
+    conduitErrors: conduitErrors ?? [],
+    // Legally-declared conduits with no matching modeled flow (dead intent — a
+    // muted review surface, never alarming).
+    deadConduits: deadConduits ?? [],
+    policy,
     totals: {
       crossingFlows: groups.length,
       membranes: membraneCount,

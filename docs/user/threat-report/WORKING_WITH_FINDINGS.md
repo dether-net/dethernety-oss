@@ -29,6 +29,21 @@ Below it, findings are organized **per element**. Each element with at least one
 
 Each tab also carries a **pending count `(N)`** — the number of findings still awaiting your review. It counts down as you act on findings, so you always know how much triage is left.
 
+### Zoning advisories
+
+Above the scored findings, a collapsed **zoning advisories** block may appear — per-boundary notes about your trust-zoning declarations. They are **un-scored**: no band, no score, no coverage claim, and they order nothing. They sit apart from the findings ledger deliberately, because they describe a *boundary's* declaration rather than a scored exposure on an element. Expand the block to read them; each note names the boundary (drillable to its **Component Profile**) with a short detail.
+
+The advisories cover four things:
+
+| Advisory | What it flags |
+|---|---|
+| **Unclassified boundaries** | A boundary with no declared zone — a modeling gap, so declare its exposure position. |
+| **Under-protected asset holders** | A boundary holding sensitive assets at a lower trust tier than they warrant. |
+| **Management plane on an exposed tier** | A control-plane (management) boundary sitting on an externally exposed tier. |
+| **Shared-domain cross-tier coupling** | Boundaries in the same domain wired across trust tiers in a way worth a second look. |
+
+> **These are prompts, not failures.** A zoning advisory says "review how you've zoned this boundary," never "this is a violation." Per-flow policy verdicts — the things that can *fail* your data-flow policy — live in **Boundary Crossings**, not here. See [Reading the Report](./READING_THE_REPORT.md#the-boundary-crossings-view).
+
 ### Open versus reviewed
 
 Within each group, findings sit in one of two partitions:
@@ -144,6 +159,26 @@ The header shows the element's name, its type, and — where relevant — a `★
 ### Boundary context
 
 For a Component or a Security Boundary, the **Boundary context** section lists the nesting stack from innermost to outer. Each boundary is itself drillable, and carries its own posture inline: `⚠ N live` exposures (with the worst band), `✓ control present`, or `· no modeled posture`. This tells you what surrounds the element you're investigating — a weak boundary above a sound component is still a path in.
+
+Each boundary in the stack also carries its **declared trust-zoning tags**, when they're set:
+
+- Its **zone chip** — the boundary's declared exposure position (`UNTRUSTED`, `PUBLIC`, `EXPOSED`, `INTERNAL`, `RESTRICTED`, or `VENDOR`). This is the *effective* zone, which a boundary may inherit from a parent or fall back to a default; hover the chip to see which. A boundary shows no chip on a snapshot generated before zoning was modeled.
+- Its declared **planes** (for example `management`) and **domains** — muted context tags, not a verdict.
+
+These are the operator's **declaration**, never recomputed by the report. A chip is an exposure position, not a safety rating — `RESTRICTED` means "declared most sensitive," not "protected."
+
+### Trust zoning
+
+When the element you're drilled into *is* a **Security Boundary**, a dedicated **Trust zoning** block spells out its declared zoning in full. It's labelled *declared intent, not enforcement* — the report reads what you declared, it never proves the boundary is enforced.
+
+The block shows:
+
+- **Zone** — the boundary's effective zone chip and where it comes from: `declared` (set on this boundary), `inherited from <boundary>` (taken from an ancestor), or `default (no zone declared)`. If the snapshot has no zoning, it reads `— (no zoning computed)`.
+- **Planes** and **Domains** — the boundary's own declared tags, when set.
+- **Conduits out** — the declared **conduits** (approved channels) from this boundary to a peer. A conduit is a *declared* intended channel — declared intent, not proven enforcement. Each peer is drillable; each carries its justification, or `no justification` where none was recorded.
+- **Conduits in** — the mirror: peers that declared a conduit reaching *this* boundary. Also drillable, also with justification.
+
+> **A conduit is a declaration, not a permission.** The block records channels you said are approved; it does not verify they're enforced, and it never issues a per-flow verdict. Whether an individual flow through a boundary is legal is judged crossing by crossing in **Boundary Crossings** — see [Reading the Report](./READING_THE_REPORT.md#the-boundary-crossings-view).
 
 ### Exposures
 

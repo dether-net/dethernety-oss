@@ -42,6 +42,14 @@
           <ul class="trd-bstack">
             <li v-for="b in profile.boundaryContext" :key="b.id" class="trd-bstack-item">
               <button type="button" class="trd-drill-mini" @click="$emit('drill', b.id)" :title="`Open ${b.name} profile`">{{ b.name }}</button>
+              <span
+                v-if="b.zone"
+                class="trd-zone"
+                :class="tierClass(b.zone)"
+                :title="`declared effective zone (${b.zoneSource})`"
+              >{{ b.zone }}</span>
+              <span v-for="p in b.planes" :key="p" class="trd-tag trd-tag--plane">{{ p.toLowerCase() }}</span>
+              <span v-for="d in b.domains" :key="d" class="trd-tag trd-tag--domain">{{ d }}</span>
               <span v-if="b.liveCount > 0" class="trd-weaken" :title="`${b.liveCount} live exposure(s) on this boundary`">
                 ⚠ {{ b.liveCount }} live<span v-if="b.worstBand"> ({{ b.worstBand }})</span>
               </span>
@@ -49,6 +57,54 @@
               <span v-if="b.liveCount === 0 && !b.hasControl" class="trd-muted">· no modeled posture</span>
             </li>
           </ul>
+        </section>
+
+        <!-- Trust zoning (SecurityBoundary target only) — declared intent, not enforcement. -->
+        <section v-if="profile.zoning" class="trd-prof-section">
+          <h4 class="trd-prof-sec-head">Trust zoning <span class="trd-muted">(declared intent, not enforcement)</span></h4>
+          <ul class="trd-zoning">
+            <li class="trd-zoning-row">
+              <span class="trd-zoning-label">Zone</span>
+              <span v-if="profile.zoning.effectiveZone" class="trd-zone" :class="tierClass(profile.zoning.effectiveZone)">{{ profile.zoning.effectiveZone }}</span>
+              <span v-else class="trd-muted">— (no zoning computed)</span>
+              <span v-if="profile.zoning.effectiveZone" class="trd-muted">{{ zoneSourceNote(profile.zoning) }}</span>
+            </li>
+            <li v-if="profile.zoning.planes.length" class="trd-zoning-row">
+              <span class="trd-zoning-label">Planes</span>
+              <span v-for="p in profile.zoning.planes" :key="p" class="trd-tag trd-tag--plane">{{ p.toLowerCase() }}</span>
+            </li>
+            <li v-if="profile.zoning.domains.length" class="trd-zoning-row">
+              <span class="trd-zoning-label">Domains</span>
+              <span v-for="d in profile.zoning.domains" :key="d" class="trd-tag trd-tag--domain">{{ d }}</span>
+            </li>
+            <li v-if="profile.zoning.outboundConduits.length" class="trd-zoning-row">
+              <span class="trd-zoning-label">Conduits out</span>
+              <span class="trd-zoning-conduits">
+                <span v-for="c in profile.zoning.outboundConduits" :key="c.peerId" class="trd-conduit-item">
+                  <span class="trd-ep-arrow" aria-hidden="true">→</span>
+                  <button v-if="c.peerResolved" type="button" class="trd-drill-mini" @click="$emit('drill', c.peerId)" :title="`Open ${c.peerName} profile`">{{ c.peerName }}</button>
+                  <span v-else class="trd-unresolved">{{ c.peerName }}</span>
+                  <span v-if="c.justification" class="trd-conduit-just" :title="c.justification">— {{ c.justification }}</span>
+                  <span v-else class="trd-qual--unreviewable">no justification</span>
+                </span>
+              </span>
+            </li>
+            <li v-if="profile.zoning.inboundConduits.length" class="trd-zoning-row">
+              <span class="trd-zoning-label">Conduits in</span>
+              <span class="trd-zoning-conduits">
+                <span v-for="c in profile.zoning.inboundConduits" :key="c.peerId" class="trd-conduit-item">
+                  <button type="button" class="trd-drill-mini" @click="$emit('drill', c.peerId)" :title="`Open ${c.peerName} profile`">{{ c.peerName }}</button>
+                  <span class="trd-ep-arrow" aria-hidden="true">→</span>
+                  <span v-if="c.justification" class="trd-conduit-just" :title="c.justification">— {{ c.justification }}</span>
+                  <span v-else class="trd-qual--unreviewable">no justification</span>
+                </span>
+              </span>
+            </li>
+          </ul>
+          <p class="trd-zoning-caveat">
+            A conduit records a declared/intended approved channel — the platform does not prove it is enforced.
+            Cross-zone data-flow policy is judged per flow in <strong>Boundary Crossings</strong>.
+          </p>
         </section>
 
         <!-- Own exposures -->
@@ -240,11 +296,15 @@
   import { dispositionKindLabel } from '../lib/aggregateLedger.js'
   import { lifecycleChipFor } from '../lib/findingActions.js'
   import { dataItemSensitivity } from '../lib/boundaryCrossings.js'
+  import { tierClass } from '../lib/zoningPolicy.js'
 
   const props = defineProps({
     elementId: { type: String, default: '' },
     ledger: { type: Array, default: () => [] },
     modelGraph: { type: Object, default: () => ({ boundaries: [], components: [], flows: [], dataNodes: [] }) },
+    // The snapshot zoning block — declared effective zones per boundary, joined into the
+    // boundary context + the boundary zoning block. Defaulted for pre-zoning snapshots.
+    zoning: { type: Object, default: () => ({ findings: [], effectiveZones: {} }) },
     canDispose: { type: Boolean, default: false },
     // exposureId → resolved ATT&CK techniques (buildExposureTechniqueIndex over the
     // live coverage facts). Empty when coverage-tools isn't deployed → no chips.
@@ -257,8 +317,19 @@
   const chipFor = lifecycleChipFor
 
   const profile = computed(() =>
-    computeComponentProfile(props.elementId, { ledger: props.ledger, modelGraph: props.modelGraph }),
+    computeComponentProfile(props.elementId, {
+      ledger: props.ledger,
+      modelGraph: props.modelGraph,
+      zoning: props.zoning,
+    }),
   )
+  // Effective-zone source → a short human note ("declared" / "inherited from X" / "default").
+  const zoneSourceNote = (z) => {
+    if (!z || !z.zoneSource) return ''
+    if (z.zoneSource === 'inherited') return z.inheritedFromName ? `inherited from ${z.inheritedFromName}` : 'inherited'
+    if (z.zoneSource === 'default') return 'default (no zone declared)'
+    return 'declared'
+  }
 
   // Resolved techniques for a finding (by exposure id) + the shared info dialog.
   const techsFor = (id) => props.techniqueIndex[id] ?? []
@@ -384,6 +455,39 @@
   .trd-harden { font-size: 0.74rem; color: #4a6a55; }
   .trd-stale { color: #c77700; font-weight: 600; }
   .trd-uncovered { font-size: 0.72rem; color: #8a5a00; margin-left: 0.4rem; }
+
+  /* Trust-zoning surface — the same blue→violet ordinal zone ramp as Boundary
+     Crossings; VENDOR off-gradient warm/dashed, UNTRUSTED cool. Outlined, low-sat. */
+  .trd-zone {
+    display: inline-block; border: 1px solid currentColor; border-radius: 10px;
+    padding: 0 7px; font-size: 0.66rem; letter-spacing: 0.04em;
+    text-transform: uppercase; background: transparent;
+  }
+  .trd-zone--untrusted { color: #5b8bb0; }
+  .trd-zone--public { color: #5877bd; }
+  .trd-zone--exposed { color: #6168c4; }
+  .trd-zone--internal { color: #7a5fc0; }
+  .trd-zone--restricted { color: #9455bb; }
+  .trd-zone--vendor { color: #a08154; border-style: dashed; }
+  /* Plane / domain tags — muted, neutral (not a verdict). */
+  .trd-tag {
+    display: inline-block; border: 1px solid rgba(127, 127, 127, 0.5); border-radius: 3px;
+    padding: 0 5px; font-size: 0.64rem; opacity: 0.75;
+  }
+  .trd-tag--plane { text-transform: uppercase; letter-spacing: 0.03em; }
+
+  .trd-zoning { list-style: none; margin: 0; padding: 0; }
+  .trd-zoning-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.2rem 0; font-size: 0.85rem; }
+  .trd-zoning-label {
+    flex: 0 0 6.2rem; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em;
+    opacity: 0.55; font-weight: 600;
+  }
+  .trd-zoning-conduits { display: flex; flex-direction: column; gap: 0.15rem; }
+  .trd-conduit-item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+  .trd-ep-arrow { opacity: 0.5; }
+  .trd-conduit-just { opacity: 0.7; font-size: 0.78rem; overflow-wrap: anywhere; }
+  .trd-qual--unreviewable { font-size: 0.68rem; color: #8a5a00; }
+  .trd-zoning-caveat { font-size: 0.72rem; opacity: 0.6; line-height: 1.45; margin: 0.4rem 0 0; }
 
   .trd-dir {
     display: inline-block; min-width: 3.6rem; text-align: center; border: 1px solid currentColor;

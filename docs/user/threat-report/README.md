@@ -20,8 +20,8 @@ This page is the index for the Threat Report documentation set. New to the repor
 - **Live findings** — every finding (an exposure) in the model, grouped per element, ordered by severity band for triage. A finding stays **live** while it is untriaged or **affirmed** (a confirmed risk); a dispositioned finding is either *live* (affirmed) or *muted* (any of the other disposition kinds).
 - **MITRE ATT&CK coverage by tier** — which techniques your modeled exposures map to, and how strongly each is countered (DIRECT, Mitigation, or D3FEND), where the **Coverage Tools** module is present.
 - **Flow routes to key assets** — which crown jewels are reachable over your modeled data flows, how many hops away, and what threats sit on the way.
-- **Boundary crossings** — where data flows leave or enter a security boundary, and the sensitivity each crossing carries.
-- **Residual risk per element** — the findings ledger and a per-element **Component Profile** that synthesizes one element's risk in depth.
+- **Boundary crossings** — where data flows leave or enter a security boundary, the sensitivity each crossing carries, and each crossing checked against your **declared-zone data-flow policy** (declared intent, never recomputed).
+- **Residual risk per element** — the findings ledger and a per-element **Component Profile** that synthesizes one element's risk in depth, including a boundary's declared **trust zoning** (zone, planes, domains, and conduits).
 
 ## What it does NOT tell you
 

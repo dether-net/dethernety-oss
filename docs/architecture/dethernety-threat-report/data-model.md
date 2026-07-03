@@ -9,7 +9,8 @@ The Threat Report renders over a single **persisted snapshot document** that is 
 - [The two data sources](#the-two-data-sources) — the persisted snapshot vs. the live coverage facts, and how they relate.
 - [SnapshotDoc](#snapshotdoc) — the top-level persisted document, including its empty-state form.
 - [The ledger](#the-ledger) — elements, findings, and supporting controls (`LedgerElement` / `LedgerFinding` / `LedgerControl`).
-- [The model graph](#the-model-graph) — positional boundaries, components, flows, and data nodes.
+- [The model graph](#the-model-graph) — positional boundaries, components, flows, and data nodes, including each boundary's declared trust-zoning.
+- [The zoning block](#the-zoning-block) — the computed per-boundary declared effective zones and advisory zoning findings.
 - [The graded coverage payload](#the-graded-coverage-payload) — the live, disposition-agnostic coverage facts.
 - [The fingerprint and staleness contract](#the-fingerprint-and-staleness-contract) — what the structural fingerprint covers.
 - [Join keys and invariants](#join-keys-and-invariants) — the identifiers that tie the three shapes together.
@@ -37,6 +38,7 @@ graph LR
   subgraph SnapshotDoc["SnapshotDoc (persisted, point-in-time)"]
     L["ledger<br/>LedgerElement[]"]
     G["modelGraph<br/>boundaries / components / flows / dataNodes"]
+    Z["zoning<br/>effectiveZones / findings"]
     FP["fingerprint"]
   end
   COV["gradedCoverage<br/>(live, disposition-agnostic)"]
@@ -44,6 +46,7 @@ graph LR
   G -- "element ids == ledger element ids" --> L
   COV -- "exposureId == finding.id" --> L
   G -- "dataNode.handledBy == element ids" --> L
+  Z -- "effectiveZones keyed by boundary id" --> G
   FP -. "live recompute compared for staleness" .-> COV
 ```
 
@@ -63,6 +66,7 @@ The top-level persisted document. It is serialized to a JSON string and stored o
 | `boundaryCount` | `number?` | Count of security boundaries discovered at generate time. |
 | `ledger` | `LedgerElement[]?` | The residual-risk ledger — every element with its findings and supporting controls. See [the ledger](#the-ledger). |
 | `modelGraph` | `ModelGraph?` | The positional model graph — boundaries, components, flows, and data nodes. See [the model graph](#the-model-graph). |
+| `zoning` | `{ findings: ZoningFinding[]; effectiveZones: Record<boundaryId, EffectiveZone> }?` | The computed trust-zoning block — per-boundary **declared effective zones** and advisory zoning findings. See [the zoning block](#the-zoning-block). Absent on snapshots generated before this field existed (the frontend defaults it). |
 
 ### Empty state
 
@@ -165,7 +169,7 @@ ModelGraph
 
 ### ModelGraphBoundary
 
-A security boundary with its canvas geometry and nesting parent.
+A security boundary with its canvas geometry, nesting parent, and declared trust-zoning.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -176,8 +180,14 @@ A security boundary with its canvas geometry and nesting parent.
 | `width` | `number \| null` | Boundary width. |
 | `height` | `number \| null` | Boundary height. |
 | `parentBoundaryId` | `string \| null` | The enclosing boundary, or `null` for a top-level boundary. |
+| `zone` | `string \| null` | The boundary's **declared** trust zone — one of `UNTRUSTED`, `PUBLIC`, `EXPOSED`, `INTERNAL`, `RESTRICTED`, `VENDOR`. **`null` means the zone is not declared here and is inherited** from the nearest ancestor that declares one (this is the raw declaration, not the resolved effective zone — see [the zoning block](#the-zoning-block)). |
+| `planes` | `string[]` | The boundary's declared operational planes (`WORKLOAD`, `MANAGEMENT`). Empty when untagged. |
+| `domains` | `string[]` | The boundary's declared business-domain tags (free text). Empty when untagged. |
+| `conduits` | `{ peerId: string; direction: 'OUTBOUND'; justification: string \| null }[]` | The boundary's declared approved channels to peer boundaries. Gathered **`OUTBOUND`-canonical** — one record per declared crossing, on the source side (the inbound mirror is re-derived, never stored, to avoid double-counting). Empty when none is declared. |
 
 The parent-relative geometry lets the minimap reproduce the layout faithfully, and `parentBoundaryId` defines the nesting forest. That same nesting drives the Boundary Crossings engine, which walks each element's ancestor stack to decide which trust boundaries a flow crosses.
+
+The four zoning fields (`zone`, `planes`, `domains`, `conduits`) are the operator's **declared** trust-zoning intent. They feed two consumers: at generate time they are projected into the dt-core zoning engine to compute the [zoning block](#the-zoning-block); at render time the frontend reads them raw to drive the per-flow declared-zone data-flow policy (see [frontend.md](./frontend.md)). They are declared intent, never a proven or enforced permission.
 
 ### ModelGraphComponent
 
@@ -230,6 +240,48 @@ A `Data` node with its author-asserted sensitivity and the elements that handle 
 | `handledBy` | `string[]` | Ids of the elements (components, flows, or boundaries) that handle this data. |
 
 **`handledBy` powers the Component Profile's data relations in both directions.** The frontend reverse-indexes `handledBy` so that, per element, it can list the data that element handles; and for each handled data id it joins back to that data's own ledger entry for the data's findings (coverage is attributed to the handling element, not to the data node, because data nodes carry no typed control support). Reading the field forward gives "which elements handle this data"; reverse-indexing it gives "which data does this element handle".
+
+---
+
+## The zoning block
+
+The zoning block (`SnapshotDoc.zoning`) is the computed trust-zoning view, produced at generate time by projecting the model graph into the shared dt-core zoning engine (see [backend.md](./backend.md)). It carries two things: a per-boundary map of **declared effective zones**, and a list of advisory zoning findings.
+
+```
+zoning
+├── effectiveZones : Record<boundaryId, EffectiveZone>
+└── findings       : ZoningFinding[]
+```
+
+The block **graceful-degrades to the empty form** `{ findings: [], effectiveZones: {} }` — a zoning fault at generate time never takes down the ledger or model graph — and is **absent entirely** on a snapshot generated before this field existed. In both cases the frontend defaults it, so the pure engines never see `undefined`.
+
+### EffectiveZone
+
+`effectiveZones` maps each boundary id to the **declared effective zone** — the operator's declared `zone` resolved through nesting inheritance. It is keyed by boundary id (the synthetic traversal root is excluded).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `zone` | `'UNTRUSTED' \| 'PUBLIC' \| 'EXPOSED' \| 'INTERNAL' \| 'RESTRICTED' \| 'VENDOR'` | The resolved effective zone for the boundary. |
+| `source` | `'declared' \| 'inherited' \| 'default'` | How the zone was resolved: **declared** on the boundary itself, **inherited** from an ancestor, or the **default** (`INTERNAL`) when no ancestor declares one. |
+| `from` | `string?` | Present only when `source === 'inherited'` — the ancestor boundary id whose declared zone was inherited. |
+
+**Declared, not proposed.** This is deliberately the *declared* effective zone (`resolveEffectiveZone`), resolved by walking the nesting chain to the nearest declared `zone`. It is **not** the engine's separate topological zone-tier *proposal* (`determineZoneTier`), which the report does not use. The declared zone is authoritative and administrative: the report reports it, never recomputes or overrides it (see [design-principles.md](./design-principles.md)).
+
+The distinction from `ModelGraphBoundary.zone` matters: that field is the **raw declaration** (`null` ⇒ not declared here), whereas `effectiveZones[id].zone` is the **resolved** value every boundary gets after inheritance.
+
+### ZoningFinding
+
+`findings` is the list of coherence findings the engine derives — each an advisory, per-boundary observation about the declared zoning, not a per-flow verdict.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `kind` | `'unclassified' \| 'under-protected' \| 'mgmt-plane' \| 'external-ingress' \| 'flow-channel' \| 'cross-tier-domain'` | The finding category. |
+| `boundaryId` | `string` | The boundary the finding is about (matches a model-graph / ledger boundary id). |
+| `detail` | `string` | Human-readable description of the observation. |
+| `severity` | `'info' \| 'warning'` | Advisory severity — never a score. |
+| `peerId` | `string?` | For the conduit-dependent kinds (`external-ingress`, `flow-channel`), the peer boundary id of the crossing or channel. Undefined for the conduit-independent kinds. |
+
+The frontend renders a subset of these — the four per-boundary conduit-independent kinds (`unclassified`, `under-protected`, `mgmt-plane`, `cross-tier-domain`) — as a compact, un-scored advisory block on the Residual Risk surface. The crossing-oriented kinds (`external-ingress`, `flow-channel`) are **not** re-rendered from the block, because the per-flow declared-zone policy (over the raw `modelGraph` declarations) already covers those crossings at flow granularity (see [frontend.md](./frontend.md)).
 
 ---
 
@@ -306,6 +358,7 @@ The digest is computed in the module (sorted ids, hashed) so it is independent o
 - **Exposure disposition signatures** — each finding's id plus its disposition kind and stale flag, so disposing, clearing, or stale-flipping a finding changes the fingerprint while a no-op save does not.
 - **Data sensitivity** — each data element's id paired with its sensitivity, so re-classifying data flips the fingerprint instead of leaving a now-misclassified snapshot reading "fresh".
 - **Handling edges** — each element-handles-data relationship, so re-wiring which element handles a data element flips the fingerprint.
+- **Zoning inputs** — every input the zoning engine reads: each boundary's `zone` / `planes` / `domains` and its nesting parent, each component's `crownJewel` flag and containing boundary, each data element's regulatory flags, each declared conduit edge, and each flow's endpoints. Re-zoning, re-tagging, re-parenting, or re-wiring the model therefore flips the fingerprint, so a re-computed zoning block never reads "fresh" against a changed model.
 
 The digest collects scalar ids and signatures only — never the full ledger — so the live staleness check stays light enough to poll. The query mechanics are documented in [backend.md](./backend.md); the rationale for treating freshness this way is in [design-principles.md](./design-principles.md).
 
@@ -320,6 +373,7 @@ Three identifier relationships tie the shapes together. They hold because the le
 | `coverage.exposures[].exposureId` ↔ `ledger.findings[].id` | One-to-one on exposure id | Coverage & Gaps, Posture Summary, the technique chips on Residual Risk and Component Profile |
 | `modelGraph` element ids ↔ `ledger` element ids | Same id sets (same traversal) | Reachability minimap, Boundary Crossings, on-flow and crossed-boundary posture |
 | `dataNode.handledBy[]` ↔ `ledger` / `modelGraph` element ids | Many-to-many handling topology | Component Profile data relations (both directions) |
+| `zoning.effectiveZones` keys ↔ `modelGraph.boundaries[].id` | Keyed by boundary id | Boundary Crossings declared-zone policy, Component Profile trust-zoning block, Residual Risk zoning advisories |
 
 **Invariants worth relying on:**
 

@@ -132,8 +132,9 @@ given and describes where they are enforced.
 | [`postureSummary.js`](../../../modules/dethernety-threat-report/frontend/lib/postureSummary.js) | Composes the ledger aggregation plus the boundary-crossing counts into the Posture Summary roll-up. The only aggregating surface; introduces no new analysis. |
 | [`coverageMatrix.js`](../../../modules/dethernety-threat-report/frontend/lib/coverageMatrix.js) | The MITRE ATT&CK coverage presentation/honesty layer: joins live coverage facts to the ledger for disposition, buckets by tactic × tier × prevent/detect, and accounts for everything held off the grid. |
 | [`reachability.js`](../../../modules/dethernety-threat-report/frontend/lib/reachability.js) | The flow-route engine: a pure, bounded, simple-path traversal over the snapshot topology for crown-jewel reachability, origin→target route enumeration, origin→target choke points (`chokePoints()`, a vertex-cut dominator test), and a node's forward blast radius (`blastRadius()`). |
-| [`boundaryCrossings.js`](../../../modules/dethernety-threat-report/frontend/lib/boundaryCrossings.js) | The structural boundary-crossing engine: ancestor-stack resolution, the EXIT/ENTER symmetric-difference crossing model, on-flow and crossed-boundary posture. |
-| [`componentProfile.js`](../../../modules/dethernety-threat-report/frontend/lib/componentProfile.js) | Synthesises a single element's residual-risk profile: boundary context, handled data, exposures, controls, and 1-hop neighbours. |
+| [`boundaryCrossings.js`](../../../modules/dethernety-threat-report/frontend/lib/boundaryCrossings.js) | The boundary-crossing engine, now in **two layers**: a *structural* layer (ancestor-stack resolution, the EXIT/ENTER symmetric-difference membrane model, on-flow and crossed-boundary posture) and a *policy* layer (the per-flow declared-zone verdict from `zoningPolicy.js`, folded in). `computeCrossings` takes the snapshot `zoning` block, ranks the worklist **verdict-severity first**, and returns the per-flow verdicts, `conduitErrors`, `deadConduits`, and the policy rollup alongside the structural crossings. |
+| [`zoningPolicy.js`](../../../modules/dethernety-threat-report/frontend/lib/zoningPolicy.js) | The **declared-zone data-flow policy engine**. `evaluateDataFlowPolicy(modelGraph, zoning)` classifies each crossing flow against the operator's declared zones / domains / planes / conduits, in a deterministic first-match order (type axis → plane gate → direction gate → domain split + zone-pair matrix → conduit reconciliation), returning per-flow verdicts (`violation` / `warning` / `advisory` / `allowed`), conduit errors and dead conduits, and a fail rollup. `zoningAdvisories` groups the per-boundary advisory findings for the ledger; `tierClass` maps a zone to its chip class. A verdict asserts "the model as drawn encodes an illegal crossing," never "we verified the flow cannot occur." |
+| [`componentProfile.js`](../../../modules/dethernety-threat-report/frontend/lib/componentProfile.js) | Synthesises a single element's residual-risk profile: boundary context (now with each ancestor boundary's effective-zone chip), handled data, exposures, controls, 1-hop neighbours, and — for a SecurityBoundary target — a dedicated **trust-zoning block** (effective zone + source, planes, domains, in/outbound conduits) joined from the snapshot `zoning` block. |
 | [`completenessFlags.js`](../../../modules/dethernety-threat-report/frontend/lib/completenessFlags.js) | Model-wide "silent-green" guards: under-analyzed high-value elements, orphan components outside any boundary. Surfaced banner-first. |
 | [`reportNavigation.js`](../../../modules/dethernety-threat-report/frontend/lib/reportNavigation.js) | Pure state-transition reducers for the in-component navigation (views, drills, filter chips). |
 | [`exportReport.js`](../../../modules/dethernety-threat-report/frontend/lib/exportReport.js) | Pure builders for the JSON and self-contained printable-HTML exports, plus the single DOM touch that downloads them. |
@@ -154,6 +155,14 @@ reads identically wherever it appears:
   `aggregateLedger`. The profile's per-element exposure partition is literally
   `aggregateLedger` run over a single element, so its posture is identical to the
   residual-risk view's by construction.
+- `boundaryCrossings` composes `zoningPolicy` rather than duplicating zone logic:
+  `computeCrossings` calls `evaluateDataFlowPolicy` over the same `modelGraph` and
+  the snapshot's declared effective zones, then folds each flow's verdict into its
+  crossing group so the structural membranes and the declared-zone policy line
+  ride together on one flow. `componentProfile` and the Residual Risk ledger read
+  the same `zoning` block directly — `componentProfile` for its per-boundary
+  trust-zoning join, the ledger via `zoningAdvisories` for its advisory block — so
+  every zoning read resolves against the one snapshot block.
 - `exportReport` builds its coverage section from the same `buildCoverageView`
   honesty layer and its reachability section from the same `modeAReachability`
   engine the live views use — the exported artifact and the on-screen report
@@ -272,14 +281,25 @@ a visited-set, hop/route/step ceilings to keep the synchronous compute cheap —
 is careful in its language: these are *flow routes*; an unreachable crown jewel, or
 a node outside a blast radius, is a modeling gap, **never** "safe" or "isolated".
 
-**Boundary Crossings** renders the structural crossings from `computeCrossings`.
-A crossing is the symmetric difference of the two flow endpoints' ancestor-
-boundary stacks, expressed as EXIT/ENTER containment steps — never a trust
-gradient. Flows carrying a signal (classified data, a live on-flow or
-crossed-boundary exposure, or a present control) form the ranked worklist; signal-
-free flows collapse into a muted "under-modeled" tail (present, never dropped).
-The pinned minimap is the spatial home — clicking a crossing highlights its flow's
-endpoints on the map.
+**Boundary Crossings** renders the crossings from `computeCrossings`, which now
+carries **two layers per flow**. The *structural* layer is unchanged: a crossing is
+the symmetric difference of the two flow endpoints' ancestor-boundary stacks,
+expressed as EXIT/ENTER containment steps — pure nesting, never a trust gradient.
+The *policy* layer is the **declared-zone data-flow verdict** from `zoningPolicy.js`
+— one zone-pair per flow, judged against the operator's declared zones, domains,
+planes, and conduits, and rendered as a separate "declared" policy line with a
+verdict word (VIOLATION / WARNING / ADVISORY). A verdict means "the model as drawn
+encodes an illegal crossing," never "we verified the flow cannot occur." Verdict
+severity is the **primary** worklist rank — a policy violation on an otherwise
+signal-free flow surfaces to the top rather than sinking — with carried-data
+sensitivity and boundary posture as secondary signals; there is still no single
+risk score. A flow enters the worklist if it carries a structural signal **or** a
+policy escalation; the rest collapse into one muted "under-modeled" tail (present,
+never dropped). Two conduit surfaces sit beside the worklist: **conduit errors**
+(a declared conduit that authorizes an illegal crossing — a conduit never
+legalizes a violation) and **dead conduits** (a legally-declared conduit with no
+matching modeled flow — dead intent, surfaced muted). The pinned minimap is the
+spatial home — clicking a crossing highlights its flow's endpoints on the map.
 
 **Residual Risk** is the findings ledger from `aggregateLedger`, grouped by
 element and partitioned into open versus dispositioned findings (dispositioned
@@ -288,16 +308,28 @@ triage sort-aid, not a risk rating. It honors the in-view facet filters and the
 deep-link filters from Posture (band, live, provenance, element type), renders the
 technique chips on each finding, and offers the per-finding **FindingActions**
 (Affirm / Dispose / Supersede / Issue) that route to the host's real finding-action
-services.
+services. Below the scored ledger it also renders a compact **zoning advisories**
+block from `zoningAdvisories(zoning, modelGraph)` — the per-boundary,
+conduit-independent zoning findings (unclassified boundaries, under-protected asset
+holders, management plane on an exposed tier, shared-domain cross-tier coupling),
+grouped by kind and explicitly un-scored (advisory, never a coverage claim). The
+crossing-oriented zoning findings are deliberately left to the per-flow policy in
+Boundary Crossings rather than duplicated here.
 
 **Component Profile** is the per-element drill target from
 `computeComponentProfile`, reachable for a Component, SecurityBoundary, DataFlow,
 or Data node. It synthesises one element's residual risk: ancestor-boundary
-context with each boundary's own posture, the data it handles as a finding-bearing
-sub-block, its live-vs-dispositioned exposures with uncovered ones highlighted,
-supporting controls as muted context, 1-hop flow neighbours (each itself
-drillable), and a minimap. For a Data target it inverts to show the elements that
-*handle* the data.
+context with each boundary's own posture **and its declared effective-zone chip**,
+the data it handles as a finding-bearing sub-block, its live-vs-dispositioned
+exposures with uncovered ones highlighted, supporting controls as muted context,
+1-hop flow neighbours (each itself drillable), and a minimap. For a Data target it
+inverts to show the elements that *handle* the data. For a **SecurityBoundary**
+target it adds a dedicated **Trust zoning** block — the resolved effective zone and
+its source (declared / inherited-from / default), the boundary's declared planes
+and domains, and its declared conduits (outbound plus the re-derived inbound
+mirror, each drillable) — framed explicitly as declared intent, not an enforced
+permission. The zone chips and the block default cleanly to absent on a pre-zoning
+snapshot.
 
 ---
 

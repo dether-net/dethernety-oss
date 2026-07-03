@@ -98,6 +98,76 @@ describe('computeComponentProfile — SecurityBoundary target', () => {
   })
 })
 
+// Trust-zoning fixture: outer(INTERNAL,core) ⊃ dmz(EXPOSED,WORKLOAD,edge; conduit→data) ⊃ pod
+// (no own zone → inherits EXPOSED) ; outer ⊃ data(RESTRICTED, WORKLOAD+MANAGEMENT).
+const ZMODEL = {
+  boundaries: [
+    { id: 'outer', name: 'Outer', parentBoundaryId: null, zone: 'INTERNAL', planes: [], domains: ['core'], conduits: [] },
+    { id: 'dmz', name: 'DMZ', parentBoundaryId: 'outer', zone: 'EXPOSED', planes: ['WORKLOAD'], domains: ['edge'], conduits: [{ peerId: 'data', direction: 'OUTBOUND', justification: 'approved WAF path' }] },
+    { id: 'data', name: 'Data', parentBoundaryId: 'outer', zone: 'RESTRICTED', planes: ['WORKLOAD', 'MANAGEMENT'], domains: [], conduits: [] },
+    { id: 'pod', name: 'Pod', parentBoundaryId: 'dmz', zone: null, planes: [], domains: [], conduits: [] },
+  ],
+  components: [{ id: 'zc', name: 'API', type: 'process', boundaryId: 'pod', crownJewel: false }],
+  flows: [],
+  dataNodes: [],
+}
+const ZONING = {
+  effectiveZones: {
+    outer: { zone: 'INTERNAL', source: 'declared' },
+    dmz: { zone: 'EXPOSED', source: 'declared' },
+    data: { zone: 'RESTRICTED', source: 'declared' },
+    pod: { zone: 'EXPOSED', source: 'inherited', from: 'dmz' },
+  },
+}
+const zdoc = { ledger: [], modelGraph: ZMODEL, zoning: ZONING }
+
+describe('computeComponentProfile — trust zoning', () => {
+  it('annotates each ancestor boundary with its effective zone + declared planes/domains', () => {
+    const p = computeComponentProfile('zc', zdoc)
+    expect(p.boundaryContext.map((b) => b.id)).toEqual(['pod', 'dmz', 'outer'])
+    expect(p.boundaryContext[0]).toMatchObject({ id: 'pod', zone: 'EXPOSED', zoneSource: 'inherited', planes: [], domains: [] })
+    expect(p.boundaryContext[1]).toMatchObject({ id: 'dmz', zone: 'EXPOSED', zoneSource: 'declared', planes: ['WORKLOAD'], domains: ['edge'] })
+    expect(p.boundaryContext[2]).toMatchObject({ id: 'outer', zone: 'INTERNAL', zoneSource: 'declared', domains: ['core'] })
+  })
+  it('a SecurityBoundary target gets a full zoning block (zone + source, planes, domains, outbound conduits)', () => {
+    const p = computeComponentProfile('dmz', zdoc)
+    expect(p.zoning).toMatchObject({
+      effectiveZone: 'EXPOSED', zoneSource: 'declared', declaredZone: 'EXPOSED',
+      planes: ['WORKLOAD'], domains: ['edge'],
+    })
+    expect(p.zoning.outboundConduits).toEqual([
+      { peerId: 'data', peerName: 'Data', peerResolved: true, justification: 'approved WAF path' },
+    ])
+    expect(p.zoning.inboundConduits).toEqual([])
+  })
+  it('surfaces the INBOUND conduit mirror on the peer boundary (who declared a channel to it)', () => {
+    const p = computeComponentProfile('data', zdoc)
+    expect(p.zoning).toMatchObject({ effectiveZone: 'RESTRICTED', planes: ['WORKLOAD', 'MANAGEMENT'] })
+    expect(p.zoning.inboundConduits).toEqual([
+      { peerId: 'dmz', peerName: 'DMZ', peerResolved: true, justification: 'approved WAF path' },
+    ])
+    expect(p.zoning.outboundConduits).toEqual([])
+  })
+  it('resolves the inherited-from name for an inheriting boundary target', () => {
+    const p = computeComponentProfile('pod', zdoc)
+    expect(p.zoning).toMatchObject({
+      effectiveZone: 'EXPOSED', zoneSource: 'inherited', inheritedFromId: 'dmz', inheritedFromName: 'DMZ',
+      declaredZone: null,
+    })
+  })
+  it('non-boundary targets carry no zoning block', () => {
+    expect(computeComponentProfile('zc', zdoc).zoning).toBeNull()
+  })
+  it('degrades on a pre-zoning snapshot: declared tags/conduits still show, effective zone is null', () => {
+    const p = computeComponentProfile('dmz', { ledger: [], modelGraph: ZMODEL }) // no zoning block
+    expect(p.zoning).toMatchObject({
+      effectiveZone: null, zoneSource: null, declaredZone: 'EXPOSED', planes: ['WORKLOAD'], domains: ['edge'],
+    })
+    expect(p.zoning.outboundConduits).toHaveLength(1)
+    expect(p.boundaryContext[0].zone).toBeNull() // ancestor stack chips omitted without zoning
+  })
+})
+
 describe('computeComponentProfile — Data target', () => {
   const p = computeComponentProfile('d1', doc)
   it('resolves sensitivity + its own exposures; no data sub-block, no boundary stack', () => {
