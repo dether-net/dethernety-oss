@@ -107,6 +107,8 @@ You can export the current snapshot in two formats from the action row at the to
 | **Export JSON** | Machine-readable JSON | Feeding the report into other tools, diffing snapshots over time, or archiving the raw data. |
 | **Export HTML** | Self-contained printable HTML | Sharing a readable report. Open the file in any browser and use **Print → Save as PDF**. |
 
+Both exports carry the report's substance, not just the ledger: the MITRE coverage facts, the crown-jewel reachability rollup, the **Boundary Crossings** data-flow policy (the per-flow declared-zone verdicts, the conduit-error and dead-conduit surfaces), and the residual-risk ledger — each section appears when its inputs are present. The boundary-crossings section keeps the same honesty framing as the on-screen view: a verdict flags an illegal crossing *as drawn* (declared intent, never verified enforcement), and allowed crossings stay silent.
+
 The HTML export is fully self-contained — no external assets — so you can open it anywhere and print it. Both exports carry the same honest caveats shown on screen: they state that the report is a point-in-time snapshot of the *modeled* posture (not a live or deployed-state scan), that findings are not rolled into a single risk number, and that no coverage percentage is implied. In the HTML report, each affirmed finding carries a **"Confirmed"** tag, so a reader can see which risks you reviewed and confirmed.
 
 > **Export is disabled while you have pending live edits.** If you've affirmed or disposed findings since the snapshot was generated, those decisions aren't yet in the snapshot — so the export buttons are disabled to stop you sharing stale numbers. Click **Recreate** to fold your decisions into a fresh snapshot, then export.
