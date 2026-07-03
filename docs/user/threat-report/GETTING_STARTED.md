@@ -69,10 +69,10 @@ There are five tabs, plus a per-element drill-down:
 | **Posture** | The default landing view — a roll-up of the whole model's residual risk, with stats you can click to jump into a filtered view. |
 | **Coverage & Gaps** | Your MITRE ATT&CK coverage and where the gaps are (requires the Coverage Tools module). |
 | **Reachability** | Which crown jewels can be reached over modeled flow routes, and what lies on those routes. |
-| **Boundary Crossings** | Where flows cross security boundaries and what they carry. |
+| **Boundary Crossings** | Where flows cross security boundaries, what they carry, and how each crossing reads against your declared-zone data-flow policy. |
 | **Residual Risk** | The findings ledger — every finding, open or reviewed, that you can filter and act on. |
 
-Clicking any element — in any tab — opens its **Component Profile** as an overlay dialog: that element's findings, supporting controls, the data it handles, and links to its neighbors. Close the dialog (press **Esc**, click the scrim, or use the close button) and you return to exactly where you were.
+Clicking any element — in any tab — opens its **Component Profile** as an overlay dialog: that element's findings, supporting controls, the data it handles, links to its neighbors, and — for a security boundary — its declared **trust zoning** (zone, planes, domains, and conduits). Close the dialog (press **Esc**, click the scrim, or use the close button) and you return to exactly where you were.
 
 > **Banner first.** A scope-and-freshness banner sits above every tab. It surfaces freshness and any completeness flags — for example `No security boundaries modeled` — *before* you read a reassuring count. Read it first; it tells you what the report can and cannot speak to.
 

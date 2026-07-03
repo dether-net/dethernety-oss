@@ -135,6 +135,7 @@
           v-else-if="nav.activeView === 'boundary'"
           :model-graph="snapshot.modelGraph"
           :ledger="snapshot.ledger"
+          :zoning="snapshot.zoning"
           @drill="onDrill"
         />
         <FindingsLedger
@@ -145,6 +146,8 @@
           :coverage-view="coverageView"
           :reachability="reachability"
           :technique-index="techniqueIndex"
+          :zoning="snapshot.zoning"
+          :model-graph="snapshot.modelGraph"
           :can-dispose="canDispose"
           @dispose="handleDispose"
           @affirm="handleAffirm"
@@ -174,6 +177,7 @@
               :element-id="nav.drill.elementId"
               :ledger="snapshot.ledger"
               :model-graph="snapshot.modelGraph"
+              :zoning="snapshot.zoning"
               :can-dispose="canDispose"
               :technique-index="techniqueIndex"
               @drill="onDrill"
@@ -334,6 +338,10 @@
       // Always present the four graph keys so the pure libs never see undefined;
       // dataNodes may be absent on an older snapshot — default it.
       modelGraph: { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) },
+      // Declared-zone data-flow-policy block (Boundary Crossings). `effectiveZones` = per-boundary
+      // declared effective zone. Absent on pre-zoning snapshots — default it so the pure engine
+      // never sees undefined.
+      zoning: { findings: [], effectiveZones: {}, ...(doc.zoning ?? {}) },
     }
   })
 

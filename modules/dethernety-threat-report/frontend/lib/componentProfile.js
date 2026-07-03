@@ -8,6 +8,11 @@
 // over the snapshot doc (`ledger` + `modelGraph`, both gathered at generate
 // time) — no Vue, no network, unit-tested.
 //
+// Trust-zoning context is joined in from the snapshot's `zoning.effectiveZones`
+// (declared/inherited/default) + the boundary's own declared planes/domains/conduits:
+// each ancestor boundary carries a zone chip, and a SecurityBoundary target gets a
+// dedicated zoning block (effective zone + source, planes, domains, in/outbound conduits).
+//
 // Reuse, not reinvention: the ancestor-boundary stack comes from the SAME
 // `makeStackResolver` the Boundary Crossings engine uses (cycle / dangling-parent
 // handling included), and the per-element exposure partition + control consistency
@@ -28,6 +33,9 @@ import {
   sensitivityLabel,
   SENSITIVITY_RANK,
 } from './boundaryCrossings.js'
+
+// Boundary-name sort for the conduit lists.
+const byPeerName = (a, b) => String(a.peerName).localeCompare(String(b.peerName))
 
 // Aggregate a single ledger element through the Residual Risk aggregator and return its
 // group (the annotated live/dispositioned partition + control consistency), or a
@@ -61,10 +69,10 @@ function singleGroup(ledgerEl) {
  * Synthesise the Component Profile for an element.
  *
  * @param {string} elementId
- * @param {{ ledger: Array, modelGraph: object }} doc
+ * @param {{ ledger: Array, modelGraph: object, zoning?: object }} doc
  * @returns {object} the Component Profile view model (see fields below)
  */
-export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) {
+export function computeComponentProfile(elementId, { ledger, modelGraph, zoning } = {}) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
   const components = Array.isArray(mg.components) ? mg.components : []
   const boundaries = Array.isArray(mg.boundaries) ? mg.boundaries : []
@@ -72,6 +80,12 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
   const dataNodes = Array.isArray(mg.dataNodes) ? mg.dataNodes : []
   const ledgerArr = Array.isArray(ledger) ? ledger : []
   const ledgerById = new Map(ledgerArr.map((e) => [e.id, e]))
+
+  // Declared effective zone per boundary (the authoritative declared/inherited/default
+  // resolution from the snapshot). Absent on a pre-zoning snapshot ⇒ zone chips are simply
+  // omitted; the declared planes/domains/conduits still come from the modelGraph node.
+  const effectiveZones = zoning && typeof zoning === 'object' ? (zoning.effectiveZones ?? {}) : {}
+  const effectiveZoneOf = (bid) => effectiveZones[bid] ?? null // { zone, source, from? } | null
 
   const comp = components.find((c) => c.id === elementId)
   const bound = boundaries.find((b) => b.id === elementId)
@@ -117,12 +131,21 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
     .filter((b) => b !== ROOT)
     .map((bid) => {
       const p = postureOf(ledgerById.get(bid))
+      const bnode = boundaryById.get(bid)
+      const ez = effectiveZoneOf(bid)
       return {
         id: bid,
-        name: boundaryById.get(bid)?.name ?? '(unknown boundary)',
+        name: bnode?.name ?? '(unknown boundary)',
         liveCount: p.liveCount,
         worstBand: p.worstBand,
         hasControl: p.hasControl,
+        // Declared trust-zoning context per ancestor boundary. `zone` is the resolved
+        // effective zone (null when the snapshot has no zoning block); `planes`/`domains`
+        // are the boundary's own declared tags (empty when untagged).
+        zone: ez?.zone ?? null,
+        zoneSource: ez?.source ?? null, // 'declared' | 'inherited' | 'default'
+        planes: Array.isArray(bnode?.planes) ? bnode.planes : [],
+        domains: Array.isArray(bnode?.domains) ? bnode.domains : [],
       }
     })
 
@@ -312,9 +335,56 @@ export function computeComponentProfile(elementId, { ledger, modelGraph } = {}) 
     highlightBoundaryIds = []
   }
 
+  // Trust-zoning detail for a SecurityBoundary target: the resolved effective zone + its
+  // source (declared / inherited-from / default), the boundary's declared planes + domains,
+  // and its declared conduits (approved channels) — OUTBOUND (this boundary → peer) plus the
+  // INBOUND mirror (peers that declare a conduit reaching this boundary), each drillable. This
+  // is the per-boundary counterpart to the per-flow policy in Boundary Crossings; declared
+  // intent, never an enforced permission. Null for non-boundary targets.
+  let zoningDetail = null
+  if (type === 'SecurityBoundary' && bound) {
+    const ez = effectiveZoneOf(elementId)
+    const outboundConduits = (Array.isArray(bound.conduits) ? bound.conduits : [])
+      .filter((c) => c?.peerId && c.direction === 'OUTBOUND')
+      .map((c) => ({
+        peerId: c.peerId,
+        peerName: boundaryById.get(c.peerId)?.name ?? '(not in snapshot)',
+        peerResolved: boundaryById.has(c.peerId),
+        justification: c.justification ?? null,
+      }))
+      .sort(byPeerName)
+    const inboundConduits = []
+    for (const ob of boundaries) {
+      if (ob.id === elementId) continue
+      for (const c of ob.conduits ?? []) {
+        if (c?.direction === 'OUTBOUND' && c.peerId === elementId) {
+          inboundConduits.push({
+            peerId: ob.id,
+            peerName: ob.name ?? '(unknown boundary)',
+            peerResolved: true,
+            justification: c.justification ?? null,
+          })
+        }
+      }
+    }
+    inboundConduits.sort(byPeerName)
+    zoningDetail = {
+      effectiveZone: ez?.zone ?? null,
+      zoneSource: ez?.source ?? null, // 'declared' | 'inherited' | 'default' | null (no zoning block)
+      inheritedFromId: ez?.from ?? null,
+      inheritedFromName: ez?.from ? (boundaryById.get(ez.from)?.name ?? null) : null,
+      declaredZone: bound.zone ?? null, // raw declaration (null ⇒ inherited/default)
+      planes: Array.isArray(bound.planes) ? bound.planes : [],
+      domains: Array.isArray(bound.domains) ? bound.domains : [],
+      outboundConduits,
+      inboundConduits,
+    }
+  }
+
   return {
     element,
     boundaryContext,
+    zoning: zoningDetail,
     ownExposures,
     dataHandled,
     handledByElements,

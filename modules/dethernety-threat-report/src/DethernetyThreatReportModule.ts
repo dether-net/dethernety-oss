@@ -8,6 +8,8 @@ import {
   ExtendedPubSubEngine,
 } from '@dethernety/dt-module';
 import { AnalysisSession, AnalysisStatus } from '@dethernety/dt-core';
+import type { ZoningFinding, EffectiveZone } from '@dethernety/dt-core';
+import { computeZoning, type ZoningEngine } from './zoning-adapter';
 
 /**
  * Normalize a graph-engine numeric value to a plain JS number (or null).
@@ -128,6 +130,14 @@ interface ModelGraphBoundary {
   width: number | null;
   height: number | null;
   parentBoundaryId: string | null; // null ⇒ top-level
+  // Trust-zoning declarations. `zone` is the declared zone (null ⇒ inherit); `planes`
+  // operational planes; `domains` free-text business tags; `conduits` declared OUTBOUND approved
+  // channels. Fed to the dt-core engine via the zoning adapter, and consumed raw by the frontend
+  // data-flow-policy engine (domains/planes/conduits drive the per-flow verdicts).
+  zone: string | null;
+  planes: string[];
+  domains: string[];
+  conduits: { peerId: string; direction: 'OUTBOUND'; justification: string | null }[];
 }
 
 /** A component with its canvas geometry, DFD type (lower-cased for the minimap),
@@ -178,6 +188,7 @@ interface ModelGraphDataNode {
   className: string | null; // name of the class this element instantiates
   classDescription: string | null; // that class's description
   sensitivity: string | null; // SensitivityLevel value, null ⇒ unclassified
+  regulatoryFlags: string[]; // regulatory scopes (e.g. "PCI", "PHI"); a non-empty set makes the data an asset
   handledBy: string[]; // element ids with (el)-[:HANDLES]->(this Data)
 }
 
@@ -211,6 +222,13 @@ interface SnapshotDoc {
    *  raw `ledger` (which carries each element's exposures + supporting controls,
    *  reused for crossed-boundary / on-flow posture — no separate posture query). */
   modelGraph?: ModelGraph;
+  /** Computed trust-zoning block: the per-boundary declared effective zones (`effectiveZones`) + the
+   *  advisory zoning findings (`findings`), computed at generate time by reusing the dt-core zoning
+   *  engine over the model graph. `effectiveZones` is the DECLARED effective zone (declared/inherited/
+   *  default, authoritative) — never the topological `determineZoneTier` proposal. Graceful-degrades to empty
+   *  (`{ findings: [], effectiveZones: {} }`) on any adapter/engine failure so a zoning fault never
+   *  takes down the ledger/modelGraph snapshot. Absent on pre-zoning snapshots — the frontend defaults it. */
+  zoning?: { findings: ZoningFinding[]; effectiveZones: Record<string, EffectiveZone> };
 }
 
 class DethernetyThreatReportModule implements DTModule {
@@ -357,6 +375,54 @@ class DethernetyThreatReportModule implements DTModule {
       // exactly the real handler→data edges. Re-wiring HANDLES changes the set.
       const handlesSigs: string[] = (rec?.get('handlesSigs') ?? []) as string[];
 
+      // ZONING staleness signals — a separate structural query so the proven digest query above stays
+      // untouched. Every input the zoning engine reads must fold in, or a re-zoned/re-tagged/re-wired
+      // model would read FRESH: per-boundary zone/planes/domains, crownJewel flags (also fixes a
+      // pre-existing gap — crownJewel drove no prior digest term), Data regulatory flags (a flag alone
+      // makes data an asset), declared CONDUIT edges, and flow ENDPOINTS (re-wiring a flow, same id,
+      // changes the boundary adjacency → tiers/findings). List members are sorted in TS for
+      // determinism; the sentinel keeps one returned row even when there are no flows.
+      const zoningRes = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(b:SecurityBoundary)
+         OPTIONAL MATCH (b)-[:BELONGS_TO]->(bp:SecurityBoundary)
+         WITH m, collect(DISTINCT { id: b.id, zone: coalesce(b.zone, ''), planes: coalesce(b.planes, []), domains: coalesce(b.domains, []), parent: coalesce(bp.id, '') }) AS bZoning
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(cb:SecurityBoundary)<-[:BELONGS_TO]-(c:Component)
+         WITH m, bZoning, collect(DISTINCT c.id + '|' + coalesce(toString(c.crownJewel), '') + '<' + cb.id) AS cjSigs
+         OPTIONAL MATCH (m)-[:CONTAINS]->(d:Data)
+         WITH m, bZoning, cjSigs, collect(DISTINCT { id: d.id, flags: coalesce(d.regulatoryFlags, []) }) AS dRegs
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(bc:SecurityBoundary)-[co:CONDUIT]->(peer:SecurityBoundary)
+         WITH m, bZoning, cjSigs, dRegs, collect(DISTINCT bc.id + '>' + peer.id + '|' + coalesce(co.justification, '')) AS conduitSigs
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(:Component)-[:FLOWS]-(df:DataFlow)
+         WITH bZoning, cjSigs, dRegs, conduitSigs, collect(DISTINCT df) AS fs
+         UNWIND (CASE WHEN size(fs) = 0 THEN [null] ELSE fs END) AS df
+         OPTIONAL MATCH (s:Component)-[:FLOWS]->(df)
+         WITH bZoning, cjSigs, dRegs, conduitSigs, df, collect(DISTINCT s.id) AS srcIds
+         OPTIONAL MATCH (df)-[:FLOWS]->(t:Component)
+         WITH bZoning, cjSigs, dRegs, conduitSigs, df, srcIds, collect(DISTINCT t.id) AS tgtIds
+         WITH bZoning, cjSigs, dRegs, conduitSigs,
+              collect(CASE WHEN df IS NULL THEN NULL ELSE df.id + '|' + coalesce(head(srcIds), '') + '>' + coalesce(head(tgtIds), '') END) AS flowSigsRaw
+         RETURN bZoning, cjSigs, dRegs, conduitSigs, [x IN flowSigsRaw WHERE x IS NOT NULL] AS flowSigs`,
+        { modelId },
+      );
+      const zrec = zoningRes.records[0];
+      const bZoning = (zrec?.get('bZoning') ?? []) as { id: string; zone: string; planes: string[]; domains: string[]; parent: string }[];
+      const cjSigs = (zrec?.get('cjSigs') ?? []) as string[];
+      const dRegs = (zrec?.get('dRegs') ?? []) as { id: string; flags: string[] }[];
+      const conduitSigs = (zrec?.get('conduitSigs') ?? []) as string[];
+      const flowEndpointSigs = (zrec?.get('flowSigs') ?? []) as string[];
+
+      const sortedJoin = (xs: string[] | undefined): string => [...(xs ?? [])].sort().join(',');
+      // `.filter(b => b.id)` drops the `{id:null}` sentinel map an empty model yields (the map-valued
+      // collects don't null-drop like the string-concat ones). `parent`/`<cb.id` fold CONTAINMENT into
+      // the digest so re-parenting a boundary or moving a component between boundaries (both change the
+      // engine's tiers/findings via the nesting parentMap) flips the fingerprint instead of reading fresh.
+      const boundaryZoningSigs = bZoning
+        .filter((b) => b.id)
+        .map((b) => `${b.id}|${b.zone ?? ''}|${sortedJoin(b.planes)}|${sortedJoin(b.domains)}|${b.parent ?? ''}`)
+        .sort();
+      const dataRegulatorySigs = dRegs.filter((d) => d.id).map((d) => `${d.id}|${sortedJoin(d.flags)}`).sort();
+
       const digestInput = JSON.stringify({
         b: [...boundaryIds].sort(),
         c: [...componentIds].sort(),
@@ -365,6 +431,11 @@ class DethernetyThreatReportModule implements DTModule {
         f: [...dataFlowIds].sort(),
         e: [...exposureSigs].sort(),
         h: [...handlesSigs].sort(), // HANDLES edges — Component Profile data sub-block
+        bz: boundaryZoningSigs, // boundary zone/planes/domains + parent — tiers/mgmt-plane/domain findings + nesting
+        cj: [...cjSigs].sort(), // crownJewel flags + component→boundary — directAssetIds/tiers + component containment
+        dr: dataRegulatorySigs, // Data regulatory flags — a flag alone makes data an asset
+        cd: [...conduitSigs].sort(), // declared CONDUIT edges — conduit-policy findings
+        fe: [...flowEndpointSigs].sort(), // flow endpoints — adjacency → tiers/ingress findings
       });
       const fingerprint = createHash('sha256')
         .update(digestInput)
@@ -499,6 +570,7 @@ class DethernetyThreatReportModule implements DTModule {
            positionX: b.positionX, positionY: b.positionY,
            width: b.dimensionsWidth, height: b.dimensionsHeight,
            parentBoundaryId: pb.id,
+           zone: b.zone, planes: b.planes, domains: b.domains,
            className: cls.name, classDescription: cls.description
          }) AS boundaries`,
         { modelId },
@@ -579,10 +651,28 @@ class DethernetyThreatReportModule implements DTModule {
          WITH d, handledBy, head(collect(DISTINCT dcls)) AS cls
          RETURN collect({
            id: d.id, name: d.name, description: d.description,
-           sensitivity: d.sensitivity,
+           sensitivity: d.sensitivity, regulatoryFlags: d.regulatoryFlags,
            handledBy: handledBy,
            className: cls.name, classDescription: cls.description
          }) AS dataNodes`,
+        { modelId },
+      );
+
+      // Declared approved channels (conduits). OUTBOUND-canonical only — on-disk data records a
+      // crossing once as OUTBOUND on the source; the INBOUND mirror is re-derived and would only
+      // double-count. Scalar relationship props only (peer.id + co.justification) for
+      // Neo4j/Memgraph portability; `controlRefs` is intentionally not gathered (the plugin never
+      // authors it, so the column would be permanently empty).
+      const conduitsRes = await session.run(
+        `MATCH (m:Model {id: $modelId})
+         OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(b:SecurityBoundary)
+         WITH collect(DISTINCT b) AS bs
+         UNWIND (CASE WHEN size(bs) = 0 THEN [null] ELSE bs END) AS b
+         WITH b WHERE b IS NOT NULL
+         OPTIONAL MATCH (b)-[co:CONDUIT]->(peer:SecurityBoundary)
+         WITH b, collect(DISTINCT CASE WHEN peer IS NULL THEN NULL ELSE
+           { peerId: peer.id, justification: co.justification } END) AS conduits
+         RETURN collect({ boundaryId: b.id, conduits: [x IN conduits WHERE x IS NOT NULL] }) AS rows`,
         { modelId },
       );
 
@@ -590,6 +680,19 @@ class DethernetyThreatReportModule implements DTModule {
       const rawC = (componentsRes.records[0]?.get('components') ?? []) as any[];
       const rawF = (flowsRes.records[0]?.get('flows') ?? []) as any[];
       const rawD = (dataNodesRes.records[0]?.get('dataNodes') ?? []) as any[];
+      const rawConduitRows = (conduitsRes.records[0]?.get('rows') ?? []) as any[];
+
+      // boundaryId → declared OUTBOUND conduits (peerId + optional justification).
+      const conduitsByBoundary = new Map<string, { peerId: string; direction: 'OUTBOUND'; justification: string | null }[]>();
+      for (const row of rawConduitRows) {
+        if (!row || !row.boundaryId) continue;
+        conduitsByBoundary.set(
+          row.boundaryId,
+          (row.conduits ?? [])
+            .filter((c: any) => c && c.peerId)
+            .map((c: any) => ({ peerId: c.peerId, direction: 'OUTBOUND' as const, justification: c.justification ?? null })),
+        );
+      }
 
       return {
         boundaries: rawB
@@ -605,6 +708,10 @@ class DethernetyThreatReportModule implements DTModule {
             width: toNum(b.width),
             height: toNum(b.height),
             parentBoundaryId: b.parentBoundaryId ?? null,
+            zone: b.zone ?? null,
+            planes: Array.isArray(b.planes) ? b.planes.filter((p: any) => p != null) : [],
+            domains: Array.isArray(b.domains) ? b.domains.filter((d: any) => d != null) : [],
+            conduits: conduitsByBoundary.get(b.id) ?? [],
           })),
         components: rawC
           .filter((c) => c && c.id)
@@ -646,6 +753,9 @@ class DethernetyThreatReportModule implements DTModule {
             className: d.className ?? null,
             classDescription: d.classDescription ?? null,
             sensitivity: d.sensitivity ?? null,
+            regulatoryFlags: Array.isArray(d.regulatoryFlags)
+              ? d.regulatoryFlags.filter((f: any) => f != null)
+              : [],
             handledBy: Array.isArray(d.handledBy)
               ? d.handledBy.filter((x: any) => x != null)
               : [],
@@ -654,6 +764,41 @@ class DethernetyThreatReportModule implements DTModule {
     } finally {
       await session.close();
     }
+  }
+
+  /**
+   * Load the pure dt-core zoning engine at runtime. The module compiles to CommonJS, but dt-core is
+   * ESM-only (its `exports` carry only an `import` condition), so a literal dynamic `import()` would be
+   * down-emitted by tsc into a `require()` helper → `ERR_REQUIRE_ESM`. The `new Function` indirection
+   * preserves a genuine runtime `import()` that Node resolves against the ESM `./zone-determination`
+   * subpath — which reaches the self-contained engine directly, bypassing the package barrel's
+   * Apollo/Vue-Flow deps. Returns just the three functions the adapter drives.
+   */
+  private async loadZoningEngine(): Promise<ZoningEngine> {
+    // eslint-disable-next-line no-new-func -- intentional: preserves a genuine runtime import() (a literal
+    // import() would be down-emitted to require() under module:commonjs → ERR_REQUIRE_ESM). Specifier is a
+    // hardcoded constant, never model/user input.
+    const dynamicImport = new Function('s', 'return import(s)') as (s: string) => Promise<any>;
+    let zd: any;
+    try {
+      // Primary: the self-contained engine subpath (bypasses the barrel's Apollo/Vue-Flow deps).
+      zd = await dynamicImport('@dethernety/dt-core/zone-determination');
+    } catch (subpathErr) {
+      // Fallback: a dt-core whose package.json predates the ./zone-determination subpath export
+      // (a stale published/baked build) throws ERR_PACKAGE_PATH_NOT_EXPORTED. The main barrel
+      // re-exports the same engine functions and is always present, so fall back to it. Logged so
+      // the degradation is never silent; a total failure still propagates to computeZoning's guard.
+      this.logger.warn(
+        'threat-report: ./zone-determination subpath import failed; falling back to the @dethernety/dt-core barrel',
+        subpathErr as Error,
+      );
+      zd = await dynamicImport('@dethernety/dt-core');
+    }
+    return {
+      buildZoningContext: zd.buildZoningContext,
+      computeZoningFindings: zd.computeZoningFindings,
+      resolveEffectiveZone: zd.resolveEffectiveZone,
+    };
   }
 
   /**
@@ -678,6 +823,22 @@ class DethernetyThreatReportModule implements DTModule {
       await this.computeStructure(modelId);
     const ledger = await this.computeLedger(modelId);
     const modelGraph = await this.computeModelGraph(modelId);
+
+    // Trust-zoning: reuse the dt-core engine (loaded via the ESM subpath) to compute per-boundary
+    // tiers + advisory findings over the gathered graph. Advisory and additive — a fault here must
+    // never take down the core snapshot, so it degrades to an empty zoning block (rendered as "no
+    // findings"; the model's completeness surface is unaffected).
+    let zoning: SnapshotDoc['zoning'] = { findings: [], effectiveZones: {} };
+    try {
+      const engine = await this.loadZoningEngine();
+      zoning = computeZoning(modelGraph, engine);
+    } catch (err) {
+      this.logger.warn(
+        `threat-report: zoning computation failed for model '${modelId}'; snapshot carries an empty zoning block`,
+        err as Error,
+      );
+    }
+
     const generatedAt = new Date().toISOString();
     const doc: SnapshotDoc = {
       generated: true,
@@ -688,6 +849,7 @@ class DethernetyThreatReportModule implements DTModule {
       boundaryCount,
       ledger,
       modelGraph,
+      zoning,
     };
 
     const session = this.session();

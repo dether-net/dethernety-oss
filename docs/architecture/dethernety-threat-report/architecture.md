@@ -47,6 +47,7 @@ sequenceDiagram
     User->>Platform: Generate
     Platform->>Module: runAnalysis(analysisId, classId, scope = modelId, …)
     Module->>DB: gather structure + ledger + modelGraph
+    Module->>Module: compute trust-zoning (additive, degradation-guarded)
     Module->>DB: atomic SET snapshot JSON + generatedAt + fingerprint on Analysis
 
     Note over User,DB: Open results — render the Vue app over the snapshot
@@ -70,7 +71,7 @@ Picking **Threat Report** from the **New Analysis** menu wires the analysis grap
 
 ### Run
 
-`runAnalysis(...)` is the "generate snapshot" step. It follows a strict **compute-before-write** ordering: it runs three gather passes (structure, residual-risk ledger, positional model graph), assembles the document, then replaces the snapshot on the `Analysis` node in a single atomic `SET` alongside its `generatedAt` timestamp and a structural `fingerprint`. If any pass throws, the method throws *before* any write, so a previously good snapshot is never destroyed by a failed regeneration. The gather passes and their portability discipline are detailed in [`./backend.md`](./backend.md); the resulting document shape is in [`./data-model.md`](./data-model.md).
+`runAnalysis(...)` is the "generate snapshot" step. It follows a strict **compute-before-write** ordering: it runs three gather passes (structure, residual-risk ledger, positional model graph), then an **additive trust-zoning computation** that reuses the shared `dt-core` zoning engine to derive per-boundary declared effective zones and advisory findings, assembles the document, and replaces the snapshot on the `Analysis` node in a single atomic `SET` alongside its `generatedAt` timestamp and a structural `fingerprint`. If any gather pass throws, the method throws *before* any write, so a previously good snapshot is never destroyed by a failed regeneration; the zoning step is different — it is degradation-guarded, so a zoning fault degrades to an empty block rather than aborting the run. The gather passes, the zoning computation, and their portability discipline are detailed in [`./backend.md`](./backend.md); the resulting document shape is in [`./data-model.md`](./data-model.md).
 
 ### Open results
 
@@ -130,7 +131,7 @@ Two stances define how the report behaves at the edges.
 
 **Snapshot-faithful.** Every analytical surface computes purely over the persisted snapshot. The report shows the model exactly as it stood at generation time and never presents a stale report as fresh — staleness is detected structurally (the fingerprint) and surfaced banner-first, above any reassuring count.
 
-**Graceful degradation.** The one piece of *live* data the report consumes is optional: graded MITRE coverage facts from the sibling [`dethernety-coverage-tools`](../dethernety-coverage-tools/README.md) module. When that module is not deployed, the `gradedCoverage` field is absent from the schema, the fetch degrades to `null`, and the **Coverage & Gaps** surface (and the coverage lines of the **Posture Summary**) simply do not render. The rest of the report is unaffected, and it never fabricates an empty or all-green coverage grid in place of the missing data. The same "missing evidence is not a failure" posture covers a missing host disposition dialog, a missing analysis id, and a failed fingerprint fetch (treated as "assume fresh").
+**Graceful degradation.** The one piece of *live* data the report consumes is optional: graded MITRE coverage facts from the sibling [`dethernety-coverage-tools`](../dethernety-coverage-tools/README.md) module. When that module is not deployed, the `gradedCoverage` field is absent from the schema, the fetch degrades to `null`, and the **Coverage & Gaps** surface (and the coverage lines of the **Posture Summary**) simply do not render. The rest of the report is unaffected, and it never fabricates an empty or all-green coverage grid in place of the missing data. The same "missing evidence is not a failure" posture covers a missing host disposition dialog, a missing analysis id, a failed fingerprint fetch (treated as "assume fresh"), and a trust-zoning fault at generate time (the snapshot carries an empty zoning block rather than failing the run, and a pre-zoning snapshot with no zoning block at all is defaulted by the frontend).
 
 ---
 
@@ -142,7 +143,7 @@ Two stances define how the report behaves at the edges.
 | Persistence | `Analysis` node properties | Hold the snapshot JSON, its `generatedAt`, and its structural `fingerprint` | [`./data-model.md`](./data-model.md) |
 | Enrichment | `dethernety-coverage-tools` (`gradedCoverage`) | Produce graded, element-scoped, disposition-agnostic MITRE coverage facts | [`../dethernety-coverage-tools/README.md`](../dethernety-coverage-tools/README.md) |
 | Frontend shell | `ThreatReportShell` | Normalize the document; gate the lifecycle; pin the banner; switch surfaces; trigger Generate/Recreate | [`./frontend.md`](./frontend.md) |
-| Frontend compute | `lib/*.js` | The pure, tested analytical engines (ledger aggregation, coverage honesty, reachability, crossings, profile, completeness) | [`./frontend.md`](./frontend.md) · [`./design-principles.md`](./design-principles.md) |
+| Frontend compute | `lib/*.js` | The pure, tested analytical engines (ledger aggregation, coverage honesty, reachability, crossings, declared-zone data-flow policy, profile, completeness) | [`./frontend.md`](./frontend.md) · [`./design-principles.md`](./design-principles.md) |
 | Frontend surfaces | Posture Summary, Coverage & Gaps, Reachability, Boundary Crossings, Residual Risk, Component Profile | Encode one engine's view model each | [`./frontend.md`](./frontend.md) |
 | Shared building block | `ModelMinimap` | A faithful read-only render of the model used by several surfaces (not itself a surface) | [`./frontend.md`](./frontend.md) |
 
@@ -155,7 +156,7 @@ The report presents six surfaces. **Posture Summary** is the default landing and
 | **Posture Summary** | The at-a-glance roll-up — live-exposure bands, disposition counts, the boundary-crossing total, and a separate defense-in-depth line. The only surface that aggregates. |
 | **Coverage & Gaps** | The MITRE ATT&CK coverage matrix, joined from the live graded-coverage facts. Renders only when `dethernety-coverage-tools` is deployed. |
 | **Reachability** | The flow-route engine: crown-jewel reachability from a chosen origin, and origin→target route enumeration. Flow routes, never "attack paths". |
-| **Boundary Crossings** | Structural `EXIT`/`ENTER` boundary crossings derived from boundary nesting — never a trust gradient. |
+| **Boundary Crossings** | Two layers per flow: structural `EXIT`/`ENTER` crossings derived from boundary nesting (never an inferred trust gradient), plus a **declared-zone data-flow policy** verdict judged against the operator's declared zones, domains, planes, and conduits. |
 | **Residual Risk** | The findings ledger: every finding (an exposure) per element, partitioned into live and dispositioned. |
 | **Component Profile** | The per-element drill target — one element's residual-risk profile, reachable from any surface. |
 

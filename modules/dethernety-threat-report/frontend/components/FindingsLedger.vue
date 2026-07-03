@@ -88,9 +88,23 @@
       instantiation attributes changed since it was authored (topology/edge changes are not tracked here).
     </p>
 
-    <!-- Empty state: no findings at all -->
+    <!-- Zoning advisories: per-boundary, un-scored (advisory/informational). Kept
+         separate from the scored ledger — they order nothing and imply no coverage. -->
+    <details v-if="advisories.length" class="trd-zadv">
+      <summary>{{ advisoryCount }} zoning advisor{{ advisoryCount === 1 ? 'y' : 'ies' }} — per-boundary, advisory (not scored, not a coverage claim)</summary>
+      <div v-for="grp in advisories" :key="grp.kind" class="trd-zadv-group">
+        <p class="trd-zadv-kind">{{ grp.label }}</p>
+        <p v-for="it in grp.items" :key="it.boundaryId" class="trd-zadv-item">
+          <button type="button" class="trd-drill" @click="$emit('drill', it.boundaryId)" :title="`Open ${it.name} profile`">{{ it.name }}</button>
+          <span v-if="it.detail" class="trd-zadv-detail">— {{ it.detail }}</span>
+        </p>
+      </div>
+    </details>
+
+    <!-- Empty state: no scored findings ("scored" because the un-scored zoning
+         advisory block above may still be present). -->
     <p v-if="totals.findings === 0" class="trd-empty">
-      No findings in this model.
+      No scored findings in this model.
     </p>
     <!-- Empty state: the active deep-link filter matched nothing -->
     <p v-else-if="visibleGroups.length === 0" class="trd-empty">
@@ -253,6 +267,7 @@
   import { lifecycleChipFor } from '../lib/findingActions.js'
   import { buildCoverageView } from '../lib/coverageMatrix.js'
   import { buildExposureDetail } from '../lib/exposureDetail.js'
+  import { zoningAdvisories } from '../lib/zoningPolicy.js'
   import TechniqueChips from './TechniqueChips.vue'
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
   import ExposureDetailDialog from './ExposureDetailDialog.vue'
@@ -281,9 +296,20 @@
     // exposureId → resolved ATT&CK techniques (buildExposureTechniqueIndex over the
     // live coverage facts). Empty when coverage-tools isn't deployed → no chips.
     techniqueIndex: { type: Object, default: () => ({}) },
+    // The snapshot zoning block — its per-boundary advisory findings (unclassified /
+    // under-protected / mgmt-plane / cross-tier-domain) render as a compact un-scored
+    // advisory block here (they are per-boundary, not per per-flow like the crossings).
+    zoning: { type: Object, default: () => ({ findings: [], effectiveZones: {} }) },
+    // The snapshot modelGraph — used only to resolve boundary names for the zoning
+    // advisory block.
+    modelGraph: { type: Object, default: () => ({ boundaries: [] }) },
   })
 
   const emit = defineEmits(['dispose', 'affirm', 'supersede', 'add-note', 'delete', 'issue', 'drill', 'navigate'])
+
+  // Per-boundary zoning advisories (un-scored) — grouped for the compact block.
+  const advisories = computed(() => zoningAdvisories(props.zoning, props.modelGraph))
+  const advisoryCount = computed(() => advisories.value.reduce((n, g) => n + g.items.length, 0))
 
   // Inline lifecycle chip for a live row (only an AFFIRMED-confirmed finding earns
   // one) — so an affirmed finding in the open table is no longer indistinguishable
@@ -595,4 +621,15 @@
     opacity: 0.8;
   }
   .trd-review:hover { opacity: 1; }
+
+  /* Zoning advisories — a muted, un-scored per-boundary block (no band, no score). */
+  .trd-zadv {
+    margin: 0 0 0.8rem; border: 1px dashed rgba(127, 127, 127, 0.3);
+    border-radius: 4px; padding: 0.2rem 0.6rem;
+  }
+  .trd-zadv summary { cursor: pointer; font-size: 0.8rem; opacity: 0.8; margin: 0.3rem 0; }
+  .trd-zadv-group { margin: 0.3rem 0 0.5rem; }
+  .trd-zadv-kind { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; margin: 0.2rem 0; }
+  .trd-zadv-item { font-size: 0.8rem; margin: 0.15rem 0 0.15rem 0.6rem; }
+  .trd-zadv-detail { opacity: 0.7; }
 </style>

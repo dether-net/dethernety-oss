@@ -4,7 +4,7 @@
 
 The Dethernety Threat Report is a **pure `DTModule`** — a read-only, query-based reporting surface laid over an *existing* threat model. It contributes no threat-modeling classes (no components, controls, exposures, policies), runs no AI or LangGraph analysis, and edits nothing in the platform UI, backend, or core packages. Its entire footprint is a single TypeScript class that mounts through the platform's native analysis lifecycle, gathers a model snapshot at generate time, and persists that snapshot as JSON on the standing `Analysis` node so the analysis-results page can render it. Everything else — aggregation, charting, the minimap, boundary-crossing math — is pure client-side logic over the snapshot (see [`./frontend.md`](./frontend.md)).
 
-**What this document covers:** the module's role and deliberate non-responsibilities; how it mounts via the analysis lifecycle; the snapshot generation path and the three gather passes; how the snapshot is read back; the static status contract; the live staleness query; the database-portability discipline; and where MITRE coverage data comes from. Field-level shapes of the snapshot live in [`./data-model.md`](./data-model.md); the lifecycle at a glance is in [`./architecture.md`](./architecture.md).
+**What this document covers:** the module's role and deliberate non-responsibilities; how it mounts via the analysis lifecycle; the snapshot generation path and the three gather passes; the additive trust-zoning computation and its degradation guard; how the snapshot is read back; the static status contract; the live staleness query; the database-portability discipline; and where MITRE coverage data comes from. Field-level shapes of the snapshot live in [`./data-model.md`](./data-model.md); the lifecycle at a glance is in [`./architecture.md`](./architecture.md).
 
 ---
 
@@ -53,6 +53,7 @@ sequenceDiagram
     User->>Platform: Generate
     Platform->>Module: runAnalysis(analysisId, classId, scope=modelId, …)
     Module->>DB: gather (structure + ledger + modelGraph)
+    Module->>Module: compute zoning (declared effective zones + findings)<br/>additive, degradation-guarded
     Module->>DB: atomic SET snapshot JSON on (:Analysis)
     Module-->>Platform: AnalysisSession
 
@@ -91,14 +92,18 @@ When the user picks **Threat Report**, the platform's create-instance step wires
 The method follows a strict **compute-before-write** ordering:
 
 1. **Compute everything first.** Run the three gather passes (`computeStructure`, `computeLedger`, `computeModelGraph`) and stamp `generatedAt`. If any pass throws, the method throws *before* any write — so a previously generated snapshot is left intact. A failed regeneration never destroys a good prior report.
-2. **Write atomically.** A single-statement Cypher `SET` replaces the snapshot in one operation: it serializes the assembled document to JSON and stores it alongside its `generatedAt` timestamp and structural `fingerprint` on the standing `Analysis` node.
+2. **Compute trust-zoning additively.** After the gather passes, an additive [trust-zoning computation](#trust-zoning-computation) runs over the model graph. It is wrapped in a degradation guard: unlike the gather passes, a zoning fault does **not** abort the run — it degrades to an empty zoning block so a zoning problem can never take down the core snapshot.
+3. **Write atomically.** A single-statement Cypher `SET` replaces the snapshot in one operation: it serializes the assembled document to JSON and stores it alongside its `generatedAt` timestamp and structural `fingerprint` on the standing `Analysis` node.
 
 ```mermaid
 flowchart TD
     A[runAnalysis: scope = modelId] --> B[computeStructure → fingerprint + counts]
     B --> C[computeLedger → per-element findings + controls]
     C --> D[computeModelGraph → positional graph]
-    D --> E[assemble SnapshotDoc + generatedAt]
+    D --> Z[computeZoning → declared effective zones + advisory findings]
+    Z -- throws --> ZE[log + empty zoning block]
+    Z --> E[assemble SnapshotDoc + generatedAt]
+    ZE --> E
     E --> F{MATCH Analysis node}
     F -- found --> G[atomic SET doc + generatedAt + fingerprint]
     F -- not found --> H[throw: fail loud]
@@ -140,6 +145,7 @@ What the digest folds in determines what counts as a meaningful change:
 | **Exposure signature** — exposure id + `dispositionKind` + `dispositionStale`, via `HAS_EXPOSURE` across all four element types | **Disposition-aware.** Disposing or clearing a finding, or a stale-flip, flips it. |
 | **Data signature** — Data id + `sensitivity` | **Sensitivity-aware.** Re-classifying a Data node (e.g. `PUBLIC` → `RESTRICTED`) flips it. |
 | **HANDLES signature** — each `(element)-[:HANDLES]->(Data)` edge | **Handler-aware.** Re-wiring which element handles which data flips it. |
+| **Zoning signatures** — boundary `zone` / `planes` / `domains` + nesting parent, component `crownJewel` + containing boundary, Data regulatory flags, declared `CONDUIT` edges, and flow endpoints | **Zoning-aware.** Re-zoning, re-tagging, re-parenting, flag changes, or re-wiring a flow flips it, so the [zoning block](#trust-zoning-computation) never reads "fresh" against a changed model. Gathered by a separate structural query so the proven digest query is left untouched. |
 
 The design intent is **accurate staleness**: a re-disposition, re-classification, or re-wiring changes the live fingerprint so an open snapshot correctly reads stale, while a no-op model save leaves the fingerprint unchanged so the snapshot stays "fresh". The same method also returns `componentCount` and `boundaryCount`, which the snapshot carries as headline figures.
 
@@ -164,11 +170,11 @@ The exact field shapes are documented in [`./data-model.md`](./data-model.md).
 
 ### `computeModelGraph` — the positional model graph
 
-`computeModelGraph` gathers the **positional** model graph — the geometry, nesting, and connectivity the client needs to redraw a faithful minimap and to compute boundary crossings. It runs as **four small, independently-portable passes** (boundaries, components, flows, data nodes), each in the same `OPTIONAL MATCH` + `collect` style as the ledger (no pattern comprehensions, no nodes-in-maps, scalar fields only). Element discovery mirrors the other passes, so the model-graph element set matches the ledger's exactly.
+`computeModelGraph` gathers the **positional** model graph — the geometry, nesting, connectivity, and declared trust-zoning the client needs to redraw a faithful minimap, compute boundary crossings, and evaluate the declared-zone data-flow policy. It runs as **four small, independently-portable passes** (boundaries, components, flows, data nodes) plus a small conduits sub-pass folded onto the boundaries, each in the same `OPTIONAL MATCH` + `collect` style as the ledger (no pattern comprehensions, no nodes-in-maps, scalar fields only). Element discovery mirrors the other passes, so the model-graph element set matches the ledger's exactly.
 
 | Pass | Per-element data | Notes |
 |---|---|---|
-| **boundaries** | canvas geometry (`positionX/Y`, `dimensionsWidth/Height` aliased to `width`/`height`), `parentBoundaryId` | `parentBoundaryId` is `null` for top-level boundaries; it drives both the minimap's nesting and the client-side boundary-crossing walk. |
+| **boundaries** | canvas geometry (`positionX/Y`, `dimensionsWidth/Height` aliased to `width`/`height`), `parentBoundaryId`, declared trust-zoning (`zone`, `planes`, `domains`, `conduits`) | `parentBoundaryId` is `null` for top-level boundaries; it drives both the minimap's nesting and the client-side boundary-crossing walk. The declared trust-zoning fields feed both the [zoning computation](#trust-zoning-computation) and the frontend's per-flow declared-zone policy. `conduits` come from a small `CONDUIT`-edge sub-pass folded onto each boundary, gathered `OUTBOUND`-canonical (peer id + optional justification only). |
 | **components** | geometry, `boundaryId` (parent), lower-cased DFD `type`, `crownJewel` | `type` is `toLower`-ed to match the minimap's shape vocabulary; `boundaryId` is `null` for an orphan with no `BELONGS_TO` parent. |
 | **flows** | `sourceId`, `targetId`, carried `sensitivities` (nulls dropped), `dataItemCount` | Endpoints resolved via collect + `head()` (see below). `dataItemCount` distinguishes **"no data"** (count 0) from **"data-in-motion but unclassified"** (count > 0, `sensitivities` empty). |
 | **dataNodes** | `sensitivity`, `handledBy` (ids of elements with `HANDLES` → this Data) | `sensitivity` is `null` for unclassified data (never coerced to a level). Carries the sensitivity + handling topology the ledger does not; Data's own exposures stay in the ledger. |
@@ -176,6 +182,56 @@ The exact field shapes are documented in [`./data-model.md`](./data-model.md).
 **Why endpoints are resolved with collect + `head()`.** A `DataFlow`'s source/target are gathered by collecting the connected component ids and taking the head, rather than by two `OPTIONAL MATCH`es that would each multiply rows. The schema types a flow's endpoints as lists, so a malformed multi-endpoint flow would otherwise fan out into duplicate flow-id rows with conflicting endpoints. Collect-then-head guarantees **one row per flow**.
 
 **Why Data nodes are gathered here at all.** A Data node is already a first-class ledger element (its exposures live in the ledger), so this pass deliberately does **not** re-gather its exposures. It carries only what the ledger lacks: the Data's `sensitivity` and the ids of the Component / DataFlow / SecurityBoundary elements that `HANDLES` it. The client reverse-indexes `handledBy` to attribute data-handling to the handling element.
+
+---
+
+## Trust-zoning computation
+
+After the three gather passes, `runAnalysis` computes an **additive** trust-zoning block over the gathered model graph and folds it into the snapshot as `zoning` (shape in [`./data-model.md`](./data-model.md)). Rather than re-implement zone logic, the module **reuses the platform's shared `dt-core` zoning engine** — the same determination the modeling side uses — so the report and the model agree on what a boundary's effective zone is.
+
+```mermaid
+flowchart LR
+    MG[modelGraph<br/>flat boundaries / components / flows / dataNodes] --> ADP[graphToZoningStructure<br/>pure projection]
+    ADP --> STR[nested ModelStructure<br/>+ DataFlow[] + DataItem[]]
+    LOAD[loadZoningEngine<br/>runtime ESM import] --> CZ
+    STR --> CZ[computeZoning]
+    CZ --> EZ[effectiveZones<br/>resolveEffectiveZone]
+    CZ --> FN[findings<br/>computeZoningFindings]
+```
+
+### The adapter: flat graph → nested structure
+
+The engine consumes dt-core's nested `ModelStructure`, but the report's `modelGraph` is flat (parallel arrays of boundaries, components, flows, data nodes). `graphToZoningStructure` bridges the two as a **pure** function (dt-core *types* only, no value import), so the fiddly translation is unit-testable in isolation:
+
+- **Rebuilds the nesting tree** — each boundary is linked under its declared parent, and each component grouped under its boundary, so the engine's ancestry walks resolve.
+- **Translates vocabulary** — the graph's `UPPERCASE` sensitivity is lower-cased and `camelCase` regulatory flags become the engine's `snake_case`, because a casing miss would silently zero the asset set the engine keys on.
+- **Inverts the handling topology** — `HANDLES` edges are inverted into per-holder `dataItemIds`, routed by handler type.
+- **Guards against corrupt nesting** — the parent chain is walked with a cycle-and-depth guard (matching the platform's `*0..50` ceiling), so a corrupt `parentBoundaryId` can never produce a self-referential object graph. Any boundary in or leading into a cycle is attached to a synthetic root instead, guaranteeing an acyclic forest.
+
+`computeZoning` then drives the engine over the adapted structure and returns `{ findings, effectiveZones }`. The engine is **injected** as an argument, so the pure adapter stays testable with a real engine import while production supplies the engine through the runtime loader below.
+
+### The runtime ESM loader (CommonJS → ESM)
+
+The module compiles to **CommonJS**, but `dt-core` is **ESM-only**. A literal dynamic `import()` would be down-emitted by the TypeScript compiler into a `require()` helper under `module: commonjs`, which throws `ERR_REQUIRE_ESM` against an ESM-only package. `loadZoningEngine` sidesteps this with a `new Function('s', 'return import(s)')` indirection that preserves a **genuine runtime `import()`** the compiler will not rewrite. The specifier is a hardcoded constant — never model or user input.
+
+It resolves against two paths, in order:
+
+1. **Primary — the `@dethernety/dt-core/zone-determination` ESM subpath.** This reaches the self-contained, dependency-light zoning engine directly, bypassing the package barrel's heavier UI/transport dependencies.
+2. **Fallback — the `@dethernety/dt-core` barrel.** A stale build whose `package.json` predates the subpath export throws `ERR_PACKAGE_PATH_NOT_EXPORTED`; the barrel re-exports the same engine functions and is always present, so the loader falls back to it. The degradation is logged, never silent.
+
+The loader returns only the three functions the adapter drives: `buildZoningContext`, `computeZoningFindings`, and `resolveEffectiveZone`.
+
+### Declared effective zones, not the topological proposal
+
+The per-boundary map the snapshot carries is the **declared effective zone** — each boundary's declared `zone` resolved through nesting inheritance (`resolveEffectiveZone`, yielding `declared` / `inherited` / `default`). It is deliberately **not** the engine's separate topological zone-tier *proposal* (`determineZoneTier`), which the report does not call. The declared zone is authoritative and administrative: the report reports it, it never recomputes or overrides it. The rationale is a load-bearing design principle — see [`./design-principles.md`](./design-principles.md). Alongside the effective zones, `computeZoningFindings` produces the advisory per-boundary coherence findings the snapshot carries in `zoning.findings`.
+
+### The degradation guard
+
+The whole computation is **additive and non-fatal**. Where the three gather passes abort the run on failure (compute-before-write), the zoning step is wrapped in a guard that logs the fault and degrades to an empty block `{ findings: [], effectiveZones: {} }`. A zoning problem therefore never takes down the ledger or model-graph snapshot — the report still generates, simply without the zoning surface. On the read side, a pre-zoning snapshot that carries no `zoning` field at all is handled the same way by the frontend, which defaults it.
+
+### Staleness folds in the zoning inputs
+
+Because the zoning block is derived from the model, the structural [fingerprint](#computestructure--the-cheap-structural-fingerprint) folds in every input the engine reads — boundary `zone` / `planes` / `domains` and nesting, component `crownJewel` and containment, data regulatory flags, declared conduit edges, and flow endpoints — so a re-zoned or re-wired model correctly reads **stale** rather than leaving a now-inconsistent zoning block reading "fresh".
 
 ---
 

@@ -332,6 +332,109 @@ describe('ranking discrimination beyond sensitivity', () => {
   })
 })
 
+// --- declared-zone policy join + verdict-first ranking -------------------
+describe('policy verdict join + ranking (declared-zone data-flow policy)', () => {
+  // Six single-boundary segments across the gradient; three flows exercise the
+  // partition + rank, plus a dead illegal conduit for the conduit-error surface.
+  const ZMG = {
+    boundaries: [
+      { id: 'expo', name: 'Expo', parentBoundaryId: null },
+      { id: 'rest', name: 'Rest', parentBoundaryId: null },
+      { id: 'intr', name: 'Intr', parentBoundaryId: null },
+      { id: 'rst2', name: 'Rst2', parentBoundaryId: null },
+      { id: 'pub', name: 'Pub', parentBoundaryId: null, conduits: [{ peerId: 'rest', direction: 'OUTBOUND', justification: 'x' }] },
+      { id: 'expo2', name: 'Expo2', parentBoundaryId: null },
+    ],
+    components: [
+      { id: 'eC', boundaryId: 'expo' }, { id: 'rC', boundaryId: 'rest' },
+      { id: 'iC', boundaryId: 'intr' }, { id: 'r2C', boundaryId: 'rst2' },
+      { id: 'pC', boundaryId: 'pub' }, { id: 'e2C', boundaryId: 'expo2' },
+    ],
+    flows: [
+      // EXPOSED → RESTRICTED skip: violation, carries NO data (must still surface).
+      { id: 'viol', name: 'viol', sourceId: 'eC', targetId: 'rC', sensitivities: [], dataItemCount: 0 },
+      // INTERNAL → RESTRICTED +1: allowed, carries classified data (worklist via signal).
+      { id: 'okData', name: 'okData', sourceId: 'iC', targetId: 'r2C', sensitivities: ['RESTRICTED'], dataItemCount: 1 },
+      // PUBLIC → EXPOSED +1: allowed, no data (muted tail).
+      { id: 'okBare', name: 'okBare', sourceId: 'pC', targetId: 'e2C', sensitivities: [], dataItemCount: 0 },
+    ],
+  }
+  const ZONING = {
+    effectiveZones: {
+      expo: { zone: 'EXPOSED' }, rest: { zone: 'RESTRICTED' },
+      intr: { zone: 'INTERNAL' }, rst2: { zone: 'RESTRICTED' },
+      pub: { zone: 'PUBLIC' }, expo2: { zone: 'EXPOSED' },
+    },
+  }
+  const r = computeCrossings(ZMG, [], ZONING)
+
+  it('attaches the per-flow verdict (declared zone-pair) to each crossing group', () => {
+    const g = groupFor(r, 'viol')
+    expect(g.verdict).toMatchObject({ verdict: 'violation', srcZone: 'EXPOSED', tgtZone: 'RESTRICTED' })
+  })
+
+  it('a policy VIOLATION on an unclassified flow surfaces to the worklist (not the muted tail)', () => {
+    expect(r.crossings.some((g) => g.flowId === 'viol')).toBe(true)
+    expect(r.underModeled.some((g) => g.flowId === 'viol')).toBe(false)
+  })
+
+  it('verdict severity is the PRIMARY rank — the violation outranks a classified-but-allowed flow', () => {
+    expect(r.crossings[0].flowId).toBe('viol') // above okData despite okData carrying RESTRICTED data
+  })
+
+  it('an ALLOWED flow with no structural signal falls to the single muted tail', () => {
+    expect(r.underModeled.some((g) => g.flowId === 'okBare')).toBe(true)
+    expect(r.crossings.some((g) => g.flowId === 'okBare')).toBe(false)
+  })
+
+  it('surfaces a dead illegal conduit in conduitErrors and rolls up the policy counts', () => {
+    expect(r.conduitErrors).toHaveLength(1)
+    expect(r.conduitErrors[0]).toMatchObject({ sourceId: 'pub', peerId: 'rest', dead: true })
+    expect(r.policy).toMatchObject({ fails: true, violations: 1, warnings: 0, advisories: 0 })
+  })
+
+  it('without a zoning arg every flow defaults to allowed — no escalation, prior behavior intact', () => {
+    const plain = computeCrossings(ZMG, []) // no zoning
+    expect(plain.policy).toMatchObject({ fails: false, violations: 0 })
+    expect(plain.conduitErrors).toEqual([])
+    expect(plain.crossings.some((g) => g.flowId === 'viol')).toBe(false) // no signal, no verdict → tail
+  })
+
+  it('an ADVISORY on a zero-signal flow also escalates it to the worklist (any verdict rank > 0)', () => {
+    // RESTRICTED → INTERNAL workload down-gradient: the restricted-egress advisory. The flow
+    // carries no data and crosses boundaries with no posture — advisory alone must surface it.
+    const mg = {
+      boundaries: [
+        { id: 'rz', name: 'Rz', parentBoundaryId: null },
+        { id: 'iz', name: 'Iz', parentBoundaryId: null },
+      ],
+      components: [{ id: 'rC', boundaryId: 'rz' }, { id: 'iC', boundaryId: 'iz' }],
+      flows: [{ id: 'adv', name: 'adv', sourceId: 'rC', targetId: 'iC', sensitivities: [], dataItemCount: 0 }],
+    }
+    const r2 = computeCrossings(mg, [], { effectiveZones: { rz: { zone: 'RESTRICTED' }, iz: { zone: 'INTERNAL' } } })
+    expect(r2.crossings.some((g) => g.flowId === 'adv')).toBe(true)
+    expect(r2.underModeled).toHaveLength(0)
+    expect(r2.policy).toMatchObject({ fails: false, advisories: 1 }) // advisory never fails the model
+  })
+
+  it('passes deadConduits through (legally declared, no matching flow)', () => {
+    // Iz declares a legal conduit to Ez (INTERNAL→EXPOSED down-gradient — no verdict, harmless
+    // intent) with no matching modeled flow → surfaced as dead intent, not an error.
+    const mg = {
+      boundaries: [
+        { id: 'iz', name: 'Iz', parentBoundaryId: null, conduits: [{ peerId: 'ez', direction: 'OUTBOUND', justification: 'sanctioned' }] },
+        { id: 'ez', name: 'Ez', parentBoundaryId: null },
+      ],
+      components: [{ id: 'iC', boundaryId: 'iz' }, { id: 'eC', boundaryId: 'ez' }],
+      flows: [],
+    }
+    const r2 = computeCrossings(mg, [], { effectiveZones: { iz: { zone: 'INTERNAL' }, ez: { zone: 'EXPOSED' } } })
+    expect(r2.deadConduits).toHaveLength(1)
+    expect(r2.deadConduits[0]).toMatchObject({ sourceId: 'iz', peerId: 'ez', unreviewable: false })
+    expect(r2.conduitErrors).toEqual([])
+  })
+})
+
 // --- empty / malformed input ---------------------------------------------
 describe('honest handling of empty/missing input', () => {
   it('empty model graph yields no crossings and no crash', () => {

@@ -134,7 +134,10 @@ Use Posture as a launchpad: scan the tiles and stats, then click straight throug
 
 ## The Boundary Crossings view
 
-**Boundary Crossings** lists every place a data flow crosses a security boundary. It is **structural**: a crossing is described as an **EXIT** (data leaves a boundary) or an **ENTER** (data enters one) — containment, not a trust comparison. The view deliberately does *not* rank crossings on a trust gradient.
+**Boundary Crossings** lists every place a data flow crosses a security boundary. Each crossing carries **two layers**:
+
+- A **declared policy line** — the flow's declared source-zone `↦` target-zone, checked against your data-flow policy. Zones are the ones you **declared** (an administrative decision the report never recomputes); a verdict says the model *as drawn* encodes an illegal crossing — **declared intent, not verified enforcement**, and never a claim the flow cannot happen.
+- The **structural membranes** below it — described as **EXIT** (data leaves a boundary) or **ENTER** (data enters one). This is containment, not a trust comparison.
 
 The view has two panes:
 
@@ -146,17 +149,27 @@ The view has two panes:
 Each crossing is grouped by flow so its full containment story stays intact. For each one you'll see:
 
 - **The flow name and its endpoints** (`source → target`). All three are links that open the relevant Component Profile.
-- **A sensitivity chip** — the highest classification the flow carries (**Restricted** … **Public**), or **unclassified data**, or **no data**. Sensitivity orders the worklist; it is not a risk score.
+- **The declared policy line** — `declared [SOURCE-ZONE] ↦ [TARGET-ZONE]`, with the domain relationship (`same-domain` / `cross-domain`) and, for control-plane flows, `management plane`. **Allowed crossings stay silent** — just the muted zone-pair, never a green "pass". A crossing that breaks policy gets a left accent bar and one word:
+  - **VIOLATION** — an illegal crossing (e.g. an EXPOSED boundary reaching directly into a RESTRICTED one, or a cross-domain hop into RESTRICTED).
+  - **WARNING** — a valid crossing that is missing a declared conduit (`conduit: missing`): required for cross-domain and external/partner *ingress*, recommended for management-plane (control-plane) flows. Outbound data *leaving* to the internet is judged as data-out: through a declared conduit it stays a warning (the report asks you to confirm the egress is intended); with no approved channel it is a **violation**.
+  - **ADVISORY** — a soft "review this" (e.g. a below-RESTRICTED control-plane service writing into a RESTRICTED workload, or a RESTRICTED workload initiating an outbound flow). A plain workload calling a RESTRICTED management service (an app fetching from a secrets manager, shipping logs to a SIEM) is the expected hub-and-spoke shape and is *not* flagged.
+  - A `conduit: error` token marks a declared conduit that authorizes an illegal crossing — a conduit never legalizes a violation.
+  - Conduits are **zone-level**: a conduit declared from one boundary to another also covers crossings between their child boundaries (it inherits down the tree, on both the source and the peer side), so you don't declare one per pod. Inheritance is downward only — a conduit on a child never covers its parent's crossings.
+- **A sensitivity chip** — the highest classification the flow carries (**Restricted** … **Public**), or **unclassified data**, or **no data**.
 - **The membranes pierced** — one line per crossed boundary, tagged **EXIT** or **ENTER**, with the boundary name (also a link). Against each boundary, two muted context markers may appear:
   - **⚠ live on boundary** — the crossed boundary has live exposures (a *weakening* signal: the crossing is easier).
   - **✓ boundary control** — the crossed boundary has a covering control (a *hardening* signal: the crossing is costlier).
 - **On-flow posture** — `flow: N live` and `flow control present` where the flow itself carries exposures or a control.
 
-> These markers are context, never a red/green verdict and never coverage. They tell you what surrounds the crossing so you can judge it.
+> The membrane markers are context, never a red/green verdict and never coverage. The policy verdict is about the model *as drawn* — a declared-intent check, not proof the flow is (or isn't) enforced.
+
+A **conduit-error** panel appears above the list when any declared conduit authorizes an illegal crossing (including *dead* conduits with no matching flow). Legally-declared conduits with no matching modeled flow appear in a muted **dead intent** list at the bottom (with their justification; a blank one reads *unreviewable*) — worth a review, never a failure. A collapsed **zone-tiers legend** near the top explains the chips. Crossings are ranked **verdict-severity first** — a violation surfaces to the top even when the flow carries no classified data.
 
 ### Honest empty and under-modeled states
 
-Boundary Crossings never shows a reassuring blank. If no boundaries or no flows are modeled, it says the analysis isn't applicable. Crossings with no classified data, no exposures, and no controls collapse into a muted **"under-modeled crossings"** section — present, never dropped, never counted as a clean result. A summary line at the top reads `N flows pierce membranes · N carry data or posture · N under-modeled`.
+Boundary Crossings never shows a reassuring blank. If no boundaries or no flows are modeled, it says the analysis isn't applicable. Crossings that are **allowed and carry no data, no exposures, and no controls** collapse into a single muted **"under-modeled"** tail — present, never dropped, never counted as a clean result. A summary line at the top reads `N flows pierce membranes · N violations · N warnings · N under-modeled`.
+
+> **Where zoning advisories go.** Per-boundary zoning notes (an unclassified boundary, an under-protected asset holder, a management plane on an exposed tier, shared-domain cross-tier coupling) are *not* per-crossing, so they don't clutter this view — they appear as a compact, un-scored **zoning advisories** block in the **Residual Risk** ledger. See [Working with Findings](./WORKING_WITH_FINDINGS.md#zoning-advisories).
 
 ## Where to go next
 
