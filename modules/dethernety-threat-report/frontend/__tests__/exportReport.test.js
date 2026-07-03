@@ -155,7 +155,13 @@ describe('buildJsonExport — honesty contract (no percentage, no rolled-up "cov
 
   it('produces the documented top-level structure', () => {
     const out = JSON.parse(buildJsonExport(doc(), COVERAGE))
-    expect(Object.keys(out).sort()).toEqual(['coverage', 'provenance', 'reachability', 'snapshot'])
+    expect(Object.keys(out).sort()).toEqual([
+      'boundaryCrossings',
+      'coverage',
+      'provenance',
+      'reachability',
+      'snapshot',
+    ])
     // snapshot is the raw doc echoed back
     expect(out.snapshot.fingerprint).toBe('abc123def456')
     // provenance footer carries the honest note + counts, not a score
@@ -246,5 +252,138 @@ describe('reachability serialises as flowRoutes, never attackPaths', () => {
     expect(out.reachability.flowRoutes).toBeTruthy()
     expect(out.reachability.attackPaths).toBeUndefined()
     expect(JSON.stringify(out.reachability)).not.toMatch(/attackPath/i)
+  })
+})
+
+// --- 6. Boundary Crossings / declared-zone data-flow policy in the export ----
+// The regression this fixes: the zoning data-flow policy reached the interactive
+// view but never the shareable export. Both formats must now carry the per-flow
+// verdicts, the conduit-error / dead-conduit surfaces, and the honesty caveat.
+describe('boundary crossings / data-flow policy export', () => {
+  // ext (UNTRUSTED) → vault (RESTRICTED): external ingress straight to the
+  // crown-jewel tier = VIOLATION. A declared ext→vault conduit is itself illegal
+  // (a conduit never legalizes a violation) → a conduit error + `conduit: error`
+  // token on the flow. A legal-but-dead a→b conduit (no modeled flow) is dead intent.
+  const ZONING_DOC = doc({
+    ledger: [],
+    modelGraph: {
+      boundaries: [
+        { id: 'ext', name: 'Edge', parentBoundaryId: null, planes: [], domains: [], conduits: [{ peerId: 'vault', direction: 'OUTBOUND', justification: 'legacy' }] },
+        { id: 'vault', name: 'Vault', parentBoundaryId: null, planes: [], domains: [], conduits: [] },
+        { id: 'a', name: 'AppZone', parentBoundaryId: null, planes: [], domains: [], conduits: [{ peerId: 'b', direction: 'OUTBOUND', justification: 'ratified peering' }] },
+        { id: 'b', name: 'SvcZone', parentBoundaryId: null, planes: [], domains: [], conduits: [] },
+      ],
+      components: [
+        { id: 'extC', name: 'Gateway', type: 'process', boundaryId: 'ext', crownJewel: false },
+        { id: 'vaultC', name: 'Secrets DB', type: 'store', boundaryId: 'vault', crownJewel: true },
+      ],
+      flows: [{ id: 'f1', name: 'reach-secrets', sourceId: 'extC', targetId: 'vaultC', sensitivities: ['CONFIDENTIAL'], dataItemCount: 1 }],
+      dataNodes: [],
+    },
+    zoning: {
+      findings: [],
+      effectiveZones: {
+        ext: { zone: 'UNTRUSTED', source: 'declared' },
+        vault: { zone: 'RESTRICTED', source: 'declared' },
+        a: { zone: 'INTERNAL', source: 'default' },
+        b: { zone: 'INTERNAL', source: 'default' },
+      },
+    },
+  })
+
+  it('JSON carries the per-flow verdict, conduit error, and dead conduit', () => {
+    const out = JSON.parse(buildJsonExport(ZONING_DOC))
+    const bc = out.boundaryCrossings
+    expect(bc).toBeTruthy()
+    expect(bc.policy.violations).toBe(1)
+    expect(bc.policy.fails).toBe(true)
+
+    const wl = bc.worklist.find((x) => x.flow === 'reach-secrets')
+    expect(wl).toBeTruthy()
+    expect(wl.source).toBe('Gateway')
+    expect(wl.target).toBe('Secrets DB')
+    expect(wl.verdict.verdict).toBe('violation')
+    expect(wl.verdict.declaredZonePair).toBe('UNTRUSTED ↦ RESTRICTED')
+    expect(wl.verdict.conduitClause).toBe('error')
+    expect(wl.verdict.detail).toMatch(/crown-jewel|RESTRICTED/i)
+    // structural membranes are EXIT/ENTER containment, not trust
+    expect(wl.membranes.map((m) => `${m.direction} ${m.boundary}`)).toEqual(['EXIT Edge', 'ENTER Vault'])
+
+    // the illegal declared conduit surfaces (live, not dead)
+    expect(bc.conduitErrors).toHaveLength(1)
+    expect(bc.conduitErrors[0].declaredZonePair).toBe('UNTRUSTED ↦ RESTRICTED')
+    expect(bc.conduitErrors[0].dead).toBe(false)
+    // the legal-but-unused a→b conduit is dead intent
+    expect(bc.deadConduits).toHaveLength(1)
+    expect(bc.deadConduits[0].source).toBe('AppZone')
+    expect(bc.deadConduits[0].justification).toBe('ratified peering')
+
+    // honesty contract in the export payload
+    expect(bc.caveat).toMatch(/declared intent, not verified enforcement/i)
+    expect(bc.caveat).toMatch(/no single risk score/i)
+  })
+
+  it('HTML renders the Boundary Crossings section with verdict + conduit surfaces', () => {
+    const html = buildHtmlExport(ZONING_DOC)
+    expect(html).toContain('<h2>Boundary Crossings</h2>')
+    expect(html).toContain('VIOLATION')
+    expect(html).toContain('UNTRUSTED')
+    expect(html).toContain('RESTRICTED')
+    expect(html).toContain('CONDUIT ERROR')
+    expect(html).toContain('conduit: error')
+    expect(html).toContain('dead intent')
+    expect(html).toContain('EXIT')
+    expect(html).toContain('ENTER')
+  })
+
+  it('escapes model-controlled names in the boundary section (XSS sink)', () => {
+    const evil = doc({
+      ledger: [],
+      modelGraph: {
+        boundaries: [
+          { id: 'x', name: '<script>x</script>', parentBoundaryId: null, planes: [], domains: [], conduits: [] },
+          { id: 'y', name: 'Y', parentBoundaryId: null, planes: [], domains: [], conduits: [] },
+        ],
+        components: [
+          { id: 'xc', name: 'XC', type: 'process', boundaryId: 'x', crownJewel: false },
+          { id: 'yc', name: 'YC', type: 'store', boundaryId: 'y', crownJewel: false },
+        ],
+        flows: [{ id: 'f', name: '<img src=x onerror=alert(1)>', sourceId: 'xc', targetId: 'yc', sensitivities: [], dataItemCount: 1 }],
+        dataNodes: [],
+      },
+      zoning: { findings: [], effectiveZones: { x: { zone: 'INTERNAL', source: 'default' }, y: { zone: 'INTERNAL', source: 'default' } } },
+    })
+    const html = buildHtmlExport(evil)
+    expect(html).not.toContain('<script>x</script>')
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('omits the section when there are no boundaries/flows, and notes an all-quiet topology honestly', () => {
+    // no modelGraph → section absent (null in JSON, no <h2> in HTML)
+    const bare = JSON.parse(buildJsonExport(doc()))
+    expect(bare.boundaryCrossings).toBeNull()
+    expect(buildHtmlExport(doc())).not.toContain('<h2>Boundary Crossings</h2>')
+
+    // boundaries + a flow that crosses NOTHING → an honest topology note, never "segmented/safe"
+    const quiet = doc({
+      ledger: [],
+      modelGraph: {
+        boundaries: [{ id: 'b1', name: 'B1', parentBoundaryId: null, planes: [], domains: [], conduits: [] }],
+        components: [
+          { id: 'c1', name: 'C1', type: 'process', boundaryId: 'b1', crownJewel: false },
+          { id: 'c2', name: 'C2', type: 'store', boundaryId: 'b1', crownJewel: false },
+        ],
+        flows: [{ id: 'f', name: 'intra', sourceId: 'c1', targetId: 'c2', sensitivities: [], dataItemCount: 0 }],
+        dataNodes: [],
+      },
+      zoning: { findings: [], effectiveZones: { b1: { zone: 'INTERNAL', source: 'default' } } },
+    })
+    const qout = JSON.parse(buildJsonExport(quiet)).boundaryCrossings
+    expect(qout.crossingFlows).toBe(0)
+    expect(qout.note).toMatch(/topology, not a segmentation assessment/i)
+    const qhtml = buildHtmlExport(quiet)
+    expect(qhtml).toContain('<h2>Boundary Crossings</h2>')
+    expect(qhtml).not.toMatch(/segmented|safe/i)
   })
 })

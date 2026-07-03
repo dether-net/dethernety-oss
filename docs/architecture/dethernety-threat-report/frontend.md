@@ -553,12 +553,19 @@ is the single DOM touch that triggers the browser download.
   Print dialog.
 
 Both formats build their coverage section from the same `buildCoverageView`
-honesty layer and their reachability from the same `modeAReachability` engine as
-the live views (coverage is simply omitted when the coverage module is not
-deployed), and both carry a provenance footer that states plainly what the
-artifact is: a point-in-time snapshot of the *modeled* posture — not a live or
-deployed-state scan — with findings deliberately not rolled into a single risk
-score and no coverage percentage implied.
+honesty layer, their reachability from the same `modeAReachability` engine, and
+their **Boundary Crossings** section from the same `computeCrossings` engine —
+the declared-zone data-flow policy — as the live views (each section is simply
+omitted when its inputs are absent: coverage when the coverage module is not
+deployed, boundary crossings when the model has no boundaries or flows). The
+boundary-crossings payload carries the per-flow declared-zone verdicts
+(violation / warning / advisory, allowed staying silent), the conduit-error and
+dead-conduit surfaces, and the same honesty caveat the view shows — a verdict is
+declared intent as drawn, never verified enforcement. Both formats also carry a
+provenance footer that states plainly what the artifact is: a point-in-time
+snapshot of the *modeled* posture — not a live or deployed-state scan — with
+findings deliberately not rolled into a single risk score and no coverage
+percentage implied.
 
 ---
 
