@@ -1,6 +1,6 @@
 {
   "name": "@dethernety/dt-module",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -29,17 +29,14 @@
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
+    "@dethernety/regorus-wasm": "workspace:*",
     "@langchain/langgraph-sdk": "^1.9.24",
     "@nestjs/common": "^11.1.27",
-    "@open-policy-agent/opa": "^2.0.0",
-    "axios": "^1.18.1",
     "graphql": "^16.14.2",
     "graphql-subscriptions": "^3.0.0",
-    "json-logic-js": "^2.0.5",
     "uuid": "^11.1.1"
   },
   "devDependencies": {
-    "@types/json-logic-js": "^2.0.8",
     "@types/node": "^25.9.4",
     "@types/uuid": "^10.0.0",
     "vitest": "^4.1.9"

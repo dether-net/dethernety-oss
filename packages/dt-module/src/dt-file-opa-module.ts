@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
-import { OpaOps, Policy } from './opa-ops';
 import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps, VALID_ATTACK_VECTORS } from './index';
 import { EmbeddingFileCache } from './embedding-file-cache';
+import { RegoEngine } from './rego-engine';
 
 /**
  * V2 classType folder mapping.
@@ -109,23 +109,39 @@ const FALLBACK_GUIDE = [
   },
 ];
 
+/**
+ * The file-data module base class. Policies evaluate through the in-process Regorus WASM
+ * engine — one engine per class, registered eagerly at load, freed on `dispose()`.
+ *
+ * The "Opa" in the name is historical: the class predates the in-process engine and every
+ * shipped module extends it by this name, so the name outlived the OPA server it once
+ * talked to.
+ */
 export class DtFileOpaModule implements DTModule {
   private readonly moduleDataDir: string;
   private readonly moduleName: string;
   private readonly dbOps: DbOps;
   private readonly logger: Logger;
   private readonly embeddingCache: EmbeddingFileCache;
-  private opaOps: OpaOps;
-  private resetInProgress = false;
+  private readonly regoEngine = new RegoEngine();
+
+  /**
+   * Cumulative since construction; appended to every `getMetadata completed` log line,
+   * which the platform health-probes continuously — the counters are the observability
+   * for an engine that is otherwise silent in-process. A rise in `halts` (evaluation
+   * throws) is the leading regression indicator.
+   */
+  private readonly stats = {
+    evaluations: 0,
+    findingsServed: 0,
+    halts: 0,
+  };
 
   constructor(moduleDataDir: string, moduleName: string, driver: any, logger?: Logger) {
     this.moduleDataDir = moduleDataDir;
     this.moduleName = moduleName;
     this.dbOps = new DbOps(driver);
     this.logger = logger || new Logger('DtFileOpaModule');
-
-    const opaServerUrl = process.env.OPA_COMPILE_SERVER_URL || process.env.OPA_SERVER_URL || 'http://localhost:8181';
-    this.opaOps = new OpaOps(opaServerUrl, this.logger);
 
     this.embeddingCache = new EmbeddingFileCache({
       moduleDataDir: path.join(this.moduleDataDir, this.moduleName),
@@ -139,8 +155,16 @@ export class DtFileOpaModule implements DTModule {
     this.logger.log('DtFileOpaModule initialized', {
       moduleName: this.moduleName,
       moduleDataDir: this.moduleDataDir,
-      opaServerUrl,
     });
+  }
+
+  /**
+   * Free the in-process Rego engines. The platform calls this before discarding the
+   * instance; without it every module reload would strand its policies on the WASM heap,
+   * which the garbage collector never reclaims.
+   */
+  dispose(): void {
+    this.regoEngine.dispose();
   }
 
   /**
@@ -203,12 +227,6 @@ export class DtFileOpaModule implements DTModule {
   // Rego helpers
   // ---------------------------------------------------------------------------
 
-  private extractRegoPackageName(regoPolicies: string): string | undefined {
-    if (!regoPolicies) return undefined;
-    const packageMatch = regoPolicies.match(/^package\s+([^\s\n]+)/m);
-    return packageMatch ? packageMatch[1] : undefined;
-  }
-
   private decodeRegoPolicies(value: string | null | undefined): string | null {
     if (!value) return null;
     const trimmed = value.trim();
@@ -218,37 +236,6 @@ export class DtFileOpaModule implements DTModule {
       if (decoded.trim().startsWith('package ')) return decoded;
     } catch { /* not base64 */ }
     return value;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Policy management
-  // ---------------------------------------------------------------------------
-
-  private async resetPolicies(policies: Policy[]): Promise<void> {
-    if (this.resetInProgress) {
-      this.logger.warn('Policy reset already in progress, skipping', { moduleName: this.moduleName });
-      return;
-    }
-    this.resetInProgress = true;
-    const startTime = Date.now();
-    try {
-      await this.opaOps.deletePolicyByPrefix(this.moduleName + '.');
-      await this.opaOps.installPolicies(policies);
-      this.logger.log('Policy reset completed', {
-        moduleName: this.moduleName,
-        duration: `${Date.now() - startTime}ms`,
-        policiesInstalled: policies.length,
-      });
-    } catch (error) {
-      this.logger.error('Error during policy reset', {
-        moduleName: this.moduleName,
-        duration: `${Date.now() - startTime}ms`,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    } finally {
-      this.resetInProgress = false;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -282,7 +269,10 @@ export class DtFileOpaModule implements DTModule {
       contentHash: moduleJson.contentHash,
     };
 
-    const policies: Policy[] = [];
+    // Registration remembers which keys survived, so the prune below can free anything
+    // that no longer exists on disk.
+    const registeredKeys = new Set<string>();
+    const registerFailures: { key: string; error: string }[] = [];
 
     for (const classType of CLASS_TYPES) {
       const classesDir = path.join(moduleDir, classType.dir);
@@ -313,20 +303,23 @@ export class DtFileOpaModule implements DTModule {
 
         classDataList.push(classMetadata);
 
-        // Issue classes carry no exposures/countermeasures — mirror the neo4j
-        // loader, which loads no Rego for DTIssueClass. Skip policy collection so a
-        // stray policies.rego under an issue class is never installed.
+        // Issue classes carry no exposures/countermeasures, so a stray policies.rego
+        // under an issue class is never registered.
         if (classType.dir !== 'issue') {
-          // Collect policy for batch installation
           const policiesPath = path.join(classDir, 'policies.rego');
           this.validateModulePath(policiesPath);
           if (fs.existsSync(policiesPath)) {
             const raw = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf8').trim());
             if (raw) {
-              const policyId = `${this.moduleName}.${classType.dir}.${className}`
-                .replaceAll(' ', '_')
-                .replaceAll(/[^A-Za-z0-9._-]/g, '');
-              policies.push({ id: policyId, raw });
+              // Eager, so a policy that cannot be parsed or is not self-contained is
+              // reported here rather than at the first analysis that needs it.
+              const key = RegoEngine.keyFor(classMetadata.path);
+              try {
+                this.regoEngine.register(key, raw);
+                registeredKeys.add(key);
+              } catch (err: unknown) {
+                registerFailures.push({ key, error: err instanceof Error ? err.message : String(err) });
+              }
             }
           }
         }
@@ -335,19 +328,33 @@ export class DtFileOpaModule implements DTModule {
       (metadata as any)[classType.key] = classDataList;
     }
 
-    // Non-blocking policy reset (fire-and-forget)
-    this.resetPolicies(policies).catch((err) => {
-      this.logger.error('Background policy reset failed', {
+    // A class whose policy failed to register is absent from `registeredKeys`, so its
+    // stale engine (if any) is freed here and every evaluation of it will throw:
+    // a class with a broken policy must fail loudly, not answer from an older one.
+    const freed = this.regoEngine.prune(registeredKeys);
+    if (registerFailures.length > 0) {
+      this.logger.error('Rego policies failed to register; those classes will throw when evaluated', {
         moduleName: this.moduleName,
-        error: err instanceof Error ? err.message : String(err),
+        failures: registerFailures.length,
+        classes: registerFailures.map((f) => f.key),
+        errors: registerFailures.map((f) => f.error),
       });
-    });
+    }
+    if (freed > 0) {
+      this.logger.log('Freed Rego engines for classes no longer present', {
+        moduleName: this.moduleName,
+        freed,
+      });
+    }
 
     const duration = Date.now() - startTime;
+    // The platform health-probes getMetadata() continuously, so the cumulative counters
+    // on this existing log line are the engine's heartbeat — no extra infrastructure.
     this.logger.log('getMetadata completed', {
       moduleName: this.moduleName,
       duration: `${duration}ms`,
-      totalPolicies: policies.length,
+      stats: this.stats,
+      totalPolicies: registeredKeys.size,
       componentClasses: metadata.componentClasses?.length || 0,
       dataFlowClasses: metadata.dataFlowClasses?.length || 0,
       securityBoundaryClasses: metadata.securityBoundaryClasses?.length || 0,
@@ -359,22 +366,9 @@ export class DtFileOpaModule implements DTModule {
     return metadata;
   }
 
-  async getModuleTemplate(): Promise<string> {
-    return JSON.stringify({
-      schema: {
-        type: 'object',
-        properties: {
-          opa_compile_server_url: { type: 'string', format: 'uri' },
-        },
-      },
-      uischema: {
-        type: 'VerticalLayout',
-        elements: [
-          { type: 'Control', scope: '#/properties/opa_compile_server_url' },
-        ],
-      },
-    });
-  }
+  // No getModuleTemplate: the only module-wide setting ever offered was the OPA compile
+  // server URL, which the in-process engine made meaningless. The platform's template
+  // resolver answers its documented fallback for modules without one.
 
   async getClassTemplate(id: string): Promise<string> {
     const classDataPath = await this.dbOps.getAttribute(id, 'path');
@@ -410,28 +404,66 @@ export class DtFileOpaModule implements DTModule {
     return fs.readFileSync(guidePath, 'utf8');
   }
 
+  /**
+   * Evaluate one rule of a class's policy in-process.
+   *
+   * Returns `null` when there is nothing to evaluate — no instantiation attributes, no
+   * `policies.rego`, or an empty one — and the caller yields no findings. A real
+   * evaluation failure throws (`RegoEngine.evaluate` is fail-loud), so `null` never
+   * doubles as an error.
+   */
+  private async evaluatePolicy(
+    id: string,
+    classId: string,
+    rule: 'exposures' | 'countermeasures',
+  ): Promise<any[] | null> {
+    const classDataPath = await this.dbOps.getAttribute(classId, 'path');
+    const policiesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
+    this.validateModulePath(policiesPath);
+
+    const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
+    if (!attributes) return null;
+
+    if (!fs.existsSync(policiesPath)) {
+      this.logger.warn(`Policies file not found: ${policiesPath}`);
+      return null;
+    }
+
+    const regoContent = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf-8'));
+    if (!regoContent) return null;
+
+    const key = RegoEngine.keyFor(classDataPath);
+    if (!this.regoEngine.has(key)) {
+      // getMetadata registers every class, and the platform calls it before an instance
+      // serves anything — but a caller that constructs a module and evaluates straight
+      // away would otherwise hit an unregistered package, which `evalQuery` answers with
+      // `undefined`: a silent "no findings". Register from the source just read instead.
+      // Cheap (the file is already in hand) and it cannot fail open, because `register`
+      // throws on a policy it cannot parse or isolate.
+      this.logger.warn('Policy was not registered at load; registering it on first use', {
+        moduleName: this.moduleName,
+        class: key,
+      });
+      this.regoEngine.register(key, regoContent);
+    }
+    let findings: any[];
+    try {
+      findings = this.regoEngine.evaluate(key, rule, attributes);
+    } catch (err: unknown) {
+      this.stats.halts += 1;
+      throw err;
+    }
+    this.stats.evaluations += 1;
+    this.stats.findingsServed += findings.length;
+    return findings;
+  }
+
   async getExposures(id: string, classId: string): Promise<Exposure[]> {
     const exposures: Exposure[] = [];
 
     try {
-      const classDataPath = await this.dbOps.getAttribute(classId, 'path');
-      const policiesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
-      this.validateModulePath(policiesPath);
-
-      const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
-      if (!attributes) return exposures;
-
-      if (!fs.existsSync(policiesPath)) {
-        this.logger.warn(`Policies file not found: ${policiesPath}`);
-        return exposures;
-      }
-
-      const regoContent = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf-8'));
-      const regoPackageName = regoContent ? this.extractRegoPackageName(regoContent) : undefined;
-      if (!regoPackageName) return exposures;
-
-      const policyPath = regoPackageName.replaceAll('.', '/') + '/exposures';
-      const result = await this.opaOps.evaluate(policyPath, attributes);
+      const result = await this.evaluatePolicy(id, classId, 'exposures');
+      if (result === null) return exposures;
 
       exposures.push(
         ...result
@@ -442,7 +474,7 @@ export class DtFileOpaModule implements DTModule {
             if (rawAV && !VALID_ATTACK_VECTORS.has(rawAV)) {
               this.logger.warn('Invalid attackVector in policy output, defaulting to UNSPECIFIED', {
                 moduleName: this.moduleName, rawValue: rawAV, exposureName: e.name,
-                policyPath, classId,
+                classId,
               });
             }
             return {
@@ -475,24 +507,8 @@ export class DtFileOpaModule implements DTModule {
     const countermeasures: Countermeasure[] = [];
 
     try {
-      const classDataPath = await this.dbOps.getAttribute(classId, 'path');
-      const policiesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
-      this.validateModulePath(policiesPath);
-
-      const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
-      if (!attributes) return countermeasures;
-
-      if (!fs.existsSync(policiesPath)) {
-        this.logger.warn(`Policies file not found: ${policiesPath}`);
-        return countermeasures;
-      }
-
-      const regoContent = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf-8'));
-      const regoPackageName = regoContent ? this.extractRegoPackageName(regoContent) : undefined;
-      if (!regoPackageName) return countermeasures;
-
-      const policyPath = regoPackageName.replaceAll('.', '/') + '/countermeasures';
-      const result = await this.opaOps.evaluate(policyPath, attributes);
+      const result = await this.evaluatePolicy(id, classId, 'countermeasures');
+      if (result === null) return countermeasures;
 
       countermeasures.push(
         ...result

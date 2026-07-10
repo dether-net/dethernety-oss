@@ -82,12 +82,12 @@ The graph also stores ingested MITRE ATT&CK and D3FEND frameworks for technique 
 All extensibility flows through the `DTModule` interface:
 
 - **Design Classes**: ComponentClass, SecurityBoundaryClass, DataFlowClass, ControlClass, DataClass
-- **Security Logic**: Exposure detection rules and countermeasure mappings via pluggable rule engines (OPA, JsonLogic, custom)
+- **Security Logic**: Exposure detection rules and countermeasure mappings via pluggable rule engines (OPA/Rego or custom)
 - **Issue Integration**: External issue tracker synchronization (Jira, GitHub, Azure DevOps, ServiceNow)
 - **Analysis Engines**: Pluggable AI, query-based, or rule-based analysis with unified result retrieval
 - **Configuration**: Dynamic UI schemas and documentation per class
 
-Reference implementations (`DtFileJsonModule`, `DtNeo4jOpaModule`, `DtLgModule`) demonstrate different patterns — from simple file-based to database-backed with policy engines.
+Reference implementations (`DtFileOpaModule`, `DtLgModule`) demonstrate different patterns — from file-based policy evaluation to LangGraph-backed AI analysis.
 
 ## Pluggable Resolver Architecture
 
@@ -126,7 +126,7 @@ Analysis engines are abstracted through the `DTModule` interface, supporting AI-
 | **MITRE ATT&CK** | Data + Linking | Attack technique mapping |
 | **MITRE D3FEND** | Data + Linking | Defense technique mapping |
 | **Analysis Engines** | Real-time (DTModule) | AI, query-based, or rule-based analysis |
-| **OPA (Open Policy Agent)** | Security Logic (DTModule) | Rego-based policy evaluation for exposures/countermeasures |
+| **Rego (in-process Regorus WASM)** | Security Logic (DTModule) | Policy evaluation for exposures/countermeasures |
 | **OIDC Providers** | Authentication | Enterprise identity (Cognito, Keycloak, Auth0, Zitadel) |
 
 ---

@@ -20,10 +20,25 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/dt-ws/package.json ./apps/dt-ws/package.json
 COPY packages/dt-core/package.json ./packages/dt-core/package.json
 COPY packages/dt-module/package.json ./packages/dt-module/package.json
+COPY packages/regorus-wasm/package.json ./packages/regorus-wasm/package.json
 
 # Copy built workspace packages
 COPY packages/dt-core/dist ./packages/dt-core/dist
 COPY packages/dt-module/dist ./packages/dt-module/dist
+
+# Copy the vendored Regorus WASM artifact. This package has no build step — its
+# committed files ARE the deliverable, so they live at the package root rather
+# than in dist/. Files are listed explicitly: a wholesale directory COPY would
+# also pull in packages/regorus-wasm/node_modules (.dockerignore's `node_modules`
+# only matches the context root).
+COPY packages/regorus-wasm/regorusjs.js \
+     packages/regorus-wasm/regorusjs_bg.wasm \
+     packages/regorus-wasm/regorusjs.d.ts \
+     packages/regorus-wasm/regorusjs_bg.wasm.d.ts \
+     packages/regorus-wasm/SHA256SUMS \
+     packages/regorus-wasm/LICENSE \
+     packages/regorus-wasm/THIRD_PARTY_LICENSES.txt \
+     ./packages/regorus-wasm/
 
 # Install dependencies with workspace context (respects overrides)
 RUN pnpm install --prod --frozen-lockfile --no-optional && \
@@ -33,7 +48,8 @@ RUN pnpm install --prod --frozen-lockfile --no-optional && \
 # This allows dynamically loaded modules to resolve @dethernety/dt-module
 RUN mkdir -p /app/node_modules/@dethernety && \
     ln -s /app/packages/dt-module /app/node_modules/@dethernety/dt-module && \
-    ln -s /app/packages/dt-core /app/node_modules/@dethernety/dt-core
+    ln -s /app/packages/dt-core /app/node_modules/@dethernety/dt-core && \
+    ln -s /app/packages/regorus-wasm /app/node_modules/@dethernety/regorus-wasm
 
 # Copy pre-built backend to the workspace app directory
 COPY apps/dt-ws/dist ./apps/dt-ws/dist

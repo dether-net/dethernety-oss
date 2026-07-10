@@ -1,0 +1,8 @@
+# Treat WebAssembly artifacts as opaque binaries.
+#
+# This file must exist inside oss/ as well as at the monorepo root: oss/ is
+# published to a standalone repository via `git subtree push --prefix=oss`,
+# where the root .gitattributes is not present. Without it, git text
+# normalisation can silently corrupt packages/regorus-wasm/regorusjs_bg.wasm,
+# which fails only at runtime as a WebAssembly CompileError.
+*.wasm binary

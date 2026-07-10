@@ -1,6 +1,6 @@
 # Dethernety Demo
 
-Quick-start demo running Dethernety with Memgraph and OPA. Authentication is
+Quick-start demo running Dethernety with Memgraph. Authentication is
 disabled so you can explore the platform without setting up an OIDC provider.
 
 ## Prerequisites
@@ -28,7 +28,7 @@ Subsequent runs skip the build and just start the services.
 3. Deploys the frontend build to the backend public directory
 4. Generates the auth-less schema (`schema-noauth.graphql`)
 5. Builds the Docker image (`dethernety:demo`)
-6. Starts Docker Compose (memgraph + opa + dethernety)
+6. Starts Docker Compose (memgraph + ollama + dethernety)
 7. Waits for services to be healthy
 8. Builds and installs the dethernety-general module (core component classes and data)
 9. Builds and installs mitre-frameworks (ATT&CK + D3FEND — requires Python 3)
@@ -42,7 +42,7 @@ Steps 8–10 are skipped if modules are already installed.
 | Service       | Port | Description                    |
 | ------------- | ---- | ------------------------------ |
 | memgraph      | 7687 | Graph database (Bolt protocol) |
-| opa           | 8181 | Open Policy Agent              |
+| ollama        | —    | Embedding model server (internal) |
 | dethernety    | 3003 | Application UI + GraphQL API   |
 | memgraph-lab* | 3030 | Graph explorer UI              |
 

@@ -6,7 +6,6 @@
 - [Implementation Patterns](#implementation-patterns)
 - [Module Registration](#module-registration)
 - [Writing Rego Policies](#writing-rego-policies)
-- [Writing JSON Logic Rules](#writing-json-logic-rules)
 - [Configuration Templates](#configuration-templates)
 - [Analysis Modules](#analysis-modules)
 - [Schema Extensions](#schema-extensions)
@@ -93,28 +92,9 @@ The `ModuleRegistryService` discovers modules in `custom_modules/` at startup. E
 
 ## Implementation Patterns
 
-### Pattern 1: Database-Backed Module (Recommended)
+### Pattern 1: File-Based Module (Recommended)
 
-Extend `DtNeo4jOpaModule` for modules that store class definitions in the graph database and use OPA/Rego for policy evaluation.
-
-```typescript
-import { DtNeo4jOpaModule } from '@dethernety/dt-module';
-import { Logger } from '@nestjs/common';
-
-class MyModule extends DtNeo4jOpaModule {
-  constructor(driver: any, logger: Logger) {
-    super('my-module', driver, logger);
-  }
-}
-
-export default MyModule;
-```
-
-With this pattern, `getMetadata()`, `getClassTemplate()`, `getExposures()`, and `getCountermeasures()` are all implemented by the base class. You only need to ensure the module and class data exists in the graph database (via Cypher ingestion scripts or programmatic creation).
-
-### Pattern 2: File-Based Module
-
-Extend `DtFileOpaModule` or `DtFileJsonModule` for modules that store class definitions on the file system. This is the pattern used by the built-in `dethernety-general`.
+Extend `DtFileOpaModule` for modules that load class definitions from the file system and use Rego for policy evaluation. Policies evaluate in-process via the vendored Regorus WASM engine — there is no policy server to run. This is the default policy-evaluating base class and the pattern used by the built-in `dethernety-general`.
 
 ```typescript
 import { DtFileOpaModule } from '@dethernety/dt-module';
@@ -128,24 +108,25 @@ class MyModule extends DtFileOpaModule {
 export default MyModule;
 ```
 
+With this pattern, `getMetadata()`, `getClassTemplate()`, `getExposures()`, and `getCountermeasures()` are all implemented by the base class. You only need to provide the class definitions on disk.
+
 File-based modules read class metadata from a directory structure:
 
 ```
-custom_modules/my-module/
-├── metadata.json
-├── ComponentClasses/
-│   └── WebServer/
-│       ├── metadata.json
-│       ├── template.json
-│       └── policies.rego        # For OPA modules
-│       └── exposure-rules.json  # For JSON Logic modules
-└── DataFlowClasses/
-    └── HTTPFlow/
-        ├── metadata.json
-        └── template.json
+custom_modules/my-module/data/my-module/
+├── module.json
+├── component/
+│   └── web-server/
+│       ├── class.json
+│       ├── schema.json
+│       └── policies.rego        # Rego policies
+└── dataFlow/
+    └── http-flow/
+        ├── class.json
+        └── schema.json
 ```
 
-### Pattern 3: Direct Implementation
+### Pattern 2: Direct Implementation
 
 For full control, implement `DTModule` directly:
 
@@ -224,9 +205,12 @@ SET cc.name = 'Web Server',
     cc.type = 'PROCESS',
     cc.category = 'Web',
     cc.description = 'A web server component',
-    cc.template = $template,
-    cc.regoPolicies = $regoPolicies;
+    cc.template = $template;
 ```
+
+Rego policies are never stored on graph nodes: they ship as `policies.rego` files in
+the module's class directories and are evaluated in-process from disk.
+
 
 ### Graph Database Schema
 
@@ -248,7 +232,7 @@ Each class node stores its metadata, templates, and policies as properties.
 
 ## Writing Rego Policies
 
-OPA/Rego policies evaluate element attributes to determine exposures and countermeasures.
+Rego policies evaluate element attributes to determine exposures and countermeasures. They are evaluated in-process by the vendored Regorus WASM engine.
 
 ### Policy Structure
 
@@ -299,10 +283,9 @@ countermeasures[countermeasure] {
 ### How Policies Are Evaluated
 
 1. When `getExposures(id, classId)` is called, the base class retrieves the element's attributes from the `IS_INSTANCE_OF` relationship
-2. The Rego package name is extracted from the policy (e.g., `mymodule.webserver`)
-3. The policy path is constructed: `mymodule/webserver/exposures`
-4. OPA evaluates the policy with the attributes as `input`
-5. Matching rules produce `Exposure[]` or `Countermeasure[]` results
+2. The class's Rego policy (registered at module load into its own in-process Regorus engine) is looked up
+3. The `exposures` (or `countermeasures`) rule is evaluated with the attributes as `input`
+4. Matching rules produce `Exposure[]` or `Countermeasure[]` results. Evaluation is fail-loud — an engine error throws rather than yielding an empty result
 
 ### MITRE Framework Mapping
 
@@ -312,75 +295,23 @@ Exposures can also include an `attack_vector` field (CVSS v3.1-aligned: `"NETWOR
 
 ---
 
-## Writing JSON Logic Rules
-
-For modules that use `DtFileJsonModule` or `DtNeo4jJsonModule`, rules are expressed as JSON Logic instead of Rego.
-
-### exposure-rules.json
-
-```json
-{
-  "exposures": [
-    {
-      "condition": {
-        "!": { "var": "authentication_enabled" }
-      },
-      "exposureTemplate": {
-        "name": "Missing Authentication",
-        "description": "Authentication is not enabled",
-        "type": "vulnerability",
-        "category": "access_control",
-        "score": 8,
-        "exploitedBy": ["T1078"]
-      }
-    }
-  ]
-}
-```
-
-### countermeasure-rules.json
-
-```json
-{
-  "countermeasures": [
-    {
-      "condition": {
-        "var": "tls_enabled"
-      },
-      "countermeasureTemplate": {
-        "name": "TLS Encryption",
-        "description": "Transport layer security is enabled",
-        "type": "encryption",
-        "category": "data_protection",
-        "score": 8,
-        "respondsWith": ["D3-NI"]
-      }
-    }
-  ]
-}
-```
-
-The `condition` field uses [JSON Logic](https://jsonlogic.com/) syntax. The `score` field can also be a JSON Logic expression for dynamic scoring based on attributes.
-
----
-
 ## Configuration Templates
 
 Modules provide JSON Schema templates that the frontend renders as configuration forms using JSONForms.
 
 ### Module Template
 
-Returned by `getModuleTemplate()`. Defines module-wide settings:
+Optionally returned by `getModuleTemplate()` to define module-wide settings. `DtFileOpaModule` does **not** implement it — in-process Rego evaluation needs no configuration, so the platform's template resolver returns its documented fallback for these modules. Implement it only if your module has genuine module-wide settings to expose:
 
 ```json
 {
   "schema": {
     "type": "object",
     "properties": {
-      "opa_compile_server_url": {
+      "report_verbosity": {
         "type": "string",
-        "format": "uri",
-        "title": "OPA Server URL"
+        "title": "Report Verbosity",
+        "enum": ["summary", "detailed"]
       }
     }
   },
@@ -389,7 +320,7 @@ Returned by `getModuleTemplate()`. Defines module-wide settings:
     "elements": [
       {
         "type": "Control",
-        "scope": "#/properties/opa_compile_server_url"
+        "scope": "#/properties/report_verbosity"
       }
     ]
   }
@@ -431,7 +362,7 @@ Returned by `getClassTemplate(id)`. Defines per-instance configuration for a cla
 }
 ```
 
-When users configure component instances in the UI, attribute values are stored on the `IS_INSTANCE_OF` relationship between the element and its class. These attributes are what Rego policies and JSON Logic rules evaluate.
+When users configure component instances in the UI, attribute values are stored on the `IS_INSTANCE_OF` relationship between the element and its class. These attributes are what Rego policies evaluate.
 
 ---
 
@@ -641,15 +572,14 @@ Add `getResolvers()` to your module class. It receives a `ModuleResolverContext`
 
 ```typescript
 import {
-  DtNeo4jOpaModule,
+  DtFileOpaModule,
   ModuleResolverContext,
   ResolverMap,
 } from '@dethernety/dt-module';
-import { Logger } from '@nestjs/common';
 
-class MyModule extends DtNeo4jOpaModule {
-  constructor(driver: any, logger: Logger) {
-    super('my-module', driver, logger);
+class MyModule extends DtFileOpaModule {
+  constructor(driver: any) {
+    super('./custom_modules', 'my-module', driver);
   }
 
   async getResolvers(context: ModuleResolverContext): Promise<ResolverMap> {
@@ -926,12 +856,12 @@ query {
 }
 ```
 
-### Debugging OPA Policies
+### Debugging Rego Policies
 
-- Check that the OPA server is running and accessible
-- Verify policies are installed: `GET http://localhost:8181/v1/policies`
-- Test policy evaluation directly: `POST http://localhost:8181/v1/data/{package_path}`
-- Check backend logs for OPA-related errors during `getExposures()` / `getCountermeasures()`
+- Policies are evaluated in-process — there is no policy server to reach or inspect.
+- A malformed or non-self-contained policy fails **at module load**: check the backend logs from `getMetadata()` for `Rego policies failed to register`. Such a class then throws on every evaluation rather than answering from a stale engine.
+- Check backend logs for Rego evaluation errors during `getExposures()` / `getCountermeasures()`. Evaluation is fail-loud — an engine error surfaces as a thrown error, never as silent empty findings.
+- To validate a policy against the reference Rego dialect outside the platform, run it through the `opa` CLI (the same binary the package-time lint and CI parity gate use).
 
 ### Common Issues
 
@@ -952,7 +882,7 @@ query {
 |----------|-------------|
 | [README.md](./README.md) | Module system architecture overview |
 | [DT_MODULE_INTERFACE.md](./DT_MODULE_INTERFACE.md) | Core DTModule contract and all metadata interfaces |
-| [BASE_CLASSES.md](./BASE_CLASSES.md) | Base class implementations (OPA, JSON Logic, LangGraph) |
-| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps, LangGraph ops) |
+| [BASE_CLASSES.md](./BASE_CLASSES.md) | Base class implementations (Rego, LangGraph) |
+| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, LangGraph ops) |
 | [MODULE_PACKAGE_DESIGN.md](./MODULE_PACKAGE_DESIGN.md) | Module packaging and deployment system |
 | [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md) | Custom resolver architecture (LLD) |

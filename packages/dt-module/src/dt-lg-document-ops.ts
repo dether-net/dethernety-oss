@@ -6,7 +6,7 @@ import { LgAnalysisConfig } from './interfaces/lg-analysis-config-interface';
  * Helper class for LangGraph document operations.
  *
  * Provides methods for retrieving documents from the LangGraph store.
- * This class follows the pattern of DbOps and OpaOps - it can be used
+ * This class follows the pattern of DbOps - it can be used
  * independently or as part of a DtLgModule.
  *
  * @example

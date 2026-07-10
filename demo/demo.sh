@@ -70,7 +70,7 @@ Usage:
 
 Flags can be combined: ./demo.sh --rebuild --tools
 
-The demo runs Dethernety + Memgraph + OPA without authentication.
+The demo runs Dethernety + Memgraph without authentication.
 Open http://localhost:3003 after startup.
 EOF
       exit 0

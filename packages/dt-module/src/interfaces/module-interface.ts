@@ -31,6 +31,26 @@ export interface ModuleInstallContext {
 
 export interface DTModule {
   getMetadata(): DTMetadata | Promise<DTMetadata>;
+
+  /**
+   * Release resources this instance owns, immediately before the platform
+   * discards it (module hot-reload, admin reset, or a failed load).
+   *
+   * Optional, synchronous, and best-effort: the platform calls it inside a
+   * try/catch, so a throwing implementation never fails the reload. It must be
+   * idempotent — a second call is a no-op.
+   *
+   * Required whenever a module holds memory the JS garbage collector cannot
+   * reach. The in-process Rego evaluator is the motivating case: its policies
+   * live on a WebAssembly heap that `FinalizationRegistry` does not observe, so
+   * a discarded instance would strand its entire parsed policy set.
+   *
+   * A call already in flight on the discarded instance may fail after disposal.
+   * That is intended — an evaluator must report that it is gone rather than
+   * read freed memory.
+   */
+  dispose?(): void;
+
   getModuleTemplate?(): Promise<string>;
   getClassTemplate?(id: string): Promise<string>;
   getClassGuide?(id: string): Promise<string>;
