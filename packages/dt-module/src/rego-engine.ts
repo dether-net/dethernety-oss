@@ -150,10 +150,14 @@ export class RegoEngine {
    * throw "no policy registered".
    */
   static keyFor(classDataPath: string): string {
+    // Split-filter-join collapses separator runs and trims both ends in one linear
+    // pass — deliberately not the regex-trim idiom, whose end-anchored alternation
+    // backtracks polynomially on long separator runs.
     const normalised = classDataPath
       .replace(/\\/g, '/')
-      .replace(/\/+/g, '/')
-      .replace(/^\/+|\/+$/g, '');
+      .split('/')
+      .filter(Boolean)
+      .join('/');
     if (!normalised) throw new RegoPolicyError('class data path must not be empty', classDataPath);
     return normalised;
   }
