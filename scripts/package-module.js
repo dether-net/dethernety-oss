@@ -28,6 +28,82 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+
+/**
+ * Lint every `policies.rego` under the module's data tree before it is packaged.
+ *
+ * This is the only place a Regorus-incompatible policy can be caught at build time:
+ * the engine resolves function names lazily, so a call to a builtin the vendored blob
+ * lacks parses fine at load and fails only when its clause first fires — aborting that
+ * element's whole evaluation in production. Registering through the real `RegoEngine`
+ * additionally runs the exact parse, isolation, and duplicate-package checks the
+ * platform runs at module load, so lint and runtime cannot disagree.
+ *
+ * Resolved relative to THIS script, not the invoking module: pnpm hoists nothing to
+ * `oss/scripts/`, so a bare `@dethernety/dt-module` specifier would never resolve here,
+ * while dt-module's own dist resolves its WASM dependency from its own node_modules.
+ * Loaded lazily — the data-only modules have no policies and no build edge to dt-module.
+ */
+function lintRegoPolicies(dataSourceDir) {
+  const policies = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === 'policies.rego') policies.push(full);
+    }
+  };
+  walk(dataSourceDir);
+  if (policies.length === 0) return;
+
+  const require = createRequire(import.meta.url);
+  let lint, engineModule;
+  try {
+    lint = require('../packages/dt-module/dist/rego-lint.js');
+    engineModule = require('../packages/dt-module/dist/rego-engine.js');
+  } catch (err) {
+    console.error('✗ Cannot lint Rego policies: failed to load @dethernety/dt-module dist.');
+    console.error(`  ${err.message}`);
+    console.error('  If dist/ is missing, run `pnpm turbo build --filter=@dethernety/dt-module` and retry.');
+    process.exit(1);
+  }
+
+  const engine = new engineModule.RegoEngine();
+  const errors = [];
+  let warnings = 0;
+  try {
+    for (const policyPath of policies) {
+      const rel = path.relative(dataSourceDir, policyPath);
+      const source = fs.readFileSync(policyPath, 'utf8');
+
+      const result = lint.lintPolicySource(source);
+      for (const finding of result.errors) {
+        errors.push(`  ${rel}${finding.line ? `:${finding.line}` : ''}  ${finding.message}`);
+      }
+      warnings += result.warnings.length;
+
+      // The same registration the platform performs at module load.
+      try {
+        engine.register(engineModule.RegoEngine.keyFor(path.dirname(rel)), source);
+      } catch (err) {
+        errors.push(`  ${rel}  ${err.message}`);
+      }
+    }
+  } finally {
+    engine.dispose();
+  }
+
+  if (warnings > 0) {
+    console.log(`  Rego lint: ${warnings} warning(s) — count/regex.match applied directly to input values`);
+  }
+  if (errors.length > 0) {
+    console.error(`✗ Rego lint failed — ${errors.length} error(s), no package produced:`);
+    for (const line of errors) console.error(line);
+    process.exit(1);
+  }
+  console.log(`  Rego lint: ${policies.length} policies OK`);
+}
 
 // Resolve module root: explicit arg or cwd
 const projectRoot = process.argv[2]
@@ -121,6 +197,8 @@ if (fs.existsSync(dataSourceDir)) {
   );
 
   if (hasSubdirs) {
+    // A policy that fails the lint must never reach an archive.
+    lintRegoPolicies(dataSourceDir);
     // V2: copy entire data tree into dethernety/{name}/data/
     fs.mkdirSync(moduleDestDir, { recursive: true });
     const dataDestDir = path.join(moduleDestDir, 'data');

@@ -102,6 +102,13 @@ export interface DTModule {
   // Required - Module metadata
   getMetadata(): DTMetadata | Promise<DTMetadata>;
 
+  // Optional - Lifecycle. Called by the platform before an instance is discarded
+  // (reload, replacement, failed load). Must be idempotent and never throw in
+  // normal operation. DtFileOpaModule uses it to free its in-process Rego engines:
+  // the WASM heap is not reclaimed by garbage collection, so a discarded instance
+  // that is not disposed permanently strands its policy set.
+  dispose?(): void;
+
   // Optional - Configuration templates
   getModuleTemplate?(): Promise<string>;
   getClassTemplate?(id: string): Promise<string>;
@@ -194,8 +201,8 @@ offline install.
   always safe to use as a filename segment. A model like
   `sentence-transformers/all-MiniLM-L6-v2` is slugified to
   `sentence-transformers-all-MiniLM-L6-v2`.
-- The base classes `DtFileOpaModule` and `DtFileJsonModule` implement
-  this by reading `{classDir}/embeddings/{slug}.json`. See
+- The base class `DtFileOpaModule` implements this by reading
+  `{classDir}/embeddings/{slug}.json`. See
   [Pre-Computed Embeddings Spec](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
 - Generate vectors with the `module-manager embed` CLI; see
   [Development Guide → Pre-computed Embeddings](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional).
@@ -548,7 +555,7 @@ export interface Countermeasure {
 │                            │  2. module.getExposures(id, classId)       │
 │                            ▼                                            │
 │  ┌───────────────────────────────────────────────────────────┐          │
-│  │  OPA/Rego Policy Evaluation                               │          │
+│  │  In-Process Rego Policy Evaluation                        │          │
 │  │                                                           │          │
 │  │  package dethernety.webserver                             │          │
 │  │                                                           │          │
@@ -723,10 +730,12 @@ async getMetadata(): Promise<DTMetadata>
 
 ### getModuleTemplate()
 
-Returns a JSON string containing the JSON Schema and UI Schema for module configuration.
+**Optional.** Returns a JSON string containing the JSON Schema and UI Schema for module-wide configuration. A module implements it only if it has genuine module-wide settings to expose; when a module does not define it, the platform's template resolver returns its documented fallback.
+
+`DtFileOpaModule` does **not** implement `getModuleTemplate()`: Rego policies evaluate in-process and need no configuration, so there is no module-wide setting to surface.
 
 ```typescript
-async getModuleTemplate(): Promise<string>
+getModuleTemplate?(): Promise<string>
 ```
 
 **Returns:** JSON string with `schema` and `uischema` properties
@@ -737,16 +746,16 @@ async getModuleTemplate(): Promise<string>
   "schema": {
     "type": "object",
     "properties": {
-      "opa_compile_server_url": {
+      "report_verbosity": {
         "type": "string",
-        "format": "uri"
+        "enum": ["summary", "detailed"]
       }
     }
   },
   "uischema": {
     "type": "VerticalLayout",
     "elements": [
-      { "type": "Control", "scope": "#/properties/opa_compile_server_url" }
+      { "type": "Control", "scope": "#/properties/report_verbosity" }
     ]
   }
 }
@@ -1152,7 +1161,7 @@ The `MATCH (m:Module {name})` succeeds only because the hook runs post-commit �
 | Document | Description |
 |----------|-------------|
 | [BASE_CLASSES.md](./BASE_CLASSES.md) | Implementation patterns for DTModule |
-| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps) |
+| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, LangGraph ops) |
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Step-by-step development guide |
 | [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md) | Custom resolver architecture (LLD) |
 | [MODULE_MANAGEMENT_SERVICE.md](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md) | Module upsert + `afterInstall` invocation mechanism (LLD) |

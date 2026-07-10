@@ -52,7 +52,7 @@ This extension adds an optional `getResolvers()` method to the `DTModule` interf
 
 Some module operations cannot be expressed as Cypher queries and therefore cannot be handled by Neo4j GraphQL's auto-generated resolvers:
 
-- **External API calls** -- calling an OPA server, a third-party REST endpoint, or an internal microservice
+- **External API calls** -- calling a third-party REST endpoint or an internal microservice
 - **Procedural logic** -- assembling export archives, running transformations, or aggregating data across sources
 - **Stateful operations** -- managing sessions, caching results, or tracking progress
 

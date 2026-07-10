@@ -416,9 +416,21 @@ export class ModuleRegistryService implements OnModuleInit {
           setTimeout(() => reject(new Error('Module load timeout')), timeout);
         });
 
-        // Load module with timeout
+        // Load module with timeout. If the timeout wins the race, the losing load keeps
+        // running and may still resolve to a live instance holding registered policy
+        // engines — dispose it on arrival, or every timed-out-then-completed load
+        // permanently strands its policy set on the WASM heap.
         const loadPromise = this.loadModuleInternal(filePath, skipSecurityValidation, forceReload);
-        const moduleData = await Promise.race([loadPromise, timeoutPromise]);
+        let raceLost = false;
+        loadPromise
+          .then((late) => {
+            if (raceLost) this.disposeModule(late.module, late.metadata?.name ?? filePath);
+          })
+          .catch(() => { /* already surfaced by the race or the retry loop */ });
+        const moduleData = await Promise.race([loadPromise, timeoutPromise]).catch((err) => {
+          raceLost = true;
+          throw err;
+        });
 
         result.success = true;
         result.module = moduleData.module;
@@ -508,24 +520,47 @@ export class ModuleRegistryService implements OnModuleInit {
     
     const moduleInstance: DTModule = new ModuleClass(this.createSecureDriver(), moduleLogger);
 
-    // Validate interface
-    if (!(await this.validateModuleInterface(moduleInstance))) {
-      throw new Error('Module does not implement required DTModule interface');
+    // Every exit below this point discards `moduleInstance`. Anything it allocated during
+    // construction or getMetadata() — an in-process policy engine, for one — is unreachable
+    // to the garbage collector, so hand it back before the reference goes out of scope.
+    try {
+      // Validate interface
+      if (!(await this.validateModuleInterface(moduleInstance))) {
+        throw new Error('Module does not implement required DTModule interface');
+      }
+
+      // Get metadata
+      const metadata = await Promise.resolve(moduleInstance.getMetadata());
+
+      // Backwards-compat for legacy modules that omit ids:
+      // validateModuleInterface stamped derived ids on its own metadata
+      // copy, but getMetadata() above returned a fresh object that does NOT
+      // carry those stamps. Re-apply here so downstream consumers see the
+      // canonical id-bearing shape. Mutates metadata in place.
+      if (!this.stampMissingIds(metadata)) {
+        throw new Error('Module metadata stamping failed (class entry missing name)');
+      }
+
+      return { module: moduleInstance, metadata };
+    } catch (error) {
+      this.disposeModule(moduleInstance, moduleName);
+      throw error;
     }
+  }
 
-    // Get metadata
-    const metadata = await Promise.resolve(moduleInstance.getMetadata());
-
-    // Backwards-compat for legacy modules that omit ids:
-    // validateModuleInterface stamped derived ids on its own metadata
-    // copy, but getMetadata() above returned a fresh object that does NOT
-    // carry those stamps. Re-apply here so downstream consumers see the
-    // canonical id-bearing shape. Mutates metadata in place.
-    if (!this.stampMissingIds(metadata)) {
-      throw new Error('Module metadata stamping failed (class entry missing name)');
+  /**
+   * Release a module instance the registry is about to drop. Best-effort: a module that
+   * throws from `dispose()` must not fail the load or reload that is discarding it.
+   */
+  private disposeModule(moduleInstance: DTModule | undefined, moduleName: string): void {
+    try {
+      moduleInstance?.dispose?.();
+    } catch (error) {
+      this.logger.warn('Module dispose failed', {
+        moduleName,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-
-    return { module: moduleInstance, metadata };
   }
 
   private modulesLoaded = false;
@@ -587,6 +622,9 @@ export class ModuleRegistryService implements OnModuleInit {
                   existingPath: this.customModules.get(moduleName)?.filePath,
                   newPath: filePath,
                 });
+                // The duplicate was fully loaded before its name was known, so it holds
+                // live policy engines that only dispose() can free.
+                this.disposeModule(loadResult.module, moduleName);
                 continue;
               }
 
@@ -748,6 +786,14 @@ export class ModuleRegistryService implements OnModuleInit {
               maxRetries: 1,
             });
 
+            if (loadResult.success && loadResult.metadata?.name !== moduleName) {
+              // The reload walks every module file until the name matches, and each miss
+              // was fully loaded (policy engines registered) before its name was known.
+              // A discarded miss must be disposed, or every reload leaks the policy sets
+              // of the modules walked past — the WASM heap is never reclaimed by GC.
+              this.disposeModule(loadResult.module, loadResult.metadata?.name ?? filePath);
+            }
+
             if (loadResult.success && loadResult.metadata?.name === moduleName) {
               // Update module entry
               const moduleEntry: ModuleEntry = {
@@ -760,6 +806,13 @@ export class ModuleRegistryService implements OnModuleInit {
                 loadAttempts: (existingEntry?.loadAttempts || 0) + 1,
                 isHealthy: true,
               };
+
+              // The new instance is live and about to replace the old one. Only now — a
+              // failed reload above keeps the old instance serving, so disposing earlier
+              // would tear down a module that is still in the registry.
+              if (existingEntry && existingEntry.instance !== loadResult.module) {
+                this.disposeModule(existingEntry.instance, moduleName);
+              }
 
               this.customModules.set(moduleName, moduleEntry);
 

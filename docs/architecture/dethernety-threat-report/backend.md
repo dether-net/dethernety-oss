@@ -15,7 +15,7 @@ The module implements the `DTModule` interface directly (it does not extend any 
 | Capability a typical module provides | This module |
 |---|---|
 | Component / DataFlow / Boundary / Data / Control classes | **None** |
-| Exposure or countermeasure evaluation (OPA/Rego, JSON Logic) | **None** |
+| Exposure or countermeasure evaluation (OPA/Rego) | **None** |
 | AI / LangGraph analysis workflows | **None** |
 | Document storage inherited from a base class | **None** — the module owns persistence itself |
 | One non-AI analysis class + a snapshot read/write path | **Yes** |

@@ -41,7 +41,7 @@ const DEFAULT_LG_TEMPLATE = `{
  * Provides common functionality for modules that integrate with LangGraph
  * for AI-powered analysis capabilities. This class uses composition with
  * DtLgAnalysisOps and DtLgDocumentOps helper classes, following the pattern
- * established by DtNeo4jOpaModule with DbOps and OpaOps.
+ * established by DtFileOpaModule with DbOps.
  *
  * This class handles:
  * - LangGraph client initialization and management
@@ -186,7 +186,7 @@ export class DtLgModule implements DTModule {
       operation: 'getAnalysisClasses'
     });
 
-    // Infrastructure failure (aegra unreachable) MUST propagate so
+    // Infrastructure failure (LangGraph server unreachable) MUST propagate so
     // getMetadata() can signal "source unavailable" upstream — the
     // platform then skips the install rather than reconciling against
     // an empty list (which would orphan every AnalysisClass node). DO
@@ -197,7 +197,7 @@ export class DtLgModule implements DTModule {
       lgAssistants = await this.getAnalysisAssistants();
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Failed to get analysis classes (aegra unavailable)', {
+      this.logger.error('Failed to get analysis classes (LangGraph server unavailable)', {
         moduleName: this.moduleName,
         operation: 'getAnalysisClasses',
         duration: `${duration}ms`,
@@ -211,14 +211,14 @@ export class DtLgModule implements DTModule {
 
     for (const assistant of lgAssistants as any[]) {
       const graphConfig = this.analysisConfig.graphs[assistant.name];
-      // Skip aegra assistants this module did not declare — without this
+      // Skip LangGraph-server assistants this module did not declare — without this
       // guard, a single deployment running multiple DtLgModule instances
       // would have each module claim every assistant.
       if (!graphConfig) continue;
       this.assistants.push({
-        // Derive id locally from the graph name; matches aegra's own
+        // Derive id locally from the graph name; matches the server's own
         // `assistant_id = uuid5(ASSISTANT_NAMESPACE_UUID, name)` so the
-        // platform-side and aegra-side ids align without round-tripping.
+        // platform-side and server-side ids align without round-tripping.
         id: deriveAnalysisClassId(assistant.name),
         name: assistant.name,
         description: graphConfig.description || 'No description',
@@ -244,7 +244,7 @@ export class DtLgModule implements DTModule {
    * @returns Promise resolving to array of assistant objects from LangGraph
    */
   protected async getAnalysisAssistants(): Promise<object[]> {
-    // Infrastructure failure (aegra unreachable / 5xx) MUST throw so
+    // Infrastructure failure (LangGraph server unreachable / 5xx) MUST throw so
     // getMetadata() upstream can signal "source unavailable" → install
     // skipped, state preserved. Swallowing here would turn a transient
     // outage into a silent class-wipe.

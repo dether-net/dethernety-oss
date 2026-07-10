@@ -6,9 +6,11 @@
 #
 # Services:
 #   - memgraph:   Graph database (Bolt on port 7687)
-#   - opa:        Open Policy Agent (port 8181)
 #   - ollama:     Embedding model server (port 11434)
 #   - dethernety: Application UI + API (port 3003)
+#
+# Rego policies evaluate in-process (vendored Regorus WASM engine) — no policy
+# engine service is needed.
 #
 # Optional (--profile tools):
 #   - memgraph-lab: Graph explorer UI (port 3030)
@@ -60,22 +62,6 @@ services:
       - MEMGRAPH_USER=dethernety
       - MEMGRAPH_PASSWORD=demo
 
-  # --- Policy engine ----------------------------------------------------
-  opa:
-    image: openpolicyagent/opa:latest
-    container_name: demo-opa
-    ports:
-      - "8181:8181"
-    command: ["run", "--server", "--addr", "0.0.0.0:8181"]
-    networks:
-      - demo-network
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8181/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
   # --- Embedding model server -------------------------------------------
   # EMBEDDING_MODEL env (default: embeddinggemma) drives which model Ollama
   # pulls AND which model the dethernety service queries against. Override
@@ -117,9 +103,6 @@ services:
       - NEO4J_ENCRYPTED=false
       - NEO4J_DATABASE=memgraph
       - NEO4J_TRUST_CERT=true
-      # Policy engine
-      - OPA_URL=http://opa:8181
-      - OPA_COMPILE_SERVER_URL=http://opa:8181
       # GraphQL
       - GQL_ENABLE_SUBSCRIPTIONS=true
       - GQL_QUERY_DEPTH_LIMIT=10
@@ -140,8 +123,6 @@ services:
     depends_on:
       memgraph:
         condition: service_healthy
-      opa:
-        condition: service_started
       ollama:
         condition: service_healthy
     networks:

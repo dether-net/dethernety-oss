@@ -50,8 +50,8 @@ Additional analysis and custom modules can be developed using the DTModule inter
 │  │  Dethernety   │ │   Analysis    │ │    Custom     │                  │
 │  │   Module      │ │    Module     │ │   Modules     │                  │
 │  │               │ │               │ │               │                  │
-│  │ OPA/Rego      │ │ AI Analysis   │ │ JSON Logic    │                  │
-│  │ Policies      │ │ Analysis      │ │ Rules         │                  │
+│  │ OPA/Rego      │ │ AI Analysis   │ │ Custom        │                  │
+│  │ Policies      │ │ Analysis      │ │ Logic         │                  │
 │  └───────┬───────┘ └───────┬───────┘ └───────┬───────┘                  │
 │          │                 │                 │                          │
 │          └─────────────────┼─────────────────┘                          │
@@ -62,10 +62,10 @@ Additional analysis and custom modules can be developed using the DTModule inter
 │  ┌───────────────────────┐   ┌───────────────────────┐                  │
 │  │   Graph Database      │   │  External Services    │                  │
 │  │   (Bolt/Cypher)       │   │                       │                  │
-│  │ • Module metadata     │   │ • OPA Server          │                  │
-│  │ • Class definitions   │   │ • Analysis APIs        │                  │
-│  │ • Model instances     │   │ • AI Providers        │                  │
-│  │ • Rego policies       │   │                       │                  │
+│  │ • Module metadata     │   │ • Analysis APIs       │                  │
+│  │ • Class definitions   │   │ • AI Providers        │                  │
+│  │ • Model instances     │   │                       │                  │
+│  │                       │   │                       │                  │
 │  └───────────────────────┘   └───────────────────────┘                  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -77,32 +77,11 @@ Additional analysis and custom modules can be developed using the DTModule inter
 
 Dethernety supports multiple module implementation patterns:
 
-### 1. Database-Backed OPA Modules
-
-**Base Class:** `DtNeo4jOpaModule`
-
-Stores class definitions and Rego policies in the graph database. Evaluates exposures and countermeasures using OPA server.
-
-```typescript
-import { DtNeo4jOpaModule } from '@dethernety/dt-module';
-
-class MyModule extends DtNeo4jOpaModule {
-  constructor(driver: any, logger: Logger) {
-    super('my-module', driver, logger);
-  }
-}
-```
-
-**Use Cases:**
-- Production modules with dynamic class updates
-- Centralized policy management
-- Multi-instance deployments
-
-### 2. File-Based OPA Modules
+### 1. File-Based OPA Modules
 
 **Base Class:** `DtFileOpaModule`
 
-Loads class definitions from JSON files and evaluates Rego policies via OPA server.
+Loads class definitions from files and evaluates Rego policies in-process via the vendored Regorus WASM engine. This is the default policy-evaluating base class, used by the built-in `dethernety-general`.
 
 ```typescript
 import { DtFileOpaModule } from '@dethernety/dt-module';
@@ -115,32 +94,11 @@ class MyModule extends DtFileOpaModule {
 ```
 
 **Use Cases:**
-- Development and testing
+- Component classes with exposure/countermeasure policies
 - Standalone deployments
 - Version-controlled module configurations
 
-### 3. File-Based JSON Logic Modules
-
-**Base Class:** `DtFileJsonModule`
-
-Uses JSON Logic rules for exposure/countermeasure evaluation instead of OPA.
-
-```typescript
-import { DtFileJsonModule } from '@dethernety/dt-module';
-
-class MyModule extends DtFileJsonModule {
-  constructor(driver: any) {
-    super('./module-data', 'my-module', driver);
-  }
-}
-```
-
-**Use Cases:**
-- Simple rule evaluation
-- No OPA server dependency
-- Embedded deployments
-
-### 4. Analysis Modules
+### 2. Analysis Modules
 
 **Base Class:** `DtLgModule`
 
@@ -178,8 +136,8 @@ This folder contains the following documentation:
 |----------|-------------|
 | **README.md** (this file) | Module system introduction and navigation |
 | [DT_MODULE_INTERFACE.md](./DT_MODULE_INTERFACE.md) | Core DTModule contract and metadata interfaces |
-| [BASE_CLASSES.md](./BASE_CLASSES.md) | Implementation patterns (OPA, JSON, LangGraph) |
-| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps, LangGraph ops) |
+| [BASE_CLASSES.md](./BASE_CLASSES.md) | Implementation patterns (OPA, LangGraph) |
+| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, LangGraph ops) |
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Step-by-step module development guide |
 | [MODULE_PACKAGE_DESIGN.md](./MODULE_PACKAGE_DESIGN.md) | Module packaging and deployment system |
 
@@ -219,9 +177,7 @@ Modules can provide these class types:
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPA_COMPILE_SERVER_URL` | `http://localhost:8181` | OPA server URL for Rego evaluation |
+Rego policy evaluation is in-process (the vendored Regorus WASM engine) and takes no configuration — there is no policy server to point at and no engine to select.
 
 > `LANGGRAPH_API_URL` (default: `http://localhost:8123`) is required only when using `DtLgModule`. See [BASE_CLASSES.md](./BASE_CLASSES.md) for details.
 

@@ -3,7 +3,6 @@
 ## Table of Contents
 - [Overview](#overview)
 - [DbOps - Database Operations](#dbops---database-operations)
-- [OpaOps - OPA Server Operations](#opaops---opa-server-operations)
 - [DtLgAnalysisOps - LangGraph Analysis Operations](#dtlganalysisops---langgraph-analysis-operations)
 - [DtLgDocumentOps - LangGraph Document Operations](#dtlgdocumentops---langgraph-document-operations)
 - [Utility Class Patterns](#utility-class-patterns)
@@ -14,7 +13,6 @@ The `dt-module` package provides utility classes that encapsulate common operati
 
 **Source Files:**
 - `packages/dt-module/src/db-ops.ts`
-- `packages/dt-module/src/opa-ops.ts`
 - `packages/dt-module/src/dt-lg-analysis-ops.ts`
 - `packages/dt-module/src/dt-lg-document-ops.ts`
 
@@ -23,17 +21,17 @@ The `dt-module` package provides utility classes that encapsulate common operati
 │                        Utility Class Architecture                       │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────────┐     │
-│  │     DbOps       │    │     OpaOps      │    │  DtLgAnalysisOps │     │
-│  │                 │    │                 │    │                  │     │
-│  │ Graph DB ops    │    │ OPA server ops  │    │ LangGraph        │     │
-│  │                 │    │                 │    │ analysis         │     │
-│  └────────┬────────┘    └────────┬────────┘    └────────┬─────────┘     │
-│           │                      │                      │               │
-│           ▼                      ▼                      ▼               │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────────┐     │
-│  │ Graph DB Driver │    │   OPA Server    │    │ LangGraph Client │     │
-│  └─────────────────┘    └─────────────────┘    └──────────────────┘     │
+│  ┌─────────────────┐                           ┌──────────────────┐     │
+│  │     DbOps       │                           │  DtLgAnalysisOps │     │
+│  │                 │                           │                  │     │
+│  │ Graph DB ops    │                           │ LangGraph        │     │
+│  │                 │                           │ analysis         │     │
+│  └────────┬────────┘                           └────────┬─────────┘     │
+│           │                                             │               │
+│           ▼                                             ▼               │
+│  ┌─────────────────┐                           ┌──────────────────┐     │
+│  │ Graph DB Driver │                           │ LangGraph Client │     │
+│  └─────────────────┘                           └──────────────────┘     │
 │                                                                         │
 │                         ┌─────────────────┐                             │
 │                         │ DtLgDocumentOps │                             │
@@ -201,136 +199,6 @@ const nested = dbOps.unflattenProperties(flat);
 //     { path: "/health" }
 //   ]
 // }
-```
-
----
-
-## OpaOps - OPA Server Operations
-
-Helper class for interacting with the Open Policy Agent (OPA) server.
-
-**Source File:** `packages/dt-module/src/opa-ops.ts`
-
-### Policy Interface
-
-```typescript
-export interface Policy {
-  id: string;    // Policy identifier (e.g., "module.class.policies")
-  raw: string;   // Raw Rego policy text
-}
-```
-
-### Constructor
-
-```typescript
-constructor(opaServerUrl: string)
-```
-
-**Parameters:**
-- `opaServerUrl` - OPA server URL (default: `http://localhost:8181`)
-
-**Environment Variable:** `OPA_COMPILE_SERVER_URL` or `OPA_SERVER_URL`
-
-### Methods
-
-#### installPolicies()
-
-Uploads Rego policies to the OPA server.
-
-```typescript
-async installPolicies(policies: Policy[]): Promise<boolean>
-```
-
-**Parameters:**
-- `policies` - Array of policies to install
-
-**Returns:** `true` if successful
-
-**HTTP Request:**
-```
-PUT {opaServerUrl}/v1/policies/{policy.id}
-Content-Type: text/plain
-Body: {policy.raw}
-```
-
-**Example:**
-```typescript
-const opaOps = new OpaOps('http://localhost:8181');
-
-await opaOps.installPolicies([{
-  id: 'dethernety.PROCESS.webserver.policies',
-  raw: `
-    package dethernety.webserver
-
-    exposures[exp] {
-      not input.authentication_enabled
-      exp := {
-        "name": "Missing Authentication",
-        "type": "vulnerability",
-        "category": "access_control"
-      }
-    }
-  `
-}]);
-```
-
----
-
-#### evaluate()
-
-Evaluates a Rego policy path against input data.
-
-```typescript
-async evaluate(path: string, input: any): Promise<any>
-```
-
-**Parameters:**
-- `path` - Policy path (e.g., `dethernety/webserver/exposures`)
-- `input` - Input data object
-
-**Returns:** Policy evaluation result (array or object)
-
-**Example:**
-```typescript
-const exposures = await opaOps.evaluate(
-  'dethernety/webserver/exposures',
-  { authentication_enabled: false, tls_enabled: true }
-);
-// Returns: [{ name: "Missing Authentication", type: "vulnerability", ... }]
-```
-
----
-
-#### deletePolicy() / deletePolicyByPrefix()
-
-Removes policies from the OPA server.
-
-```typescript
-async deletePolicy(id: string): Promise<boolean>
-async deletePolicyByPrefix(prefix: string): Promise<boolean>
-```
-
-**Parameters:**
-- `id` - Exact policy ID to delete
-- `prefix` - Policy ID prefix to match and delete
-
-**Example:**
-```typescript
-// Delete single policy
-await opaOps.deletePolicy('dethernety.PROCESS.webserver.policies');
-
-// Delete all policies for a module (during refresh)
-await opaOps.deletePolicyByPrefix('dethernety-general.');
-```
-
----
-
-#### deleteAllPolicies()
-
-Removes all policies from the OPA server.
-
-```typescript
-async deleteAllPolicies(): Promise<boolean>
 ```
 
 ---
@@ -603,19 +471,19 @@ const doc = await documentOps.getFromStore(
 All utility classes are designed to be composed within module base classes:
 
 ```typescript
-// DtNeo4jOpaModule composition
-class DtNeo4jOpaModule implements DTModule {
+// DtFileOpaModule composition
+class DtFileOpaModule implements DTModule {
   private readonly dbOps: DbOps;
-  private readonly opaOps: OpaOps;
+  private readonly regoEngine = new RegoEngine();
 
-  constructor(moduleName: string, driver: any, logger: Logger) {
+  constructor(moduleDataDir: string, moduleName: string, driver: any, logger?: Logger) {
     this.dbOps = new DbOps(driver);
-    this.opaOps = new OpaOps(process.env.OPA_COMPILE_SERVER_URL || 'http://localhost:8181');
+    // Policies are registered into the in-process engine from disk in getMetadata().
   }
 
   async getExposures(id: string, classId: string): Promise<Exposure[]> {
     const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
-    const result = await this.opaOps.evaluate(policyPath, attributes);
+    const result = this.regoEngine.evaluate(key, 'exposures', attributes);
     // ...
   }
 }
@@ -642,14 +510,11 @@ class DtLgModule implements DTModule {
 Utility classes can also be used independently:
 
 ```typescript
-import { DbOps, OpaOps } from '@dethernety/dt-module';
+import { DbOps } from '@dethernety/dt-module';
 
 // In a custom service
 const dbOps = new DbOps(graphDbDriver);
 const attributes = await dbOps.getInstantiationAttributes(elementId, classId);
-
-const opaOps = new OpaOps('http://localhost:8181');
-const exposures = await opaOps.evaluate('mymodule/component/exposures', attributes);
 ```
 
 ### Error Handling Pattern

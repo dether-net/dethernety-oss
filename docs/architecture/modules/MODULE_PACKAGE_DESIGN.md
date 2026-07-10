@@ -1046,6 +1046,6 @@ Uses npm-style semver constraints:
 |----------|-------------|
 | [README.md](./README.md) | Module system architecture overview |
 | [DT_MODULE_INTERFACE.md](./DT_MODULE_INTERFACE.md) | Core DTModule contract and all metadata interfaces |
-| [BASE_CLASSES.md](./BASE_CLASSES.md) | Base class implementations (OPA, JSON Logic, LangGraph) |
-| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps, LangGraph ops) |
+| [BASE_CLASSES.md](./BASE_CLASSES.md) | Base class implementations (Rego, LangGraph) |
+| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, LangGraph ops) |
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Module development guide |

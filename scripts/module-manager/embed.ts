@@ -200,7 +200,7 @@ function collectJobs(
 
       // OPA layout applies the same FORCED_TYPES / component-uppercase
       // normalization the runtime does before composing text. JSON layout
-      // returns rawType unchanged (matching DtFileJsonModule.getMetadata).
+      // returns rawType unchanged (the retired JSON-Logic layout never normalized).
       const normalizedType =
         layout.name === 'opa'
           ? normalizeClassType(classTypeDir, def.type)

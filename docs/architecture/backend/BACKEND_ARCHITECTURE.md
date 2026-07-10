@@ -478,8 +478,7 @@ interface DTModule {
 
 | Engine | Implementation | Use Case |
 |--------|----------------|----------|
-| **OPA (Open Policy Agent)** | `DtNeo4jOpaModule` | Complex policy-as-code with Rego language |
-| **JsonLogic** | `DtFileJsonModule` | Simple JSON-based rules, no external dependencies |
+| **Rego (in-process Regorus WASM)** | `DtFileOpaModule` | Policy-as-code with the Rego language |
 | **Custom Rules** | Custom module | Organization-specific evaluation logic |
 | **External Policy Services** | API integration | Centralized enterprise policy engines |
 
@@ -560,8 +559,7 @@ The `@dethernety/dt-module` package includes reference implementations demonstra
 
 | Implementation | Storage | Rule Engine | Use Case |
 |----------------|---------|-------------|----------|
-| **DtFileJsonModule** | File-based JSON | JsonLogic | Simple deployments, static configuration |
-| **DtNeo4jOpaModule** | Neo4j database | Open Policy Agent | Enterprise deployments with centralized policy |
+| **DtFileOpaModule** | File-based | Rego (in-process Regorus WASM) | Policy-evaluating modules with version-controlled configuration |
 | **DtLgModule** | LangGraph store | AI-powered | Advanced AI analysis with agent workflows |
 
 These implementations serve as templates for custom integrations, demonstrating the full breadth of the `DTModule` interface.

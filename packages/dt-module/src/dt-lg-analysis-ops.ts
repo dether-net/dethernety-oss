@@ -45,7 +45,7 @@ interface Message {
  *
  * Provides methods for managing analysis sessions (threads), running analyses,
  * streaming results, and retrieving analysis state. This class follows the
- * pattern of DbOps and OpaOps - it can be used independently or as part of
+ * pattern of DbOps - it can be used independently or as part of
  * a DtLgModule.
  *
  * @example

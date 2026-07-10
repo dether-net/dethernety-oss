@@ -45,3 +45,70 @@ jobs:
       - name: Test
         run: pnpm turbo run test --filter='./apps/dt-ws'
         continue-on-error: true
+
+  # Differentially evaluates every policy in `modules/` through both the vendored
+  # in-process Regorus WASM engine and the reference `opa` binary, and fails on any
+  # disagreement. Security findings are produced by evaluating Rego, so the two engines
+  # must agree exactly.
+  #
+  # Its own job, without `continue-on-error`: a divergence blocks the merge. The harness
+  # treats a missing `opa` as a hard failure rather than skipping — a gate that loses its
+  # oracle proves nothing.
+  rego-parity:
+    name: Rego parity (Regorus WASM vs OPA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      OPA_VERSION: 1.18.2
+      # Verified against the GitHub release asset and the openpolicyagent.org mirror.
+      OPA_SHA256: 9903e5125ac281104f2c4b7371d10cc3b74a98933743fcbfc174f9bf0ab20de8
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Pinned by content, not by tag: a swapped or truncated download fails here rather
+      # than silently changing the oracle the whole gate is measured against.
+      - name: Install OPA ${{ env.OPA_VERSION }} (checksum-pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 5 -o /usr/local/bin/opa \
+            "https://github.com/open-policy-agent/opa/releases/download/v${OPA_VERSION}/opa_linux_amd64_static"
+          echo "${OPA_SHA256}  /usr/local/bin/opa" | sha256sum -c -
+          chmod +x /usr/local/bin/opa
+          opa version
+
+      # The floors are positive assertions. Without them, a corpus that failed to check
+      # out would report "0 policies, 0 diffs" and pass.
+      #
+      # `raw` drives the WASM binding directly and needs no build. The `wrapper` mode, which
+      # drives the compiled RegoEngine, would pull the whole workspace build graph into this
+      # job for no extra signal about the blob — it runs in the monorepo's own pipeline.
+      - name: Rego parity gate
+        run: node packages/dt-module/test/rego-parity/run.mjs
+        env:
+          REGO_PARITY_ENGINE: raw
+          REGO_PARITY_ROOTS: modules
+          REGO_PARITY_OPA_VERSION: ${{ env.OPA_VERSION }}
+          REGO_PARITY_MIN_MODERN_POLICIES: 75
+          REGO_PARITY_MIN_MODERN_CASES: 300
+
+      # Includes the package-time Rego lint's whole-corpus assertions over `modules/`
+      # (0 errors, 0 warnings) and the builtin-partition drift guard against the blob.
+      - name: dt-module unit tests
+        run: pnpm --filter @dethernety/dt-module test

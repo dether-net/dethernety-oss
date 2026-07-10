@@ -31,11 +31,8 @@ All base classes are in `@dethernety/dt-module` (`packages/dt-module/`). Constru
 
 | Base Class | Storage | Policy Engine | Use Case |
 |-----------|---------|---------------|----------|
-| `DtNeo4jOpaModule` | Graph DB | OPA/Rego | Production modules with DB-stored classes (recommended) |
-| `DtLgModule` | Graph DB | — | AI analysis via LangGraph server |
-| `DtFileOpaModule` | File system | OPA/Rego | Standalone/development modules |
-| `DtFileJsonModule` | File system | JSON Logic | Simple rules, no OPA dependency |
-| `DtNeo4jJsonModule` | Graph DB | JSON Logic | DB-stored classes with JSON Logic |
+| `DtFileOpaModule` | File system | Rego (in-process, Regorus WASM) | Policy-evaluating modules (default); Studio-generated `data/` tree |
+| `DtLgModule` | LangGraph | — | AI analysis via LangGraph server |
 
 ## Development Workflow
 
@@ -68,10 +65,9 @@ The `scripts/package.js` packaging script auto-detects and includes all componen
 ## Key Patterns
 
 - **Entry point**: main file must end with `Module.js` and have a default export
-- **Module node**: database-backed modules need a `DTModule` node in the graph (created via `data/01-module.cypher`)
-- **Class definitions**: stored as graph nodes linked via `MODULE_PROVIDES_CLASS` relationships
-- **Rego policies**: stored on class nodes, evaluated via OPA server at `OPA_COMPILE_SERVER_URL`
-- **JSON Logic rules**: stored in `exposure-rules.json` / `countermeasure-rules.json` per class
+- **Data-ingestion modules**: ship `.cypher`/`.csv` files under a top-level `data/` directory, executed at install (see `mitre-frameworks`)
+- **Class definitions**: the platform ingests each module's class metadata into the graph at load
+- **Rego policies**: shipped as `policies.rego` in each class directory, evaluated in-process (one Regorus WASM engine per class); registered eagerly at module load and freed on module reload/dispose — no external policy server
 - **Analysis config**: `DtLgModule` uses `LgAnalysisConfig` to define graph names, types, and input builders
 - **Frontend bundles**: Vite-compiled single `bundle.js` with Vue runtime shimmed to avoid host conflicts
 

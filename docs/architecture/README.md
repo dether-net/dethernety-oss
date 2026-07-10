@@ -42,14 +42,14 @@ The platform ships with MITRE ATT&CK and D3FEND data, a visual threat modeling U
 │     • Query-based analysis (Cypher traversals, pattern matching)            │
 │     • Single-agent AI (LLM-powered reasoning)                               │
 │     • Multi-agent AI (orchestrated workflows)                               │
-│     • Rule-based (OPA/Rego policy evaluation)                               │
+│     • Rule-based (in-process Rego policy evaluation)                        │
 │     Same API regardless of backend—swap engines without UI changes.         │
 │                                                                             │
 │  3. EXECUTABLE MODULE SYSTEM                                                │
 │     ─────────────────────────                                               │
 │     Modules are real JavaScript/TypeScript classes loaded at runtime:       │
 │     • Define component classes with custom attributes and validation        │
-│     • Implement exposure detection with OPA/Rego or custom logic            │
+│     • Implement exposure detection with Rego or custom logic                │
 │     • Provide AI analysis workflows via the module interface                │
 │     • Sync with external systems (Jira, cloud APIs, CMDBs)                  │
 │     Not configuration files—executable code with full platform access.      │
@@ -174,7 +174,7 @@ The Dethernety architecture is guided by five core principles:
 │  │  │  │                 │  │                 │  │                 │   │   │    │
 │  │  │  │ • Component     │  │ • Attack        │  │ • Cloud         │   │   │    │
 │  │  │  │   Classes       │  │   Scenario      │  │   Security      │   │   │    │
-│  │  │  │ • OPA/Rego      │  │   Analysis      │  │ • Compliance    │   │   │    │
+│  │  │  │ • Rego          │  │   Analysis      │  │ • Compliance    │   │   │    │
 │  │  │  │   Policies      │  │ • Interactive   │  │ • Industry-     │   │   │    │
 │  │  │  │ • Exposure      │  │   Chat          │  │   Specific      │   │   │    │
 │  │  │  │   Detection     │  │                 │  │                 │   │   │    │
@@ -201,14 +201,17 @@ The Dethernety architecture is guided by five core principles:
 │  ┌─────────────────────────────────┼───────────────────────────────────────┐    │
 │  │              EXTERNAL SERVICES  │                                       │    │
 │  │                                 ▼                                       │    │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐  │    │
-│  │  │  OPA Server     │  │  Analysis       │  │  Identity Provider      │  │    │
-│  │  │                 │  │  Service (opt.) │  │  (OIDC)                 │  │    │
-│  │  │ • Rego Policy   │  │                 │  │                         │  │    │
-│  │  │   Evaluation    │  │ • AI Workflows  │  │ • Keycloak / Auth0      │  │    │
-│  │  │ • Exposure      │  │ • Module-       │  │ • Zitadel / Custom      │  │    │
-│  │  │   Detection     │  │   provided      │  │ • Any OIDC provider     │  │    │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────────┘  │    │
+│  │                       ┌─────────────────┐  ┌─────────────────────────┐  │    │
+│  │                       │  Analysis       │  │  Identity Provider      │  │    │
+│  │                       │  Service (opt.) │  │  (OIDC)                 │  │    │
+│  │                       │                 │  │                         │  │    │
+│  │                       │ • AI Workflows  │  │ • Keycloak / Auth0      │  │    │
+│  │                       │ • Module-       │  │ • Zitadel / Custom      │  │    │
+│  │                       │   provided      │  │ • Any OIDC provider     │  │    │
+│  │                       └─────────────────┘  └─────────────────────────┘  │    │
+│  │                                                                         │    │
+│  │  Rego policy evaluation is in-process (Regorus WASM) — not an external  │    │
+│  │  service. See the Module System layer above.                           │    │
 │  │                                                                         │    │
 │  └─────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                 │
@@ -226,7 +229,7 @@ The Dethernety architecture is guided by five core principles:
 | **Business** | Module System | DTModule interface | Extensible threat modeling capabilities |
 | **Business** | Analysis Engine | Module-provided | AI, query-based, or rule-based security analysis |
 | **Data** | Graph Database | Neo4j / Memgraph | Threat models, relationships, policies |
-| **External** | OPA Server | Open Policy Agent | Rego policy evaluation |
+| **Business** | Rego Engine | Regorus WASM (in-process) | Rego policy evaluation inside the module system — no external server |
 | **External** | OIDC Provider | Keycloak/Auth0/Zitadel | Enterprise authentication |
 
 ---
@@ -243,7 +246,6 @@ sequenceDiagram
     participant Backend as dt-ws (Backend)
     participant DB as Graph Database (Bolt/Cypher)
     participant AI as Analysis Module
-    participant OPA as OPA (Policy Engine)
 
     %% System Initialization
     Note over Backend,DB: System Initialization (at startup)
@@ -368,7 +370,7 @@ sequenceDiagram
 |------------|----------|-----------|
 | **Graph Database** | Buy (Neo4j/Memgraph) | Security relationships are inherently graph-structured; no viable alternative |
 | **UI Framework** | Buy (Vue 3) | Modern, performant, excellent TypeScript support |
-| **Policy Engine** | Buy (OPA) | Industry-standard, Rego is well-suited for security rules |
+| **Policy Engine** | Vendor (Regorus WASM, in-process) | Rego is well-suited for security rules; the Regorus engine runs in-process, so there is no external policy server to operate |
 | **Module System** | Build | Requires tight platform integration for runtime loading and GraphQL routing |
 | **Data Access Layer** | Build (dt-core) | Consistency across all clients requires shared implementation |
 | **Threat Modeling UI** | Build | Purpose-built interface for graph-based threat modeling workflows |
@@ -391,13 +393,14 @@ sequenceDiagram
 │  • Neo4j for enterprise deployments requiring rich features                 │
 │  • Memgraph for cost-optimized deployments (fraction of Neo4j cost)         │
 │                                                                             │
-│  OPA/REGO (Policy Engine)                                                   │
+│  REGO (Policy Engine, in-process)                                          │
 │  ─────────────────────────────                                              │
-│  Exposure detection rules are security policies. OPA provides:              │
-│  • Declarative Rego language suited for security logic                      │
-│  • Hot-reload without server restart                                        │
-│  • Partial evaluation for debugging                                         │
-│  • Industry adoption in Kubernetes, service mesh, IAM                       │
+│  Exposure detection rules are security policies. Rego, evaluated in-process │
+│  by the vendored Regorus WASM engine, provides:                            │
+│  • Declarative language suited for security logic                          │
+│  • One engine per class, freed on module reload — no external server        │
+│  • Fail-loud evaluation: an engine error never degrades to "no findings"    │
+│  • Industry adoption of Rego in Kubernetes, service mesh, IAM               │
 │                                                                             │
 │  GRAPHQL (API Layer)                                                        │
 │  ─────────────────────────────                                              │
@@ -428,8 +431,7 @@ The `DTModule` interface is how you extend the platform without modifying the co
 │                              • CMDBs → enterprise inventory                 │
 │                                                                             │
 │  SECURITY LOGIC              Pluggable rule engines                         │
-│  ──────────────────          • OPA/Rego for policy-as-code                  │
-│                              • JSON Logic for simple rules                  │
+│  ──────────────────          • Rego for policy-as-code (in-process)         │
 │                              • Custom engines for proprietary logic         │
 │                                                                             │
 │  AI ANALYSIS                 Multiple analysis patterns                     │
@@ -454,19 +456,17 @@ The `packages/dt-module` library provides abstract base classes that handle comm
 
 | Base Class | Storage | Rule Engine | Use Case |
 |------------|---------|-------------|----------|
-| `DtNeo4jOpaModule` | Graph database | OPA/Rego | Production modules with centralized policy management |
-| `DtFileOpaModule` | JSON files | OPA/Rego | Development, version-controlled configurations |
-| `DtFileJsonModule` | JSON files | JSON Logic | Simple rules without OPA dependency |
-| `DtLgModule` | Graph database | LangGraph | AI-powered analysis workflows |
+| `DtFileOpaModule` | File system | Rego (in-process) | Policy-evaluating modules, version-controlled configurations |
+| `DtLgModule` | LangGraph | LangGraph | AI-powered analysis workflows |
 
 Each base class provides:
 - Automatic class registration and metadata management
 - Built-in database operations (DbOps)
-- Policy evaluation helpers (OpaOps)
+- In-process Rego policy evaluation (one Regorus WASM engine per class)
 - LangGraph operations (DtLgAnalysisOps, DtLgDocumentOps)
 - GraphQL resolver integration
 
-To create a new OPA-based module, you define class schemas and Rego policies. The base class handles database persistence, GraphQL integration, and policy evaluation. New security domains (cloud security, OT/ICS, IoT) can be added as modules without platform changes. See the [Module Development Guide](./modules/DEVELOPMENT_GUIDE.md) for details.
+To create a new policy-evaluating module, you define class schemas and Rego policies. The base class handles database persistence, GraphQL integration, and in-process policy evaluation. New security domains (cloud security, OT/ICS, IoT) can be added as modules without platform changes. See the [Module Development Guide](./modules/DEVELOPMENT_GUIDE.md) for details.
 
 ### 2. Graph-Native Threat Modeling
 
@@ -596,8 +596,8 @@ Dethernety can be deployed as a single Docker container or as individual service
 │  • dt-ws (NestJS backend) — stateless, horizontally scalable                │
 │  • dt-ui (Vue frontend) — static assets, served via CDN or web server       │
 │  • Graph database (Neo4j or Memgraph)                                       │
-│  • OPA server (optional, for Rego policy evaluation)                        │
 │  • OIDC identity provider (Keycloak, Auth0, Zitadel, etc.)                  │
+│  Rego policy evaluation runs in-process in dt-ws — no separate service.     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -716,7 +716,7 @@ docs/architecture/
 The architecture rests on three choices:
 
 1. **Graph-native data model** -- Bolt/Cypher database where security relationships are nodes and edges, queryable via traversal.
-2. **Swappable analysis backends** -- DTModule abstraction lets you swap between query-based, rule-based (OPA/Rego), and AI-powered analysis without changing client code.
+2. **Swappable analysis backends** -- DTModule abstraction lets you swap between query-based, rule-based (in-process Rego), and AI-powered analysis without changing client code.
 3. **Executable module system** -- Modules are runtime-loaded JavaScript classes (not configuration files), with full platform API access for integrating with external systems.
 
 All protocols are standards-based (Bolt/Cypher, OIDC, GraphQL), and both Neo4j and Memgraph are supported as database backends.

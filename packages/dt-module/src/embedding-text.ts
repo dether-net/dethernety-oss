@@ -111,8 +111,8 @@ export function parseEmbeddingResponse(
  *     `control`, `data`) are replaced with the matching forced enum value.
  *   - V2 OPA `component` classes have their `type` upper-cased and are
  *     rejected unless the result is in `VALID_COMPONENT_TYPES`.
- *   - JSON-layout directories (`ComponentClasses`, …) are returned as-is
- *     because `DtFileJsonModule.getMetadata` does not normalize.
+ *   - JSON-layout directories (`ComponentClasses`, …) are returned as-is —
+ *     the retired JSON-Logic module layout never normalized them.
  *
  * Returns `null` when the class should be skipped (invalid component type).
  */

@@ -1,0 +1,26 @@
+{
+  "name": "@dethernety/regorus-wasm",
+  "version": "0.10.1",
+  "private": true,
+  "description": "Vendored WebAssembly build of Regorus (Rego interpreter) for in-process policy evaluation.",
+  "license": "MIT AND Apache-2.0 AND BSD-3-Clause",
+  "main": "regorusjs.js",
+  "types": "regorusjs.d.ts",
+  "files": [
+    "regorusjs.js",
+    "regorusjs_bg.wasm",
+    "regorusjs.d.ts",
+    "regorusjs_bg.wasm.d.ts",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.txt",
+    "SHA256SUMS"
+  ],
+  "scripts": {
+    "build": "node scripts/verify-blob.mjs",
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.9"
+  }
+}

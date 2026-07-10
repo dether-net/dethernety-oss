@@ -63,11 +63,11 @@ Contract:
 - The vector's length is **not** validated by the method — the platform
   validates against `EMBEDDING_DIMENSIONS` at install time.
 
-File-based base classes implement the method by default (see
-[Base-class Default](#base-class-default)). DB-backed base classes
-(`DtNeo4jOpaModule`, `DtNeo4jJsonModule`, `DtLgModule`) do not — pre-
-computed vectors on DB-backed modules would require a separate ingestion
-path and are out of scope for v1.
+The file-based base class implements the method by default (see
+[Base-class Default](#base-class-default)). `DtLgModule` does not — its
+analysis classes are derived from the LangGraph server rather than from
+on-disk class definitions, so pre-computed vectors would require a
+separate ingestion path and are out of scope for v1.
 
 ## File Layout
 
@@ -84,7 +84,7 @@ data/{moduleName}/
             └── {modelSlug}.json  # JSON array: [0.01, -0.02, …]
 ```
 
-**JSON layout (`DtFileJsonModule`):**
+**JSON layout:**
 ```
 data/{moduleName}/
 └── {ClassTypeDir}/               # ComponentClasses | DataFlowClasses | …
@@ -106,9 +106,9 @@ class without touching the others.
 
 ## Base-class Default
 
-`DtFileOpaModule` and `DtFileJsonModule` both instantiate an
-`EmbeddingFileCache` in their constructor and implement `getEmbedding()`
-by delegating to `cache.get(className, modelSlug)`.
+`DtFileOpaModule` instantiates an `EmbeddingFileCache` in its
+constructor and implements `getEmbedding()` by delegating to
+`cache.get(className, modelSlug)`.
 
 ### `EmbeddingFileCache`
 
@@ -134,8 +134,7 @@ new EmbeddingFileCache({
 })
 ```
 
-`DtFileJsonModule` has no NestJS `Logger`; the helper falls back to
-`console.warn` when no logger is provided.
+When no `Logger` is provided, the helper falls back to `console.warn`.
 
 ### Security invariants
 
@@ -331,8 +330,8 @@ Modules ship a `pnpm embed` alias that reads `EMBEDDING_MODEL` and
    `ComponentClasses/metadata.json`). Errors out if both are present.
 3. For each class, reads `{ name, description, category, type }` from
    the class-definition file.
-4. Normalizes `type` via `normalizeClassType` (OPA only — JSON layout
-   mirrors `DtFileJsonModule.getMetadata`, which doesn't normalize).
+4. Normalizes `type` via `normalizeClassType` (OPA layout only — the
+   JSON layout is not normalized).
 5. Composes embedding text via the shared `composeClassText` — byte-
    equal to what the runtime would produce.
 6. Batches the texts at `--batch-size` (default 128) and POSTs to the
@@ -355,9 +354,10 @@ Modules ship a `pnpm embed` alias that reads `EMBEDDING_MODEL` and
 - No stale-file cleanup for removed classes. `rm -rf` the module's
   `embeddings/` directories before regenerating if class names churn.
 - Does not instantiate the compiled module. The CLI reads JSON files
-  directly — `DtFileOpaModule`/`DtFileJsonModule` constructors need a
-  live Bolt driver, and `getMetadata()` triggers a background OPA
-  reset. The CLI must run with no services available.
+  directly — the `DtFileOpaModule` constructor needs a live Bolt
+  driver, and `getMetadata()` eagerly registers every policy in the
+  in-process Rego engine. The CLI must run with no services available
+  and should not pay for engines it never evaluates.
 
 ### Shared helpers
 
@@ -387,8 +387,7 @@ archive contains the embedding entry.
 **Legacy cypher/csv packager branch** (`.cypher` / `.csv` at the top of
 `data/`) only copies those files and does not include `embeddings/`.
 Modules packaged via that branch cannot ship pre-computed embeddings.
-`DtFileJsonModule` modules must be packaged via the recursive-subdir
-branch.
+File-based modules must be packaged via the recursive-subdir branch.
 
 ## Multi-model Support
 
@@ -439,7 +438,8 @@ model.
   `composeClassText` helper plus the CLI-runtime byte-equality at the
   source close most of the drift risk. Revisit if production evidence
   justifies it. The file format is frozen plain-array JSON for v1.
-- **DB-backed modules.** `DtNeo4jOpaModule` / `DtNeo4jJsonModule` /
-  `DtLgModule` store classes in the graph; where pre-computed vectors
-  would come from is a separate design. v1 is file-based modules only.
+- **`DtLgModule`.** Its analysis classes are derived from the LangGraph
+  server rather than from on-disk class definitions; where pre-computed
+  vectors would come from is a separate design. v1 is file-based modules
+  only.
 - **Cross-module vector sharing.** Each module owns its own vectors.
