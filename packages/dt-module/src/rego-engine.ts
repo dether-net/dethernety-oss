@@ -34,7 +34,7 @@ export const POLICY_LENGTH_CONFIG = Object.freeze({
 });
 
 /** `evalQuery` evaluates arbitrary Rego, so the rule name is interpolated into an expression. */
-const RULE_NAME = /^[a-z_][a-z0-9_]*$/i;
+export const RULE_NAME = /^[a-z_][a-z0-9_]*$/i;
 
 export class RegoPolicyError extends Error {
   constructor(
