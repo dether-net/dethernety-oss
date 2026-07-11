@@ -1,6 +1,6 @@
 {
   "name": "@dethernety/dt-module",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -13,12 +13,20 @@
       "types": "./dist/embedding-text.d.ts",
       "require": "./dist/embedding-text.js",
       "default": "./dist/embedding-text.js"
+    },
+    "./rego-adhoc": {
+      "types": "./dist/rego-adhoc.d.ts",
+      "require": "./dist/rego-adhoc.js",
+      "default": "./dist/rego-adhoc.js"
     }
   },
   "typesVersions": {
     "*": {
       "embedding": [
         "dist/embedding-text.d.ts"
+      ],
+      "rego-adhoc": [
+        "dist/rego-adhoc.d.ts"
       ]
     }
   },

@@ -5,6 +5,7 @@
 - [DbOps - Database Operations](#dbops---database-operations)
 - [DtLgAnalysisOps - LangGraph Analysis Operations](#dtlganalysisops---langgraph-analysis-operations)
 - [DtLgDocumentOps - LangGraph Document Operations](#dtlgdocumentops---langgraph-document-operations)
+- [Ad-hoc Rego Evaluation (rego-adhoc)](#ad-hoc-rego-evaluation-rego-adhoc)
 - [Utility Class Patterns](#utility-class-patterns)
 
 ## Overview
@@ -461,6 +462,33 @@ const doc = await documentOps.getFromStore(
   'scenario_index'
 );
 ```
+
+---
+
+## Ad-hoc Rego Evaluation (rego-adhoc)
+
+One-shot Rego checking and evaluation for authoring-time tooling — linters, editor feedback, generated-policy validation, packaging checks. Two functions, not a class:
+
+**Source File:** `packages/dt-module/src/rego-adhoc.ts`
+
+```typescript
+checkRegoSource(policy: string): RegoCheckResult
+// { ok, errors: string[], warnings: string[] } — static lint + a real parse
+
+evaluateRegoAdHoc(policy: string, rule: string, input: unknown): RegoAdHocResult
+// { findings: unknown[] | null, errors: string[] | null } — exactly one is null
+```
+
+Each call builds a throwaway Regorus engine, uses it once, and frees it — nothing is shared, nothing persists, and concurrent calls cannot observe each other.
+
+**Contract: fail-contained.** This is the deliberate inverse of `RegoEngine`'s fail-loud runtime contract. At runtime an engine error throws, because silently under-reporting findings is the dangerous failure; at authoring time errors come back as data, because they are shown to whoever produced the broken policy — the errors *are* the product. Error strings are one line per defect and preserve the engine's `file:line:col` position token.
+
+Two properties keep the authoring verdict aligned with the runtime:
+
+- **Isolation is enforced, not skipped.** A policy reading another package's `data` document is rejected (as the runtime registry rejects it at load), rather than evaluated to a silent "nothing fired".
+- **`checkRegoSource` is a superset of the packaging gate.** It combines `lintPolicySource` (builtin partition, length limits, isolation — defects a parse cannot see, because the engine resolves function names lazily) with a real parse (syntax errors the static lint cannot see). A policy that passes here cannot later fail packaging for a reason its author never saw.
+
+**No resource bounds.** Rego's strong normalization guarantees termination, not bounded time or memory. The caller owns input-size caps, and should consider `worker_threads` isolation (with `resourceLimits`) before wiring these functions to untrusted policy or input.
 
 ---
 
