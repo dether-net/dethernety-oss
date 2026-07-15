@@ -214,14 +214,39 @@ export function emptyDispositionDialogState(): DispositionDialogState {
   }
 }
 
-/** Build the open-dialog state from a finding row (dispose / re-affirm entry point). */
-export function dispositionStateFor(item: DispositionableFinding): DispositionDialogState {
+/**
+ * Seed the dialog's editable reason. A caller-supplied `prefillReason` is a convenience
+ * default only, never a replacement: it seeds the field when the finding has no authored
+ * reason, and is appended after a blank line when one already exists — so author-written
+ * text is never silently overwritten. With no prefill the result is the existing reason
+ * (or ''), exactly as before this seam.
+ */
+export function seedDialogReason(
+  existingReason: string | null | undefined,
+  prefillReason?: string,
+): string {
+  const existing = existingReason ?? ''
+  const prefill = prefillReason ?? ''
+  if (!prefill) return existing // no prefill → unchanged
+  if (!existing.trim()) return prefill // no authored text → seed with the prefill
+  return `${existing}\n\n${prefill}` // author text wins; prefill appended after a blank line
+}
+
+/**
+ * Build the open-dialog state from a finding row (dispose / re-affirm entry point).
+ * An optional `prefillReason` seeds the editable reason per {@link seedDialogReason}
+ * (only when the finding has no authored reason; appended after a blank line otherwise).
+ */
+export function dispositionStateFor(
+  item: DispositionableFinding,
+  prefillReason?: string,
+): DispositionDialogState {
   return {
     show: true,
     findingId: item.id,
     findingName: item.name ?? '',
     initialKind: item.dispositionKind ?? null,
-    initialReason: item.dispositionReason ?? '',
+    initialReason: seedDialogReason(item.dispositionReason, prefillReason),
     isStale: Boolean(item.dispositionStale),
     lockKind: false,
     initialDispositionedBy: item.dispositionedBy ?? '',
@@ -233,14 +258,19 @@ export function dispositionStateFor(item: DispositionableFinding): DispositionDi
  * Build the open-dialog state for the affirm-edit path (stale re-affirm / "Add note…").
  * The kind is locked to AFFIRMED so the dialog never converts a confirmed finding into a
  * disposal; only the reason is editable. Consumed by the affirm-edit dialog variant.
+ * An optional `prefillReason` seeds the editable reason per {@link seedDialogReason}
+ * (only when the finding has no authored reason; appended after a blank line otherwise).
  */
-export function affirmDialogStateFor(item: DispositionableFinding): DispositionDialogState {
+export function affirmDialogStateFor(
+  item: DispositionableFinding,
+  prefillReason?: string,
+): DispositionDialogState {
   return {
     show: true,
     findingId: item.id,
     findingName: item.name ?? '',
     initialKind: 'AFFIRMED',
-    initialReason: item.dispositionReason ?? '',
+    initialReason: seedDialogReason(item.dispositionReason, prefillReason),
     isStale: Boolean(item.dispositionStale),
     lockKind: true,
     initialDispositionedBy: item.dispositionedBy ?? '',

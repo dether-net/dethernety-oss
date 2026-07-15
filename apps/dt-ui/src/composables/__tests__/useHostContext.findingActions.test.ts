@@ -36,7 +36,7 @@ vi.mock('@/stores/issueDialogStore', () => ({ useIssueDialogStore: () => ({ open
 vi.mock('@/services/ComponentRegistry', () => ({ componentRegistry: {} }))
 vi.mock('@/utils/dataFlowUtils', () => ({ getPageDisplayName: () => 'Analysis Results' }))
 vi.mock('@/plugins/apolloClient', () => ({ default: {} }))
-vi.mock('@dethernety/dt-core', () => ({ DtUtils: class {} }))
+vi.mock('@dethernety/dt-core', () => ({ DtUtils: class {}, DtModel: class {}, DtClass: class {}, DtMitreAttack: class {} }))
 
 import { useHostContext } from '../useHostContext'
 

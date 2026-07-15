@@ -28,6 +28,7 @@ import {
   emptyDispositionDialogState,
   dispositionStateFor,
   affirmDialogStateFor,
+  seedDialogReason,
   type DispositionableFinding,
 } from '../useFindingDisposition'
 
@@ -255,6 +256,47 @@ describe('dispositionStateFor / emptyDispositionDialogState', () => {
       initialDispositionedBy: 'auth0|x',
       initialDispositionedAt: '2026-06-01T00:00:00Z',
     })
+  })
+})
+
+describe('seedDialogReason', () => {
+  it('seeds with the prefill when there is no existing reason', () => {
+    expect(seedDialogReason('', 'Prefill')).toBe('Prefill')
+    expect(seedDialogReason(null, 'Prefill')).toBe('Prefill')
+    expect(seedDialogReason(undefined, 'Prefill')).toBe('Prefill')
+  })
+
+  it('treats a whitespace-only existing reason as absent (drops it, seeds the prefill)', () => {
+    expect(seedDialogReason('   \n\t', 'Prefill')).toBe('Prefill')
+  })
+
+  it('appends the prefill after a blank line when authored text exists (never replaced)', () => {
+    expect(seedDialogReason('Author text', 'Prefill')).toBe('Author text\n\nPrefill')
+  })
+
+  it('with no prefill returns the existing reason unchanged (regression)', () => {
+    expect(seedDialogReason('Author text')).toBe('Author text')
+    expect(seedDialogReason('Author text', '')).toBe('Author text')
+    expect(seedDialogReason(null)).toBe('')
+    expect(seedDialogReason('', undefined)).toBe('')
+  })
+})
+
+describe('dispositionStateFor / affirmDialogStateFor — prefillReason seam', () => {
+  it('dispositionStateFor seeds initialReason with the prefill when the finding has none', () => {
+    const item: DispositionableFinding = { id: 'e1', name: 'x', dispositionKind: null }
+    expect(dispositionStateFor(item, 'Prefill').initialReason).toBe('Prefill')
+  })
+
+  it('affirmDialogStateFor appends the prefill after a blank line when a reason exists', () => {
+    const item: DispositionableFinding = { id: 'e1', name: 'x', dispositionReason: 'Author text' }
+    expect(affirmDialogStateFor(item, 'Prefill').initialReason).toBe('Author text\n\nPrefill')
+  })
+
+  it('no prefill argument → initialReason is exactly the finding reason (unchanged)', () => {
+    const item: DispositionableFinding = { id: 'e1', name: 'x', dispositionReason: 'Author text' }
+    expect(dispositionStateFor(item).initialReason).toBe('Author text')
+    expect(affirmDialogStateFor(item).initialReason).toBe('Author text')
   })
 })
 

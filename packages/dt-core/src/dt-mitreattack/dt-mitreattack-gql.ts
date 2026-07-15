@@ -91,6 +91,10 @@ export const GET_MITRE_ATTACK_TECHNIQUE = gql`
     {
       name
       description
+      attack_id
+      tactics {
+        name
+      }
     }
   }
 `
