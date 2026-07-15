@@ -33,6 +33,11 @@ export interface OpenDispositionArgs {
   // 'affirm' opens the affirm-edit variant (kind locked to AFFIRMED, reason editable)
   // so module-rendered rows can affirm, not only dispose. Defaults to 'dispose'.
   mode?: 'dispose' | 'affirm'
+  // Optional convenience seed for the editable reason field. Applied as a default only:
+  // it seeds the reason when the finding has no authored reason, and is appended after a
+  // blank line when one already exists (author text is never overwritten). Absent → the
+  // dialog opens exactly as before.
+  prefillReason?: string
 }
 
 export const useDispositionDialogStore = defineStore('dispositionDialog', () => {
@@ -62,7 +67,10 @@ export const useDispositionDialogStore = defineStore('dispositionDialog', () => 
     findingType.value = args.findingType ?? 'EXPOSURE'
     // Reuse the shared builders so the open-state shape can't drift from the
     // host-component dispose/affirm paths.
-    state.value = args.mode === 'affirm' ? affirmDialogStateFor(f) : dispositionStateFor(f)
+    state.value =
+      args.mode === 'affirm'
+        ? affirmDialogStateFor(f, args.prefillReason)
+        : dispositionStateFor(f, args.prefillReason)
     return new Promise((resolve) => {
       resolver = resolve
     })

@@ -28,4 +28,24 @@ describe('dispositionDialogStore.open', () => {
     expect(store.state.initialKind).toBe('AFFIRMED')
     expect(store.findingType).toBe('COUNTERMEASURE')
   })
+
+  it('prefillReason seeds the editable reason when the finding has none (dispose mode)', () => {
+    const store = useDispositionDialogStore()
+    store.open({ finding, prefillReason: 'Suggested note' })
+    expect(store.state.initialReason).toBe('Suggested note')
+  })
+
+  it('prefillReason is appended after a blank line when a reason already exists (affirm mode)', () => {
+    const store = useDispositionDialogStore()
+    const withReason: DispositionableFinding = { ...finding, dispositionReason: 'Author wrote this' }
+    store.open({ finding: withReason, mode: 'affirm', prefillReason: 'Suggested note' })
+    expect(store.state.initialReason).toBe('Author wrote this\n\nSuggested note')
+  })
+
+  it('absent prefillReason → initialReason is exactly the finding reason (no behavior change)', () => {
+    const store = useDispositionDialogStore()
+    const withReason: DispositionableFinding = { ...finding, dispositionReason: 'Author wrote this' }
+    store.open({ finding: withReason })
+    expect(store.state.initialReason).toBe('Author wrote this')
+  })
 })

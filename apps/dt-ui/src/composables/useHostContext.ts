@@ -8,7 +8,7 @@ import { useIssueDialogStore, type FindingIssueResult } from '@/stores/issueDial
 import { affirmReasonFor } from '@/composables/useFindingDisposition'
 import { componentRegistry } from '@/services/ComponentRegistry'
 import { getPageDisplayName } from '@/utils/dataFlowUtils'
-import { DtUtils, type DispositionMutationResult } from '@dethernety/dt-core'
+import { DtUtils, DtModel, DtClass, DtMitreAttack, type DispositionMutationResult } from '@dethernety/dt-core'
 import apolloClient from '@/plugins/apolloClient'
 
 // A finding reference as passed by callers (incl. module bundles over the host
@@ -144,7 +144,23 @@ export function useHostContext() {
     utils: {
       resolveComponent: safeResolveComponent,
       getPageDisplayName,
-      dtUtils: new DtUtils(apolloClient)
+      dtUtils: new DtUtils(apolloClient),
+      // dt-core model accessor for module bundles — a model's components/boundaries/flows/data, with
+      // geometry + descriptions. Same construction pattern as dtUtils. Module bundles that render a
+      // model minimap read it via getModelData; authorization stays enforced server-side on the shared
+      // authenticated client (the class also carries create/update/delete — those are governed the same way).
+      dtModel: new DtModel(apolloClient),
+      // dt-core class accessor for module bundles — a class (component/boundary/dataflow/data/control) by id,
+      // with its parsed guide/template. Same construction + server-side-authz pattern as dtUtils/dtModel.
+      // Module bundles that render class-level reference docs read it via getClassById (the class also carries
+      // instantiation-attribute + element-binding mutations — governed server-side the same way).
+      dtClass: new DtClass(apolloClient),
+      // dt-core ATT&CK accessor for module bundles — one technique's authoritative name/description/tactics
+      // by attack_id. Same construction + server-side-authz pattern as dtUtils/dtModel/dtClass. Module bundles
+      // that render technique reference detail on demand read it via getMitreAttackTechnique; the reader is
+      // read-only (no mutations on this class). Descriptions run ~1KB each, so this is fetched lazily per
+      // dialog-open rather than baked into any module's generated report.
+      dtMitreAttack: new DtMitreAttack(apolloClient)
     }
   }
 }
