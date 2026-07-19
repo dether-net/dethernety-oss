@@ -259,7 +259,9 @@ export class AppController {
   async getReadiness(
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ready: boolean; timestamp: string }> {
-    let ready = false;
+    // Assigned on both the try and catch paths before the `if (!ready)` read
+    // below — an initializer here would be a dead store (no-useless-assignment).
+    let ready: boolean;
     try {
       // Ready = can serve traffic. A `degraded` GraphQL status still serves
       // (e.g. the base-schema composition fallback) — pulling such a pod from
