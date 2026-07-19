@@ -459,8 +459,20 @@ export class DtLgAnalysisOps {
         { onDisconnect: 'continue', ...payload }
       );
 
+      // A run that fails INSIDE the graph is delivered as a yielded `error`
+      // event, not a thrown exception (the SDK throws only on transport
+      // failures). The content filters below skip it, so capture it here and
+      // report a terminal 'error' — otherwise a failed run ends the loop
+      // normally and would be published as a false 'complete'.
+      let streamError: string | null = null;
+
       for await (const chunk of streamResponse) {
         const typedChunk = chunk as AnalysisChunk;
+
+        if (typedChunk.event === 'error') {
+          streamError = this.extractStreamError(typedChunk.data);
+          continue;
+        }
 
         if (streamMode === 'messages-tuple' &&
             typedChunk.event.startsWith('messages') &&
@@ -488,14 +500,68 @@ export class DtLgAnalysisOps {
         }
       }
 
-      return true;
-    } catch (error) {
-      this.logger.error('Stream failed', {
+      // Terminal event: the stream ended. Report 'error' if the run failed
+      // in-graph, else 'complete'. Subscribers otherwise receive only content
+      // chunks and never learn the run finished.
+      if (streamError) {
+        this.logger.error('Analysis run errored in-graph', { sessionId, error: streamError });
+      }
+      pubSub.publish('streamResponse', {
+        streamResponse: streamError
+          ? this.makeTerminalChunk('error', streamError)
+          : this.makeTerminalChunk('complete'),
         sessionId,
-        error: error instanceof Error ? error.message : String(error)
+      });
+      return !streamError;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('Stream failed', { sessionId, error: message });
+      // Terminal event: surface the failure so subscribers stop waiting.
+      pubSub.publish('streamResponse', {
+        streamResponse: this.makeTerminalChunk('error', message),
+        sessionId,
       });
       return false;
     }
+  }
+
+  /**
+   * Best-effort human message out of a LangGraph `error` stream event's data,
+   * which has no fixed shape (often { error, message } or a bare string).
+   */
+  private extractStreamError(data: unknown): string {
+    if (typeof data === 'string') return data;
+    if (data && typeof data === 'object') {
+      const d = data as Record<string, unknown>;
+      const msg = d.message ?? d.error;
+      if (typeof msg === 'string' && msg.length > 0) return msg;
+    }
+    return 'Analysis run failed';
+  }
+
+  /**
+   * Build a terminal stream chunk (AIResponse-shaped) marking a stream's end.
+   * The `type` ('complete' | 'error') lets subscribers close out.
+   *
+   * `content` is intentionally EMPTY on both terminals so a content-only
+   * subscriber (today's dt-ui renders any chunk with truthy `content` as a chat
+   * message) ignores them entirely — a terminal must not render as a message.
+   * An error's human detail rides on `additional_kwargs.error` instead, where a
+   * type-aware consumer reads it after branching on `type === 'error'`.
+   */
+  private makeTerminalChunk(type: 'complete' | 'error', errorMessage = ''): Record<string, unknown> {
+    return {
+      content: '',
+      id: '',
+      type,
+      name: type === 'error' ? 'Error' : 'Complete',
+      example: false,
+      additional_kwargs: type === 'error' && errorMessage ? { error: errorMessage } : {},
+      tool_calls: [],
+      invalid_tool_calls: [],
+      usage_metadata: {},
+      tool_call_chunks: [],
+    };
   }
 
   /**

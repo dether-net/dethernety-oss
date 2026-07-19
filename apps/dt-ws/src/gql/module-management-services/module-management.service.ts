@@ -402,7 +402,11 @@ export class ModuleManagementService {
    *   (a) Found by name, dbId === id, edge=HAS_CLASS    → idempotent SET +=
    *   (b) Found by name, dbId === id, edge=HAS_ORPHANED → revive + SET += + emit
    *   (c) Found by name, dbId !== id                   → rebind dispatch on policy
-   *   (d) New id collides with another module's class  → emit collision, skip
+   *   (d) New id collides with an existing class       → same-module id match whose
+   *       old name is absent from the incoming metadata = RENAME with a stable id
+   *       (update in place, reviving an orphan if needed); anything else
+   *       (foreign owner, same-module double-declaration, or indeterminate
+   *       because `declaredNames` wasn't supplied) → emit collision, skip
    *   (e) Not found at all                             → CREATE + MERGE edge
    *
    * Strict-mode rebind-conflict on one class doesn't fail the whole
@@ -417,6 +421,10 @@ export class ModuleManagementService {
     classLabel: string,
     embedding?: number[],
     modulePolicy?: IdRebindPolicy,
+    // All class names the module declares on disk for this label — the
+    // rename-vs-double-declaration discriminator for case (d). Callers that
+    // omit it (tests, legacy paths) get the conservative collision-skip.
+    declaredNames?: Set<string>,
   ): Promise<'applied' | 'skipped'> {
     const startTime = Date.now();
 
@@ -469,28 +477,78 @@ export class ModuleManagementService {
 
       // 2. Cross-module collision check — only when this is a new
       //    registration (no existing node by name in *this* module).
+      let renamed = false;
       if (!existing) {
+        // Collision check spans ALL modules including this one. `!existing`
+        // guarantees no node by *this* (module, name) exists yet, so a match
+        // is one of:
+        //   - a foreign module owning the id            → collision, skip
+        //   - THIS module's node under a DIFFERENT name → either a rename
+        //     with a stable id (old name gone from the incoming metadata:
+        //     update in place) or a double-declaration of the id within one
+        //     metadata (old name still declared: collision, skip — renaming
+        //     here would destroy the sibling registration mid-install).
+        // Without `declaredNames` the two same-module cases are
+        // indistinguishable → conservative collision-skip.
         const collision = await tx.run(
-          `MATCH (other:Module)-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {id: $id})
-           WHERE other.name <> $moduleName
-           RETURN other.name AS otherModule LIMIT 1`,
-          { moduleName, id: cls.id },
+          `MATCH (other:Module)-[r:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {id: $id})
+           RETURN other.name AS otherModule, type(r) AS edgeType, c.name AS oldName LIMIT 1`,
+          { id: cls.id }, // moduleName no longer referenced since the self-exclusion WHERE was dropped
         );
         if (collision.records.length > 0) {
-          // Case (d): collision. Emit and skip — the schema-layer UNIQUE
-          // constraint would also reject the eventual CREATE, but emitting
-          // first gives operators the structured context they need.
-          const otherModule = collision.records[0].get('otherModule') as string;
-          this.events.emit({
-            kind: 'collision',
-            firstModuleName: otherModule,
-            secondModuleName: moduleName,
-            classKind,
-            className: cls.name,
-            collidingId: cls.id,
-            timestamp: new Date().toISOString(),
-          });
-          return 'skipped';
+          const collisionRec = collision.records[0];
+          const otherModule = collisionRec.get('otherModule') as string;
+          const collidingEdgeType = collisionRec.get('edgeType') as string;
+          const oldName = collisionRec.get('oldName') as string | null;
+          const isRename =
+            otherModule === moduleName &&
+            typeof oldName === 'string' &&
+            declaredNames !== undefined &&
+            !declaredNames.has(oldName);
+          if (isRename) {
+            // Rename with a stable id. The node may have been orphaned by a
+            // previous boot's reconciliation of the old name — revive it now
+            // so the class is active in the same boot that applied the
+            // rename (without this, it would stay orphaned until the NEXT
+            // boot's by-name lookup hits case (b), while this install
+            // reports 'applied').
+            if (collidingEdgeType === 'HAS_ORPHANED_CLASS') {
+              await this.classReconciler.reviveClass(tx, moduleName, classLabel, cls.id);
+              this.events.emit({
+                kind: 'revive',
+                moduleName,
+                classKind,
+                className: cls.name,
+                classId: cls.id,
+                timestamp: new Date().toISOString(),
+              });
+            }
+            await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+            this.events.emit({
+              kind: 'rename',
+              moduleName,
+              classKind,
+              className: cls.name,
+              oldName,
+              classId: cls.id,
+              timestamp: new Date().toISOString(),
+            });
+            renamed = true;
+          } else {
+            // Case (d): collision. Emit and skip — the schema-layer UNIQUE
+            // constraint would also reject the eventual CREATE, but emitting
+            // first gives operators the structured context they need.
+            this.events.emit({
+              kind: 'collision',
+              firstModuleName: otherModule,
+              secondModuleName: moduleName,
+              classKind,
+              className: cls.name,
+              collidingId: cls.id,
+              timestamp: new Date().toISOString(),
+            });
+            return 'skipped';
+          }
         }
       }
 
@@ -531,11 +589,13 @@ export class ModuleManagementService {
         // another module, hitting the per-label UNIQUE constraint
         // mid-tx and rolling back the whole install. Surface it as a structured
         // collision event the way case (d) does for fresh registrations.
+        // Spans ALL modules incl. this one (see the case-(d) note above): the
+        // NEW id ($id) differs from the node being rebound (existing.dbId), so a
+        // match is a genuine foreign — or same-module sibling — owner of $id.
         const rebindCollision = await tx.run(
           `MATCH (other:Module)-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {id: $id})
-           WHERE other.name <> $moduleName
            RETURN other.name AS otherModule LIMIT 1`,
-          { moduleName, id: cls.id },
+          { id: cls.id }, // moduleName no longer referenced since the self-exclusion WHERE was dropped
         );
         if (rebindCollision.records.length > 0) {
           this.events.emit({
@@ -588,9 +648,9 @@ export class ModuleManagementService {
             newId: cls.id,
           });
         }
-      } else {
-        // Case (e): not found, no collision — fresh create with the
-        // module-declared id. nodeProperties already carries the embedding
+      } else if (!renamed) {
+        // Case (e): not found, no collision, not a rename — fresh create with
+        // the module-declared id. nodeProperties already carries the embedding
         // fields when hasEmbedding is true, so the CREATE shape is
         // identical regardless of embedding presence (no REMOVE needed
         // for a brand-new node).
@@ -843,6 +903,13 @@ export class ModuleManagementService {
         }
       }
 
+      // A same-label duplicate class id is caught gracefully downstream by the
+      // per-class collision pre-check in upsertClass (which now spans this
+      // module too): the offending class is skipped + a collision event is
+      // emitted + the module downgrades to 'partial', while its other classes
+      // still install. No pre-emptive whole-module rejection — that would block
+      // a module's legitimate classes and regress harmless exact duplicates.
+
       // Prepare module data
       const moduleData = this.flattenProperties(
         metadata,
@@ -913,6 +980,19 @@ export class ModuleManagementService {
       const vectorForClass = (name: string): number[] | undefined =>
         vectors?.get(name);
 
+      // Names declared on disk per label — upsertClass's case-(d)
+      // rename-vs-double-declaration discriminator (a same-module id match
+      // whose old name is still declared is a duplicate, not a rename).
+      const declaredNamesByLabel = new Map<string, Set<string>>();
+      for (const { cls, label } of allClasses) {
+        let names = declaredNamesByLabel.get(label);
+        if (!names) {
+          names = new Set<string>();
+          declaredNamesByLabel.set(label, names);
+        }
+        names.add(cls.name);
+      }
+
       // Phase 3: Upsert each class with its (optional) pre-resolved vector.
       // 'applied' counts as success; 'skipped' (strict rebind-conflict or
       // collision) leaves classesProcessed lower than allClasses.length →
@@ -929,6 +1009,7 @@ export class ModuleManagementService {
             label,
             embedding,
             metadata.idRebindPolicy,
+            declaredNamesByLabel.get(label),
           );
           if (outcome === 'applied') classesProcessed++;
         } catch (error) {
@@ -954,9 +1035,9 @@ export class ModuleManagementService {
       // handled inside upsertClass when metadata re-introduces them.
       // Reads only :HAS_CLASS — orphaned classes are untouched here.
       for (const modClass of MODULE_CLASS_CONFIGS) {
-        const declaredNames = new Set<string>(
-          ((metadata as any)[modClass.key] ?? []).map((c: { name: string }) => c.name),
-        );
+        // Reuse the Phase-3 per-label sets — the orphan sweep and the
+        // rename-vs-double-declaration discriminator must never diverge.
+        const declaredNames = declaredNamesByLabel.get(modClass.label) ?? new Set<string>();
         const dbBindings = await tx.run(
           `MATCH (m:Module {name: $moduleName})-[:HAS_CLASS]->(c:${modClass.label})
            RETURN c.id AS id, c.name AS name`,
@@ -1090,7 +1171,7 @@ export class ModuleManagementService {
     moduleId: string,
   ): Promise<{ name: string; path?: string } | null> {
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     
     try {
@@ -1134,7 +1215,7 @@ export class ModuleManagementService {
   ): Promise<string> {
     const startTime = Date.now();
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     let moduleInstalled = '';
 
@@ -1212,7 +1293,7 @@ export class ModuleManagementService {
     instance: DTModule | undefined,
   ): Promise<void> {
     if (!instance?.afterInstall) return;
-    const databaseName = this.configService.get('database.name') || 'neo4j';
+    const databaseName = this.configService.get('database.name');
     // `this.config` is absent in some test harnesses (ConfigService.get → undefined);
     // fall back to the MODULE_LOAD_TIMEOUT default so we never TypeError.
     const timeoutMs = this.config?.moduleLoadTimeout ?? 30_000;
@@ -1261,7 +1342,7 @@ export class ModuleManagementService {
   ): Promise<void> {
     const startTime = Date.now();
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     const modulesInstalled: string[] = [];
     let processedCount = 0;
@@ -1345,37 +1426,63 @@ export class ModuleManagementService {
         }
       }
 
-      // Phase B — single write tx with pre-resolved vectors; no HTTP inside.
-      // Per-module try/catch retained for symmetry with Phase A and with
-      // the pre-change behavior at module-management.service.ts:725-752.
-      await session.executeWrite(async (tx: DatabaseTransaction) => {
-        for (const [moduleName, { metadata, vectors }] of resolved) {
-          try {
-            const result = await this.upsertModule(tx, metadata, options, vectors);
-            modulesInstalled.push(result.moduleName);
-            processedCount++;
+      // Phase B — one write tx PER MODULE (pre-resolved vectors; no HTTP inside).
+      // A shared tx made the per-module try/catch illusory: a DB-level abort in
+      // any module (e.g. a same-label id collision) poisons the whole Bolt tx,
+      // so every subsequent tx.run — including deleteOldModules' — throws and
+      // rolls the batch back, crashing onModuleInit. Isolating each module in
+      // its own executeWrite makes the "continue with other modules" promise
+      // real: a poisoned module rolls back only its own tx; the others commit.
+      for (const [moduleName, { metadata, vectors }] of resolved) {
+        try {
+          const result = await session.executeWrite((tx: DatabaseTransaction) =>
+            this.upsertModule(tx, metadata, options, vectors),
+          );
+          modulesInstalled.push(result.moduleName);
+          processedCount++;
 
-            this.logger.debug('Module processed successfully', {
-              moduleName,
-              moduleId: result.moduleId,
-              classesProcessed: result.classesProcessed,
-            });
-          } catch (error) {
-            errorCount++;
-            this.logger.error('Failed to upsert module during bulk update', {
-              moduleName,
-              error: error.message,
-              stack: error.stack,
-            });
-            // Continue with other modules.
-          }
+          this.logger.debug('Module processed successfully', {
+            moduleName,
+            moduleId: result.moduleId,
+            classesProcessed: result.classesProcessed,
+          });
+        } catch (error) {
+          errorCount++;
+          this.logger.error('Failed to upsert module during bulk update', {
+            moduleName,
+            error: error.message,
+            stack: error.stack,
+          });
+          // Continue — now genuinely isolated from the other modules' txns.
         }
+      }
 
-        // Clean up obsolete modules
-        if (modulesInstalled.length > 0) {
-          await this.deleteOldModules(tx, modulesInstalled);
+      // Obsolescence sweep in its OWN final tx, after every module upsert has
+      // committed. Protect every module PRESENT ON DISK this round (`attempted`),
+      // NOT just the ones that installed: deleteOldModules deletes (DB −
+      // validNames), so passing the on-disk set means "delete only modules that
+      // no longer exist on disk". A module that merely blipped this boot
+      // (getMetadata/resolveVectors/upsert threw) stays in `attempted` and is
+      // never treated as obsolete and DETACH DELETE-d along with its classes.
+      const attempted = Array.from(new Set(modules.keys()));
+      if (attempted.length > 0) {
+        // A failed obsolescence sweep must NOT crash boot: every module has
+        // already committed, so a DB error here should degrade to "an obsolete
+        // module lingers one more boot" (self-heals next sweep), not take the
+        // whole app down. Log and continue rather than rethrow out of onModuleInit.
+        try {
+          await session.executeWrite((tx: DatabaseTransaction) =>
+            this.deleteOldModules(tx, attempted),
+          );
+        } catch (error) {
+          errorCount++;
+          this.logger.error('Obsolescence sweep failed — leaving stale modules for next boot', {
+            error: error.message,
+            stack: error.stack,
+            attempted,
+          });
         }
-      });
+      }
 
       // Post-commit: every :Module node is committed + visible to a fresh
       // session. Fire afterInstall on each installed OR content-hash-skipped

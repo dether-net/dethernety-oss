@@ -59,7 +59,7 @@ export class ControlCandidatesResolverService {
 
   private getSession() {
     return this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
   }
 
@@ -88,7 +88,10 @@ export class ControlCandidatesResolverService {
       // coalesce(supportedTypes, []): the property is optional on
       // ControlClass; Memgraph raises on membership against a null list
       // (same guard as control-gaps-resolver). Null/absent means the class
-      // supports nothing.
+      // supports nothing — the strict reading, right for a RANKING surface.
+      // control-gaps-resolver's Phase 3 deliberately uses the lenient
+      // opposite (null = everything) for its discovery surface. Intentional
+      // divergence, ratified 2026-07-18.
       //
       // head(collect(DISTINCT m)): module ingestion MERGEs each class under
       // a single Module, so one HAS_CLASS parent is the invariant — the

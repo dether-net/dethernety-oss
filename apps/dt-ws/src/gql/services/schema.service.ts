@@ -15,6 +15,10 @@ export class SchemaService implements ISchemaService {
   private schema: any;
   private readonly config: GqlConfig;
   private moduleSchemaFragments: string[] = [];
+  // True when the served schema is the base-only composition fallback
+  // (module contributions present but uncomposable). Read by the health
+  // probe so the degradation is observable, not silent.
+  private degradedToBaseSchema = false;
   private readonly MODULE_RESOLVER_TIMEOUT_MS = 30_000;
   
   // Build-time constants — schema files are part of the application codebase
@@ -35,6 +39,11 @@ export class SchemaService implements ISchemaService {
     return this.schema;
   }
 
+  /** True when serving the base-only fallback (module surface dropped). */
+  isSchemaDegraded(): boolean {
+    return this.degradedToBaseSchema;
+  }
+
   async validateSchema(): Promise<boolean> {
     try {
       await this.getSchema();
@@ -45,10 +54,29 @@ export class SchemaService implements ISchemaService {
     }
   }
 
-  async buildSchemaWithResolvers(customResolvers: ResolverMap): Promise<any> {
+  /**
+   * Builds the executable schema. When `moduleResolvers` are supplied they
+   * are merged behind the platform resolvers (which win on conflict).
+   *
+   * Composition is fragment-tolerant: if the module-augmented type defs
+   * fail to compose (a fragment that parses but collides at composition —
+   * e.g. an unfiltered duplicate directive usage), the build falls back to
+   * the BASE schema with platform resolvers only — module resolvers must
+   * drop together with their types, or they would reference undefined
+   * types. One pathological module degrades the module surface; it never
+   * kills boot. A base-only failure is genuine and still throws.
+   *
+   * The successful schema is cached on the instance so getSchema() /
+   * validateSchema() (the health probe) reuse the REAL served schema
+   * instead of triggering a fragment-less rebuild.
+   */
+  async buildSchemaWithResolvers(
+    customResolvers: ResolverMap,
+    moduleResolvers: Array<{ moduleName: string; resolvers: ResolverMap }> = [],
+  ): Promise<any> {
     try {
       this.logger.log('Building GraphQL schema with custom resolvers...');
-      
+
       // Load and validate schema file, merge module fragments
       const baseTypeDefs = await this.loadSchemaFile();
       const typeDefs = this.mergeModuleSchemas(baseTypeDefs);
@@ -56,7 +84,55 @@ export class SchemaService implements ISchemaService {
       // Validate Neo4j connection
       await this.validateNeo4jConnection();
 
-      const features: any = {};
+      const hasModuleContributions =
+        typeDefs !== baseTypeDefs || moduleResolvers.length > 0;
+      const allResolvers = this.mergeModuleResolvers(
+        customResolvers,
+        moduleResolvers,
+      );
+
+      // Security-relevant warning — log once per build, not per compose
+      // attempt (the fallback path composes twice).
+      if (!this.config.oidcJwksUri) {
+        this.logger.warn(
+          'OIDC JWKS URI not configured — @authentication directives in the schema will not be enforced. ' +
+          'Set OIDC_JWKS_URI to enable schema-level authentication.',
+        );
+      }
+
+      try {
+        this.schema = await this.composeSchema(typeDefs, allResolvers);
+        this.degradedToBaseSchema = false;
+      } catch (error) {
+        if (!hasModuleContributions) throw error;
+        this.logger.error(
+          'Module-contributed schema failed to compose — falling back to the base schema without module types/resolvers',
+          { error: error?.message },
+        );
+        this.schema = await this.composeSchema(baseTypeDefs, customResolvers);
+        // Surfaced through the health probe — a fully-green /health while
+        // the whole module surface is missing would hide the degradation.
+        this.degradedToBaseSchema = true;
+      }
+
+      this.logger.log('GraphQL schema built successfully with custom resolvers');
+      return this.schema;
+    } catch (error) {
+      this.logger.error('Failed to build GraphQL schema', {
+        error: error?.message || error,
+        stack: error?.stack,
+        fullError: error,
+      });
+      throw new Error(`Schema build failed: ${error?.message || JSON.stringify(error)}`, { cause: error });
+    }
+  }
+
+  /** Assembles Neo4jGraphQL features and composes the executable schema. */
+  private async composeSchema(
+    typeDefs: string,
+    resolvers: ResolverMap,
+  ): Promise<any> {
+    const features: any = {};
 
       // NOTE: Neo4j GraphQL v7's CDC-based subscriptions are disabled for Memgraph compatibility
       // Custom subscription resolvers (like streamResponse) still work via PubSub and Apollo Server WebSockets
@@ -83,39 +159,24 @@ export class SchemaService implements ISchemaService {
         },
       };
 
-      // Add authorization if OIDC is configured
+      // (The not-configured warning is logged once in
+      // buildSchemaWithResolvers — this may run twice on the fallback path.)
       if (this.config.oidcJwksUri) {
         features.authorization = {
           key: {
             url: this.config.oidcJwksUri,
           }
         };
-      } else {
-        this.logger.warn(
-          'OIDC JWKS URI not configured — @authentication directives in the schema will not be enforced. ' +
-          'Set OIDC_JWKS_URI to enable schema-level authentication.',
-        );
       }
 
-      const neoSchema = new Neo4jGraphQL({
-        typeDefs,
-        resolvers: customResolvers,
-        driver: this.neo4jDriver,
-        features,
-      });
+    const neoSchema = new Neo4jGraphQL({
+      typeDefs,
+      resolvers,
+      driver: this.neo4jDriver,
+      features,
+    });
 
-      const schema = await neoSchema.getSchema();
-      this.logger.log('GraphQL schema built successfully with custom resolvers');
-      return schema;
-
-    } catch (error) {
-      this.logger.error('Failed to build GraphQL schema', {
-        error: error?.message || error,
-        stack: error?.stack,
-        fullError: error,
-      });
-      throw new Error(`Schema build failed: ${error?.message || JSON.stringify(error)}`, { cause: error });
-    }
+    return neoSchema.getSchema();
   }
 
   /**
@@ -188,28 +249,83 @@ export class SchemaService implements ISchemaService {
 
   /**
    * Merges module schema fragments with the base schema.
-   * Each fragment is validated with graphql.parse() — invalid fragments are skipped with a warning.
+   *
+   * Two per-fragment gates, both log-and-skip (one bad module must never
+   * take the platform surface down):
+   *   1. graphql.parse() — syntactically invalid fragments are skipped;
+   *   2. duplicate-definition check — a fragment that REDEFINES a type
+   *      name already owned by the base schema or an earlier accepted
+   *      fragment is skipped. Do NOT weaken this to conflicting-redefs
+   *      only: a CONFLICTING redefinition throws at composition (boot
+   *      death without the fallback), but a COMPATIBLE one silently
+   *      MERGES in @neo4j/graphql — mutating a platform type without any
+   *      error. The filter prevents both. `extend type ...` extensions
+   *      are the supported augmentation form and pass untouched.
    */
   private mergeModuleSchemas(baseSchema: string): string {
     if (this.moduleSchemaFragments.length === 0) return baseSchema;
 
+    const takenNames = this.collectDefinitionNames(parse(baseSchema));
+
     const validFragments: string[] = [];
     for (const fragment of this.moduleSchemaFragments) {
+      let doc;
       try {
-        parse(fragment);
-        validFragments.push(fragment);
+        doc = parse(fragment);
       } catch (error) {
         this.logger.warn('Skipping invalid module schema fragment', {
           error: error?.message,
           fragmentPreview: fragment.substring(0, 200),
         });
+        continue;
       }
+
+      const fragmentNames = this.collectDefinitionNames(doc);
+      const collisions = [...fragmentNames].filter((n) => takenNames.has(n));
+      if (collisions.length > 0) {
+        this.logger.warn(
+          'Skipping module schema fragment that redefines existing type(s) — use `extend type` to augment',
+          {
+            collisions,
+            fragmentPreview: fragment.substring(0, 200),
+          },
+        );
+        continue;
+      }
+
+      fragmentNames.forEach((n) => takenNames.add(n));
+      validFragments.push(fragment);
     }
 
     if (validFragments.length === 0) return baseSchema;
 
     this.logger.log(`Merging ${validFragments.length} valid module schema fragment(s) with base schema`);
     return [baseSchema, ...validFragments].join('\n\n');
+  }
+
+  /**
+   * Top-level type-system DEFINITION names in a parsed document. Extensions
+   * (`extend type ...`, kind suffix `...TypeExtension`) are deliberately
+   * excluded — extending an existing type is legal composition.
+   */
+  private collectDefinitionNames(doc: ReturnType<typeof parse>): Set<string> {
+    const names = new Set<string>();
+    for (const def of doc.definitions) {
+      switch (def.kind) {
+        case 'ObjectTypeDefinition':
+        case 'InterfaceTypeDefinition':
+        case 'EnumTypeDefinition':
+        case 'ScalarTypeDefinition':
+        case 'UnionTypeDefinition':
+        case 'InputObjectTypeDefinition':
+        case 'DirectiveDefinition':
+          names.add(def.name.value);
+          break;
+        default:
+          break;
+      }
+    }
+    return names;
   }
 
   private async validateNeo4jConnection(): Promise<void> {
@@ -330,12 +446,18 @@ export class SchemaService implements ISchemaService {
       const start = Date.now();
 
       // Auth enforcement -- defense-in-depth: even if the module's SDL
-      // lacks @authentication, module resolvers require a valid JWT.
-      // Skipped ONLY when all three conditions are met:
+      // lacks @authentication, module resolvers require a verified identity.
+      // Gate on context.user (the JWKS-verified payload from the context
+      // factory), NOT on token/jwt presence: context.token still carries the
+      // raw, unverified bearer string, so gating on it would let any
+      // "Bearer <anything>" through. context.user is undefined for an
+      // invalid/absent token; in the no-OIDC non-prod dev mode it holds the
+      // mock admin.
+      // The gate itself is skipped ONLY when all three conditions are met:
       //   1. NODE_ENV is NOT 'production'
       //   2. OIDC is NOT configured
       //   3. ENABLE_NOAUTH is explicitly 'true'
-      if (authRequired && !context?.jwt && !context?.token) {
+      if (authRequired && !context?.user) {
         logger.warn(`Module resolver ${fieldPath} called without authentication`);
         throw new GraphQLError('Authentication required', {
           extensions: { code: 'UNAUTHENTICATED' },

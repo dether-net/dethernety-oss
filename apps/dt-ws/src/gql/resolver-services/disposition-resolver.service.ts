@@ -193,7 +193,7 @@ export class DispositionResolverService {
     // here and falls through to the not-found path in the write block below.
     if (kind === 'AFFIRMED') {
       const guardSession = this.neo4jDriver.session({
-        database: this.configService.get('database.name') || 'neo4j',
+        database: this.configService.get('database.name'),
       });
       try {
         const current = await guardSession.executeRead(async (tx: any) => {
@@ -219,7 +219,7 @@ export class DispositionResolverService {
     // observability signal for "was this a re-affirm of a stale row".
     const now = new Date().toISOString();
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
 
     try {
@@ -330,7 +330,7 @@ export class DispositionResolverService {
     // is a successful no-op (DB-side idempotency; the SET on null-already-null
     // writes the same value).
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       const record = await session.executeWrite(async (tx: any) => {

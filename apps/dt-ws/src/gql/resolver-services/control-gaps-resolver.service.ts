@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import neo4j from 'neo4j-driver';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
@@ -82,7 +83,7 @@ export class ControlGapsResolverService {
 
   private getSession() {
     return this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
   }
 
@@ -118,19 +119,26 @@ export class ControlGapsResolverService {
   ): Promise<RawExposureRow[]> {
     const session = this.getSession();
     try {
+      // Model-anchored scope (mirrors model-resolver's ENUMERATE walk): the
+      // Model MATCH is the only hard anchor; every containment leg is
+      // OPTIONAL, so a boundary-less model still surfaces its Data
+      // exposures instead of reporting a misleading "no gaps". collect()
+      // drops nulls, so a missing leg contributes []; an element-less model
+      // UNWINDs an empty list → zero rows → totalExposures 0, honestly.
+      // BELONGS_TO*0..50 covers the top-level boundary itself plus nesting
+      // (bounded directed walk — the schema @cypher convention). The
+      // structural legs collapse to one row BEFORE the Data leg runs, so
+      // model-level Data never cross-joins the boundary/component/flow
+      // path rows (peak cardinality stays additive, not multiplicative).
       const query = `
-        MATCH (model:Model {id: $modelId})-[:CONTAINS]->(b:SecurityBoundary)
-        OPTIONAL MATCH (b)<-[:BELONGS_TO*1..]-(nested:SecurityBoundary)
-        WITH model, collect(DISTINCT b) + collect(DISTINCT nested) AS allBoundaries
-        UNWIND allBoundaries AS boundary
+        MATCH (model:Model {id: $modelId})
+        OPTIONAL MATCH (model)-[:CONTAINS]->(topB:SecurityBoundary)
+        OPTIONAL MATCH (topB)<-[:BELONGS_TO*0..50]-(boundary:SecurityBoundary)
         OPTIONAL MATCH (boundary)<-[:BELONGS_TO]-(comp:Component)
-        WITH model, collect(DISTINCT comp) AS components, collect(DISTINCT boundary) AS boundaries
-        UNWIND components AS comp
         OPTIONAL MATCH (comp)-[:FLOWS]-(df:DataFlow)
-        WITH model, components, boundaries, collect(DISTINCT df) AS flows
+        WITH model, collect(DISTINCT boundary) + collect(DISTINCT comp) + collect(DISTINCT df) AS structural
         OPTIONAL MATCH (model)-[:CONTAINS]->(d:Data)
-        WITH components, boundaries, flows, collect(DISTINCT d) AS dataItems
-        WITH components + boundaries + flows + dataItems AS allElements
+        WITH structural + collect(DISTINCT d) AS allElements
         UNWIND allElements AS element
         MATCH (element)-[:HAS_EXPOSURE]->(exp:Exposure)
         OPTIONAL MATCH (exp)-[:EXPLOITED_BY]->(tech:MitreAttackTechnique)
@@ -223,6 +231,13 @@ export class ControlGapsResolverService {
 
     const session = this.getSession();
     try {
+      // `cc.supportedTypes IS NULL` = compatible with EVERYTHING —
+      // deliberate for this discovery/recommendation surface (no module in
+      // the catalogue populates supportedTypes today; the strict reading
+      // would silence every recommendation). control-candidates-resolver
+      // deliberately uses the strict opposite (coalesce → supports nothing)
+      // for its ranking surface, where a per-class `compatible` flag
+      // carries the nuance. Intentional divergence, ratified 2026-07-18.
       const query = `
         MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)-[:RESPONDS_WITH]->(mit:MitreAttackMitigation)
               -[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->(tech:MitreAttackTechnique)
@@ -246,8 +261,18 @@ export class ControlGapsResolverService {
                d3fendTechniques, addressesCount, elementsAffected
       `;
 
+      // LIMIT must be transmitted as a graph Integer — Memgraph rejects a
+      // plain JS number ("Limit on number of returned elements must be an
+      // integer.") because Bolt encodes it as Float64. neo4j.int() coerces
+      // to the Integer wrapper; Neo4j accepts both shapes, so this is the
+      // portable form (same fix as list-classes-resolver's SKIP/LIMIT).
       const result = await session.executeRead(async (tx: any) => {
-        return await tx.run(query, { techniqueIds, modelElementIds, elementTypes, topN });
+        return await tx.run(query, {
+          techniqueIds,
+          modelElementIds,
+          elementTypes,
+          topN: neo4j.int(topN),
+        });
       });
 
       return result.records.map((record: any) => ({
@@ -300,8 +325,10 @@ export class ControlGapsResolverService {
       return this.emptyResult();
     }
 
-    // Deduplicate exposures — the query may return multiple rows per exposure
-    // (one per technique/mitigation combination). Group by exposureId.
+    // Deduplicate exposures — the query returns one row per (element,
+    // exposure) pair, so multiple rows per exposureId only arise when one
+    // Exposure node hangs off several elements (atypical). Group by
+    // exposureId, OR-accumulating the control signals across rows.
     const exposureMap = new Map<
       string,
       {
@@ -346,24 +373,49 @@ export class ControlGapsResolverService {
       }
     }
 
-    // Classify exposures into five states:
-    // mitigated: control matches via MITRE chain
-    // configuredCoverage: control assigned but addresses different techniques
-    // unmitigated: addressable mitigations exist but no control implements them
-    // unaddressable: MITRE mitigations exist but no installed module covers them
+    // Classify exposures into five DISJOINT states — every exposure lands
+    // in exactly one, so the coverage summary sums to totalExposures:
+    // mitigated: a control on this element addresses its techniques via the MITRE chain
+    // configuredCoverage: control assigned but it addresses different techniques
+    // unmitigated: no control at all; ≥1 mitigation is addressable by an installed module
+    // unaddressable: no control at all and no addressable path — either none
+    //   of its MITRE mitigations has installed ControlClass coverage, or
+    //   MITRE knows no mitigation for its techniques at all
     // noMitreChain: no ATT&CK technique linked to the exposure
     const totalExposures = exposureMap.size;
     let mitigated = 0;
     let noMitreChain = 0;
     let configuredCoverage = 0;
-    const unmitigatedCandidates: Array<{
+    type GapCandidate = {
       elementId: string;
       elementName: string;
       exposureId: string;
       exposureName: string;
       techniques: Array<{ id: string; name: string }>;
       mitigations: Array<{ id: string; name: string }>;
-    }> = [];
+    };
+    const unmitigatedCandidates: GapCandidate[] = [];
+    // configuredCoverage entries stay OUT of the unmitigated/unaddressable
+    // buckets and lists (disjointness), but their techniques still feed
+    // Phase 3 — the assigned control does not address them, so recommending
+    // one that does remains useful.
+    const configuredCoverageCandidates: GapCandidate[] = [];
+
+    const toCandidate = (entry: {
+      elementId: string;
+      elementName: string;
+      exposureId: string;
+      exposureName: string;
+      techniques: Map<string, { id: string; name: string }>;
+      mitigations: Map<string, { id: string; name: string }>;
+    }): GapCandidate => ({
+      elementId: entry.elementId,
+      elementName: entry.elementName,
+      exposureId: entry.exposureId,
+      exposureName: entry.exposureName,
+      techniques: Array.from(entry.techniques.values()),
+      mitigations: Array.from(entry.mitigations.values()),
+    });
 
     for (const entry of exposureMap.values()) {
       if (entry.techniques.size === 0) {
@@ -376,41 +428,32 @@ export class ControlGapsResolverService {
       } else if (entry.hasAnyControl) {
         // Control assigned to this element but doesn't address this exposure's techniques
         configuredCoverage++;
-        // Still check for addressable mitigations for recommendations
         if (entry.mitigations.size > 0) {
-          unmitigatedCandidates.push({
-            elementId: entry.elementId,
-            elementName: entry.elementName,
-            exposureId: entry.exposureId,
-            exposureName: entry.exposureName,
-            techniques: Array.from(entry.techniques.values()),
-            mitigations: Array.from(entry.mitigations.values()),
-          });
+          configuredCoverageCandidates.push(toCandidate(entry));
         }
-      } else if (entry.mitigations.size > 0) {
-        unmitigatedCandidates.push({
-          elementId: entry.elementId,
-          elementName: entry.elementName,
-          exposureId: entry.exposureId,
-          exposureName: entry.exposureName,
-          techniques: Array.from(entry.techniques.values()),
-          mitigations: Array.from(entry.mitigations.values()),
-        });
+      } else {
+        // No control at all — a genuine gap, with or without known
+        // mitigations. The no-mitigations case partitions into
+        // `unaddressable` below (nothing known can address it).
+        unmitigatedCandidates.push(toCandidate(entry));
       }
-      // Exposures with techniques but no mitigations are a MITRE data gap —
-      // counted in totalExposures but not in any named category.
     }
 
-    // Phase 2b: Check addressability of mitigations
+    // Phase 2b: Check addressability of mitigations (both candidate pools —
+    // configuredCoverage entries need it for the Phase-3 technique filter)
     const allMitigationIds = [
       ...new Set(
-        unmitigatedCandidates.flatMap((c) => c.mitigations.map((m) => m.id)),
+        [...unmitigatedCandidates, ...configuredCoverageCandidates].flatMap(
+          (c) => c.mitigations.map((m) => m.id),
+        ),
       ),
     ];
     const addressableIds =
       await this.executeAddressabilityCheck(allMitigationIds);
 
-    // Partition unmitigated into addressable (unmitigated) and unaddressable
+    // Partition the no-control candidates into addressable (unmitigated)
+    // and unaddressable. A candidate with zero known mitigations is
+    // unaddressable by definition (mitreMitigations: []).
     const unmitigatedExposures: any[] = [];
     const unaddressableExposures: any[] = [];
 
@@ -442,13 +485,19 @@ export class ControlGapsResolverService {
       }
     }
 
-    // Phase 3: Recommend controls for unmitigated techniques
+    // Phase 3: Recommend controls for unmitigated techniques — from the
+    // unmitigated exposures plus the configuredCoverage entries whose
+    // mitigations are addressable (their assigned control doesn't cover
+    // these techniques, so they deserve recommendations too).
     const unmitigatedTechniqueIds = [
-      ...new Set(
-        unmitigatedExposures.flatMap((e: any) =>
+      ...new Set([
+        ...unmitigatedExposures.flatMap((e: any) =>
           e.attackTechniques.map((t: any) => t.id),
         ),
-      ),
+        ...configuredCoverageCandidates
+          .filter((c) => c.mitigations.some((m) => addressableIds.has(m.id)))
+          .flatMap((c) => c.techniques.map((t) => t.id)),
+      ]),
     ];
     const modelElementIds = [
       ...new Set(rows.map((r) => r.elementId)),
@@ -463,7 +512,9 @@ export class ControlGapsResolverService {
       topN,
     );
 
-    // Coverage summary — all fields must sum to totalExposures
+    // Coverage summary — the five buckets are disjoint and exhaustive:
+    // mitigated + configuredCoverage + noMitreChain + unmitigated +
+    // unaddressable === totalExposures, exactly.
     const coveragePct =
       totalExposures > 0 ? (mitigated / totalExposures) * 100 : 0;
 

@@ -108,7 +108,7 @@ export class IssueResolverService {
     const startTime = Date.now();
     const syncedAt = new Date().toISOString();
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
 
     try {

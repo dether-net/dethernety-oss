@@ -81,3 +81,69 @@ describe('DtLgAnalysisOps run durability', () => {
     expect(h.streamCalls[0].payload.onDisconnect).not.toBe('cancel');
   });
 });
+
+describe('DtLgAnalysisOps terminal stream events', () => {
+  let h: ReturnType<typeof makeOps>;
+  beforeEach(() => {
+    h = makeOps();
+  });
+
+  it('publishes a terminal complete event when the stream ends normally', async () => {
+    await h.ops.runAnalysis('s1', 'a1', 'Analysis Copilot', 'model-1', h.pubSub);
+    await flush();
+    expect(h.pubSub.publish).toHaveBeenCalledWith('streamResponse', {
+      streamResponse: expect.objectContaining({ type: 'complete', content: '' }),
+      sessionId: 's1',
+    });
+  });
+
+  it('publishes a terminal error event carrying the message when the stream throws', async () => {
+    h.client.runs.stream = vi.fn(() => {
+      throw new Error('boom');
+    });
+    await h.ops.runAnalysis('s1', 'a1', 'Analysis Copilot', 'model-1', h.pubSub);
+    await flush();
+    // Terminal content is EMPTY so a content-only subscriber ignores it; the
+    // error detail rides on additional_kwargs.error.
+    expect(h.pubSub.publish).toHaveBeenCalledWith('streamResponse', {
+      streamResponse: expect.objectContaining({
+        type: 'error',
+        content: '',
+        additional_kwargs: { error: 'boom' },
+      }),
+      sessionId: 's1',
+    });
+  });
+
+  it('emits content chunks before the terminal complete event', async () => {
+    async function* oneMessage() {
+      yield { event: 'updates', data: { messages: [{ content: 'hi', type: 'AIMessage' }] } };
+    }
+    h.client.runs.stream = vi.fn(() => oneMessage());
+    await h.ops.runAnalysis('s1', 'a1', 'Analysis Copilot', 'model-1', h.pubSub);
+    await flush();
+    const types = h.pubSub.publish.mock.calls.map((c: any[]) => c[1].streamResponse.type);
+    expect(types.length).toBeGreaterThanOrEqual(2);
+    expect(types[types.length - 1]).toBe('complete');
+  });
+
+  it('publishes a terminal error (not complete) when the run fails in-graph via a yielded error event', async () => {
+    async function* erroredRun() {
+      yield { event: 'error', data: { error: 'GraphError', message: 'graph blew up' } };
+    }
+    h.client.runs.stream = vi.fn(() => erroredRun());
+    await h.ops.runAnalysis('s1', 'a1', 'Analysis Copilot', 'model-1', h.pubSub);
+    await flush();
+    expect(h.pubSub.publish).toHaveBeenCalledWith('streamResponse', {
+      streamResponse: expect.objectContaining({
+        type: 'error',
+        content: '',
+        additional_kwargs: { error: 'graph blew up' },
+      }),
+      sessionId: 's1',
+    });
+    const types = h.pubSub.publish.mock.calls.map((c: any[]) => c[1].streamResponse.type);
+    expect(types).toContain('error');
+    expect(types).not.toContain('complete');
+  });
+});

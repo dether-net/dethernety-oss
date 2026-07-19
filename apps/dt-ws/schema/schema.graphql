@@ -1760,11 +1760,12 @@ type TypeCount @authentication @node {
 """
 Discriminated event from the in-memory class-identity event log.
 The `kind` field is the discriminant ('rebind' | 'rebind-conflict' |
-'collision' | 'orphan' | 'revive'); per-kind fields are nullable on
-the union shape and populated based on the discriminant value.
+'collision' | 'orphan' | 'revive' | 'rename'); per-kind fields are
+nullable on the union shape and populated based on the discriminant
+value.
 """
 type ClassIdentityEvent @authentication @node {
-  "Discriminant: 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive'"
+  "Discriminant: 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive' | 'rename'"
   kind: String!
   "ISO timestamp of event emission."
   timestamp: String!
@@ -1785,8 +1786,11 @@ type ClassIdentityEvent @authentication @node {
   dbId: String
   "Rebind policy applied: 'audit' | 'silent' | 'strict'."
   policy: String
-  # orphan / revive
-  "Class id (orphan / revive events)."
+  # rename
+  "Pre-rename class name (rename events only; className carries the new name)."
+  oldName: String
+  # orphan / revive / rename
+  "Class id (orphan / revive / rename events)."
   classId: String
   "Reason for orphaning ('absent-from-metadata' | 'legacy-id-superseded')."
   reason: String
@@ -1935,7 +1939,11 @@ type UnmitigatedExposure {
   recommendedMitigations: [MitreReference!]!
 }
 
-"""An exposure whose MITRE mitigations have no installed ControlClass coverage."""
+"""
+An exposure with no addressable path: none of its MITRE mitigations has
+installed ControlClass coverage — or MITRE lists no mitigation for its
+techniques at all (then mitreMitigations is empty).
+"""
 type UnaddressableExposure {
   elementId: ID!
   elementName: String!
@@ -2245,8 +2253,8 @@ type Query {
   events are not persisted). Admin-gated to avoid surfacing per-module
   operational state to non-admin authenticated users in multi-tenant
   deployments. Filter by `kind` ('rebind' | 'rebind-conflict' |
-  'collision' | 'orphan' | 'revive'), `moduleName`, and/or `since`
-  (events at-or-after the timestamp are returned).
+  'collision' | 'orphan' | 'revive' | 'rename'), `moduleName`, and/or
+  `since` (events at-or-after the timestamp are returned).
   """
   classIdentityEvents(
     kind: String

@@ -25,6 +25,20 @@ export interface QueryMetrics {
   error?: string;
 }
 
+/**
+ * Which graph engine the configured Bolt endpoint actually is. Both engines
+ * answer `CALL dbms.components()`: Neo4j with `name: "Neo4j Kernel"` and its
+ * real edition, Memgraph with `name: "Memgraph"` (and a Neo4j-compat version
+ * string — Memgraph's real version is only available via `SHOW VERSION`).
+ * Consumers branch DDL dialects on `engine`; `edition` gates
+ * Neo4j-Enterprise-only features (property-existence constraints).
+ */
+export interface EngineInfo {
+  engine: 'neo4j' | 'memgraph';
+  edition: string | null;
+  version: string | null;
+}
+
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
@@ -46,6 +60,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
   private initializationPromise?: Promise<void>;
   private isInitialized = false;
+  private engineInfoPromise?: Promise<EngineInfo>;
 
   constructor(private readonly configService: ConfigService) {
     this.config = this.configService.get<DatabaseConfig>('database')!;
@@ -121,14 +136,28 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async createDriver(): Promise<void> {
+    // A `+s` / `+ssc` URI scheme configures encryption on the URL itself, and
+    // neo4j-driver throws "Encryption/trust can only be configured either
+    // through URL or config, not both" if the config ALSO carries encrypted /
+    // trust keys (their mere presence conflicts, whatever the value). The
+    // shipped production templates pair neo4j+s:// with NEO4J_ENCRYPTED=true,
+    // so the URL must win and the config keys must be omitted entirely.
+    const uriConfiguresEncryption = /^[a-z0-9]+\+s(sc)?:\/\//i.test(this.config.uri);
+
     const driverConfig: any = {
       maxConnectionPoolSize: this.config.maxConnectionPoolSize,
       connectionAcquisitionTimeout: this.config.connectionAcquisitionTimeout,
       connectionTimeout: this.config.connectionTimeout,
       maxConnectionLifetime: this.config.maxConnectionLifetime,
       maxTransactionRetryTime: this.config.maxTransactionRetryTime,
-      encrypted: this.config.encrypted ? 'ENCRYPTION_ON' : 'ENCRYPTION_OFF',
-      trust: this.config.trust ? 'TRUST_ALL_CERTIFICATES' : 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
+      ...(uriConfiguresEncryption
+        ? {}
+        : {
+            encrypted: this.config.encrypted ? 'ENCRYPTION_ON' : 'ENCRYPTION_OFF',
+            trust: this.config.trust
+              ? 'TRUST_ALL_CERTIFICATES'
+              : 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
+          }),
       logging: this.config.enableLogging ? {
         level: this.config.enableDebug ? 'debug' : 'info',
         logger: (level: string, message: string) => {
@@ -425,6 +454,65 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Detect which graph engine the configured Bolt endpoint is.
+   *
+   * Probes `CALL dbms.components()` (answered by both Neo4j and Memgraph —
+   * verified empirically) and branches on the returned `name`. Successful
+   * probes are memoized for the process lifetime; a **failed probe is NOT
+   * memoized** and this call returns the `memgraph` default for that call
+   * only, so a transient early failure cannot pin the wrong engine forever.
+   *
+   * Never rejects: any failure (driver not initialized, DB down, procedure
+   * missing) logs an error and falls back to `memgraph` — the historical
+   * implicit assumption of the bootstrap DDL, whose statements fail-open
+   * per statement anyway when the engine guess is wrong.
+   */
+  async getEngineInfo(): Promise<EngineInfo> {
+    if (!this.engineInfoPromise) {
+      // The memoized promise never rejects (concurrent callers share it);
+      // on failure the memo is cleared so the NEXT caller re-probes, while
+      // in-flight callers get the fallback default.
+      this.engineInfoPromise = this.probeEngine().catch((error) => {
+        this.engineInfoPromise = undefined;
+        this.logger.error(
+          `Engine detection probe failed — assuming Memgraph for this call: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return { engine: 'memgraph' as const, edition: null, version: null };
+      });
+    }
+    return this.engineInfoPromise;
+  }
+
+  private async probeEngine(): Promise<EngineInfo> {
+    const session = this.getSession();
+    try {
+      const result = await session.run(
+        'CALL dbms.components() YIELD name, versions, edition RETURN name, versions, edition',
+      );
+      const record = result.records[0];
+      if (!record) {
+        throw new Error('dbms.components() returned no rows');
+      }
+      const name = String(record.get('name') ?? '');
+      const versions = record.get('versions');
+      const edition = record.get('edition');
+      const info: EngineInfo = {
+        engine: /memgraph/i.test(name) ? 'memgraph' : 'neo4j',
+        edition: edition != null ? String(edition) : null,
+        version: Array.isArray(versions) && versions.length > 0 ? String(versions[0]) : null,
+      };
+      this.logger.log(
+        `Graph engine detected: ${info.engine} (edition: ${info.edition ?? 'unknown'}, version: ${info.version ?? 'unknown'})`,
+      );
+      return info;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Get current database metrics
    */
   getMetrics(): DatabaseMetrics {
@@ -457,7 +545,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
 
     return {
-      isHealthy: this.metrics.isHealthy && connectivity,
+      // Live connectivity ONLY — never AND in the cached background flag.
+      // The periodic health check ticks every ~60s, so after a brief DB blip
+      // the cached `metrics.isHealthy` stays stale-false for up to a full
+      // interval past recovery; with /ready acting on this value (503), that
+      // stale flag would hold every replica out of rotation long after the
+      // DB is back. The cache remains background telemetry (getMetrics()).
+      isHealthy: connectivity,
       lastCheck: this.metrics.lastHealthCheck,
       metrics: this.getMetrics(),
       connectivity,

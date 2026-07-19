@@ -3,35 +3,38 @@ import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CustomResolverModule } from './custom-resolver.module';
-import { RESOLVER_SERVICES } from './resolvers.constants';
+import { GQL_SCHEMA } from './resolvers.constants';
 import { DatabaseModule } from '../database/database.module';
-import { SchemaService } from './services/schema.service';
-import { ModuleRegistryService } from './module-management-services/module-registry.service';
+import { SchemaModule } from './schema.module';
 import { GqlHealthService } from './health/gql-health.service';
 import { GraphQLSseController } from './sse/graphql-sse.controller';
-import { ResolverService, GraphQLContext } from './interfaces/resolver.interface';
 import gqlConfig, { GqlConfig } from './gql.config';
 import { Logger } from '@nestjs/common';
-import { extractBearerToken } from '../common/utils/extract-bearer-token';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import * as _depthLimitModule from 'graphql-depth-limit';
-const depthLimit = (_depthLimitModule as any).default || _depthLimitModule;
-import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
+import { createGraphQLContextFactory } from './utils/graphql-context.factory';
+import {
+  assertComplexityWithinLimit,
+  buildValidationRules,
+} from './utils/query-guards';
 
 @Module({
   imports: [
     ConfigModule.forFeature(gqlConfig),
     DatabaseModule,
     CustomResolverModule,
+    SchemaModule,
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      imports: [ConfigModule, CustomResolverModule],
-      inject: [ConfigService, RESOLVER_SERVICES, 'NEO4J_DRIVER', ModuleRegistryService],
+      // The schema itself is built ONCE by SchemaModule's GQL_SCHEMA
+      // provider (modules + fragments + resolvers) and shared with the SSE
+      // transport and the health probe — this factory only wires Apollo
+      // config around it.
+      imports: [ConfigModule, SchemaModule],
+      inject: [ConfigService, GQL_SCHEMA, 'NEO4J_DRIVER'],
       useFactory: async (
         configService: ConfigService,
-        resolverServices: ResolverService[],
+        schema: any,
         neo4jDriver: any,
-        moduleRegistryService: ModuleRegistryService,
       ) => {
         // Instantiate JwtAuthGuard here rather than injecting it: GraphQLModule
         // .forRootAsync has its own DI scope (see `imports:` above), and
@@ -44,36 +47,8 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
         try {
           logger.log('Initializing GraphQL module...');
 
-          // Create schema service instance
-          const schemaService = new SchemaService(configService, neo4jDriver);
-
-          // Ensure modules are loaded before collecting schema fragments
-          // (useFactory runs before onModuleInit, so modules may not be loaded yet)
-          await moduleRegistryService.loadModules();
-
-          // Pass module-contributed schema fragments
-          const schemaFragments = moduleRegistryService.getSchemaFragments();
-          schemaService.setModuleSchemaFragments(schemaFragments);
-
-          // Merge hardcoded resolver services
-          const customResolvers = schemaService.mergeResolvers(resolverServices);
-
-          // Collect and merge module-contributed resolvers
-          const moduleResolvers = moduleRegistryService.getModuleResolvers();
-          const allResolvers = schemaService.mergeModuleResolvers(
-            customResolvers,
-            moduleResolvers,
-          );
-
-          // Get the schema with all resolvers
-          const schema = await schemaService.buildSchemaWithResolvers(allResolvers);
-
-          // Security rules for production
-          const validationRules = [];
-          if (config.queryDepthLimit > 0) {
-            const depthRule = depthLimit(config.queryDepthLimit);
-            if (depthRule) validationRules.push(depthRule);
-          }
+          // Security rules — shared with the SSE transport (query-guards).
+          const validationRules = buildValidationRules(config);
 
           const useWebSocket = config.subscriptionTransport === 'ws';
 
@@ -90,24 +65,20 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
           // Query complexity plugin — runs per-request with variables available.
           // Using a static validation rule (createComplexityRule) fails because
           // the validation phase doesn't have access to request variables yet.
+          // The check itself is the shared query-guards implementation.
           const complexityPlugin = config.queryComplexityLimit > 0
             ? {
                 async requestDidStart() {
                   return {
                     async didResolveOperation(requestContext: any) {
                       const { request, document } = requestContext;
-                      const complexity = getComplexity({
+                      assertComplexityWithinLimit({
                         schema,
                         operationName: request.operationName,
-                        query: document,
-                        variables: request.variables || {},
-                        estimators: [simpleEstimator({ defaultComplexity: 1 })],
+                        document,
+                        variables: request.variables,
+                        limit: config.queryComplexityLimit,
                       });
-                      if (complexity > config.queryComplexityLimit) {
-                        throw new Error(
-                          `Query too complex: ${complexity}. Maximum allowed: ${config.queryComplexityLimit}`,
-                        );
-                      }
                     },
                   };
                 },
@@ -127,47 +98,7 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
                   'graphql-ws': true,
                 }
               : undefined,
-            context: async ({ req, connection }): Promise<GraphQLContext> => {
-              const databaseName = configService.get('database.name') || 'neo4j';
-
-              // WebSocket connection (subscription via graphql-ws)
-              if (connection) {
-                const token = extractBearerToken(connection.context?.Authorization);
-                const user = await jwtAuthGuard.decodeUserFromAuthHeader(connection.context?.Authorization);
-                return {
-                  token,
-                  jwt: token,
-                  user,
-                  driver: neo4jDriver,
-                  sessionConfig: { database: databaseName },
-                  cypherQueryOptions: { addVersionPrefix: false },
-                };
-              }
-
-              // HTTP request (query/mutation, or SSE subscription).
-              // Apollo handles POST /graphql directly — Nest's JwtAuthGuard
-              // never runs here — so we decode the JWT inline to populate
-              // ctx.user for resolver-side gates like requireAdmin().
-              if (req) {
-                const token = extractBearerToken(req.headers?.authorization);
-                const user = await jwtAuthGuard.decodeUserFromAuthHeader(req.headers?.authorization);
-                return {
-                  token,
-                  jwt: token, // Neo4j GraphQL expects 'jwt' field
-                  user,
-                  driver: neo4jDriver,
-                  sessionConfig: { database: databaseName },
-                  cypherQueryOptions: { addVersionPrefix: false },
-                };
-              }
-
-              // Fallback
-              return {
-                driver: neo4jDriver,
-                sessionConfig: { database: databaseName },
-                cypherQueryOptions: { addVersionPrefix: false },
-              };
-            },
+            context: createGraphQLContextFactory({ configService, jwtAuthGuard, neo4jDriver }),
             formatError: (error: any) => {
               logger.error('GraphQL Error:', {
                 message: error.message,
@@ -198,11 +129,10 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
     GraphQLSseController, // SSE endpoint for GraphQL subscriptions
   ],
   providers: [
-    SchemaService,
     GqlHealthService,
   ],
   exports: [
-    SchemaService,
+    SchemaModule, // Re-exports SchemaService + GQL_SCHEMA
     GqlHealthService,
     CustomResolverModule, // Re-export all services from CustomResolverModule
   ],

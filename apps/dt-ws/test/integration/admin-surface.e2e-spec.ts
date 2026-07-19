@@ -58,6 +58,10 @@ function makeDbStub(driver: Driver) {
         await session.close();
       }
     },
+    // The migration's atomic per-group merge opens its own managed tx.
+    getSession() {
+      return driver.session({ database: 'memgraph' });
+    },
   };
 }
 
@@ -156,7 +160,15 @@ describe('class-identity admin GraphQL surface — end-to-end against Memgraph',
   });
 
   // ── Case 2: runIdentityMigration apply + idempotent re-run ───────────
-  it('case 2 — runIdentityMigration apply collapses duplicates; re-run reports zero', async () => {
+  it('case 2 — runIdentityMigration apply collapses duplicates, redirects real edges; re-run reports zero', async () => {
+    // Real IS_INSTANCE_OF edges ride along so the redirect Cypher
+    // (MERGE + property copy + DELETE in one statement, inside the group tx)
+    // is exercised against the actual engine, not just the zero-edge branch:
+    //   an-1 → c2 only          (plain redirect; property must survive)
+    //   an-2 → c3 AND c1        (linked to BOTH duplicates; MERGE must
+    //                            collapse onto one canonical edge — with
+    //                            CREATE, the duplicate-edge dedup pass would
+    //                            add a 3rd action and break the assert below)
     await withWrite(
       mg.driver,
       `MERGE (m:Module {name: 'mod-a'})
@@ -165,12 +177,15 @@ describe('class-identity admin GraphQL surface — end-to-end against Memgraph',
        CREATE (c3:AnalysisClass {id: 'id-3', name: 'DupName'})
        CREATE (m)-[:HAS_CLASS]->(c1)
        CREATE (m)-[:HAS_CLASS]->(c2)
-       CREATE (m)-[:HAS_CLASS]->(c3)`,
+       CREATE (m)-[:HAS_CLASS]->(c3)
+       CREATE (a1:Analysis {id: 'an-1'})-[:IS_INSTANCE_OF {marker: 'kept'}]->(c2)
+       CREATE (a2:Analysis {id: 'an-2'})-[:IS_INSTANCE_OF {marker: 'nc'}]->(c3)
+       CREATE (a2)-[:IS_INSTANCE_OF {marker: 'canon'}]->(c1)`,
     );
 
     const apply = await resolvers.Mutation.runIdentityMigration({}, { dryRun: false }, adminCtx);
     expect(apply.dryRun).toBe(false);
-    expect(apply.totalActions).toBe(2); // two non-canonical deletes
+    expect(apply.totalActions).toBe(2); // two non-canonical deletes, nothing else
 
     const after = await withRead(
       mg.driver,
@@ -178,8 +193,55 @@ describe('class-identity admin GraphQL surface — end-to-end against Memgraph',
     );
     expect(asNumber(after.records[0].get('n'))).toBe(1);
 
+    // an-1's edge survived the merge, pointing at the survivor, property intact.
+    const a1Edges = await withRead(
+      mg.driver,
+      `MATCH (:Analysis {id: 'an-1'})-[r:IS_INSTANCE_OF]->(c:AnalysisClass {name: 'DupName'})
+       RETURN r.marker AS marker`,
+    );
+    expect(a1Edges.records.map((r) => r.get('marker'))).toEqual(['kept']);
+
+    // an-2 was linked to both duplicates: exactly ONE edge remains (MERGE
+    // collapsed the redirect onto the existing canonical edge).
+    const a2Edges = await withRead(
+      mg.driver,
+      `MATCH (:Analysis {id: 'an-2'})-[r:IS_INSTANCE_OF]->(c:AnalysisClass {name: 'DupName'})
+       RETURN count(r) AS n`,
+    );
+    expect(asNumber(a2Edges.records[0].get('n'))).toBe(1);
+
     const reRun = await resolvers.Mutation.runIdentityMigration({}, { dryRun: true }, adminCtx);
     expect(reRun.totalActions).toBe(0);
+  });
+
+  // ── Case 2b: cross-module same-name classes are NOT merged ───────────
+  it('case 2b — runIdentityMigration never merges same-name classes owned by different modules', async () => {
+    // Two modules legitimately own a class with the same name (install keys
+    // classes on (module, label, name)). The old name-only grouping would have
+    // deleted one and cross-wired its instances into the other module's class.
+    await withWrite(
+      mg.driver,
+      `CREATE (ma:Module {name: 'mod-a'})
+       CREATE (mb:Module {name: 'mod-b'})
+       CREATE (ca:AnalysisClass {id: 'id-a', name: 'DupName'})
+       CREATE (cb:AnalysisClass {id: 'id-b', name: 'DupName'})
+       CREATE (ma)-[:HAS_CLASS]->(ca)
+       CREATE (mb)-[:HAS_CLASS]->(cb)`,
+    );
+
+    const apply = await resolvers.Mutation.runIdentityMigration({}, { dryRun: false }, adminCtx);
+    expect(apply.totalActions).toBe(0);
+
+    // Both classes survive, each still bound to its own module.
+    const after = await withRead(
+      mg.driver,
+      `MATCH (m:Module)-[:HAS_CLASS]->(c:AnalysisClass {name: 'DupName'})
+       RETURN m.name AS module, c.id AS id ORDER BY module`,
+    );
+    expect(after.records.map((r) => [r.get('module'), r.get('id')])).toEqual([
+      ['mod-a', 'id-a'],
+      ['mod-b', 'id-b'],
+    ]);
   });
 
   // ── Case 3: migrateClassId aligns id ────────────────────────────────

@@ -52,6 +52,17 @@ export type ClassIdentityEvent =
       className: string;
       classId: string;
       timestamp: string;
+    }
+  | {
+      kind: 'rename';
+      moduleName: string;
+      classKind: ClassKind;
+      /** The NEW name (the one the module now declares). */
+      className: string;
+      /** The name the node held before the in-place rename. */
+      oldName: string;
+      classId: string;
+      timestamp: string;
     };
 
 export interface EventFilter {

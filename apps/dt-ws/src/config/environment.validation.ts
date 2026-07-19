@@ -32,9 +32,12 @@ export class EnvironmentVariables {
   @IsString()
   NEO4J_PASSWORD: string;
 
+  // No default: unset means "the server's default database" — the only value
+  // that works on both engines (Memgraph rejects sessions naming a database
+  // it doesn't have). Keep in sync with DatabaseConfig.name.
   @IsOptional()
   @IsString()
-  NEO4J_DATABASE?: string = 'neo4j';
+  NEO4J_DATABASE?: string;
 
   @IsOptional()
   @IsNumber()

@@ -664,7 +664,7 @@ export class ModuleRegistryService implements OnModuleInit {
                   const resolverContext: ModuleResolverContext = {
                     driver: this.createSecureDriver(),
                     logger: new Logger(`Module:${moduleName}:Resolvers`),
-                    databaseName: this.configService.get('database.name') || 'neo4j',
+                    databaseName: this.configService.get('database.name'),
                   };
                   const resolverMap = await loadResult.module.getResolvers(resolverContext);
                   if (resolverMap && Object.keys(resolverMap).length > 0) {

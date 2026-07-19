@@ -6,7 +6,7 @@ export interface HealthStatus {
   timestamp: string;
   details: {
     neo4j: 'connected' | 'disconnected' | 'error';
-    schema: 'valid' | 'invalid' | 'error';
+    schema: 'valid' | 'invalid' | 'degraded' | 'error';
     services: string[];
   };
   errors?: string[];
@@ -30,9 +30,15 @@ export class GqlHealthService {
     let neo4jStatus: 'connected' | 'disconnected' | 'error' = 'connected';
     try {
       const session = this.neo4jDriver.session();
-      const result = await session.run('RETURN 1 as test');
-      await session.close();
-      
+      let result;
+      try {
+        result = await session.run('RETURN 1 as test');
+      } finally {
+        // finally, not sequential — a throwing run() would otherwise leak
+        // one session per failing probe (probes run periodically).
+        await session.close();
+      }
+
       if (!result.records || result.records.length === 0) {
         neo4jStatus = 'error';
         errors.push('Neo4j query returned no results');
@@ -46,12 +52,22 @@ export class GqlHealthService {
     }
 
     // Check schema validity
-    let schemaStatus: 'valid' | 'invalid' | 'error' = 'valid';
+    let schemaStatus: 'valid' | 'invalid' | 'degraded' | 'error' = 'valid';
     try {
       const isValid = await this.schemaService.validateSchema();
       if (!isValid) {
         schemaStatus = 'invalid';
         errors.push('GraphQL schema validation failed');
+        overallStatus = overallStatus === 'healthy' ? 'degraded' : overallStatus;
+      } else if (this.schemaService.isSchemaDegraded()) {
+        // The composition fallback fired at boot: the served schema is the
+        // base only — module types/resolvers are missing. Without this, a
+        // pathological module degrades the whole module surface while
+        // /health stays green.
+        schemaStatus = 'degraded';
+        errors.push(
+          'Module-contributed schema failed to compose — serving base schema without module types/resolvers',
+        );
         overallStatus = overallStatus === 'healthy' ? 'degraded' : overallStatus;
       }
     } catch (error) {

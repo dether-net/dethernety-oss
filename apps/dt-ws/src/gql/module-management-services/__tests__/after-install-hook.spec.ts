@@ -118,7 +118,10 @@ describe('ModuleManagementService — afterInstall post-commit hook', () => {
     expect(hook).toHaveBeenCalledWith({
       driver,
       moduleName: 'm1',
-      databaseName: 'neo4j',
+      // Unset database.name passes through as undefined (server default DB) —
+      // the '|| neo4j' fallback split-brained the module plane from the
+      // bootstrap DDL target and broke bare Memgraph deployments.
+      databaseName: undefined,
     });
     // Happy path: no partial downgrade written.
     expect(partialDowngradeCalls(writeTx)).toHaveLength(0);
@@ -193,7 +196,10 @@ describe('ModuleManagementService — afterInstall post-commit hook', () => {
     expect(hook).toHaveBeenCalledWith({
       driver: okDriver.driver,
       moduleName: 'm1',
-      databaseName: 'neo4j',
+      // Unset database.name passes through as undefined (server default DB) —
+      // the '|| neo4j' fallback split-brained the module plane from the
+      // bootstrap DDL target and broke bare Memgraph deployments.
+      databaseName: undefined,
     });
 
     const badDriver = makeDriver([]);

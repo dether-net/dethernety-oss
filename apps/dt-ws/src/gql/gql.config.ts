@@ -22,10 +22,13 @@ function validateConfig(config: any): ValidationResult {
   if (config.oidcJwksUri && typeof config.oidcJwksUri !== 'string') {
     errors.push('oidcJwksUri must be a string');
   }
-  if (typeof config.queryDepthLimit !== 'number' || config.queryDepthLimit < 0) {
+  // Number.isFinite (not typeof) — `parseInt` of a non-numeric env var yields
+  // NaN, which is `typeof 'number'` and compares false against any bound, so
+  // a typo like GQL_QUERY_DEPTH_LIMIT=abc would silently DISABLE the limit.
+  if (!Number.isFinite(config.queryDepthLimit) || config.queryDepthLimit < 0) {
     errors.push('queryDepthLimit must be a positive number');
   }
-  if (typeof config.queryComplexityLimit !== 'number' || config.queryComplexityLimit < 0) {
+  if (!Number.isFinite(config.queryComplexityLimit) || config.queryComplexityLimit < 0) {
     errors.push('queryComplexityLimit must be a positive number');
   }
   if (typeof config.enableSubscriptions !== 'boolean') {
@@ -53,7 +56,10 @@ function validateConfig(config: any): ValidationResult {
   if (typeof config.enableModuleHotReload !== 'boolean') {
     errors.push('enableModuleHotReload must be a boolean');
   }
-  if (typeof config.moduleLoadTimeout !== 'number' || config.moduleLoadTimeout < 1000) {
+  // Number.isFinite for the same NaN reason as the query limits above —
+  // a NaN timeout would reach setTimeout(fn, NaN), which fires immediately
+  // and times out every module load.
+  if (!Number.isFinite(config.moduleLoadTimeout) || config.moduleLoadTimeout < 1000) {
     errors.push('moduleLoadTimeout must be a number >= 1000ms');
   }
   if (typeof config.enableModuleSecurityValidation !== 'boolean') {
