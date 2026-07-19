@@ -4,8 +4,8 @@ import { SchemaService } from '../schema.service';
 import { GraphQLError } from 'graphql';
 import { GraphQLContext } from '../../interfaces/resolver.interface';
 
-/** Minimal context with auth for tests */
-const authedContext = { jwt: 'valid-token', driver: {} } as GraphQLContext;
+/** Minimal context with a verified identity for tests */
+const authedContext = { user: { sub: 'test-user' }, jwt: { sub: 'test-user' }, driver: {} } as GraphQLContext;
 /** Minimal context without auth */
 const noAuthContext = { driver: {} } as GraphQLContext;
 
@@ -147,7 +147,7 @@ describe('SchemaService — Module Resolvers', () => {
   });
 
   describe('wrapModuleResolver — auth enforcement', () => {
-    it('should throw UNAUTHENTICATED when context has no jwt or token', async () => {
+    it('should throw UNAUTHENTICATED when context has no verified user', async () => {
       const moduleResolvers = [
         {
           moduleName: 'test-module',
@@ -170,7 +170,7 @@ describe('SchemaService — Module Resolvers', () => {
       }
     });
 
-    it('should pass auth check when jwt is present', async () => {
+    it('should pass auth check when a verified user is present', async () => {
       const innerFn = jest.fn().mockReturnValue('ok');
       const moduleResolvers = [
         { moduleName: 'test', resolvers: { Query: { f: innerFn } } },
@@ -184,18 +184,77 @@ describe('SchemaService — Module Resolvers', () => {
       expect(innerFn).toHaveBeenCalledWith({}, {}, authedContext, {});
     });
 
-    it('should pass auth check when token is present (no jwt)', async () => {
+    // Regression: a raw token string alone (no verified user) must NOT pass.
+    // context.token still holds the unverified bearer, so gating on it would
+    // reopen the bypass.
+    it('should REJECT when only a raw token string is present (no verified user)', async () => {
       const innerFn = jest.fn().mockReturnValue('ok');
       const moduleResolvers = [
         { moduleName: 'test', resolvers: { Query: { f: innerFn } } },
       ];
 
       const result = service.mergeModuleResolvers({}, moduleResolvers);
-      const tokenContext = { token: 'bearer-token', driver: {} } as GraphQLContext;
+      const tokenOnlyContext = { token: 'unverified-bearer-string', driver: {} } as GraphQLContext;
 
-      const value = await result.Query.f({}, {}, tokenContext, {});
+      await expect(
+        result.Query.f({}, {}, tokenOnlyContext, {}),
+      ).rejects.toThrow('Authentication required');
+      expect(innerFn).not.toHaveBeenCalled();
+    });
 
-      expect(value).toBe('ok');
+    it('should reject when a jwt payload is present but no verified user', async () => {
+      const innerFn = jest.fn().mockReturnValue('ok');
+      const moduleResolvers = [
+        { moduleName: 'test', resolvers: { Query: { f: innerFn } } },
+      ];
+
+      const result = service.mergeModuleResolvers({}, moduleResolvers);
+      const jwtOnlyContext = { jwt: { sub: 'x' }, driver: {} } as GraphQLContext;
+
+      await expect(
+        result.Query.f({}, {}, jwtOnlyContext, {}),
+      ).rejects.toThrow('Authentication required');
+      expect(innerFn).not.toHaveBeenCalled();
+    });
+
+    it('should skip the gate entirely in effective-NOAUTH config (non-prod, no OIDC, ENABLE_NOAUTH)', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'development';
+      try {
+        const noauthConfigService = {
+          get: jest.fn((key: string) =>
+            key === 'gql'
+              ? {
+                  oidcJwksUri: '',
+                  enableSubscriptions: false,
+                  enableNoauth: true,
+                  queryDepthLimit: 10,
+                  queryComplexityLimit: 1000,
+                }
+              : undefined,
+          ),
+        };
+        const noauthModule: TestingModule = await Test.createTestingModule({
+          providers: [
+            SchemaService,
+            { provide: ConfigService, useValue: noauthConfigService },
+            { provide: 'NEO4J_DRIVER', useValue: mockNeo4jDriver },
+          ],
+        }).compile();
+        const noauthService = noauthModule.get<SchemaService>(SchemaService);
+
+        const innerFn = jest.fn().mockReturnValue('ok');
+        const result = noauthService.mergeModuleResolvers({}, [
+          { moduleName: 'test', resolvers: { Query: { f: innerFn } } },
+        ]);
+
+        // No verified user in context, but the gate is skipped in NOAUTH mode.
+        const value = await result.Query.f({}, {}, noAuthContext, {});
+        expect(value).toBe('ok');
+        expect(innerFn).toHaveBeenCalled();
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
     });
   });
 

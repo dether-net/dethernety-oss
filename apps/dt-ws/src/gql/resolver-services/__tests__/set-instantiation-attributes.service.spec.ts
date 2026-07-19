@@ -205,3 +205,45 @@ describe('SetInstantiationAttributesService — resolver envelope', () => {
     expect(out.errorMessage).toBeNull();
   });
 });
+
+describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () => {
+  // Query-shape pin: the external-link anchor must scope the origin finding
+  // to the class the upsert wrote it under (classId + SYSTEM-or-legacy-null
+  // createdBy), so a bare-name match can never weld module-declared edges
+  // onto a same-named USER finding or another class's countermeasure. The
+  // behavioral proof against real Memgraph lives in
+  // test/integration/mitre-verb-edges.e2e-spec.ts.
+  it('threads classId into the link statement with class + createdBy scope', async () => {
+    const { service } = makeService();
+    const calls: Array<{ query: string; params: any }> = [];
+    const tx = {
+      run: jest.fn(async (query: string, params: any) => {
+        calls.push({ query, params });
+        if (query.includes('EXPLOITED_BY')) {
+          // Link statement — empty result (target-not-found path) is fine.
+          return { records: [] };
+        }
+        if (query.includes('instantiatedName')) {
+          return { records: [toRecord({ instantiatedName: 'X' })] };
+        }
+        throw new Error(`unrecognized query: ${query}`);
+      }),
+    };
+
+    await (service as any).upsertExposuresInTx(tx, {
+      componentId: 'comp-1',
+      classId: 'cls-1',
+      exposures: [{ name: 'X', exploitedBy: ['T1078'] }],
+    });
+
+    const link = calls.find((c) => c.query.includes('EXPLOITED_BY'));
+    expect(link).toBeDefined();
+    expect(link!.query).toContain(
+      "-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass {id: $classId})",
+    );
+    expect(link!.query).toContain(
+      "e.createdBy = 'SYSTEM' OR e.createdBy IS NULL",
+    );
+    expect(link!.params.classId).toBe('cls-1');
+  });
+});

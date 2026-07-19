@@ -137,7 +137,7 @@ export class ModelResolverService implements ResolverService {
     }
 
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
 
     try {

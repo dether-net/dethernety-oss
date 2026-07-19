@@ -223,7 +223,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const session: DatabaseSession = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
 
     try {
@@ -336,6 +336,24 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
             startedAt,
           );
           return failure(elementId, target, 'CLASS_NOT_FOUND', msg);
+        }
+        // Wrong-kind refusal — must precede the module calls and the write
+        // tx. Without it, the rewire's final MATCH on the expected label
+        // yields zero rows AFTER the destructive sweep and DELETE oldRel
+        // have already run: element left unbound, derived findings
+        // destroyed, mutation reporting success.
+        if (!status.labels.includes(classLabel)) {
+          const msg = `Class ${classId} is not a ${classLabel} — element type ${elementType} cannot bind to it`;
+          this.logFailure(
+            operationId,
+            actor,
+            elementId,
+            target,
+            msg,
+            'VALIDATION_ERROR',
+            startedAt,
+          );
+          return failure(elementId, target, 'VALIDATION_ERROR', msg);
         }
         if (!status.moduleName) {
           const msg = `Class ${classId} is orphaned (HAS_ORPHANED_CLASS)`;
@@ -740,11 +758,13 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // Single-roundtrip class-status lookup. Returns `exists` + the
-  // module name (or null when reached only via HAS_ORPHANED_CLASS).
+  // Single-roundtrip class-status lookup. Returns `exists`, the target's
+  // labels (for the wrong-kind refusal), and the module name (or null when
+  // reached only via HAS_ORPHANED_CLASS).
   //
   // Distinguishes:
   //   - { exists: false, moduleName: null }  → CLASS_NOT_FOUND
+  //   - { exists: true,  labels w/o kind }   → VALIDATION_ERROR (wrong kind)
   //   - { exists: true,  moduleName: null }  → ORPHAN_CLASS_REFUSED
   //   - { exists: true,  moduleName: 'X' }   → OK
   //
@@ -756,21 +776,23 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   private async lookupClassStatus(
     session: DatabaseSession,
     classId: string,
-  ): Promise<{ exists: boolean; moduleName: string | null }> {
+  ): Promise<{ exists: boolean; moduleName: string | null; labels: string[] }> {
     return session.executeRead(async (tx) => {
       const result = await tx.run(
         `
         OPTIONAL MATCH (klass {id: $classId})
           WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
         OPTIONAL MATCH (klass)<-[:HAS_CLASS]-(m:Module)
-        RETURN klass IS NOT NULL AS exists, m.name AS moduleName
+        RETURN klass IS NOT NULL AS exists, m.name AS moduleName,
+               CASE WHEN klass IS NULL THEN [] ELSE labels(klass) END AS klassLabels
         `,
         { classId },
       );
       const rec = result.records[0];
       const exists = (rec?.get('exists') as boolean) ?? false;
       const moduleName = (rec?.get('moduleName') as string | null) ?? null;
-      return { exists, moduleName };
+      const labels = (rec?.get('klassLabels') as string[]) ?? [];
+      return { exists, moduleName, labels };
     });
   }
 
@@ -861,6 +883,12 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // Converts a driver count value (neo4j Integer or plain number) to a JS
+  // number for the rewire row-count guards.
+  private static toCount(val: any): number {
+    return typeof val?.toNumber === 'function' ? val.toNumber() : Number(val ?? 0);
+  }
+
   // Branch A — target.kind = CLASS (single-class types).
   private async rewireToClassSingle(
     tx: DatabaseTransaction,
@@ -869,7 +897,11 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     targetClassId: string,
   ): Promise<void> {
     this.assertClassLabel(classLabel);
-    await tx.run(
+    // The deletes above the final MATCH persist even when that MATCH binds
+    // zero rows (wrong-kind or vanished target), so the RETURN count proves
+    // the MERGE actually ran; 0 throws → the enclosing executeWrite rolls
+    // the whole transaction (sweep + deletes included) back.
+    const result = await tx.run(
       `
       MATCH (c {id: $elementId})
       OPTIONAL MATCH (c)-[oldRel:IS_INSTANCE_OF]->(:${classLabel})
@@ -880,9 +912,18 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       WITH c
       MATCH (newKlass:${classLabel} {id: $targetClassId})
       MERGE (c)-[:IS_INSTANCE_OF]->(newKlass)
+      RETURN count(newKlass) AS bound
       `,
       { elementId, targetClassId },
     );
+    const bound = ElementBindingService.toCount(
+      result.records[0]?.get('bound'),
+    );
+    if (bound === 0) {
+      throw new Error(
+        `Rebind matched 0 target rows for ${classLabel} ${targetClassId} — rolling back`,
+      );
+    }
   }
 
   // Branch B — target.kind = REPRESENTED_MODEL.
@@ -893,7 +934,10 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     targetModelId: string,
   ): Promise<void> {
     this.assertClassLabel(classLabel);
-    await tx.run(
+    // Same zero-row guard as rewireToClassSingle: the model was verified in
+    // preflight, so 0 here means it vanished mid-flight (TOCTOU) — roll back
+    // rather than leave the element unbound with its findings swept.
+    const result = await tx.run(
       `
       MATCH (c {id: $elementId})
       OPTIONAL MATCH (c)-[oldRel:IS_INSTANCE_OF]->(:${classLabel})
@@ -904,9 +948,18 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       WITH c
       MATCH (m:Model {id: $targetModelId})
       MERGE (c)-[:REPRESENTS_MODEL]->(m)
+      RETURN count(m) AS bound
       `,
       { elementId, targetModelId },
     );
+    const bound = ElementBindingService.toCount(
+      result.records[0]?.get('bound'),
+    );
+    if (bound === 0) {
+      throw new Error(
+        `Rebind matched 0 target rows for Model ${targetModelId} — rolling back`,
+      );
+    }
   }
 
   // Branch C — target.kind = NONE.
@@ -949,15 +1002,29 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       { elementId, removedClassIds },
     );
     // Statement 2 — add new edges. UNWIND-empty cleanly skips the MATCH.
-    await tx.run(
+    // The count guard proves every added id matched a real ControlClass:
+    // a wrong-kind or vanished id makes its MATCH bind nothing, silently
+    // skipping the MERGE — count(DISTINCT klass) vs the deduplicated input
+    // size catches that (and tolerates duplicate ids in the input).
+    const result = await tx.run(
       `
       MATCH (c:Control {id: $elementId})
       UNWIND $addedClassIds AS aid
       MATCH (klass:ControlClass {id: aid})
       MERGE (c)-[:IS_INSTANCE_OF]->(klass)
+      RETURN count(DISTINCT klass) AS bound
       `,
       { elementId, addedClassIds },
     );
+    const expected = new Set(addedClassIds).size;
+    const bound = ElementBindingService.toCount(
+      result.records[0]?.get('bound'),
+    );
+    if (bound !== expected) {
+      throw new Error(
+        `Control rebind matched ${bound} of ${expected} added ControlClass ids — rolling back`,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------

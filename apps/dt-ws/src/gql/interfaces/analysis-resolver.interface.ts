@@ -70,6 +70,10 @@ export interface AnalysisOperationResult<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  // Machine-readable failure code, preserved from the structured AnalysisError
+  // so the GraphQL adapter can surface it as extensions.code (the human message
+  // in `error` is scrubbed in production; the code is not).
+  errorType?: AnalysisErrorType;
   metadata?: {
     operationId: string;
     timestamp: string;

@@ -160,7 +160,7 @@ GraphQL Request
   +-- Query depth/complexity validation
   +-- Resolver dispatch:
   |    +-- If field matches a wrapped module resolver:
-  |    |    +-- Auth enforcement: verify context.jwt is present
+  |    |    +-- Auth enforcement: verify context.user is present (verified identity)
   |    |    +-- Invoke module resolver with (parent, args, context, info)
   |    |    +-- Timeout: 30s race
   |    |    +-- Log: module name, type, field, duration
@@ -525,8 +525,8 @@ sequenceDiagram
     Apollo->>Wrapper: resolve(parent, args, context, info)
 
     Note over Wrapper: 1. Auth enforcement
-    Wrapper->>Wrapper: Verify context.jwt is present
-    alt No JWT
+    Wrapper->>Wrapper: Verify context.user is present (verified identity)
+    alt No verified user
         Wrapper-->>Apollo: throw UNAUTHENTICATED
     end
 
@@ -615,8 +615,10 @@ private wrapModuleResolver(
 
     // --- Auth enforcement ---
     // Platform defense-in-depth: even if the module's SDL lacks
-    // @authentication, module resolvers require a valid JWT.
-    if (!context?.jwt && !context?.token) {
+    // @authentication, module resolvers require a verified identity.
+    // Gate on context.user (the JWKS-verified payload), NOT on token/jwt
+    // presence — context.token still holds the raw, unverified bearer string.
+    if (!context?.user) {
       logger.warn(`Module resolver ${fieldPath} called without authentication`);
       throw new GraphQLError('Authentication required', {
         extensions: { code: 'UNAUTHENTICATED' },
@@ -968,7 +970,7 @@ No new environment variables are required. The module resolver system uses exist
 | Test Case | Description | Expected |
 |-----------|-------------|----------|
 | Success | Resolver returns value | Value returned, debug log |
-| No auth | `context.jwt` missing | `UNAUTHENTICATED` error thrown |
+| No auth | `context.user` missing (no verified identity) | `UNAUTHENTICATED` error thrown |
 | Timeout | Resolver exceeds 30s | `MODULE_RESOLVER_TIMEOUT` error |
 | Error | Resolver throws | `MODULE_RESOLVER_ERROR`, sanitized message |
 | Error in non-prod | Resolver throws, `NODE_ENV=development` | Includes `originalMessage` |

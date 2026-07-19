@@ -105,19 +105,27 @@ Manages GraphQL schema creation, validation, and resolver integration.
 
 #### Core Methods
 
-##### `buildSchemaWithResolvers(customResolvers: ResolverMap): Promise<any>`
-Creates the complete GraphQL schema with custom resolvers.
+##### `buildSchemaWithResolvers(customResolvers: ResolverMap, moduleResolvers?): Promise<any>`
+Creates the complete GraphQL schema with custom resolvers, optionally
+merging module-contributed resolvers behind them. Built once by
+`SchemaModule`'s `GQL_SCHEMA` provider and shared by every transport
+(Apollo, SSE) and the health probe.
 
 ```typescript
-// Usage
+// Usage (the GQL_SCHEMA provider does exactly this)
 const customResolvers = schemaService.mergeResolvers(resolverServices);
-const schema = await schemaService.buildSchemaWithResolvers(customResolvers);
+const schema = await schemaService.buildSchemaWithResolvers(
+  customResolvers,
+  moduleRegistry.getModuleResolvers(),
+);
 ```
 
 **Features:**
 - Loads GraphQL schema from file
 - Validates Neo4j connection
-- Integrates custom resolvers
+- Integrates custom + module resolvers (platform resolvers win on conflict)
+- Fragment-tolerant: uncomposable module contributions fall back to the
+  base schema (surfaced via the health probe as `schema: 'degraded'`)
 - Handles authentication setup
 - Comprehensive error handling
 

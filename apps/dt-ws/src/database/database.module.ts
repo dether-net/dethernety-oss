@@ -1,8 +1,22 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import neo4j from 'neo4j-driver';
 import { DatabaseService } from './database.service';
 import { databaseConfig } from './database.config';
+
+/**
+ * The 'NEO4J_DRIVER' token resolves to DatabaseService's OWN driver — one
+ * pool for the whole application, created by ensureInitialized(), watched
+ * by the service's health checks, and closed by its onModuleDestroy.
+ * (Previously this factory built a second, independent driver with no
+ * shutdown hook: all GraphQL traffic ran on an unmonitored pool while the
+ * health probes watched the other one.)
+ *
+ * Exported as a named function so the delegation is unit-pinnable.
+ */
+export const neo4jDriverFactory = async (db: DatabaseService) => {
+  await db.ensureInitialized();
+  return db.getDriver();
+};
 
 @Global()
 @Module({
@@ -10,32 +24,12 @@ import { databaseConfig } from './database.config';
     ConfigModule.forFeature(databaseConfig),
   ],
   providers: [
-    // Create the Neo4j driver directly for backward compatibility
+    DatabaseService,
     {
       provide: 'NEO4J_DRIVER',
-      useFactory: () => {
-        // Load configuration directly from environment
-        const config = databaseConfig();
-        
-        const driverConfig: any = {
-          maxConnectionPoolSize: config.maxConnectionPoolSize,
-          connectionAcquisitionTimeout: config.connectionAcquisitionTimeout,
-          connectionTimeout: config.connectionTimeout,
-          maxConnectionLifetime: config.maxConnectionLifetime,
-          maxTransactionRetryTime: config.maxTransactionRetryTime,
-          encrypted: config.encrypted ? 'ENCRYPTION_ON' : 'ENCRYPTION_OFF',
-          trust: config.trust ? 'TRUST_ALL_CERTIFICATES' : 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
-        };
-
-        return neo4j.driver(
-          config.uri,
-          neo4j.auth.basic(config.username, config.password),
-          driverConfig
-        );
-      },
+      inject: [DatabaseService],
+      useFactory: neo4jDriverFactory,
     },
-    // Create the DatabaseService (it will create its own driver internally)
-    DatabaseService,
     // Provide service access
     {
       provide: 'NEO4J_SERVICE',

@@ -147,7 +147,7 @@ export class OrphanSweepResolverService implements ResolverService {
    */
   async sweepOrphans(apply: boolean): Promise<OrphanSweepReport> {
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
 
     const run = async (tx: any): Promise<OrphanSweepReport> => {

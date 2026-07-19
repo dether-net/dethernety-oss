@@ -74,6 +74,10 @@ export interface LinkExternalObjectRequest {
   elementToOriginRelation: string;
   originName: string;
   relationName: string;
+  // Scopes the origin-finding anchor to the class the upsert wrote it
+  // under. Without it a bare-name match hits same-named USER findings and
+  // same-named countermeasures on other classes.
+  classId: string;
   target: ExternalObjectTarget;
 }
 

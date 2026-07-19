@@ -757,6 +757,81 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       expect(result.errorCode).toBe('REPRESENTED_MODEL_NOT_ALLOWED');
     });
 
+    it('VALIDATION_ERROR — wrong-kind rebind refused; binding and findings untouched', async () => {
+      // Live regression. Pre-fix, targeting a ControlClass id
+      // from a Component destroyed the element's SYSTEM findings, left it
+      // unbound (the sweep + DELETE oldRel persisted while the wrong-label
+      // MATCH bound zero rows), and reported success: true.
+      await seedComponent(mg.driver, 'comp-1');
+      await seedClass(mg.driver, 'ComponentClass', 'cc-A');
+      await seedClass(mg.driver, 'ControlClass', 'ctl-X');
+      await bindClassEdge(mg.driver, 'comp-1', 'cc-A');
+      await seedSystemExposureBoundToClass(mg.driver, 'comp-1', 'cc-A', 'SQLi');
+
+      const result = await service.changeElementBinding(
+        { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['ctl-X'] } },
+        ctx(),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('VALIDATION_ERROR');
+      expect(result.errorMessage).toContain('is not a ComponentClass');
+      expect(result.deltas).toEqual({
+        deletedDerivedExposures: 0,
+        instantiatedDerivedExposures: 0,
+        preservedCustomExposures: 0,
+        deletedDerivedCountermeasures: 0,
+        instantiatedDerivedCountermeasures: 0,
+        preservedCustomCountermeasures: 0,
+      });
+      // Binding and derived findings are exactly as seeded.
+      expect(await readBinding(mg.driver, 'comp-1')).toEqual({
+        classIds: ['cc-A'],
+        modelId: null,
+      });
+      const findings = await readFindings(mg.driver, 'comp-1', 'HAS_EXPOSURE');
+      expect(findings).toEqual([
+        { name: 'SQLi', createdBy: 'SYSTEM', classIds: ['cc-A'] },
+      ]);
+    });
+
+    it('VALIDATION_ERROR — Controls variant: wrong-kind replacement refused, existing state intact', async () => {
+      // Replacement scenario ([ctlc-A] → [cc-X]) on purpose: pre-fix this
+      // was the fully destructive path (ctlc-A lands in removedClassIds →
+      // cm-A1 swept, IS_INSTANCE_OF deleted, the wrong-kind add MATCH binds
+      // nothing, success reported) — so the state asserts below discriminate,
+      // not just the envelope.
+      await seedControl(mg.driver, 'ctl-1');
+      await seedClass(mg.driver, 'ControlClass', 'ctlc-A');
+      await seedClass(mg.driver, 'ComponentClass', 'cc-X');
+      await bindClassEdge(mg.driver, 'ctl-1', 'ctlc-A');
+      await runWrite(
+        mg.driver,
+        `MATCH (c {id: 'ctl-1'}), (k {id: 'ctlc-A'})
+         CREATE (c)-[:HAS_COUNTERMEASURE]->(:Countermeasure {id: randomUUID(), name: 'cm-A1', createdBy: 'SYSTEM'})-[:IS_COUNTERMEASURE_OF]->(k)`,
+      );
+
+      const result = await service.changeElementBinding(
+        {
+          elementId: 'ctl-1',
+          target: { kind: 'CLASS', classIds: ['cc-X'] },
+        },
+        ctx(),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('VALIDATION_ERROR');
+      expect(result.errorMessage).toContain('is not a ControlClass');
+      expect(await readBinding(mg.driver, 'ctl-1')).toEqual({
+        classIds: ['ctlc-A'],
+        modelId: null,
+      });
+      const findings = await readFindings(mg.driver, 'ctl-1', 'HAS_COUNTERMEASURE');
+      expect(findings).toEqual([
+        { name: 'cm-A1', createdBy: 'SYSTEM', classIds: ['ctlc-A'] },
+      ]);
+    });
+
     it('module-returned createdBy/id are forced/overridden (anti-forgery, allowlist guard)', async () => {
       await seedComponent(mg.driver, 'comp-1');
       await seedClass(mg.driver, 'ComponentClass', 'cc-A');

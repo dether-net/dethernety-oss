@@ -261,7 +261,7 @@ export class MatchMitreTechniquesResolverService {
       return this.vectorSearchAvailable;
     }
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       await session.executeRead(async (tx: any) =>
@@ -291,7 +291,7 @@ export class MatchMitreTechniquesResolverService {
     const keyProperty = MITRE_KEY_PROPERTY_BY_KIND[kind];
     const runtimeModel = this.embeddingService.getModel();
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       // Restrict the corpus to addressable nodes (n.<keyProperty> IS NOT NULL).
@@ -390,7 +390,7 @@ export class MatchMitreTechniquesResolverService {
 
     // 3. Dimension cross-check + HNSW index creation
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       let existingIndexes: Set<string>;
@@ -529,7 +529,7 @@ export class MatchMitreTechniquesResolverService {
 
   private async readCorpusFromGraph(kind: MitreKind): Promise<MitreRecord[]> {
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       // Filter out unkeyed taxonomy artifacts. D3FEND in particular has two
@@ -750,7 +750,7 @@ export class MatchMitreTechniquesResolverService {
     );
 
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     const searchStart = Date.now();
     try {

@@ -25,8 +25,14 @@ export interface ModuleInstallContext {
   driver: any;
   /** This module's name — equals its `:Module {name}` in the graph. */
   moduleName: string;
-  /** The database the platform installed into (for `driver.session({ database })`). */
-  databaseName: string;
+  /**
+   * The database the platform installed into (for `driver.session({ database })`).
+   * `undefined` when NEO4J_DATABASE is unset — the server's default database
+   * (the only value valid on both Neo4j and Memgraph). Pass it straight into
+   * `driver.session({ database: databaseName })`; the driver treats
+   * `undefined` as the server default.
+   */
+  databaseName: string | undefined;
 }
 
 export interface DTModule {

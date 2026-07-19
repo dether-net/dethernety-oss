@@ -8,6 +8,7 @@ import {
   AnalysisStatus,
 } from '@dethernety/dt-core';
 import { PubSub, withFilter } from 'graphql-subscriptions';
+import { GraphQLError } from 'graphql';
 import { ExtendedPubSubEngine } from '@dethernety/dt-module';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
@@ -46,6 +47,9 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
   private readonly longRunningAnalyses = new Map<string, LongRunningAnalysis>();
   private readonly subscriptionSessions = new Map<string, SubscriptionSession>();
   private cleanupInterval: NodeJS.Timeout;
+  // Subscription id for the internal streamResponse listener that drives
+  // longRunningAnalyses lifecycle (see handleStreamLifecycle).
+  private streamLifecycleSubId?: number;
   private statistics: AnalysisOperationStatistics = {
     totalOperations: 0,
     successfulOperations: 0,
@@ -90,6 +94,18 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.startCleanupInterval();
+
+    // Listen to the streamResponse channel to drive analysis lifecycle:
+    // terminal events remove the tracking entry (so the parallel limiter stops
+    // counting finished sessions) and content chunks refresh lastActivity (so
+    // the idle sweep never evicts an actively-streaming run). This fires for
+    // every published message regardless of whether a client is subscribed.
+    this.streamLifecycleSubId = await this.pubSub.subscribe(
+      'streamResponse',
+      (payload) => this.handleStreamLifecycle(payload),
+      {},
+    );
+
     this.logger.log('AnalysisResolverService initialized successfully');
   }
 
@@ -97,12 +113,48 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
-    
+    if (this.streamLifecycleSubId != null) {
+      this.pubSub.unsubscribe(this.streamLifecycleSubId);
+    }
+
     // Cleanup active subscriptions
     this.subscriptionSessions.clear();
     this.longRunningAnalyses.clear();
-    
+
     this.logger.log('AnalysisResolverService destroyed');
+  }
+
+  /**
+   * React to a published streamResponse message for lifecycle bookkeeping.
+   * Terminal ('complete'/'error') → drop the longRunningAnalyses entry and
+   * decrement activeAnalyses; any other chunk → refresh the entry's
+   * lastActivity. Keyed on the publish envelope's sessionId. Idempotent: a
+   * terminal event after an explicit deleteAnalysis is a no-op (Map.delete
+   * returns false), so activeAnalyses never double-decrements.
+   */
+  private handleStreamLifecycle(payload: {
+    sessionId?: string;
+    streamResponse?: { type?: string };
+  }): void {
+    const sessionId = payload?.sessionId;
+    if (!sessionId) return;
+
+    const type = payload.streamResponse?.type;
+    if (type === 'complete' || type === 'error') {
+      if (this.longRunningAnalyses.delete(sessionId)) {
+        this.statistics.activeAnalyses = Math.max(0, this.statistics.activeAnalyses - 1);
+      }
+    } else {
+      this.touchSession(sessionId);
+    }
+  }
+
+  /** Refresh a tracked analysis's lastActivity so the idle sweep spares it. */
+  private touchSession(sessionId: string): void {
+    const entry = this.longRunningAnalyses.get(sessionId);
+    if (entry) {
+      entry.lastActivity = Date.now();
+    }
   }
 
   /**
@@ -408,7 +460,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
    */
   private async getAnalysisClassAndModule(analysisId: string): Promise<AnalysisMetadata | null> {
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     
     try {
@@ -481,7 +533,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       // Structured AnalysisError objects (e.g. CLASS_RETIRED from the
       // orphan-check path) carry a `type` discriminator and must propagate
       // — turning them into null swallows operator-actionable signal.
-      if (error && typeof error === 'object' && 'type' in error && 'message' in error) {
+      if (this.isAnalysisError(error)) {
         throw error;
       }
       this.logger.error('Failed to get analysis metadata from database', {
@@ -558,6 +610,19 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
         request.additionalParams || {},
       );
 
+      // A module signals a start failure (assistant not found, graph-config
+      // missing, input builder threw) by returning an empty sessionId rather
+      // than throwing. Treat that as a failure so the client gets a coded error
+      // instead of a phantom session it would subscribe to forever.
+      if (!session?.sessionId) {
+        throw this.createAnalysisError(
+          'MODULE_ERROR',
+          'Module did not start an analysis session',
+          request.analysisId,
+          metadata.moduleName,
+        );
+      }
+
       // Track long-running analysis
       if (session.sessionId) {
         const longRunning: LongRunningAnalysis = {
@@ -621,6 +686,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       return {
         success: false,
         error: safeErrorMessage(error),
+        errorType: this.toErrorType(error),
         data: { sessionId: '' },
         metadata: {
           operationId,
@@ -695,6 +761,16 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
         request.additionalParams || {},
       );
 
+      // Empty sessionId is a module start-failure signal (see runAnalysis).
+      if (!session?.sessionId) {
+        throw this.createAnalysisError(
+          'MODULE_ERROR',
+          'Module did not start a chat session',
+          request.analysisId,
+          metadata.moduleName,
+        );
+      }
+
       // Track long-running analysis
       if (session.sessionId) {
         const longRunning: LongRunningAnalysis = {
@@ -759,6 +835,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       return {
         success: false,
         error: safeErrorMessage(error),
+        errorType: this.toErrorType(error),
         data: { sessionId: '' },
         metadata: {
           operationId,
@@ -822,6 +899,16 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
         request.userInput,
         this.pubSub,
       );
+
+      // Empty sessionId is a module start-failure signal (see runAnalysis).
+      if (!session?.sessionId) {
+        throw this.createAnalysisError(
+          'MODULE_ERROR',
+          'Module did not resume an analysis session',
+          request.analysisId,
+          metadata.moduleName,
+        );
+      }
 
       // Update long-running analysis tracking
       if (session.sessionId) {
@@ -894,6 +981,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       return {
         success: false,
         error: safeErrorMessage(error),
+        errorType: this.toErrorType(error),
         data: { sessionId: '' },
         metadata: {
           operationId,
@@ -910,7 +998,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
    */
   private async deleteAnalysisNode(id: string): Promise<boolean> {
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     
     try {
@@ -1070,6 +1158,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       return {
         success: false,
         error: safeErrorMessage(error),
+        errorType: this.toErrorType(error),
         data: false,
         metadata: {
           operationId,
@@ -1330,6 +1419,37 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       duration,
       timestamp: new Date(),
       metadata,
+    });
+  }
+
+  /** Type guard for a structured AnalysisError (carries the `type` discriminator). */
+  private isAnalysisError(error: unknown): error is AnalysisError {
+    return (
+      !!error && typeof error === 'object' && 'type' in error && 'message' in error
+    );
+  }
+
+  /**
+   * Recover the structured AnalysisError.type from a caught error so the
+   * failure code survives to the GraphQL adapter. A thrown createAnalysisError
+   * carries `type`; anything else collapses to UNKNOWN_ERROR.
+   */
+  private toErrorType(error: unknown): AnalysisErrorType {
+    return this.isAnalysisError(error) ? error.type : 'UNKNOWN_ERROR';
+  }
+
+  /**
+   * Build the GraphQLError a Mutation adapter throws on a failed operation
+   * result. The message is scrubbed in production by formatError; the
+   * extensions.code (a value of the AnalysisErrorType union) always reaches the
+   * client. Falls back to UNKNOWN_ERROR so the code set stays enumerable.
+   */
+  private toGraphQLError(
+    result: AnalysisOperationResult,
+    fallbackMessage: string,
+  ): GraphQLError {
+    return new GraphQLError(result.error ?? fallbackMessage, {
+      extensions: { code: result.errorType ?? 'UNKNOWN_ERROR' },
     });
   }
 
@@ -1616,9 +1736,10 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
             analysisId: args.analysisId,
             additionalParams: args.additionalParams,
           }, authContext);
-          return result.data || { sessionId: '' };
+          if (!result.success) throw this.toGraphQLError(result, 'Analysis failed');
+          return result.data!;
         },
-        
+
         startChat: async (_parent, args, context) => {
           const authContext = this.authorizationService.extractAuthContext(context);
           const result = await this.startChat({
@@ -1626,22 +1747,25 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
             userQuestion: args.userQuestion,
             additionalParams: args.additionalParams,
           }, authContext);
-          return result.data || { sessionId: '' };
+          if (!result.success) throw this.toGraphQLError(result, 'Chat failed');
+          return result.data!;
         },
-        
+
         resumeAnalysis: async (_parent, args, context) => {
           const authContext = this.authorizationService.extractAuthContext(context);
           const result = await this.resumeAnalysis({
             analysisId: args.analysisId,
             userInput: args.userInput,
           }, authContext);
-          return result.data || { sessionId: '' };
+          if (!result.success) throw this.toGraphQLError(result, 'Resume failed');
+          return result.data!;
         },
-        
+
         deleteAnalysis: async (_parent, args, context) => {
           const authContext = this.authorizationService.extractAuthContext(context);
           const result = await this.deleteAnalysis(args.analysisId, authContext);
-          return result.data || false;
+          if (!result.success) throw this.toGraphQLError(result, 'Delete failed');
+          return result.data!;
         },
       },
       

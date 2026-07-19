@@ -13,8 +13,9 @@ export interface ResolverFunction {
 }
 
 export interface GraphQLContext {
-  token?: string;
-  jwt?: string; // Neo4j GraphQL expects this field for authentication
+  token?: string; // Raw, unverified bearer string. @neo4j/graphql re-verifies it against JWKS.
+  jwt?: Record<string, unknown>; // VERIFIED JWT claims only. @neo4j/graphql trusts a truthy
+                                 // context.jwt as pre-verified — this must NEVER hold the raw string.
   driver: any; // Neo4j driver - could be typed more specifically
   user?: any;
   sessionConfig?: { database: string }; // Database name for Neo4j/Memgraph sessions

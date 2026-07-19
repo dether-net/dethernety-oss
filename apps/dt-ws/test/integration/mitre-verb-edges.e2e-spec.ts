@@ -375,4 +375,104 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
       expect(await edges('MFA', w.edge)).toEqual([{ target: w.tech, justification: null }]);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Live regressions — the link anchor is scoped to (classId,
+  // SYSTEM-or-legacy-null createdBy), never a bare name match.
+  // -------------------------------------------------------------------------
+
+  it('a same-named USER exposure — even class-bound — is never polluted by the SYSTEM link', async () => {
+    // Pre-fix, the bare-name anchor matched BOTH nodes and welded the
+    // module-declared EXPLOITED_BY edge (with its justification) onto the
+    // analyst's hand-authored finding.
+    await seedControlAndClass();
+    await seedTechnique('T1078');
+    await runWrite(
+      `MATCH (c {id: $ctrl}), (k {id: $cls})
+       CREATE (c)-[:HAS_EXPOSURE]->(:Exposure {
+         id: 'user-exp-1', name: 'X', createdBy: 'USER', authoredBy: 'analyst-7'
+       })-[:IS_EXPOSURE_OF]->(k)`,
+      { ctrl: CTRL, cls: CLS },
+    );
+
+    await upsertExposure({
+      name: 'X',
+      description: 'module-declared',
+      exploitedBy: [techRef('T1078', 'module says so')],
+    });
+
+    // The SYSTEM node carries the edge; the USER node carries none and is
+    // untouched.
+    const r = await runWrite(
+      `MATCH (e:Exposure {name: 'X'})
+       OPTIONAL MATCH (e)-[rel:EXPLOITED_BY]->(t:MitreAttackTechnique)
+       RETURN e.createdBy AS createdBy, e.authoredBy AS authoredBy,
+              collect(t.attack_id) AS techniques
+       ORDER BY createdBy`,
+    );
+    const rows = r.records.map((rec: any) => ({
+      createdBy: rec.get('createdBy'),
+      authoredBy: rec.get('authoredBy') ?? null,
+      techniques: rec.get('techniques'),
+    }));
+    expect(rows).toEqual([
+      { createdBy: 'SYSTEM', authoredBy: null, techniques: ['T1078'] },
+      { createdBy: 'USER', authoredBy: 'analyst-7', techniques: [] },
+    ]);
+  });
+
+  it('a same-named countermeasure on another class is never polluted (cross-class scope)', async () => {
+    // A Control bound to two classes holds one countermeasure node PER
+    // class for the same name. Pre-fix, linking under class A also welded
+    // the edge onto class B's node.
+    await seedControlAndClass(); // CTRL + CLS (class A)
+    await runWrite(`CREATE (:ControlClass {id: 'ccls-2', name: 'OtherClass'})`);
+    await seedTechnique('T1078');
+
+    // Same-named countermeasure under class B first (no refs), then under
+    // class A with a justified mitigates ref.
+    const session = mg.driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        svc.upsertCountermeasuresInTx(tx as any, {
+          componentId: CTRL,
+          classId: 'ccls-2',
+          countermeasures: [{ name: 'Shared CM', type: 'CONTROL', category: 'identity' }],
+        }),
+      );
+      await session.executeWrite((tx) =>
+        svc.upsertCountermeasuresInTx(tx as any, {
+          componentId: CTRL,
+          classId: CLS,
+          countermeasures: [
+            {
+              name: 'Shared CM',
+              type: 'CONTROL',
+              category: 'identity',
+              mitigates: [techRef('T1078', 'class-A evidence')],
+            },
+          ],
+        }),
+      );
+    } finally {
+      await session.close();
+    }
+
+    // Only class A's node carries the edge. (Node multiplicity per class is
+    // pinned by the upsert-dedup tests, not here — this groups by class.)
+    const r = await runWrite(
+      `MATCH (cm:Countermeasure {name: 'Shared CM'})-[:IS_COUNTERMEASURE_OF]->(k)
+       OPTIONAL MATCH (cm)-[rel:COUNTERMEASURE_MITIGATES]->(t:MitreAttackTechnique)
+       RETURN k.id AS classId, collect(t.attack_id) AS techniques
+       ORDER BY classId`,
+    );
+    const rows = r.records.map((rec: any) => ({
+      classId: rec.get('classId'),
+      techniques: rec.get('techniques'),
+    }));
+    expect(rows).toEqual([
+      { classId: CLS, techniques: ['T1078'] },
+      { classId: 'ccls-2', techniques: [] },
+    ]);
+  });
 });

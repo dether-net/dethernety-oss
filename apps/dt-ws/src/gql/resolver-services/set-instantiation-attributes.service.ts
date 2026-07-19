@@ -230,6 +230,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   /**
    * Link component to external MITRE objects (techniques, mitigations)
    * Uses modern Neo4j v5 transaction patterns
+   *
+   * The origin-finding anchor mirrors the upsert's scope: the finding must
+   * be bound to `classId` (IS_EXPOSURE_OF / IS_COUNTERMEASURE_OF) and be
+   * SYSTEM-authored (or legacy null-createdBy). Hand-authored USER findings
+   * of the same name — which can legitimately be class-bound — are invisible
+   * to this writer by design, as are same-named countermeasures on other
+   * classes of a multi-class Control.
    */
   private async linkToExternalObject(
     tx: DatabaseTransaction,
@@ -275,7 +282,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const result = await tx.run(
         `
-        MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
+        MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass {id: $classId})
+        WHERE e.createdBy = 'SYSTEM' OR e.createdBy IS NULL
         OPTIONAL MATCH (t:${request.target.label}) WHERE t.${request.target.property} = $value
         WITH e, t
         WHERE t IS NOT NULL
@@ -286,6 +294,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         {
           elementId: request.elementId,
           originName: request.originName,
+          classId: request.classId,
           value: request.target.value,
           attributes: edgeAttrs,
         },
@@ -295,7 +304,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       const duration = Date.now() - startTime;
       
       if (relationshipsCreated === 0) {
-        this.logger.warn('Target node not found for external link', {
+        // Zero can mean the target node is absent OR the origin finding is
+        // outside the link scope (not bound to $classId, or USER-authored) —
+        // the single-statement writer cannot distinguish them cheaply.
+        this.logger.warn(
+          'External link wrote no edge (target absent, or origin finding not in class/SYSTEM scope)',
+          {
           elementId: request.elementId,
           originName: request.originName,
           targetLabel: request.target.label,
@@ -514,6 +528,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           elementToOriginRelation: 'HAS_EXPOSURE',
           originName: exposure.name,
           relationName: 'EXPLOITED_BY',
+          classId: request.classId,
           target,
         };
 
@@ -678,6 +693,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           elementToOriginRelation: 'HAS_COUNTERMEASURE',
           originName: countermeasure.name,
           relationName: 'RESPONDS_WITH',
+          classId: request.classId,
           target,
         };
 
@@ -701,6 +717,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             elementToOriginRelation: 'HAS_COUNTERMEASURE',
             originName: countermeasure.name,
             relationName,
+            classId: request.classId,
             target,
           });
         }
@@ -810,7 +827,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     const operationId = `setAttributes-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     }) as DatabaseSession;
 
     try {

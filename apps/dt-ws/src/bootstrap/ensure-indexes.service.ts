@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
+import { DatabaseService, EngineInfo } from '../database/database.service';
+import { UNIQUE_CONSTRAINT_COVERED_PAIRS } from './ensure-constraints.service';
 
 /**
  * Idempotent per-label id-index creation at application bootstrap.
@@ -13,11 +14,26 @@ import { DatabaseService } from '../database/database.service';
  * teardown/rebuild without operator intervention and aligns with how the rest
  * of dt-ws bootstraps schema-derived state.
  *
- * Memgraph's `CREATE INDEX` errors if the index already exists (no
- * `IF NOT EXISTS` clause); the service catches the "already exists" error and
- * continues. Any other failure is logged at error level but does not crash
- * bootstrap — downstream queries will fall back to label scans, which is
- * functionally correct (just slower).
+ * **Dual-engine DDL.** Both Neo4j 5 and Memgraph are supported production
+ * engines and share no index syntax: Memgraph only parses the legacy
+ * `CREATE INDEX ON :L(p)` form (and errors on an existing index — no
+ * `IF NOT EXISTS`; the "already exists" error is caught and treated as
+ * success), Neo4j 5 only `CREATE INDEX [IF NOT EXISTS] FOR (n:L) ON (n.p)`.
+ * The engine is probed once via {@link DatabaseService.getEngineInfo} and the
+ * statement built per dialect by {@link buildIndexDdl}.
+ *
+ * **Neo4j constraint interaction.** On Neo4j a uniqueness constraint
+ * auto-creates its backing index, and a *plain* index on the same
+ * label/property BLOCKS later constraint creation (`IF NOT EXISTS` does not
+ * suppress the conflict). The pairs that EnsureConstraintsService covers with
+ * UNIQUE constraints ({@link UNIQUE_CONSTRAINT_COVERED_PAIRS}) are therefore
+ * skipped here on Neo4j — the constraint's backing index serves the same
+ * lookups. On Memgraph indexes and constraints are independent, so the full
+ * list is created there (shipped behavior, unchanged).
+ *
+ * Any non-"already exists" failure is logged at error level but does not
+ * crash bootstrap — downstream queries will fall back to label scans, which
+ * is functionally correct (just slower).
  *
  * **Transaction mode.** Memgraph rejects DDL (`CREATE INDEX`, `CREATE
  * CONSTRAINT`, etc.) inside multi-command (explicit) transactions with the
@@ -29,6 +45,24 @@ import { DatabaseService } from '../database/database.service';
  * shared-ownership safety query in CL §6 will run full label scans on
  * every push (the fail-open the bootstrap exists to prevent).
  */
+
+/** Build the engine-correct index DDL statement. */
+export function buildIndexDdl(engineInfo: EngineInfo, label: string, property: string): string {
+  return engineInfo.engine === 'neo4j'
+    ? `CREATE INDEX IF NOT EXISTS FOR (n:${label}) ON (n.${property})`
+    : `CREATE INDEX ON :${label}(${property})`;
+}
+
+/**
+ * True when the pair receives a UNIQUE constraint at bootstrap — on Neo4j
+ * such pairs must not get a plain index (see class docblock).
+ */
+export function isConstraintCovered(label: string, property: string): boolean {
+  return UNIQUE_CONSTRAINT_COVERED_PAIRS.some(
+    (pair) => pair.label === label && pair.property === property,
+  );
+}
+
 @Injectable()
 export class EnsureIndexesService implements OnApplicationBootstrap {
   private readonly logger = new Logger(EnsureIndexesService.name);
@@ -96,14 +130,46 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    this.logger.log(`Ensuring ${EnsureIndexesService.REQUIRED_INDEXES.length} Memgraph indexes for control-library queries`);
+    try {
+      await this.ensureIndexes();
+    } catch (error) {
+      // Belt-and-braces: a rejected bootstrap hook makes main.ts exit the
+      // process — index bootstrap must degrade to label scans, never
+      // crash-loop the app.
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Index bootstrap aborted unexpectedly: ${message}. ` +
+          'Downstream queries fall back to label scans until the next successful restart.',
+      );
+    }
+  }
+
+  private async ensureIndexes(): Promise<void> {
+    const engineInfo = await this.databaseService.getEngineInfo();
+
+    // On Neo4j, constraint-covered pairs get their index from the uniqueness
+    // constraint itself; a plain index here would block constraint creation.
+    const targets =
+      engineInfo.engine === 'neo4j'
+        ? EnsureIndexesService.REQUIRED_INDEXES.filter(
+            ({ label, property }) => !isConstraintCovered(label, property),
+          )
+        : EnsureIndexesService.REQUIRED_INDEXES;
+    const skippedCovered = EnsureIndexesService.REQUIRED_INDEXES.length - targets.length;
+
+    this.logger.log(
+      `Ensuring ${targets.length} ${engineInfo.engine} indexes for control-library queries` +
+        (skippedCovered > 0
+          ? ` (${skippedCovered} pairs covered by uniqueness constraints — skipped)`
+          : ''),
+    );
 
     let created = 0;
     let existed = 0;
     let failed = 0;
 
-    for (const { label, property } of EnsureIndexesService.REQUIRED_INDEXES) {
-      const cypher = `CREATE INDEX ON :${label}(${property})`;
+    for (const { label, property } of targets) {
+      const cypher = buildIndexDdl(engineInfo, label, property);
       try {
         await this.databaseService.executeImplicitWrite(cypher);
         created += 1;

@@ -12,8 +12,13 @@ export interface ModuleResolverContext {
   driver: any;
   /** Logger scoped to the module */
   logger: Logger;
-  /** Database name for session creation */
-  databaseName: string;
+  /**
+   * Database name for session creation. `undefined` means the server's
+   * default database — the only value valid on every engine out of the box
+   * (Memgraph rejects sessions naming a database it doesn't have). Pass it
+   * through conditionally: `databaseName ? { database: databaseName } : {}`.
+   */
+  databaseName?: string;
 }
 
 /**

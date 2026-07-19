@@ -136,7 +136,7 @@ export class MatchClassesResolverService {
     moduleIds?: string[],
   ): Promise<ClassRecord[]> {
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       const hasModuleFilter = moduleIds && moduleIds.length > 0;
@@ -250,7 +250,7 @@ export class MatchClassesResolverService {
     }
 
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       await session.executeRead(async (tx: any) => {
@@ -289,7 +289,7 @@ export class MatchClassesResolverService {
     if (this.vectorIndexesEnsured) return;
 
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       // Read existing index names + dimensions in a single pass. On older
@@ -403,7 +403,7 @@ export class MatchClassesResolverService {
     const threshold = this.embeddingService.getThreshold();
 
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
     try {
       // indexName and searchLimit are from hardcoded constants, safe to interpolate.
@@ -619,7 +619,7 @@ export class MatchClassesResolverService {
     }
 
     const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name') || 'neo4j',
+      database: this.configService.get('database.name'),
     });
 
     try {

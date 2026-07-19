@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Inject, Res, ServiceUnavailableException } from '@nestjs/common';
+import { Response } from 'express';
 import { DatabaseService } from './database/database.service';
 import { GqlHealthService } from './gql/health/gql-health.service';
 import { ModuleRegistryService } from './gql/module-management-services/module-registry.service';
@@ -101,8 +102,13 @@ export class AppController {
     return config;
   }
 
+  // Status codes are set directly on the response (passthrough) rather than
+  // via ServiceUnavailableException: the global @Catch() exception filter
+  // would strip the diagnostic body down to its generic error envelope AND
+  // log every failing probe at ERROR with a stack — readiness probes fire
+  // every few seconds, so a DB outage would bury the root cause in noise.
   @Get('health')
-  async getHealth(): Promise<HealthCheckResult> {
+  async getHealth(@Res({ passthrough: true }) res: Response): Promise<HealthCheckResult> {
     const startTime = Date.now();
     let overallStatus: 'healthy' | 'unhealthy' | 'degraded' = 'healthy';
     
@@ -162,6 +168,13 @@ export class AppController {
       if (overallStatus === 'healthy') overallStatus = 'degraded';
     }
 
+    // Honest status code: an unhealthy service must not answer 200 or
+    // orchestrators/load balancers keep routing to it. `degraded` stays
+    // 200 — the pod still serves (e.g. the base-schema fallback).
+    if (overallStatus === 'unhealthy') {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
     // In production, return minimal health info (no system details)
     if (process.env.NODE_ENV === 'production') {
       return {
@@ -175,7 +188,7 @@ export class AppController {
     const totalMemory = memUsage.heapTotal + memUsage.external;
     const usedMemory = memUsage.heapUsed;
 
-    return {
+    const result: HealthCheckResult = {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
@@ -210,6 +223,8 @@ export class AppController {
         },
       },
     };
+
+    return result;
   }
 
   @Get('health/simple')
@@ -241,23 +256,31 @@ export class AppController {
   }
 
   @Get('ready')
-  async getReadiness(): Promise<{ ready: boolean; timestamp: string }> {
+  async getReadiness(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ ready: boolean; timestamp: string }> {
+    let ready = false;
     try {
-      // Check if all critical services are ready
+      // Ready = can serve traffic. A `degraded` GraphQL status still serves
+      // (e.g. the base-schema composition fallback) — pulling such a pod from
+      // rotation would turn a partial degradation into a full outage, so only
+      // `unhealthy` (dead DB / broken schema) makes the pod not-ready.
       const dbHealth = await this.databaseService.getHealthStatus();
       const gqlHealth = await this.gqlHealthService.getHealthStatus();
-      
-      const ready = dbHealth.isHealthy && gqlHealth.status === 'healthy';
-      
-      return {
-        ready,
-        timestamp: new Date().toISOString(),
-      };
+      ready = dbHealth.isHealthy && gqlHealth.status !== 'unhealthy';
     } catch (error) {
-      return {
-        ready: false,
-        timestamp: new Date().toISOString(),
-      };
+      ready = false;
     }
+
+    // Honest status code — orchestrator readiness probes act on the code,
+    // not the body; 200 + {ready:false} kept dead pods in rotation.
+    if (!ready) {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    return {
+      ready,
+      timestamp: new Date().toISOString(),
+    };
   }
 }

@@ -22,13 +22,17 @@ This guide covers all environment variables for the Dethernety platform. The bac
 | `NEO4J_URI` | String | `bolt://localhost:7687` | Database connection URI |
 | `NEO4J_USERNAME` | String | `neo4j` | Database username |
 | `NEO4J_PASSWORD` | String | — | Database password. **Required.** |
-| `NEO4J_DATABASE` | String | `neo4j` | Database name |
+| `NEO4J_DATABASE` | String | — | Database name. Unset = the server's default database (works on both Neo4j and Memgraph; Memgraph rejects sessions that name a database it doesn't have). |
 | `NEO4J_ENCRYPTED` | Boolean | `true` | Enable TLS encryption |
 | `NEO4J_TRUST_CERT` | Boolean | `false` | Trust self-signed certificates. Must be `false` in production. |
+
+Boolean variables accept only `true`/`false` (case-insensitive); any other value — including `1`, `yes`, `on` — parses as `false`.
 
 The URI scheme determines the connection type:
 - `bolt://` — unencrypted (local development)
 - `bolt+s://` or `neo4j+s://` — TLS-encrypted (production)
+
+When the URI scheme itself specifies encryption (`+s`/`+ssc`), the URL wins and `NEO4J_ENCRYPTED`/`NEO4J_TRUST_CERT` are ignored (the driver forbids configuring encryption in both places).
 
 ### Authentication (OIDC)
 
