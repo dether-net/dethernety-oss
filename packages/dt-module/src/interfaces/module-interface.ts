@@ -58,10 +58,22 @@ export interface DTModule {
   dispose?(): void;
 
   getModuleTemplate?(): Promise<string>;
-  getClassTemplate?(id: string): Promise<string>;
-  getClassGuide?(id: string): Promise<string>;
-  getExposures?(id: string, classId: string): Promise<Exposure[]>;
-  getCountermeasures?(id: string, classId: string): Promise<Countermeasure[]>;
+  getClassTemplate?(id: string, token?: string): Promise<string>;
+  getClassGuide?(id: string, token?: string): Promise<string>;
+  getExposures?(id: string, classId: string, token?: string): Promise<Exposure[]>;
+  getCountermeasures?(id: string, classId: string, token?: string): Promise<Countermeasure[]>;
+
+  /**
+   * Optional. Return true if this module's template/guide content may depend on
+   * the calling user (the `token` passed to getClassTemplate/getClassGuide).
+   * Default (absent) = false = caller-independent, cacheable.
+   *
+   * MUST remain false unless getClassTemplate/getClassGuide genuinely vary by
+   * caller. getExposures/getCountermeasures must NEVER vary by caller — their
+   * results persist to the shared model graph and are read back by every caller
+   * of that element, so a per-caller value would leak across callers.
+   */
+  isContentCallerVariant?(): boolean;
 
   runAnalysis?(id: string, analysisClassId: string, scope: string, pubSub: ExtendedPubSubEngine, additionalParams?: object): Promise<AnalysisSession>;
   startChat?(id: string, analysisClassId: string, scope: string, userQuestion: string, pubSub: ExtendedPubSubEngine, additionalParams?: object): Promise<AnalysisSession>;

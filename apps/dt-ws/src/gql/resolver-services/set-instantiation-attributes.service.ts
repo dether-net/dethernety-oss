@@ -1053,7 +1053,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           request.componentId,
           request.classId,
           moduleInstance,
-          operationId
+          operationId,
+          context?.token
         );
       } else {
         // Handle exposures for other component types
@@ -1062,7 +1063,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           request.componentId,
           request.classId,
           moduleInstance,
-          operationId
+          operationId,
+          context?.token
         );
       }
 
@@ -1149,6 +1151,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     classId: string,
     moduleInstance: any,
     operationId: string,
+    token?: string,
   ): Promise<void> {
     this.logger.debug('Processing control countermeasures', {
       componentId,
@@ -1156,7 +1159,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       operationId,
     });
 
-    const countermeasures = await moduleInstance.getCountermeasures(componentId, classId);
+    const countermeasures = await moduleInstance.getCountermeasures(componentId, classId, token);
     if (!countermeasures) {
       throw this.createSetInstantiationError(
         'MODULE_ERROR',
@@ -1199,6 +1202,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     classId: string,
     moduleInstance: any,
     operationId: string,
+    token?: string,
   ): Promise<void> {
     this.logger.debug('Processing component exposures', {
       componentId,
@@ -1206,7 +1210,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       operationId,
     });
 
-    const exposures = await moduleInstance.getExposures(componentId, classId);
+    const exposures = await moduleInstance.getExposures(componentId, classId, token);
     if (exposures === undefined) {
       throw this.createSetInstantiationError(
         'MODULE_ERROR',

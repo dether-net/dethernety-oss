@@ -47,6 +47,7 @@ All OIDC variables are configured on the backend. In production, the backend ser
 | `OIDC_AUDIENCE` | String | — | JWT audience claim for token validation. **Required in production.** |
 | `OIDC_PROVIDER` | String | auto-detect | Provider preset: `cognito`, `zitadel`, `auth0`, `keycloak`, or `generic`. Auto-detected from issuer URL if not set. |
 | `OIDC_DOMAIN` | String | — | Cognito hosted UI domain (only needed for AWS Cognito, where the OAuth2 domain differs from the issuer) |
+| `OIDC_SCOPE` | String | `openid profile email` | Space-delimited scope the SPA requests at login, served to the frontend via `/config`. **Replace-semantics** — the value you set replaces the request scope wholesale, so it must include the base `openid profile email` scopes. The default preserves today's behavior; set it only if your deployment needs an additional scope (e.g. to reach an API of its own). |
 
 Provider presets configure OAuth2 endpoint paths and token claim names automatically. See [environment.ts](../apps/dt-ui/src/config/environment.ts) for the preset definitions.
 
@@ -105,6 +106,23 @@ The MCP server (Dethereal) also reads `authDisabled` from `/config` and:
 - Returns informational "no login needed" messages from auth tools
 
 This mode is used by the [demo setup](../demo/README.md). It is **not available in production** — the backend refuses to disable authentication when `NODE_ENV=production`, regardless of other settings.
+
+### Deployment Access (multi-tenant IdP)
+
+By default a deployment serves every user its IdP authenticates. When several deployments share one multi-tenant identity provider, a deployment can additionally restrict itself to a specific set of users and fail closed if it is misconfigured.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `DEPLOYMENT_ALLOWLIST` | String | — (unrestricted) | Comma-separated list of token `sub` values this deployment serves. Empty/unset means no restriction. A validated-but-unlisted user is rejected on every transport, indistinguishable from an invalid token. |
+| `OIDC_SHARED_POOL` | Boolean | `false` | Set `true` when authenticating against a shared / multi-tenant IdP. Enables the fail-closed bootstrap gate below. Left `false`, a deployment behaves exactly as before. |
+| `DEPLOYMENT_EXPOSURE` | String | `network` | Operator's exposure declaration: `network` (reachable) or `loopback` (single-operator local use only). A **declaration**, never derived from the bind host. |
+
+**Fail-closed bootstrap gate.** When `OIDC_SHARED_POOL=true`, the backend refuses to start if:
+
+- `DEPLOYMENT_EXPOSURE=network` (the default) **and** `DEPLOYMENT_ALLOWLIST` is empty — a network-reachable shared-pool deployment with no allowlist would serve every user in the pool; or
+- `OIDC_AUDIENCE` is unset — without it, token validation is signature-only and cannot distinguish tokens minted for another deployment.
+
+A `loopback`-only deployment, or an auth-disabled dev deployment, is exempt from the allowlist requirement.
 
 ### GraphQL
 

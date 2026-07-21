@@ -143,7 +143,7 @@ const login = async (): Promise<void> => {
     client_id: oidcConfig.clientId,
     redirect_uri: oidcConfig.redirectUri,
     response_type: 'code',
-    scope: config.defaultScope,  // 'openid profile email'
+    scope: config.oidcScope || defaultScope,  // runtime OIDC_SCOPE, default 'openid profile email'
     code_challenge: codeChallenge,
     code_challenge_method: codeChallengeMethod,
     state: state
@@ -152,6 +152,12 @@ const login = async (): Promise<void> => {
   window.location.href = `${authorizationEndpoint}?${params.toString()}`
 }
 ```
+
+The requested `scope` is deployment configuration. It arrives from the backend's
+`GET /config` response (`oidcScope`, sourced from the `OIDC_SCOPE` env var) on the
+runtime `FrontendConfig`, falling back to the built-in `'openid profile email'`
+default when unset — so an unconfigured deployment requests exactly what it did
+before. The value has replace-semantics; see the [Configuration guide](../../../CONFIGURATION_GUIDE.md).
 
 ### Callback Handling
 

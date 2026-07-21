@@ -151,10 +151,11 @@ This folder contains the following documentation:
 |--------|----------|-------------|
 | `getMetadata()` | Yes | Returns module name, classes, version |
 | `getModuleTemplate()` | No | JSON Schema for module configuration |
-| `getClassTemplate(id)` | No | JSON Schema for class attributes |
-| `getClassGuide(id)` | No | Usage guidance for class configuration |
-| `getExposures(id, classId)` | No | Evaluate exposures for an element |
-| `getCountermeasures(id, classId)` | No | Evaluate countermeasures for an element |
+| `getClassTemplate(id, token?)` | No | JSON Schema for class attributes |
+| `getClassGuide(id, token?)` | No | Usage guidance for class configuration |
+| `getExposures(id, classId, token?)` | No | Evaluate exposures for an element |
+| `getCountermeasures(id, classId, token?)` | No | Evaluate countermeasures for an element |
+| `isContentCallerVariant()` | No | Opt-in: content varies per caller → bypass the template cache |
 | `runAnalysis(...)` | No | Start an analysis workflow |
 | `startChat(...)` | No | Start interactive analysis chat |
 | `resumeAnalysis(...)` | No | Resume paused analysis |

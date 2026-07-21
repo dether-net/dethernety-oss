@@ -387,8 +387,8 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
 
         try {
           const findings = isControl
-            ? await moduleInstance.getCountermeasures(elementId, classId)
-            : await moduleInstance.getExposures(elementId, classId);
+            ? await moduleInstance.getCountermeasures(elementId, classId, graphqlContext?.token)
+            : await moduleInstance.getExposures(elementId, classId, graphqlContext?.token);
           if (findings === undefined || findings === null) {
             const msg = `Module ${moduleName} returned no findings for class ${classId}`;
             this.logFailure(

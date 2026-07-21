@@ -77,6 +77,9 @@ export class AppController {
       // For Cognito, OAuth2 endpoints are on a different domain than the issuer
       // Format: prefix.auth.region.amazoncognito.com (without https://)
       oidcDomain: process.env.OIDC_DOMAIN || '',
+      // OIDC scope the SPA requests at login (space-delimited). Deployment config
+      // like the other OIDC settings; the backend is a courier and never reads it.
+      oidcScope: process.env.OIDC_SCOPE || 'openid profile email',
       // Optional: custom endpoint overrides (frontend uses provider presets if not specified)
       // oidcEndpoints: { authorize: '...', token: '...', ... }
 

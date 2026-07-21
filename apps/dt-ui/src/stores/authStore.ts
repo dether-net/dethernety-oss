@@ -7,6 +7,8 @@ import { getConfig, type OidcEndpoints } from '@/config/environment'
 // Extended AuthConfig with OIDC endpoints
 interface ExtendedAuthConfig extends AuthConfig {
   endpoints: OidcEndpoints
+  // OIDC scope requested at login (runtime deployment config)
+  oidcScope: string
   // Cognito hosted UI domain for OAuth2 flows (different from issuer)
   // When set, OAuth2 endpoints use this instead of issuer
   oidcDomain?: string
@@ -73,6 +75,8 @@ const validateAuthConfig = async (): Promise<ExtendedAuthConfig> => {
     appUrl: config.appUrl || window.location.origin,
     nodeEnv: config.nodeEnv || 'production',
     endpoints: config.oidcEndpoints,
+    // Runtime OIDC scope (falls back to the base scopes for older/partial configs)
+    oidcScope: config.oidcScope || 'openid profile email',
     // Cognito hosted UI domain (for OAuth2 flows when different from issuer)
     oidcDomain: config.oidcDomain
   }
@@ -439,7 +443,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       authUrl.searchParams.set('client_id', config.clientId)
       authUrl.searchParams.set('redirect_uri', config.redirectUri)
       authUrl.searchParams.set('response_type', 'code')
-      authUrl.searchParams.set('scope', authConfig.defaultScope)
+      authUrl.searchParams.set('scope', config.oidcScope || authConfig.defaultScope)
       authUrl.searchParams.set('code_challenge', codeChallenge)
       authUrl.searchParams.set('code_challenge_method', challengeMethod)
       

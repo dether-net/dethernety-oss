@@ -469,8 +469,11 @@ Security logic methods (`getExposures`, `getCountermeasures`) evaluate component
 ```typescript
 // Key DTModule interface methods (simplified)
 interface DTModule {
-  getExposures?(id: string, classId: string): Promise<Exposure[]>;
-  getCountermeasures?(id: string, classId: string): Promise<Countermeasure[]>;
+  // The trailing `token?` is the per-request bearer, passed through for modules
+  // that call an external service; the platform never decodes or logs it. See
+  // DT_MODULE_INTERFACE.md for the authoritative signatures.
+  getExposures?(id: string, classId: string, token?: string): Promise<Exposure[]>;
+  getCountermeasures?(id: string, classId: string, token?: string): Promise<Countermeasure[]>;
 }
 ```
 
@@ -506,9 +509,10 @@ Configuration methods provide dynamic UI generation through JSON Schema template
 ```typescript
 // Key DTModule interface methods (simplified)
 interface DTModule {
-  getModuleTemplate?(): Promise<string>;              // Module-level configuration schema
-  getClassTemplate?(id: string): Promise<string>;    // Class-specific configuration schema
-  getClassGuide?(id: string): Promise<string>;       // Markdown documentation for class
+  getModuleTemplate?(): Promise<string>;                        // Module-level configuration schema
+  getClassTemplate?(id: string, token?: string): Promise<string>;  // Class-specific configuration schema
+  getClassGuide?(id: string, token?: string): Promise<string>;     // Markdown documentation for class
+  isContentCallerVariant?(): boolean;                          // Opt-in: content varies per caller → bypass the template cache
 }
 ```
 

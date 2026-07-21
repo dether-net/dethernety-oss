@@ -40,6 +40,15 @@ In production, the environment validation enforces OIDC configuration. When OIDC
 
 ---
 
+## Deployment access control
+
+Beyond authenticating users, a deployment can restrict *which* authenticated users it serves. This matters when several deployments share one multi-tenant identity provider: every user in the pool holds a signature-valid token, but a given deployment should serve only its own users.
+
+- **Access allowlist.** `DEPLOYMENT_ALLOWLIST` is a set of token `sub` values the deployment serves (empty/unset = unrestricted, the default — existing deployments are unaffected). A validated-but-unlisted user is rejected on every transport: the GraphQL context factory withholds the credential on the HTTP/WS path, and the `JwtAuthGuard` throws the same `401` as an invalid token on the SSE/REST path — so rejection is indistinguishable from an invalid token (no oracle). Because the schema-layer `@authentication` re-verifies a raw bearer by signature alone as a fallback, the factory clears the raw token, not just the decoded user.
+- **Fail-closed bootstrap.** A deployment declared against a shared / multi-tenant IdP (`OIDC_SHARED_POOL=true`) refuses to start if it is network-reachable (`DEPLOYMENT_EXPOSURE=network`) with an empty allowlist, or if `OIDC_AUDIENCE` is unset (without an audience, token validation is signature-only and cannot reject a token minted for another deployment). A loopback-only or auth-disabled development deployment is exempt. See the [Configuration guide](CONFIGURATION_GUIDE.md#deployment-access-multi-tenant-idp).
+
+---
+
 ## API protection
 
 ### Query limits

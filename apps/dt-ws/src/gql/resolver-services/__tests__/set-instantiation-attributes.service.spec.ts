@@ -247,3 +247,103 @@ describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () =
     expect(link!.params.classId).toBe('cls-1');
   });
 });
+
+describe('SetInstantiationAttributesService — per-request token threading', () => {
+  // The platform forwards the caller's raw bearer token into the module's
+  // content methods (so a module can call an upstream service on the caller's
+  // behalf). Two independent hops are pinned:
+  //   forward hop — the private process* method forwards its token into the
+  //                 module call;
+  //   wiring hop  — setAttributes passes the request context's token DOWN into
+  //                 process* (guards the "passed context.user / dropped the
+  //                 arg" regression).
+
+  it('forward hop: process* forwards the token into the module call', async () => {
+    const { service } = makeService();
+    jest.spyOn(service as any, 'upsertExposures').mockResolvedValue({ success: true, recordsAffected: 0 });
+    jest.spyOn(service as any, 'upsertCountermeasures').mockResolvedValue({ success: true, recordsAffected: 0 });
+
+    const moduleInstance = {
+      getExposures: jest.fn(async () => []),
+      getCountermeasures: jest.fn(async () => []),
+    };
+
+    // session arg is unused once the upsert is spied out.
+    await (service as any).processComponentExposures({}, 'comp-1', 'cls-1', moduleInstance, 'op', 'bearer-xyz');
+    expect(moduleInstance.getExposures).toHaveBeenCalledWith('comp-1', 'cls-1', 'bearer-xyz');
+
+    await (service as any).processControlCountermeasures({}, 'ctrl-1', 'cls-1', moduleInstance, 'op', 'bearer-xyz');
+    expect(moduleInstance.getCountermeasures).toHaveBeenCalledWith('ctrl-1', 'cls-1', 'bearer-xyz');
+  });
+
+  it('wiring hop: setAttributes passes context.token down into process*', async () => {
+    const { service } = makeService();
+
+    // Minimal session: executeWrite yields the flat metadata record setAttributes
+    // destructures; close() is called in its finally block.
+    const session = {
+      executeWrite: jest.fn(async () => ({
+        moduleName: 'mod-1',
+        componentType: 'Component', // non-Control/non-Issue → exposures branch
+        valueChanged: false,
+        changedKeys: [],
+        staleFlippedCount: 0,
+      })),
+      close: jest.fn(async () => {}),
+    };
+    (service as any).neo4jDriver.session = jest.fn(() => session);
+    (service as any).moduleRegistry.getModuleByName = jest.fn(() => ({
+      getExposures: jest.fn(async () => []),
+      getCountermeasures: jest.fn(async () => []),
+    }));
+
+    const processSpy = jest
+      .spyOn(service as any, 'processComponentExposures')
+      .mockResolvedValue(undefined);
+
+    const result = await (service as any).setAttributes(
+      { componentId: 'comp-1', classId: 'cls-1', attributes: { k: 'v' } }, // non-empty attrs required by validation
+      { user: { sub: 'tester' }, token: 'bearer-xyz' },
+    );
+
+    expect(result.success).toBe(true);
+    // token is the LAST positional arg into process*.
+    expect(processSpy).toHaveBeenCalledWith(
+      expect.anything(), // session
+      'comp-1',
+      'cls-1',
+      expect.anything(), // moduleInstance
+      expect.anything(), // operationId
+      'bearer-xyz',
+    );
+  });
+
+  it('wiring hop: token is undefined when the request carries no bearer (absence)', async () => {
+    const { service } = makeService();
+    const session = {
+      executeWrite: jest.fn(async () => ({
+        moduleName: 'mod-1',
+        componentType: 'Component',
+        valueChanged: false,
+        changedKeys: [],
+        staleFlippedCount: 0,
+      })),
+      close: jest.fn(async () => {}),
+    };
+    (service as any).neo4jDriver.session = jest.fn(() => session);
+    (service as any).moduleRegistry.getModuleByName = jest.fn(() => ({
+      getExposures: jest.fn(async () => []),
+      getCountermeasures: jest.fn(async () => []),
+    }));
+    const processSpy = jest
+      .spyOn(service as any, 'processComponentExposures')
+      .mockResolvedValue(undefined);
+
+    await (service as any).setAttributes(
+      { componentId: 'comp-1', classId: 'cls-1', attributes: { k: 'v' } },
+      { user: { sub: 'tester' } }, // no token
+    );
+
+    expect(processSpy.mock.calls[0][5]).toBeUndefined();
+  });
+});

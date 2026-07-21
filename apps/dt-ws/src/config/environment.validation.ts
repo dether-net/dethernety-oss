@@ -1,6 +1,19 @@
 import { plainToClass, Transform } from 'class-transformer';
 import { IsString, IsNumber, IsBoolean, IsOptional, IsIn, IsUrl, Min, Max, validateSync } from 'class-validator';
 
+// Case-insensitive boolean env parsing, matching database.config.ts's convention
+// (so OIDC_SHARED_POOL=TRUE / NEO4J_ENCRYPTED=TRUE are honoured, not silently
+// dropped). Reads the RAW source via obj[key]: enableImplicitConversion pre-coerces
+// `value` (Boolean('false') === true), so a value-based predicate cannot tell 'true'
+// from 'false'. Absent keys never reach the transform, so the class default stays.
+// `defaultOn` picks the polarity: an on-by-default flag is true unless explicitly
+// 'false'; an off-by-default flag is true only for an explicit 'true'.
+const boolEnv = (defaultOn: boolean) =>
+  ({ obj, key }: { obj: Record<string, unknown>; key: string }): boolean => {
+    const v = String(obj[key]).toLowerCase();
+    return defaultOn ? v !== 'false' : v === 'true';
+  };
+
 export class EnvironmentVariables {
   // Application Settings
   @IsOptional()
@@ -72,22 +85,22 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(true))
   NEO4J_ENCRYPTED?: boolean = true;
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(false))
   NEO4J_TRUST_CERT?: boolean = false;
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(true))
   NEO4J_ENABLE_METRICS?: boolean = true;
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(true))
   NEO4J_ENABLE_LOGGING?: boolean = true;
 
   @IsOptional()
@@ -98,7 +111,7 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(false))
   NEO4J_DEBUG?: boolean = false;
 
   // OIDC Configuration
@@ -122,6 +135,19 @@ export class EnvironmentVariables {
   @IsString()
   OIDC_AUDIENCE?: string;
 
+  // OIDC scope the SPA requests at login (space-delimited). Deployment config,
+  // defaulted at emit time; dt-ws is a courier and never branches on it.
+  @IsOptional()
+  @IsString()
+  OIDC_SCOPE?: string;
+
+  // Shared / multi-tenant IdP flag. Default false = unrestricted (unchanged for
+  // every existing deployment). When true, the fail-closed gate below applies.
+  @IsOptional()
+  @IsBoolean()
+  @Transform(boolEnv(false))
+  OIDC_SHARED_POOL?: boolean = false;
+
   // GraphQL Configuration
   @IsOptional()
   @IsUrl({ require_tld: false })
@@ -143,13 +169,13 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value !== 'false')
+  @Transform(boolEnv(true))
   GQL_ENABLE_SUBSCRIPTIONS?: boolean = true;
 
   // Auth-less mode (demo / development only — NEVER allowed in production)
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(false))
   ENABLE_NOAUTH?: boolean = false;
 
   // Module Registry Configuration
@@ -161,9 +187,20 @@ export class EnvironmentVariables {
   @IsString()
   ALLOWED_MODULES?: string;
 
+  // Deployment access allowlist — comma-separated `sub` values; empty = unrestricted
+  @IsOptional()
+  @IsString()
+  DEPLOYMENT_ALLOWLIST?: string;
+
+  // Operator's exposure DECLARATION (never derived from the bind host — a container
+  // always binds 0.0.0.0). Default 'network' = fail-closed side.
+  @IsOptional()
+  @IsIn(['loopback', 'network'])
+  DEPLOYMENT_EXPOSURE?: string = 'network';
+
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(boolEnv(false))
   ENABLE_MODULE_HOT_RELOAD?: boolean = false;
 
   @IsOptional()
@@ -242,7 +279,7 @@ export class EnvironmentVariables {
   // Monitoring
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value !== 'false')
+  @Transform(boolEnv(true))
   MONITORING_ENABLED?: boolean = true;
 
   @IsOptional()
@@ -346,6 +383,44 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
 
     if (productionErrors.length > 0) {
       throw new Error(`Production environment validation failed:\n${productionErrors.join('\n')}`);
+    }
+  }
+
+  // Fail-closed gate — applies to a shared / multi-tenant-IdP deployment in
+  // ANY environment (the production block above is NODE_ENV-gated; this is not).
+  if (validatedConfig.OIDC_SHARED_POOL) {
+    const sharedPoolErrors: string[] = [];
+
+    // dev + NOAUTH is exempt from the allowlist requirement (mock admin, dev-only).
+    const devNoauthExempt =
+      validatedConfig.NODE_ENV !== 'production' && !!validatedConfig.ENABLE_NOAUTH;
+
+    const allowlistEmpty =
+      (validatedConfig.DEPLOYMENT_ALLOWLIST ?? '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean).length === 0;
+
+    if (
+      validatedConfig.DEPLOYMENT_EXPOSURE === 'network' &&
+      allowlistEmpty &&
+      !devNoauthExempt
+    ) {
+      sharedPoolErrors.push(
+        'Shared-pool network deployment requires a non-empty DEPLOYMENT_ALLOWLIST (fail-closed).'
+      );
+    }
+
+    // Mandatory audience: without it, validation is signature-only and
+    // cross-deployment rejection never happens. (No dev/noauth carve-out.)
+    if (!validatedConfig.OIDC_AUDIENCE) {
+      sharedPoolErrors.push(
+        'Shared-pool deployment requires OIDC_AUDIENCE (signature-only validation is insufficient).'
+      );
+    }
+
+    if (sharedPoolErrors.length > 0) {
+      throw new Error(`Shared-pool deployment validation failed:\n${sharedPoolErrors.join('\n')}`);
     }
   }
 

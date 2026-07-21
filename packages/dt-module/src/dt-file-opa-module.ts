@@ -370,7 +370,7 @@ export class DtFileOpaModule implements DTModule {
   // server URL, which the in-process engine made meaningless. The platform's template
   // resolver answers its documented fallback for modules without one.
 
-  async getClassTemplate(id: string): Promise<string> {
+  async getClassTemplate(id: string, token?: string): Promise<string> {
     const classDataPath = await this.dbOps.getAttribute(id, 'path');
     const schemaPath = path.join(this.moduleDataDir, classDataPath, 'schema.json');
     this.validateModulePath(schemaPath);
@@ -393,7 +393,7 @@ export class DtFileOpaModule implements DTModule {
     }
   }
 
-  async getClassGuide(id: string): Promise<string> {
+  async getClassGuide(id: string, token?: string): Promise<string> {
     const classDataPath = await this.dbOps.getAttribute(id, 'path');
     const guidePath = path.join(this.moduleDataDir, classDataPath, 'guide.json');
     this.validateModulePath(guidePath);
@@ -458,7 +458,7 @@ export class DtFileOpaModule implements DTModule {
     return findings;
   }
 
-  async getExposures(id: string, classId: string): Promise<Exposure[]> {
+  async getExposures(id: string, classId: string, token?: string): Promise<Exposure[]> {
     const exposures: Exposure[] = [];
 
     try {
@@ -503,7 +503,7 @@ export class DtFileOpaModule implements DTModule {
     return exposures;
   }
 
-  async getCountermeasures(id: string, classId: string): Promise<Countermeasure[]> {
+  async getCountermeasures(id: string, classId: string, token?: string): Promise<Countermeasure[]> {
     const countermeasures: Countermeasure[] = [];
 
     try {
