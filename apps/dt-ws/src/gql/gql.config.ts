@@ -66,6 +66,18 @@ function validateConfig(config: any): ValidationResult {
     errors.push('enableModuleSecurityValidation must be a boolean');
   }
 
+  // Deployment access allowlist — a set of `sub` values
+  if (!Array.isArray(config.accessAllowlist)) {
+    errors.push('accessAllowlist must be an array');
+  } else {
+    for (const sub of config.accessAllowlist) {
+      if (typeof sub !== 'string') {
+        errors.push('accessAllowlist must contain only strings');
+        break;
+      }
+    }
+  }
+
   return {
     isValid: errors.length === 0,
     errors,
@@ -94,6 +106,9 @@ export class GqlConfig {
   enableModuleHotReload: boolean = false;
   moduleLoadTimeout: number = 30000; // 30 seconds
   enableModuleSecurityValidation: boolean = true;
+
+  // Deployment access allowlist — a set of `sub` values; empty = unrestricted
+  accessAllowlist: string[] = [];
 }
 
 export default registerAs('gql', () => {
@@ -122,6 +137,11 @@ export default registerAs('gql', () => {
     enableModuleHotReload: process.env.ENABLE_MODULE_HOT_RELOAD === 'true',
     moduleLoadTimeout: parseInt(process.env.MODULE_LOAD_TIMEOUT || '30000', 10),
     enableModuleSecurityValidation: process.env.NODE_ENV === 'production',
+
+    // Deployment access allowlist — comma-separated `sub` values, parsed like ALLOWED_MODULES.
+    // filter(Boolean) so ',' / whitespace-only collapse to an empty (unrestricted) list,
+    // and an empty-string entry can never become an allowlist member.
+    accessAllowlist: process.env.DEPLOYMENT_ALLOWLIST ? process.env.DEPLOYMENT_ALLOWLIST.split(',').map(s => s.trim()).filter(Boolean) : [],
   };
 
   const validation = validateConfig(config);

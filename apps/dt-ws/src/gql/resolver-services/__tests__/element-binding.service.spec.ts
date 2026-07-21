@@ -112,10 +112,13 @@ function makeFixture(opts: FixtureOptions) {
   };
   const driver = { session: jest.fn(() => session) };
 
-  const getModuleByName = jest.fn(() => ({
-    getExposures: async () => [],
-    getCountermeasures: async () => [],
-  }));
+  // Stable, spy-able module instance so tests can assert the arguments the
+  // platform forwards into the module (e.g. the per-request bearer token).
+  const moduleInstance = {
+    getExposures: jest.fn(async () => []),
+    getCountermeasures: jest.fn(async () => []),
+  };
+  const getModuleByName = jest.fn(() => moduleInstance);
 
   const setInstantiation = {
     upsertExposuresInTx: jest.fn(async () => []),
@@ -130,7 +133,7 @@ function makeFixture(opts: FixtureOptions) {
     setInstantiation as any,
   );
 
-  return { service, executeWrite, getModuleByName, writeStatements };
+  return { service, executeWrite, getModuleByName, writeStatements, moduleInstance };
 }
 
 const CTX = { user: { sub: 'tester' } };
@@ -334,5 +337,72 @@ describe('ElementBindingService — class-scope guards', () => {
     expect(result.errorMessage).toContain('is not a ControlClass');
     expect(getModuleByName).toHaveBeenCalledTimes(1); // the valid class only
     expect(executeWrite).not.toHaveBeenCalled(); // never anything destructive
+  });
+});
+
+describe('ElementBindingService — per-request token threading', () => {
+  // The platform forwards the caller's raw bearer token into the module's
+  // content methods so a module can call an upstream service on the caller's
+  // behalf. Here we pin that the token in the request context reaches the
+  // getExposures/getCountermeasures call unchanged.
+  const CTX_TOKEN = { user: { sub: 'tester' }, token: 'bearer-xyz' };
+
+  it('forwards the caller token into getExposures on a Component bind', async () => {
+    const { service, moduleInstance } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: {
+        'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] },
+      },
+      singleRewireBound: 1,
+    });
+
+    const result = await service.changeElementBinding(
+      { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } },
+      CTX_TOKEN,
+    );
+
+    expect(result.success).toBe(true);
+    expect(moduleInstance.getExposures).toHaveBeenCalledWith('comp-1', 'cls-new', 'bearer-xyz');
+    expect(moduleInstance.getCountermeasures).not.toHaveBeenCalled();
+  });
+
+  it('forwards the caller token into getCountermeasures on a Control bind', async () => {
+    const { service, moduleInstance } = makeFixture({
+      elementLabels: ['Control'],
+      currentClassIds: ['cls-a'],
+      classStatus: {
+        'cls-b': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+      },
+      controlsAddBound: 1,
+    });
+
+    const result = await service.changeElementBinding(
+      { elementId: 'ctrl-1', target: { kind: 'CLASS', classIds: ['cls-b'] } },
+      CTX_TOKEN,
+    );
+
+    expect(result.success).toBe(true);
+    expect(moduleInstance.getCountermeasures).toHaveBeenCalledWith('ctrl-1', 'cls-b', 'bearer-xyz');
+    expect(moduleInstance.getExposures).not.toHaveBeenCalled();
+  });
+
+  it('passes token=undefined when the request has no bearer (dev/NOAUTH absence)', async () => {
+    const { service, moduleInstance } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: {
+        'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] },
+      },
+      singleRewireBound: 1,
+    });
+
+    const result = await service.changeElementBinding(
+      { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } },
+      { user: { sub: 'tester' } }, // no token
+    );
+
+    expect(result.success).toBe(true);
+    expect(moduleInstance.getExposures).toHaveBeenCalledWith('comp-1', 'cls-new', undefined);
   });
 });

@@ -114,7 +114,13 @@ export class JwtAuthGuard implements CanActivate {
       }
 
       const payload = await this.validateToken(token);
-      
+
+      // Deployment allowlist. Same 401 as an invalid token — no oracle
+      // revealing that a valid-but-unlisted token is genuine.
+      if (!this.assertAllowlisted(payload)) {
+        throw new UnauthorizedException('Invalid token');
+      }
+
       // Add user info to request for potential future use
       request['user'] = payload;
       request['token'] = token;
@@ -166,6 +172,20 @@ export class JwtAuthGuard implements CanActivate {
       });
       return undefined;
     }
+  }
+
+  /**
+   * Deployment access allowlist. Returns true when the caller's `sub` is
+   * permitted on THIS deployment. An empty/unset allowlist means unrestricted.
+   * Keys on the `sub` claim ONLY (never email or any other claim).
+   *
+   * Public because the GraphQL context factory calls it directly: it runs outside
+   * Nest's guard chain and must apply the same gate on the HTTP/WS soft path.
+   */
+  assertAllowlisted(payload: Record<string, any>): boolean {
+    const list = this.config?.accessAllowlist;
+    if (!list || list.length === 0) return true;
+    return list.includes(payload?.sub);
   }
 
   private async validateToken(token: string): Promise<any> {

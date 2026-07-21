@@ -286,9 +286,10 @@ export class TemplateResolverService {
    * Gets class template with comprehensive error handling and caching
    */
   async getClassTemplate(
-    id: string, 
-    module: any, 
-    context?: AuthorizationContext
+    id: string,
+    module: any,
+    context?: AuthorizationContext,
+    token?: string
   ): Promise<TemplateOperationResult> {
     const startTime = Date.now();
     const operationName = 'getClassTemplate';
@@ -330,8 +331,13 @@ export class TemplateResolverService {
 
       this.logger.debug('Fetching class template', { moduleName, id });
 
+      // A caller-variant module's template/guide may differ per caller, so it must
+      // bypass the shared cache entirely. Absent predicate → false → today's caching.
+      const callerVariant =
+        this.moduleRegistry.getModuleByName(moduleName)?.isContentCallerVariant?.() === true;
+
       // Check cache first
-      const cached = this.templateCache.get('template', moduleName, id);
+      const cached = callerVariant ? null : this.templateCache.get('template', moduleName, id);
       if (cached) {
         const duration = Date.now() - startTime;
         this.monitoringService.recordOperation({
@@ -376,7 +382,7 @@ export class TemplateResolverService {
 
       // Fetch template with timeout
       const template = await Promise.race([
-        moduleInstance.getClassTemplate(id),
+        moduleInstance.getClassTemplate(id, token),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Class template fetch timeout')), this.operationTimeout)
         ),
@@ -384,8 +390,8 @@ export class TemplateResolverService {
 
       const content = template || '';
 
-      // Cache the result
-      if (content) {
+      // Cache the result (never for a caller-variant module)
+      if (content && !callerVariant) {
         this.templateCache.set('template', moduleName, content, id);
       }
 
@@ -444,12 +450,12 @@ export class TemplateResolverService {
   /**
    * Legacy method for backward compatibility
    */
-  async getClassTemplateLegacy(id: string, module: any): Promise<string> {
+  async getClassTemplateLegacy(id: string, module: any, token?: string): Promise<string> {
     if (!id || !module) {
       return '';
     }
 
-    const result = await this.getClassTemplate(id, module);
+    const result = await this.getClassTemplate(id, module, undefined, token);
     return result.content;
   }
 
@@ -457,9 +463,10 @@ export class TemplateResolverService {
    * Gets class guide with comprehensive error handling and caching
    */
   async getClassGuide(
-    id: string, 
-    module: any, 
-    context?: AuthorizationContext
+    id: string,
+    module: any,
+    context?: AuthorizationContext,
+    token?: string
   ): Promise<TemplateOperationResult> {
     const startTime = Date.now();
     const operationName = 'getClassGuide';
@@ -501,8 +508,13 @@ export class TemplateResolverService {
 
       this.logger.debug('Fetching class guide', { moduleName, id });
 
+      // A caller-variant module's template/guide may differ per caller, so it must
+      // bypass the shared cache entirely. Absent predicate → false → today's caching.
+      const callerVariant =
+        this.moduleRegistry.getModuleByName(moduleName)?.isContentCallerVariant?.() === true;
+
       // Check cache first
-      const cached = this.templateCache.get('guide', moduleName, id);
+      const cached = callerVariant ? null : this.templateCache.get('guide', moduleName, id);
       if (cached) {
         const duration = Date.now() - startTime;
         this.monitoringService.recordOperation({
@@ -558,7 +570,7 @@ export class TemplateResolverService {
 
       // Fetch guide with timeout
       const guide = await Promise.race([
-        moduleInstance.getClassGuide(id),
+        moduleInstance.getClassGuide(id, token),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Class guide fetch timeout')), this.operationTimeout)
         ),
@@ -566,8 +578,8 @@ export class TemplateResolverService {
 
       const content = guide || '';
 
-      // Cache the result
-      if (content) {
+      // Cache the result (never for a caller-variant module)
+      if (content && !callerVariant) {
         this.templateCache.set('guide', moduleName, content, id);
       }
 
@@ -626,12 +638,12 @@ export class TemplateResolverService {
   /**
    * Legacy method for backward compatibility
    */
-  async getClassGuideLegacy(id: string, module: any): Promise<string> {
+  async getClassGuideLegacy(id: string, module: any, token?: string): Promise<string> {
     if (!id || !module) {
       return '';
     }
 
-    const result = await this.getClassGuide(id, module);
+    const result = await this.getClassGuide(id, module, undefined, token);
     return result.content;
   }
 
@@ -677,7 +689,7 @@ export class TemplateResolverService {
   getResolvers() {
     return {
       Module: {
-        template: async ({ name }: { name: string }, context?: any) => {
+        template: async ({ name }: { name: string }, _args: unknown, context?: any) => {
           // Extract authorization context
           const authContext = this.authorizationService.extractAuthContext(context);
           
@@ -690,7 +702,7 @@ export class TemplateResolverService {
         },
       },
       ComponentClass: {
-        template: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        template: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
           
           this.logger.debug('ComponentClass template resolver called', { 
@@ -699,9 +711,9 @@ export class TemplateResolverService {
             userId: authContext.user?.id 
           });
 
-          return await this.getClassTemplateLegacy(id, module);
+          return await this.getClassTemplateLegacy(id, module, authContext.token);
         },
-        guide: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        guide: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
           
           this.logger.debug('ComponentClass guide resolver called', { 
@@ -710,53 +722,53 @@ export class TemplateResolverService {
             userId: authContext.user?.id 
           });
 
-          return await this.getClassGuideLegacy(id, module);
+          return await this.getClassGuideLegacy(id, module, authContext.token);
         },
       },
       DataFlowClass: {
-        template: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        template: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassTemplateLegacy(id, module);
+          return await this.getClassTemplateLegacy(id, module, authContext.token);
         },
-        guide: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        guide: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassGuideLegacy(id, module);
+          return await this.getClassGuideLegacy(id, module, authContext.token);
         },
       },
       SecurityBoundaryClass: {
-        template: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        template: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassTemplateLegacy(id, module);
+          return await this.getClassTemplateLegacy(id, module, authContext.token);
         },
-        guide: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        guide: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassGuideLegacy(id, module);
+          return await this.getClassGuideLegacy(id, module, authContext.token);
         },
       },
       ControlClass: {
-        template: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        template: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassTemplateLegacy(id, module);
+          return await this.getClassTemplateLegacy(id, module, authContext.token);
         },
-        guide: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        guide: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassGuideLegacy(id, module);
+          return await this.getClassGuideLegacy(id, module, authContext.token);
         },
       },
       DataClass: {
-        template: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        template: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassTemplateLegacy(id, module);
+          return await this.getClassTemplateLegacy(id, module, authContext.token);
         },
-        guide: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        guide: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassGuideLegacy(id, module);
+          return await this.getClassGuideLegacy(id, module, authContext.token);
         },
       },
       IssueClass: {
-        template: async ({ id, module }: { id: string; module: any[] }, context?: any) => {
+        template: async ({ id, module }: { id: string; module: any[] }, _args: unknown, context?: any) => {
           const authContext = this.authorizationService.extractAuthContext(context);
-          return await this.getClassTemplateLegacy(id, module);
+          return await this.getClassTemplateLegacy(id, module, authContext.token);
         },
       },
     };

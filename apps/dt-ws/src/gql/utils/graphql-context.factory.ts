@@ -24,6 +24,13 @@ export interface GraphQLContextFactoryDeps {
  * both hold the payload returned by `decodeUserFromAuthHeader` — `undefined`
  * for an invalid/absent token, and the mock admin in the no-OIDC non-prod dev
  * mode.
+ *
+ * DEPLOYMENT ALLOWLIST — the credential (`token`/`jwt`/`user`) is exposed
+ * only when the caller is both validated AND allowlisted
+ * (`jwtAuthGuard.assertAllowlisted`). On a miss, ALL THREE are cleared —
+ * including `token`, because the `context.token` signature-fallback above would
+ * otherwise authenticate a valid-but-unlisted (or valid-but-wrong-audience)
+ * caller by signature alone. An empty allowlist admits every validated caller.
  */
 export function createGraphQLContextFactory(
   deps: GraphQLContextFactoryDeps,
@@ -37,10 +44,14 @@ export function createGraphQLContextFactory(
     if (connection) {
       const token = extractBearerToken(connection.context?.Authorization);
       const user = await jwtAuthGuard.decodeUserFromAuthHeader(connection.context?.Authorization);
+      // Soft-path allowlist gate: expose the credential only when validated AND
+      // allowlisted. Clearing `token` (not just `user`/`jwt`) is load-bearing —
+      // @authentication's signature-only fallback would otherwise accept it.
+      const ok = !!user && jwtAuthGuard.assertAllowlisted(user);
       return {
-        token,
-        jwt: user, // VERIFIED claims only — never the raw bearer string
-        user,
+        token: ok ? token : undefined,
+        jwt: ok ? user : undefined, // VERIFIED claims only — never the raw bearer string
+        user: ok ? user : undefined,
         driver: neo4jDriver,
         sessionConfig: { database: databaseName },
         cypherQueryOptions: { addVersionPrefix: false },
@@ -54,10 +65,12 @@ export function createGraphQLContextFactory(
     if (req) {
       const token = extractBearerToken(req.headers?.authorization);
       const user = await jwtAuthGuard.decodeUserFromAuthHeader(req.headers?.authorization);
+      // Soft-path allowlist gate — see the WS branch above for why `token` is cleared too.
+      const ok = !!user && jwtAuthGuard.assertAllowlisted(user);
       return {
-        token,
-        jwt: user, // VERIFIED claims only — never the raw bearer string
-        user,
+        token: ok ? token : undefined,
+        jwt: ok ? user : undefined, // VERIFIED claims only — never the raw bearer string
+        user: ok ? user : undefined,
         driver: neo4jDriver,
         sessionConfig: { database: databaseName },
         cypherQueryOptions: { addVersionPrefix: false },

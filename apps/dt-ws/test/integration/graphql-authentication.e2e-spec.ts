@@ -103,7 +103,10 @@ describe('GraphQL authentication — @authentication enforcement (e2e)', () => {
     // Factory-level guarantee: the raw string never reaches context.jwt.
     expect(ctx.jwt).toBeUndefined();
     expect(ctx.user).toBeUndefined();
-    expect(ctx.token).toBe('not-a-real-token');
+    // Allowlist hardening: with no validated user, the factory now also clears
+    // `token` (defense in depth — the @authentication signature-fallback can no
+    // longer see a residual credential). Reject outcome below is unchanged.
+    expect(ctx.token).toBeUndefined();
 
     const result = await graphql({ schema, source: QUERY, contextValue: ctx as any });
 

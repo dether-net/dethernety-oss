@@ -114,6 +114,9 @@ export interface FrontendConfig {
   oidcRedirectUri: string;
   oidcProvider: OidcProvider;
   oidcEndpoints: OidcEndpoints;
+  // OIDC scope requested at login (space-delimited). Deployment config, carried
+  // from the backend; defaults to 'openid profile email' when unset.
+  oidcScope: string;
   // Cognito hosted UI domain for OAuth2 flows (different from issuer)
   // Format: prefix.auth.region.amazoncognito.com (without https://)
   oidcDomain?: string;
@@ -218,6 +221,7 @@ async function fetchRuntimeConfig(): Promise<FrontendConfig> {
         (config.oidcProvider as OidcProvider) || detectOidcProvider(config.oidcIssuer || ''),
         config.oidcEndpoints // Allow custom endpoint overrides from backend
       ),
+      oidcScope: config.oidcScope || 'openid profile email',
       // Cognito hosted UI domain (for OAuth2 flows when different from issuer)
       oidcDomain: config.oidcDomain || undefined,
 
@@ -299,6 +303,7 @@ function getDevelopmentConfig(): FrontendConfig {
         : detectOidcProvider(issuer);
       return getOidcEndpoints(resolvedProvider);
     })(),
+    oidcScope: getEnvValue('OIDC_SCOPE', 'openid profile email'),
     // Cognito hosted UI domain (for OAuth2 flows when different from issuer)
     oidcDomain: getEnvValue('OIDC_DOMAIN', '') || undefined,
 

@@ -31,14 +31,16 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Template Methods (Optional)                  │    │
 │  │  • getModuleTemplate(): string                                  │    │
-│  │  • getClassTemplate(id): string                                 │    │
-│  │  • getClassGuide(id): string                                    │    │
+│  │  • getClassTemplate(id, token): string                          │    │
+│  │  • getClassGuide(id, token): string                             │    │
+│  │  • isContentCallerVariant(): boolean                            │    │
+│  │      └ declares template/guide content may vary by caller       │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                  Security Evaluation (Optional)                 │    │
-│  │  • getExposures(id, classId): Exposure[]                        │    │
-│  │  • getCountermeasures(id, classId): Countermeasure[]            │    │
+│  │  • getExposures(id, classId, token): Exposure[]                 │    │
+│  │  • getCountermeasures(id, classId, token): Countermeasure[]     │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
@@ -111,12 +113,15 @@ export interface DTModule {
 
   // Optional - Configuration templates
   getModuleTemplate?(): Promise<string>;
-  getClassTemplate?(id: string): Promise<string>;
-  getClassGuide?(id: string): Promise<string>;
+  getClassTemplate?(id: string, token?: string): Promise<string>;
+  getClassGuide?(id: string, token?: string): Promise<string>;
+
+  // Optional - Declares whether template/guide content varies by caller (default false)
+  isContentCallerVariant?(): boolean;
 
   // Optional - Security evaluation
-  getExposures?(id: string, classId: string): Promise<Exposure[]>;
-  getCountermeasures?(id: string, classId: string): Promise<Countermeasure[]>;
+  getExposures?(id: string, classId: string, token?: string): Promise<Exposure[]>;
+  getCountermeasures?(id: string, classId: string, token?: string): Promise<Countermeasure[]>;
 
   // Optional - Analysis methods (for modules providing analysis capabilities)
   runAnalysis?(
@@ -763,65 +768,95 @@ getModuleTemplate?(): Promise<string>
 
 ---
 
-### getClassTemplate(id)
+### getClassTemplate(id, token?)
 
 Returns the JSON Schema template for a specific class's attributes.
 
 ```typescript
-async getClassTemplate(id: string): Promise<string>
+async getClassTemplate(id: string, token?: string): Promise<string>
 ```
 
 **Parameters:**
 - `id` - The class instance ID (component, dataflow, boundary, etc.)
+- `token?` - The **raw bearer token** of the calling request: an opaque credential to forward to an upstream service on the caller's behalf. **Never decode it for identity, and never log it.** Absent (`undefined`) in dev/NOAUTH or when the request carries no bearer — the implementation must tolerate absence.
 
 **Returns:** JSON string with `schema` and `uischema` for class configuration
 
 ---
 
-### getClassGuide(id)
+### getClassGuide(id, token?)
 
 Returns usage guidance for configuring a specific class.
 
 ```typescript
-async getClassGuide(id: string): Promise<string>
+async getClassGuide(id: string, token?: string): Promise<string>
 ```
 
 **Parameters:**
 - `id` - The class instance ID
+- `token?` - Same as `getClassTemplate` — the raw bearer token to forward upstream; opaque, never decoded for identity, never logged; `undefined` when absent.
 
 **Returns:** YAML or JSON string with configuration guidance
 
 ---
 
-### getExposures(id, classId)
+### getExposures(id, classId, token?)
 
 Evaluates and returns exposures for a model element based on its attributes.
 
 ```typescript
-async getExposures(id: string, classId: string): Promise<Exposure[]>
+async getExposures(id: string, classId: string, token?: string): Promise<Exposure[]>
 ```
 
 **Parameters:**
 - `id` - The element instance ID
 - `classId` - The class ID assigned to the element
+- `token?` - The raw bearer token to forward upstream; opaque, never decoded for identity, never logged; `undefined` when absent. Unlike the template/guide methods, results here are persisted to the **shared** model graph, so they must **not** vary by caller (see `isContentCallerVariant`).
 
 **Returns:** Array of `Exposure` objects
 
 ---
 
-### getCountermeasures(id, classId)
+### getCountermeasures(id, classId, token?)
 
 Evaluates and returns countermeasures for a model element.
 
 ```typescript
-async getCountermeasures(id: string, classId: string): Promise<Countermeasure[]>
+async getCountermeasures(id: string, classId: string, token?: string): Promise<Countermeasure[]>
 ```
 
 **Parameters:**
 - `id` - The element instance ID
 - `classId` - The class ID assigned to the element
+- `token?` - The raw bearer token to forward upstream; opaque, never decoded for identity, never logged; `undefined` when absent. As with `getExposures`, results persist to the shared graph and must **not** vary by caller.
 
 **Returns:** Array of `Countermeasure` objects
+
+---
+
+### isContentCallerVariant()
+
+Declares whether this module's **template/guide** output may depend on the calling
+user (the `token` passed to `getClassTemplate`/`getClassGuide`).
+
+```typescript
+isContentCallerVariant?(): boolean
+```
+
+**Returns:** `true` if template/guide content is caller-dependent; **absent or `false`
+(the default)** means caller-independent and freely cacheable — the case for every
+module that answers from static, on-disk content.
+
+**When to return `true`.** Only when `getClassTemplate`/`getClassGuide` genuinely
+produce different content for different callers. The platform then **bypasses its
+template cache** for this module, so no caller ever receives content generated for
+another.
+
+**Invariant — template/guide only.** `getExposures`/`getCountermeasures` must **never**
+vary by caller regardless of this predicate: their results are persisted to the shared
+model graph and read back by every caller of that element, so a per-caller value would
+leak across callers (a durable leak the cache bypass cannot prevent). Returning `true`
+licenses per-caller *template/guide* content and nothing else.
 
 ---
 
