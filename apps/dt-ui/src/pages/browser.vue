@@ -93,18 +93,23 @@
     return trail
   }
 
-  const updateSelectedFolder = () => {
+  // Resolve selectedFolder from the URL + rebuild breadcrumbs. Pure state — no
+  // network — so it can safely re-run whenever the folder list changes (rename /
+  // async arrival) without re-triggering a fetch.
+  const syncFolderSelection = () => {
     const dirId = route.query.dir as string || folderStore.selectedFolder?.id || undefined
-    if (dirId === 'root') {
-      folderStore.selectedFolder = undefined
-    } else {
-      const foundFolder = folderStore.folders.find(folder => folder.id === dirId)
-      if (foundFolder) {
-        folderStore.selectedFolder = foundFolder
-      } else {
-        folderStore.selectedFolder = undefined
-      }
-    }
+    folderStore.selectedFolder = (dirId && dirId !== 'root')
+      ? folderStore.folders.find(folder => folder.id === dirId) || undefined
+      : undefined
+    breadcrumbs.value = buildBreadcrumbs(folderStore.selectedFolder)
+  }
+
+  // The single fetch trigger for a folder navigation: resolve the folder, then
+  // fetch its models + controls exactly once. Guarded to /browser so a late
+  // navigation doesn't refetch after onBeforeRouteLeave has reset the store.
+  const loadFolderView = () => {
+    if (route.path !== '/browser') return
+    syncFolderSelection()
     modelsStore.fetchModels({ folderId: folderStore.selectedFolder?.id || undefined })
     controlsStore.fetchControls({ folderId: folderStore.selectedFolder?.id || undefined })
   }
@@ -116,24 +121,16 @@
     controlsStore.fetchMitreAttackMitigations()
     controlsStore.fetchMitreDefendTactics()
 
-    updateSelectedFolder()
-    breadcrumbs.value = buildBreadcrumbs(folderStore.selectedFolder)
+    loadFolderView()
   })
 
-  watch(() => route.query.dir, () => {
-    updateSelectedFolder()
-  })
+  // Navigation is the sole models/controls fetch trigger. A separate selectedFolder
+  // watcher used to fetch too, double-fetching on every navigation — removed.
+  watch(() => route.query.dir, loadFolderView)
 
-  watch(() => folderStore.selectedFolder, newVal => {
-    breadcrumbs.value = buildBreadcrumbs(newVal)
-    modelsStore.fetchModels({ folderId: newVal?.id || undefined })
-    controlsStore.fetchControls({ folderId: newVal?.id || undefined })
-  })
-
-  watch(() => folderStore.folders, () => {
-    updateSelectedFolder()
-    breadcrumbs.value = buildBreadcrumbs(folderStore.selectedFolder)
-  })
+  // Folder-list changes (rename / async arrival) refresh selection + breadcrumbs
+  // only — the object identity/name may have changed — but never refetch content.
+  watch(() => folderStore.folders, syncFolderSelection)
 
   const folders = computed(() => folderStore.folders.filter(folder => folder.parentFolder?.id === folderStore.selectedFolder?.id))
 
@@ -156,8 +153,7 @@
         parentFolder: parentFolder || undefined,
       }
       folderStore.updateFolder(updatedFolder).then(() => {
-        updateSelectedFolder()
-        breadcrumbs.value = buildBreadcrumbs(folderStore.selectedFolder)
+        loadFolderView()
       })
     }
     showFolderSelectDialog.value = false
@@ -177,6 +173,12 @@
   }
 
   const onFolderDelete = () => {
+    // Defense-in-depth for the destructive path: never fire a delete with an empty id
+    // (the button guard already disables this at the root, where there is no selection).
+    if (!folderStore.selectedFolder?.id) {
+      showDeleteFolderDialog.value = false
+      return
+    }
     const parentFolder = folderStore.selectedFolder?.parentFolder
     folderStore.deleteFolder(folderStore.selectedFolder?.id || '')
     if (parentFolder) {
@@ -318,7 +320,7 @@
                 <v-btn
                   class="mx-1"
                   color="secondary"
-                  :disabled="folderStore.selectedFolder === null"
+                  :disabled="!folderStore.selectedFolder"
                   elevation="12"
                   icon="mdi-folder-edit-outline"
                   size="x-large"
@@ -328,7 +330,7 @@
                 <v-btn
                   class="mx-1"
                   color="secondary"
-                  :disabled="folderStore.selectedFolder === null"
+                  :disabled="!folderStore.selectedFolder"
                   elevation="12"
                   icon="mdi-folder-arrow-right-outline"
                   size="x-large"
@@ -338,7 +340,7 @@
                 <v-btn
                   class="mx-1"
                   color="error"
-                  :disabled="folderStore.selectedFolder === null || (folderStore.selectedFolder?.childrenFolders?.length ?? 0) > 0"
+                  :disabled="!folderStore.selectedFolder || (folderStore.selectedFolder?.childrenFolders?.length ?? 0) > 0"
                   elevation="12"
                   icon="mdi-trash-can-outline"
                   size="x-large"
@@ -470,6 +472,14 @@
                 type="image"
               />
             </template>
+            <!-- Fetch failed: surface the error + Retry instead of the misleading "No models yet" empty card. -->
+            <template v-else-if="modelsStore.fetchModelsError">
+              <div class="d-flex flex-column align-center text-center pa-6 ma-2">
+                <v-icon class="mb-2" color="error" icon="mdi-alert-circle-outline" size="40" />
+                <div class="text-body-2 mb-2">{{ modelsStore.fetchModelsError }}</div>
+                <v-btn color="secondary" variant="tonal" @click="loadFolderView()">Retry</v-btn>
+              </div>
+            </template>
             <!-- Loaded: existing models, then a persistent single-click create card -->
             <template v-else>
               <template
@@ -526,6 +536,14 @@
                 class="ma-2 context-card-skeleton"
                 type="image"
               />
+            </template>
+            <!-- Fetch failed: surface the error + Retry instead of the misleading "No controls yet" empty card. -->
+            <template v-else-if="controlsStore.errors['fetchingControls']">
+              <div class="d-flex flex-column align-center text-center pa-6 ma-2">
+                <v-icon class="mb-2" color="error" icon="mdi-alert-circle-outline" size="40" />
+                <div class="text-body-2 mb-2">{{ controlsStore.errors['fetchingControls'] }}</div>
+                <v-btn color="secondary" variant="tonal" @click="loadFolderView()">Retry</v-btn>
+              </div>
             </template>
             <!-- Loaded: existing controls, then a persistent single-click create card -->
             <template v-else>

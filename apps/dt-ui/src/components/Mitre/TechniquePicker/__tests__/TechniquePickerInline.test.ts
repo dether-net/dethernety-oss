@@ -171,3 +171,55 @@ describe('TechniquePickerInline — seedSearch', () => {
     expect(matchTechniquesMock).not.toHaveBeenCalled()
   })
 })
+
+interface PickerExposed {
+  fetchVectorTier: (query: string, topN?: number) => Promise<void>
+  vectorResults: MockCandidate[]
+  searchQuery: string | null
+}
+
+const candidate = (mitreId: string): MockCandidate => ({
+  mitreId, name: mitreId, kind: 'ATTACK_TECHNIQUE', matchType: 'VECTOR_SIMILARITY', similarityScore: 0.7,
+})
+
+// Stale-write-back guard (fetchVectorTier): a vector response whose query is no longer the
+// live searchQuery must be dropped, so a slow older fetch can't clobber the newer query's rows.
+// Fake timers keep the watcher's 300ms debounce from firing a second (dangling) fetch.
+describe('TechniquePickerInline — vector write-back staleness guard', () => {
+  it('drops a stale response after the query changed mid-flight', async () => {
+    vi.useFakeTimers()
+    storeState.matchResults.set('ATTACK_TECHNIQUE:aaaa', [candidate('T-old')])
+
+    let resolveMatch: () => void = () => {}
+    matchTechniquesMock.mockImplementationOnce(() => new Promise<void>(r => { resolveMatch = r }))
+
+    const wrapper = mountPicker()
+    const vm = wrapper.vm as unknown as PickerExposed
+
+    vm.searchQuery = 'aaaa'
+    await nextTick()                    // watcher clears vectorResults + schedules (frozen) debounce
+    const p = vm.fetchVectorTier('aaaa') // in flight, awaiting matchTechniques
+    vm.searchQuery = 'aaaab'            // query moved on before the response arrives
+    await nextTick()
+    resolveMatch()
+    await p
+    await nextTick()
+
+    expect(vm.vectorResults).toEqual([]) // the stale 'aaaa' rows were NOT written back
+  })
+
+  it('writes the response when the query is still current', async () => {
+    vi.useFakeTimers()
+    storeState.matchResults.set('ATTACK_TECHNIQUE:aaaa', [candidate('T-cur')])
+    matchTechniquesMock.mockResolvedValueOnce(undefined)
+
+    const wrapper = mountPicker()
+    const vm = wrapper.vm as unknown as PickerExposed
+
+    vm.searchQuery = 'aaaa'
+    await nextTick()                    // watcher clears vectorResults first
+    await vm.fetchVectorTier('aaaa')
+
+    expect(vm.vectorResults).toEqual([candidate('T-cur')])
+  })
+})

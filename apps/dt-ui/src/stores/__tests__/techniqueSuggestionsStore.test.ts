@@ -253,6 +253,48 @@ describe('techniqueSuggestionsStore.hydrateCatalog', () => {
     expect(findAttackTechniquesMock).toHaveBeenCalledOnce()
   })
 
+  it('total DEFEND failure sets catalogError, leaves the catalog unready, and permits retry', async () => {
+    fetchDefendTacticsMock.mockResolvedValue([
+      { id: 'tac-1', name: 'Harden' },
+      { id: 'tac-2', name: 'Detect' },
+    ])
+    // Every tactic query rejects — allSettled would otherwise swallow this and mark ready.
+    getDefendTechniquesByTacticMock
+      .mockRejectedValueOnce(new Error('500 internal'))
+      .mockRejectedValueOnce(new Error('500 internal'))
+
+    const store = useTechniqueSuggestionsStore()
+    await store.hydrateCatalog('DEFEND_TECHNIQUE')
+
+    expect(store.isCatalogReady.DEFEND_TECHNIQUE).toBe(false)
+    expect(store.catalogError).not.toBe('')
+
+    // Retry is NOT blocked by the isCatalogReady guard — a second attempt re-runs and succeeds.
+    getDefendTechniquesByTacticMock
+      .mockResolvedValueOnce([{ id: 'd-1', name: 'PMAD', description: 'd', d3fendId: 'D3-PMAD' }])
+      .mockResolvedValueOnce([{ id: 'd-2', name: 'PSA', description: 'd', d3fendId: 'D3-PSA' }])
+
+    await store.hydrateCatalog('DEFEND_TECHNIQUE')
+    expect(store.isCatalogReady.DEFEND_TECHNIQUE).toBe(true)
+    expect(store.catalog.get('DEFEND_TECHNIQUE')).toHaveLength(2)
+  })
+
+  it('partial DEFEND failure still marks the catalog ready with the entries that loaded', async () => {
+    fetchDefendTacticsMock.mockResolvedValueOnce([
+      { id: 'tac-1', name: 'Harden' },
+      { id: 'tac-2', name: 'Detect' },
+    ])
+    getDefendTechniquesByTacticMock
+      .mockResolvedValueOnce([{ id: 'd-1', name: 'PMAD', description: 'd', d3fendId: 'D3-PMAD' }])
+      .mockRejectedValueOnce(new Error('500 internal'))
+
+    const store = useTechniqueSuggestionsStore()
+    await store.hydrateCatalog('DEFEND_TECHNIQUE')
+
+    expect(store.isCatalogReady.DEFEND_TECHNIQUE).toBe(true)
+    expect(store.catalog.get('DEFEND_TECHNIQUE')).toHaveLength(1)
+  })
+
   it('catalog error does NOT poison matchError', async () => {
     findAttackTechniquesMock.mockRejectedValueOnce(new Error('500 internal'))
     matchTechniquesMock.mockResolvedValueOnce({

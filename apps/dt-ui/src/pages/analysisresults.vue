@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ref, computed, h, defineComponent } from 'vue'
+  import { ref, computed, h, defineComponent, watch } from 'vue'
   import { useAnalysisStore } from '@/stores/analysisStore'
   import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
   // import { reportComponents } from '@/components/analysisComponents'
@@ -44,17 +44,31 @@
     })
   })
 
-  if (!analysisId.value) {
-    snackBar.value = {
-      show: true,
-      message: 'No analysis ID provided',
-      color: 'error',
+  // Re-read the id from the route and (re)fetch. Wired to a route.query.id watcher
+  // below so navigating between two analysis results (same path, different ?id=)
+  // refetches instead of showing the first analysis captured at setup.
+  const loadAnalysis = () => {
+    analysisId.value = route.query.id as string | null
+    if (!analysisId.value) {
+      snackBar.value = {
+        show: true,
+        message: 'No analysis ID provided',
+        color: 'error',
+      }
+      return
     }
-  } else {
     analysisStore.fetchAnalyses({ analysisId: analysisId.value }).then(analysis => {
       if (analysis && analysis.length > 0) {
         analysisStore.setCurrentAnalysis(analysis[0])
         updateIndexDocument()
+      } else if (analysisStore.error) {
+        // Distinguish a fetch failure from a genuinely-empty result: the finder
+        // resolves to [] and sets analysisStore.error on failure (no throw).
+        snackBar.value = {
+          show: true,
+          message: analysisStore.error,
+          color: 'error',
+        }
       } else {
         snackBar.value = {
           show: true,
@@ -64,6 +78,14 @@
       }
     })
   }
+
+  loadAnalysis()
+  watch(() => route.query.id, () => {
+    // Guard against a navigate-away that nulls the id firing a spurious "No analysis ID" snackbar.
+    if (route.path !== '/analysisresults') return
+    loadAnalysis()
+  })
+
   const analysisName = computed(() => analysisStore.currentAnalysis?.name ?? '')
   const analysisElementName = computed(() => analysisStore.currentAnalysis?.element?.name ?? '')
 

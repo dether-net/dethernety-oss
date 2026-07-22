@@ -178,6 +178,10 @@
       )
     }
 
+    // Captured before the await: if the node is still mid-creation the edit is
+    // safely deferred (applied once the create resolves), not persisted now — so
+    // don't claim outright success for it.
+    const deferred = flowStore.isPendingNode(selectedItem.value.id)
     const res = await flowStore.updateNode({
       nodeId: selectedItem.value.id,
       updates: {
@@ -192,7 +196,10 @@
     if (res) {
       clearDirty('zoning')
       if (isFreshlyCreated.value) emit('clear-freshly-created')
-      showSnackbar('Zoning saved successfully', 'success')
+      showSnackbar(
+        deferred ? 'Zoning will be applied once the item finishes saving' : 'Zoning saved successfully',
+        deferred ? 'info' : 'success',
+      )
       seedZoningFromSelected()
     } else {
       // Buffer stays dirty so the user can retry without losing their edit.
@@ -507,6 +514,11 @@
     if (!selectedItem.value) return
     let res = false
 
+    // Captured before the await: a node still mid-creation has its edit safely
+    // deferred (applied once the create resolves), not persisted now — so the
+    // success toast below must not claim outright success for it.
+    const deferred = isNode(selectedItem.value) && flowStore.isPendingNode(selectedItem.value.id)
+
     if (isNode(selectedItem.value)) {
       res = await flowStore.updateNode({
         nodeId: selectedItem.value.id,
@@ -533,7 +545,10 @@
     if (res) {
       clearDirty('general')
       if (isFreshlyCreated.value) emit('clear-freshly-created')
-      showSnackbar('Item updated successfully', 'success')
+      showSnackbar(
+        deferred ? 'Changes will be applied once the item finishes saving' : 'Item updated successfully',
+        deferred ? 'info' : 'success',
+      )
       updateForm()
     } else {
       // Buffer stays dirty so the user can retry without losing their edit.

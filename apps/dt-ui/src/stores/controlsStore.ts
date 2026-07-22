@@ -185,27 +185,48 @@ export const useControlsStore = defineStore('controls', () => {
     clearCache() // Clear all cached data
   }
 
+  // Request-generation token: folder-switch fires overlapping fetches (widened by the
+  // up-to-1s retryOperation delay); only the latest may publish to `controls`.
+  let fetchControlsGen = 0
   const fetchControls = async ({ folderId, ephemeral }: { folderId?: string | undefined, ephemeral?: boolean } = {}): Promise<Control[]> => {
+    // Ephemeral callers (ContentSelectDialog) only want the array back — they must not touch
+    // shared grid state (controls/error/loading) nor bump the publish generation, or they'd
+    // supersede an in-flight grid fetch and blank the grid on a successful load.
+    if (ephemeral) {
+      try {
+        return (await retryOperation(() =>
+          dtControl.getControls({ folderId: folderId || undefined })
+        )) as Control[]
+      } catch {
+        return []
+      }
+    }
+
     const operation = 'fetchingControls'
-    
+    const gen = ++fetchControlsGen
+
     try {
       setOperationLoading(operation, true)
       clearError(operation)
-      
-      const response = await retryOperation(() => 
+
+      const response = await retryOperation(() =>
         dtControl.getControls({ folderId: folderId || undefined })
       )
-      
-      if (!ephemeral) {
+
+      if (gen === fetchControlsGen) {
         controls.value = response
       }
-      
+
       return response as Control[]
     } catch (error) {
-      setError(operation, error as Error, 'fetch controls')
+      if (gen === fetchControlsGen) {
+        setError(operation, error as Error, 'fetch controls')
+      }
       return []
     } finally {
-      setOperationLoading(operation, false)
+      if (gen === fetchControlsGen) {
+        setOperationLoading(operation, false)
+      }
     }
   }
 

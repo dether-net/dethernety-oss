@@ -122,7 +122,9 @@ export const useFlowStore = defineStore('flow', () => {
 
   // === TEMPORARY NODE HELPERS ===
   const isPendingNode = (nodeId: string): boolean => {
-    return pendingNodes.value.has(nodeId) || nodeId.startsWith('temp-')
+    // Only genuinely mid-creation nodes are pending. A temp id whose create has
+    // resolved is no longer pending — updateNode translates it via getRealNodeId.
+    return pendingNodes.value.has(nodeId)
   }
 
   const getRealNodeId = (nodeId: string): string => {
@@ -136,60 +138,89 @@ export const useFlowStore = defineStore('flow', () => {
     deferredUpdates.value.get(tempId)!.push({ updates, timestamp: Date.now() })
   }
 
+  // Owns the tail of a temp node's lifecycle: flush every queued update to the
+  // real node, then clear the pending flag. Clearing pendingNodes HERE (rather
+  // than in the create flow after the await) makes stop-accepting atomic with
+  // the final drain — see the cleanup note below.
   const applyDeferredUpdates = async (tempId: string, realId: string) => {
-    const updates = deferredUpdates.value.get(tempId)
-    if (!updates || updates.length === 0) {
-      console.log(`No deferred updates for ${tempId}`)
+    const initial = deferredUpdates.value.get(tempId)
+    if (!initial || initial.length === 0) {
+      // Nothing queued during creation — still retire the pending flag.
+      pendingNodes.value.delete(tempId)
+      deferredUpdates.value.delete(tempId)
       return
     }
-    
-    console.log(`Found ${updates.length} deferred updates for ${tempId}:`, updates)
 
-    // Separate class updates from regular node updates
-    let classId: string | undefined
-    const nodeUpdates: any = {}
-    
-    updates.forEach(({ updates: update }) => {
-      if ('classId' in update) {
-        classId = (update as any).classId // Take the latest class update
-      } else {
-        dtUtils.deepMerge(nodeUpdates, update)
-      }
-    })
-
-    // Add a small delay to ensure the node is fully created and in the store
+    // Small delay to ensure the real node is fully created and in the store.
     await new Promise(resolve => setTimeout(resolve, 100))
-    
-    // Verify the real node exists before applying updates
+
+    // Verify the real node exists before applying updates.
     const realNodeExists = getNodeById({ nodeId: realId }) || realId === defaultBoundaryId.value
     if (!realNodeExists) {
       console.warn(`Real node ${realId} not found when applying deferred updates. Skipping.`)
+      pendingNodes.value.delete(tempId)
+      deferredUpdates.value.delete(tempId)
       return
     }
 
-    // Apply class update first if present
-    if (classId) {
-      try {
-        console.log(`Applying deferred class update: ${realId} -> ${classId}`)
-        await updateNodeClass({ nodeId: realId, classId })
-      } catch (error) {
-        console.error('Failed to apply deferred class update:', error)
+    // Drain loop: re-check the queue after every network round-trip so updates
+    // queued DURING the awaits (while the node is still pending) are applied,
+    // not dropped. `processed` advances monotonically over the stable array
+    // instance (queueUpdateForTempNode only ever pushes), so nothing is
+    // double-applied or skipped.
+    const MAX_FLUSH_ITERATIONS = 50 // runaway backstop
+    let processed = 0
+    let iterations = 0
+    while (true) {
+      const queue = deferredUpdates.value.get(tempId)
+      if (!queue || queue.length === processed) break
+      if (++iterations > MAX_FLUSH_ITERATIONS) {
+        console.warn(`applyDeferredUpdates for ${tempId} exceeded ${MAX_FLUSH_ITERATIONS} iterations; abandoning remaining updates`)
+        break
+      }
+      const batch = queue.slice(processed)
+      processed = queue.length
+
+      // Fold this batch: latest class update wins; node updates deep-merge.
+      let classId: string | undefined
+      const nodeUpdates: any = {}
+      batch.forEach(({ updates: update }) => {
+        if ('classId' in update) {
+          classId = (update as any).classId
+        } else {
+          dtUtils.deepMerge(nodeUpdates, update)
+        }
+      })
+
+      if (classId) {
+        // updateNodeClass surfaces its own failures via dtUtils.handleError; the
+        // try/catch is defensive only (it should not throw).
+        try {
+          await updateNodeClass({ nodeId: realId, classId })
+        } catch (error) {
+          dtUtils.handleError({ action: 'applyDeferredUpdates', error })
+        }
+      }
+      if (Object.keys(nodeUpdates).length > 0) {
+        try {
+          // updateNode reverts and returns false (silently) on failure — surface it
+          // here so a deferred write that fails isn't swallowed after we told the
+          // user "will be applied once the item finishes saving".
+          const ok = await updateNode({ nodeId: realId, updates: nodeUpdates, skipDeferredQueue: true })
+          if (!ok) {
+            dtUtils.handleError({ action: 'applyDeferredUpdates', error: new Error(`Deferred update to ${realId} was not applied`) })
+          }
+        } catch (error) {
+          dtUtils.handleError({ action: 'applyDeferredUpdates', error })
+        }
       }
     }
 
-    // Apply regular node updates
-    if (Object.keys(nodeUpdates).length > 0) {
-      try {
-        console.log(`Applying deferred node updates to ${realId}:`, nodeUpdates)
-        await updateNode({ nodeId: realId, updates: nodeUpdates, skipDeferredQueue: true })
-      } catch (error) {
-        console.error('Failed to apply deferred node updates:', error)
-      }
-    }
-    
-    console.log(`Completed applying deferred updates for ${tempId} -> ${realId}`)
-
-    // Clean up
+    // Stop accepting new deferred writes for this temp id, atomically with the
+    // terminal length-check above (no await between): a late write either
+    // landed before the check (so it was flushed) or runs after (so it sees
+    // pendingNodes cleared and updateNode translates temp -> real directly).
+    pendingNodes.value.delete(tempId)
     deferredUpdates.value.delete(tempId)
   }
 
@@ -396,12 +427,11 @@ export const useFlowStore = defineStore('flow', () => {
           nodes.value = nodes.value.slice()
         }
         
-        // Apply any deferred updates that were queued while the node was being created
-        console.log(`Applying deferred updates for component ${tempId} -> ${createdComponent.id}`)
+        // Apply any deferred updates that were queued while the node was being created.
+        // applyDeferredUpdates retires pendingNodes[tempId] atomically with its final
+        // drain (closing the queue-vs-stop-accepting race), so no delete is needed here.
         await applyDeferredUpdates(tempId, createdComponent.id)
-        
-        // Clean up tracking
-        pendingNodes.value.delete(tempId)
+
         // Clean up mapping after a delay to handle any race conditions
         setTimeout(() => tempNodeMapping.value.delete(tempId), 1000)
         
@@ -475,12 +505,11 @@ export const useFlowStore = defineStore('flow', () => {
           nodes.value = nodes.value.slice()
         }
         
-        // Apply any deferred updates that were queued while the node was being created
-        console.log(`Applying deferred updates for boundary ${tempId} -> ${createdBoundary.id}`)
+        // Apply any deferred updates that were queued while the node was being created.
+        // applyDeferredUpdates retires pendingNodes[tempId] atomically with its final
+        // drain (closing the queue-vs-stop-accepting race), so no delete is needed here.
         await applyDeferredUpdates(tempId, createdBoundary.id)
-        
-        // Clean up tracking
-        pendingNodes.value.delete(tempId)
+
         // Clean up mapping after a delay to handle any race conditions
         setTimeout(() => tempNodeMapping.value.delete(tempId), 1000)
         
@@ -506,11 +535,15 @@ export const useFlowStore = defineStore('flow', () => {
     }
   }
 
-  // Deep-clone a node for the optimistic-revert snapshot. structuredClone is correct for these
-  // plain GraphQL/JSON-derived nodes (Vue Flow's function-bearing internals live in its own GraphNode
-  // store, not in `nodes.value`); the JSON fallback + undefined degrade are latent-footgun insurance so
-  // a future function-valued node field can never throw *before* the network call and brick the save.
-  const safeClone = (value: Node): Node | undefined => {
+  // Deep-clone a node or edge for the optimistic-revert snapshot, and to hand
+  // dt-core a detached copy so its in-place merge can never touch the live
+  // reactive object. structuredClone is correct for these plain GraphQL/JSON-
+  // derived objects (Vue Flow's function-bearing internals live in its own
+  // GraphNode/GraphEdge store, not in `nodes.value`/`edges.value`); the JSON
+  // fallback + undefined degrade are latent-footgun insurance so a future
+  // function-valued field can never throw *before* the network call and brick
+  // the save.
+  const safeClone = <T>(value: T): T | undefined => {
     try {
       return structuredClone(toRaw(value))
     } catch {
@@ -542,7 +575,6 @@ export const useFlowStore = defineStore('flow', () => {
   const updateNode = async ({ nodeId, updates, skipDeferredQueue = false }: { nodeId: string, updates: object, skipDeferredQueue?: boolean }): Promise<boolean> => {
     // Check if this is a temporary node from optimistic update
     if (!skipDeferredQueue && isPendingNode(nodeId)) {
-      console.log(`Queueing update for temporary node ${nodeId}:`, updates)
       queueUpdateForTempNode(nodeId, updates)
 
       // Also update the optimistic node in the UI for immediate feedback
@@ -557,9 +589,13 @@ export const useFlowStore = defineStore('flow', () => {
       return true // Return true to indicate the update was handled
     }
 
-    const index = getNodeIndexById({ nodeId })
-    if (index !== -1 || nodeId === defaultBoundaryId.value) {
-      const isDefault = nodeId === defaultBoundaryId.value
+    // Translate a stale temp id to its real id if the create already resolved
+    // (mapping set, node no longer pending), so a late edit lands on the real
+    // node instead of re-queueing into a map that will never flush again.
+    const targetId = getRealNodeId(nodeId)
+    const index = getNodeIndexById({ nodeId: targetId })
+    if (index !== -1 || targetId === defaultBoundaryId.value) {
+      const isDefault = targetId === defaultBoundaryId.value
       const node = isDefault ? defaultBoundary.value : nodes.value[index]
       if (!node) return false
       // Snapshot the conduits BEFORE the optimistic merge — this is the only correct baseline for the
@@ -578,15 +614,15 @@ export const useFlowStore = defineStore('flow', () => {
         const ok = node.type === 'BOUNDARY'
           ? await updateBoundaryNode({ updatedNode: node, baselineConduits })
           : await updateComponentNode({ updatedNode: node })
-        if (!ok) revertNode(nodeId, isDefault, snapshot)
+        if (!ok) revertNode(targetId, isDefault, snapshot)
         return ok
       } catch (error) {
-        console.error(`updateNode: save failed for ${nodeId}, reverting to server truth`, error)
-        revertNode(nodeId, isDefault, snapshot)
+        console.error(`updateNode: save failed for ${targetId}, reverting to server truth`, error)
+        revertNode(targetId, isDefault, snapshot)
         return false
       }
     } else {
-      console.error(`Node with ID ${nodeId} not found`)
+      console.error(`Node with ID ${targetId} not found`)
     }
     return false
   }
@@ -607,28 +643,32 @@ export const useFlowStore = defineStore('flow', () => {
     // A queued null is safe: temp nodes are created unbound, so the deferred
     // flush's `if (classId)` gate skipping it converges on the correct end state.
     if (isPendingNode(nodeId)) {
-      console.log(`Queueing class update for temporary node ${nodeId}: ${classId}`)
       queueUpdateForTempNode(nodeId, { classId })
       return null
     }
 
+    // Translate a stale temp id to its real id if the create already resolved
+    // (mirrors updateNode) — otherwise a late class update to a replaced temp id
+    // silently no-ops (node lookup misses).
+    const targetId = getRealNodeId(nodeId)
+
     try {
       let node: any = null
-      if (nodeId === defaultBoundaryId.value) {
+      if (targetId === defaultBoundaryId.value) {
         node = defaultBoundary.value
       } else {
-        node = getNodeById({ nodeId }) || null
+        node = getNodeById({ nodeId: targetId }) || null
       }
       if (node) {
         // null classId = unassign. The backend NONE rebind clears the class edge
         // and sweeps SYSTEM-derived exposures (user-authored ones are preserved).
         const result = await dtClass.changeElementBinding({
-          elementId: nodeId,
+          elementId: targetId,
           target: classId
             ? { kind: 'CLASS', classIds: [classId] }
             : { kind: 'NONE' },
         })
-        if (result.success) writeLocalClassId(nodeId, classId)
+        if (result.success) writeLocalClassId(targetId, classId)
         return result
       }
     } catch (error) {
@@ -896,10 +936,16 @@ export const useFlowStore = defineStore('flow', () => {
   // Edge operations
 
   const createDataFlow = async ({ newEdge, classId }: { newEdge: Edge, classId: string }): Promise<boolean> => {
+    // Snapshot the model identity so a create that resolves after a model switch
+    // (mirrors fetchData's activeModelLoad guard) doesn't inject the previous
+    // model's edge into the new canvas.
+    const originModelId = modelId.value
     const createdDataFlow = await dtDataflow.createDataFlow({ newEdge, classId })
     if (createdDataFlow) {
-      edges.value.push(createdDataFlow)
-      selectedItem.value = createdDataFlow
+      if (modelId.value === originModelId) {
+        edges.value.push(createdDataFlow)
+        selectedItem.value = createdDataFlow
+      }
       return true
     }
     return false
@@ -908,40 +954,52 @@ export const useFlowStore = defineStore('flow', () => {
   const updateDataFlow = async ({ edgeId, updates }: { edgeId: string, updates: object }): Promise<boolean> => {
     const index = edges.value.findIndex(edge => edge.id === edgeId)
     if (index !== -1) {
-      const edge = edges.value[index]
-      const updatedDataFlow = await dtDataflow.updateDataFlow({ edge, updates })
+      try {
+        // Hand dt-core a detached clone: it deep-merges `updates` into the passed
+        // edge in place before the network call, so passing the live reactive edge
+        // would leave the canvas diverged on a rejected/failed save. On failure we
+        // return false and never touch edges.value; on success we rebuild from
+        // server truth below.
+        const edgeClone = safeClone(edges.value[index])
+        if (!edgeClone) return false
+        const updatedDataFlow = await dtDataflow.updateDataFlow({ edge: edgeClone, updates })
 
-      if (updatedDataFlow) {
-        const idx = edges.value.findIndex(edge => edge.id === updatedDataFlow.id)
-        if (idx !== -1) {
-          const newEdge: Edge = {
-            ...edges.value[idx],
-            id: updatedDataFlow.id,
-            label: updatedDataFlow.name,
-            data: {
-              description: updatedDataFlow.description,
-              controls: updatedDataFlow.controls?.map((control: Control) => control.id),
-              dataItems: updatedDataFlow.dataItems?.map((dataItem: DataItem) => dataItem.id),
-            },
-            source: updatedDataFlow.source.id,
-            target: updatedDataFlow.target.id,
-            sourceHandle: updatedDataFlow.sourceHandle,
-            targetHandle: updatedDataFlow.targetHandle,
-            markerEnd: 'arrowclosed',
+        if (updatedDataFlow) {
+          const idx = edges.value.findIndex(edge => edge.id === updatedDataFlow.id)
+          if (idx !== -1) {
+            const newEdge: Edge = {
+              ...edges.value[idx],
+              id: updatedDataFlow.id,
+              label: updatedDataFlow.name,
+              data: {
+                description: updatedDataFlow.description,
+                controls: updatedDataFlow.controls?.map((control: Control) => control.id),
+                dataItems: updatedDataFlow.dataItems?.map((dataItem: DataItem) => dataItem.id),
+              },
+              source: updatedDataFlow.source.id,
+              target: updatedDataFlow.target.id,
+              sourceHandle: updatedDataFlow.sourceHandle,
+              targetHandle: updatedDataFlow.targetHandle,
+              markerEnd: 'arrowclosed',
+            }
+            edges.value.splice(idx, 1, newEdge)
+            edges.value = [...edges.value]
+
+            // Update selectedItem if it's pointing to the old edge
+            if (selectedItem.value && selectedItem.value.id === updatedDataFlow.id) {
+              selectedItem.value = newEdge
+            }
+
+            // Use synchronization helpers
+            syncDataItems(updatedDataFlow.dataItems || [])
+            syncControls(updatedDataFlow.controls || [])
+            return true
           }
-          edges.value.splice(idx, 1, newEdge)
-          edges.value = [...edges.value]
-
-          // Update selectedItem if it's pointing to the old edge
-          if (selectedItem.value && selectedItem.value.id === updatedDataFlow.id) {
-            selectedItem.value = newEdge
-          }
-
-          // Use synchronization helpers
-          syncDataItems(updatedDataFlow.dataItems || [])
-          syncControls(updatedDataFlow.controls || [])
-          return true
         }
+      } catch (error) {
+        // dt-core rethrows on failure; the live edge was never mutated (clone),
+        // so the canvas stays consistent. saveItem surfaces "Failed to update item".
+        console.error(`updateDataFlow: save failed for ${edgeId}, canvas left unchanged`, error)
       }
     }
     return false
@@ -991,7 +1049,13 @@ export const useFlowStore = defineStore('flow', () => {
       
       clearError(operationKey)
       setOperationLoading(operationKey, true)
-      
+
+      // Snapshot the model identity so a create that resolves after a model switch
+      // (mirrors fetchData's activeModelLoad guard) doesn't inject the previous
+      // model's item into the new canvas. The create itself still succeeds — we
+      // only gate the local store mutations and return the item truthfully.
+      const originModelId = modelId.value
+
       const createdDataItem = await dtDataItem.createDataItem({
         name,
         description,
@@ -1001,38 +1065,40 @@ export const useFlowStore = defineStore('flow', () => {
         sensitivity: sensitivity ?? undefined,
         regulatoryFlags,
       })
-      
+
       if (!createdDataItem) {
         throw new Error('Failed to create data item')
       }
-      
-      dataItems.value.push(createdDataItem)
 
-      // ADD_DATA_ITEM doesn't return `elements` in its selection set, so we can't loop on
-      // createdDataItem.elements — use the elementId we passed into the mutation as the
-      // authoritative link target. Update node.data.dataItems / edge.data.dataItems via
-      // fresh-array reassignment so Vue's reactivity picks up the change in
-      // SettingsDataTab's `incomingDataMatches` filter.
-      const nodeIdx = nodes.value.findIndex(n => n.id === elementId)
-      if (nodeIdx !== -1) {
-        const node = nodes.value[nodeIdx]
-        node.data.dataItems = [...(node.data.dataItems ?? []), createdDataItem.id]
-      } else {
-        const edgeIdx = edges.value.findIndex(e => e.id === elementId)
-        if (edgeIdx !== -1) {
-          const edge = edges.value[edgeIdx]
-          edge.data.dataItems = [...(edge.data.dataItems ?? []), createdDataItem.id]
+      if (modelId.value === originModelId) {
+        dataItems.value.push(createdDataItem)
+
+        // ADD_DATA_ITEM doesn't return `elements` in its selection set, so we can't loop on
+        // createdDataItem.elements — use the elementId we passed into the mutation as the
+        // authoritative link target. Update node.data.dataItems / edge.data.dataItems via
+        // fresh-array reassignment so Vue's reactivity picks up the change in
+        // SettingsDataTab's `incomingDataMatches` filter.
+        const nodeIdx = nodes.value.findIndex(n => n.id === elementId)
+        if (nodeIdx !== -1) {
+          const node = nodes.value[nodeIdx]
+          node.data.dataItems = [...(node.data.dataItems ?? []), createdDataItem.id]
+        } else {
+          const edgeIdx = edges.value.findIndex(e => e.id === elementId)
+          if (edgeIdx !== -1) {
+            const edge = edges.value[edgeIdx]
+            edge.data.dataItems = [...(edge.data.dataItems ?? []), createdDataItem.id]
+          }
+        }
+        // selectedItem may be a different reference path than nodes.value[i] / edges.value[i]
+        // (vue-flow's internal model can hand back the same logical node via a distinct ref).
+        // Keep it in sync so children binding through props.selectedItem.data.dataItems also
+        // see the new id without waiting for a full model refetch.
+        if (selectedItem.value && selectedItem.value.id === elementId) {
+          const sel = selectedItem.value as Node | Edge
+          sel.data = { ...sel.data, dataItems: [...(sel.data?.dataItems ?? []), createdDataItem.id] }
         }
       }
-      // selectedItem may be a different reference path than nodes.value[i] / edges.value[i]
-      // (vue-flow's internal model can hand back the same logical node via a distinct ref).
-      // Keep it in sync so children binding through props.selectedItem.data.dataItems also
-      // see the new id without waiting for a full model refetch.
-      if (selectedItem.value && selectedItem.value.id === elementId) {
-        const sel = selectedItem.value as Node | Edge
-        sel.data = { ...sel.data, dataItems: [...(sel.data?.dataItems ?? []), createdDataItem.id] }
-      }
-      
+
       return createdDataItem
     } catch (error) {
       const errorMessage = handleApiError(error as Error, 'create data item')
@@ -1288,8 +1354,9 @@ export const useFlowStore = defineStore('flow', () => {
     // Loading state functions
     setOperationLoading, isOperationLoading,
     
-    // Temporary node helpers
+    // Temporary node helpers (maps exposed for the lifecycle helpers and tests)
     isPendingNode, getRealNodeId, queueUpdateForTempNode, applyDeferredUpdates,
+    pendingNodes, tempNodeMapping,
     
     // Utility functions
     setSelectedItem, getNodeById, resetStore,

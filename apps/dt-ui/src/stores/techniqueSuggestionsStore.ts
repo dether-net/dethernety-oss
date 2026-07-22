@@ -155,10 +155,18 @@ export const useTechniqueSuggestionsStore = defineStore('techniqueSuggestions', 
           ),
         )
         const failures = settled.filter(s => s.status === 'rejected').length
+        if (tactics.length > 0 && failures === tactics.length) {
+          // Total failure: allSettled swallows the rejections, so without this the catalog
+          // would be marked permanently ready with zero entries (the isCatalogReady guard
+          // then blocks every retry for the session). Throw so the catch below sets
+          // catalogError and leaves isCatalogReady false — retryable, like the ATTACK paths.
+          throw new Error(
+            `Failed to load the D3FEND technique catalog (${failures}/${tactics.length} tactic queries failed).`,
+          )
+        }
         if (failures > 0) {
-          // Soft warning — catalog will still be marked ready with the partial
-          // set. Operator sees the warning but the picker remains usable.
-
+          // Partial failure — catalog is still marked ready with the entries that loaded.
+          // Operator sees the warning but the picker remains usable.
           console.warn(
             `techniqueSuggestionsStore.hydrateCatalog(DEFEND_TECHNIQUE): ${failures}/${tactics.length} tactic-queries failed; catalog is partial`,
           )

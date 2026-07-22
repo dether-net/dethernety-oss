@@ -169,6 +169,9 @@
       return
     }
     await store.matchTechniques({ kind: props.kind, query, topN })
+    // Ignore a stale response: the query changed while this fetch was in flight, so its
+    // (older) cached row must not clobber the newer query's results.
+    if (query !== (searchQuery.value || '').trim()) return
     vectorResults.value = [...(store.matchResults.get(`${props.kind}:${query}`) ?? [])]
   }
 
@@ -176,14 +179,16 @@
     const q = (searchQuery.value || '').trim()
     // Local tier runs synchronously — instant feedback for ID/prefix/name.
     localResults.value = q ? scanLocalCatalog(q) : []
+    // Clear stale vector rows on ANY query change so the previous query's results don't
+    // render against the new local tier during the debounce; the fetch below repopulates
+    // (isVectorLoading, keyed on the live query, covers the gap).
+    vectorResults.value = []
     // Vector tier debounced.
     if (debounceTimer) clearTimeout(debounceTimer)
     if (q) {
       debounceTimer = setTimeout(() => {
         fetchVectorTier(q)
       }, 300)
-    } else {
-      vectorResults.value = []
     }
   })
 
@@ -275,7 +280,9 @@
     await fetchVectorTier(q, SEED_TOP_N)
   }
 
-  defineExpose({ seedSearch })
+  // fetchVectorTier/vectorResults/searchQuery are exposed as a test seam for the
+  // stale-write-back guard regression test (TechniquePickerInline.test.ts).
+  defineExpose({ seedSearch, fetchVectorTier, vectorResults, searchQuery })
 
   onBeforeUnmount(() => {
     if (debounceTimer) clearTimeout(debounceTimer)

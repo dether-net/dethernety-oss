@@ -98,6 +98,24 @@ const getOAuth2BaseUrl = (config: ExtendedAuthConfig): string => {
   return config.issuer
 }
 
+/**
+ * Compute token expiry (ms epoch) from an access token / token response.
+ * Prefers the JWT's own `exp` (authoritative — the resource server validates `exp`,
+ * not `expires_in`, which is OPTIONAL per RFC 6749). Falls back to `expires_in`.
+ * Returns null when neither is usable, so the caller applies a conservative
+ * fallback rather than writing NaN (a NaN expiry wedges the session un-refreshably).
+ */
+const computeTokenExpiry = (accessToken: string | undefined, expiresIn: number | undefined): number | null => {
+  if (accessToken) {
+    try {
+      const decoded = jwtDecode<{ exp?: number }>(accessToken)
+      if (decoded && Number.isFinite(decoded.exp)) return decoded.exp! * 1000
+    } catch { /* not a JWT — fall through to expires_in */ }
+  }
+  if (Number.isFinite(expiresIn)) return Date.now() + (expiresIn as number) * 1000
+  return null
+}
+
 const generateRandomString = (length: number): string => {
   const array = new Uint8Array(length / 2)
   if (typeof window !== 'undefined' && window.crypto) {
@@ -567,17 +585,10 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
   const getUserInfoAndExpiry = async (tokens: TokenResponse): Promise<{ userInfo: UserInfo; tokenExpiry: number }> => {
     const config = await validateAuthConfig()
     const oauth2BaseUrl = getOAuth2BaseUrl(config)
-    const isJWT = tokens.access_token.split('.').length === 3
-    let tokenExpiry: number
 
-    if (isJWT) {
-      // For JWT tokens, get expiry from the token itself
-      const decodedToken = jwtDecode(tokens.access_token) as { exp: number }
-      tokenExpiry = decodedToken.exp * 1000
-    } else {
-      // For opaque tokens, calculate expiry from expires_in
-      tokenExpiry = Date.now() + (tokens.expires_in * 1000)
-    }
+    const computed = computeTokenExpiry(tokens.access_token, tokens.expires_in)
+    if (computed === null) debugLog(authConfig, 'Token response omitted exp/expires_in; using conservative fallback expiry')
+    const tokenExpiry = computed ?? (Date.now() + authConfig.tokenRefreshThreshold * 2)
 
     // Always fetch complete user info from userinfo endpoint
     const userInfoResponse = await fetch(`${oauth2BaseUrl}${config.endpoints.userinfo}`, {
@@ -627,50 +638,6 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
     debugLog(authConfig, 'Auth state cleared')
   }
 
-  const refreshTokenIfNeeded = async (): Promise<void> => {
-    if (isTokenExpired.value && refreshToken.value) {
-      try {
-        const config = await validateAuthConfig()
-        const oauth2BaseUrl = getOAuth2BaseUrl(config)
-        const response = await fetch(`${oauth2BaseUrl}${config.endpoints.token}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken.value,
-            client_id: config.clientId,
-          }),
-        })
-
-        if (response.status === 400 || response.status === 401) {
-          // Refresh token is invalid (session terminated elsewhere)
-          if (import.meta.env.DEV) {
-            console.warn('Refresh token invalid, session terminated elsewhere')
-          }
-          clearState()
-          safeRedirect(ROUTES.LOGIN)
-          return
-        }
-
-        if (!response.ok) {
-          throw new Error(`Refresh token failed: ${response.status}`)
-        }
-        const tokens: TokenResponse = await response.json()
-        setToken(tokens.access_token)
-        setTokenExpiry(Date.now() + (tokens.expires_in * 1000))
-
-        if (tokens.refresh_token) {
-          setRefreshToken(tokens.refresh_token)
-        }
-
-        debugLog(authConfig, 'Token refreshed via refreshTokenIfNeeded')
-      } catch (error) {
-        debugLog(authConfig, 'refreshTokenIfNeeded failed:', (error as Error).message)
-        await logout(false, true) // Force re-login if refresh fails
-      }
-    }
-  }
-
   /**
    * Internal token refresh implementation with retry logic
    */
@@ -706,12 +673,14 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
       const tokens: TokenResponse = await response.json()
       setToken(tokens.access_token)
-      setTokenExpiry(Date.now() + (tokens.expires_in * 1000))
+      const computed = computeTokenExpiry(tokens.access_token, tokens.expires_in)
+      if (computed === null) debugLog(authConfig, 'Refresh response omitted exp/expires_in; using conservative fallback expiry')
+      setTokenExpiry(computed ?? (Date.now() + authConfig.tokenRefreshThreshold * 2))
 
       if (tokens.refresh_token) {
         setRefreshToken(tokens.refresh_token)
       }
-      
+
       // Schedule next refresh
       scheduleTokenRefresh()
       
@@ -917,7 +886,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
     // Helper functions
     hasRole, hasPermission,
     // Actions
-    initializeAuthMode, login, handleCallback, logout, refreshTokenIfNeeded, performTokenRefresh, ensureValidToken, checkSessionValidity, clearState,
+    initializeAuthMode, login, handleCallback, logout, performTokenRefresh, ensureValidToken, checkSessionValidity, clearState,
     // Setters (for manual token handling)
     setToken, setUser, setRoles, setPermissions, setRefreshToken, setTokenExpiry,
   }

@@ -18,6 +18,10 @@ export interface FetchIssuesParams {
 export interface SearchCondition {
   key: string
   value: string
+  // True when the value was written in quotes (e.g. likelihood:"low"). Quoted
+  // local conditions match EXACTLY; unquoted ones substring-match. Preserved
+  // here because parseLocalGroup strips the quote characters from `value`.
+  quoted?: boolean
 }
 
 export interface SearchGroup {
@@ -118,13 +122,18 @@ function parseLocalGroup (query: string): SearchGroup {
     : query.split(/\s+AND\s+/i)
 
   for (const part of parts) {
-    const keyValueRegex = /(\w+(?:\.\w+)?):['"]?([^'"]*?)['"]?$/
+    // Distinguish "double-quoted" / 'single-quoted' / unquoted (mirrors
+    // parseRemoteConditions) so the quoted-ness survives into the condition —
+    // a quoted value matches exactly (low no longer matches very-low).
+    const keyValueRegex = /(\w+(?:\.\w+)?):(?:"([^"]*)"|'([^']*)'|([^'"]*?))$/
     const match = part.trim().match(keyValueRegex)
 
     if (match) {
-      const [, key, value] = match
-      if (value.trim()) {
-        group.conditions.push({ key, value: value.trim() })
+      const key = match[1]
+      const quoted = match[2] !== undefined || match[3] !== undefined
+      const value = (match[2] ?? match[3] ?? match[4] ?? '').trim()
+      if (value) {
+        group.conditions.push({ key, value, quoted })
       }
     }
   }
@@ -242,7 +251,9 @@ function evaluateGroup (issue: Issue, group: SearchGroup): boolean {
 
 function evaluateCondition (issue: Issue, condition: SearchCondition): boolean {
   const { key, value } = condition
-  const searchValue = value.toLowerCase()
+  // Re-wrap a quoted value so matchValue's exact-match branch fires; unquoted
+  // values fall through to its substring match.
+  const searchValue = condition.quoted ? `"${value.toLowerCase()}"` : value.toLowerCase()
 
   // Handle nested class properties
   if (key.startsWith('class.')) {
