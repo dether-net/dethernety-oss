@@ -126,6 +126,28 @@ class MyAnalysisModule extends DtLgModule {
 - Attack scenario generation
 - Interactive security chat
 
+### 3. Remote Content Modules
+
+**Base Class:** `DtRemoteModule`
+
+Serves its content — metadata, class templates, guides, embeddings, and evaluation — from an HTTP content service over the module content wire protocol, instead of from a local data directory. It is a sibling of `DtFileOpaModule` implementing the same `DTModule` contract, so the platform cannot tell it apart from a file-backed module. It carries no policy engine (evaluation is remote).
+
+```typescript
+import { DtRemoteModule } from '@dethernety/dt-module';
+
+class MyRemoteModule extends DtRemoteModule {
+  constructor(driver: any, logger: Logger) {
+    super({ moduleKey: 'my-module', pin: 'sha256:…' }, driver, logger);
+  }
+}
+```
+
+Configuration is deployment-global: `MODULE_CONTENT_BASE_URL` (the content service; no default, so an unset value leaves the module inert) and `MODULE_CONTENT_CACHE_DIR` (**must be co-durable with the graph database** — see the [DtRemoteModule reference](./DT_MODULE_INTERFACE.md#remote-content-modules-dtremotemodule)). The `pin` is an immutable content-hash the operator advances by editing the stub and restarting.
+
+**Use Cases:**
+- Consuming hosted module content without shipping the content locally
+- Content that is updated centrally rather than per-deployment
+
 ---
 
 ## Documentation Structure

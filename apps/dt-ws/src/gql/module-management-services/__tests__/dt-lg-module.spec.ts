@@ -54,12 +54,12 @@ beforeEach(() => {
 });
 
 describe('DtLgModule.getAnalysisClasses', () => {
-  it('filters aegra response to declared graphs and derives ids locally', async () => {
+  it('filters the LangGraph server response to declared graphs and derives ids locally', async () => {
     mockSearch.mockResolvedValue([
-      { assistant_id: 'aegra-1', name: 'Studio: Generate Class' },
-      { assistant_id: 'aegra-2', name: 'Studio: Edit Class' },
-      { assistant_id: 'aegra-3', name: 'Hidden Edges Discovery' }, // not declared
-      { assistant_id: 'aegra-4', name: 'Analysis Copilot' },        // not declared
+      { assistant_id: 'lg-1', name: 'Studio: Generate Class' },
+      { assistant_id: 'lg-2', name: 'Studio: Edit Class' },
+      { assistant_id: 'lg-3', name: 'Hidden Edges Discovery' }, // not declared
+      { assistant_id: 'lg-4', name: 'Analysis Copilot' },        // not declared
     ]);
 
     const mod = new TestModule(['Studio: Generate Class', 'Studio: Edit Class']);
@@ -71,26 +71,26 @@ describe('DtLgModule.getAnalysisClasses', () => {
       'Studio: Generate Class',
     ]);
 
-    // Each derived id matches the deterministic helper, NOT the raw aegra value.
+    // Each derived id matches the deterministic helper, NOT the raw server value.
     for (const c of classes) {
       expect(c.id).toBe(deriveAnalysisClassId(c.name));
     }
 
-    // Pin the derived id against an aegra-known fixture — guards against
+    // Pin the derived id against a known fixture — guards against
     // accidental drift in `deriveAnalysisClassId` or the namespace UUID.
     const generate = classes.find((c) => c.name === 'Studio: Generate Class');
     expect(generate?.id).toBe('e5b244aa-8721-5ffa-a29d-d07ff5f2af9d');
   });
 
-  it('throws when aegra search throws (no silent class wipe)', async () => {
-    mockSearch.mockRejectedValue(new Error('aegra unreachable'));
+  it('throws when the server search throws (no silent class wipe)', async () => {
+    mockSearch.mockRejectedValue(new Error('LangGraph server unreachable'));
     const mod = new TestModule(['Analysis Copilot']);
-    await expect(mod.getClasses()).rejects.toThrow('aegra unreachable');
+    await expect(mod.getClasses()).rejects.toThrow('LangGraph server unreachable');
   });
 
-  it('returns empty array when aegra responds but no declared graph matches', async () => {
+  it('returns empty array when the server responds but no declared graph matches', async () => {
     mockSearch.mockResolvedValue([
-      { assistant_id: 'aegra-x', name: 'Some Other Graph' },
+      { assistant_id: 'lg-x', name: 'Some Other Graph' },
     ]);
     const mod = new TestModule(['Analysis Copilot']);
     const classes = await mod.getClasses();
@@ -106,9 +106,9 @@ describe('DtLgModule.getMetadata', () => {
     expect(meta.idRebindPolicy).toBe('audit');
   });
 
-  it('propagates aegra failure (does not swallow)', async () => {
-    mockSearch.mockRejectedValue(new Error('aegra down'));
+  it('propagates a LangGraph server failure (does not swallow)', async () => {
+    mockSearch.mockRejectedValue(new Error('LangGraph server down'));
     const mod = new TestModule(['Analysis Copilot']);
-    await expect(mod.getMetadata()).rejects.toThrow('aegra down');
+    await expect(mod.getMetadata()).rejects.toThrow('LangGraph server down');
   });
 });

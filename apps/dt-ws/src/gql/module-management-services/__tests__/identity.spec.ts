@@ -6,10 +6,10 @@ import {
 } from '@dethernety/dt-module';
 
 describe('identity helpers', () => {
-  describe('deriveAnalysisClassId — aegra parity fixtures', () => {
-    // These six pairs were verified against the aegra deployment in
+  describe('deriveAnalysisClassId — LangGraph server parity fixtures', () => {
+    // These six pairs were verified against the LangGraph server in
     // exploratory testing. The platform's local derivation MUST match
-    // aegra's `assistant_id = uuid5(ASSISTANT_NAMESPACE_UUID, graphName)`
+    // the server's `assistant_id = uuid5(ASSISTANT_NAMESPACE_UUID, graphName)`
     // exactly, otherwise existing AnalysisClass nodes would be orphaned
     // on the next module install.
     const fixtures: Array<[string, string]> = [
