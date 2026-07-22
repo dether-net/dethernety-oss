@@ -80,9 +80,10 @@
   }
 
   // Dirty tracking — initialState snapshot captured on load + refreshed after save.
-  const initialState = ref<{ name: string; description: string; techniqueMitreIds: string[] }>({
+  const initialState = ref<{ name: string; description: string; score: number; techniqueMitreIds: string[] }>({
     name: '',
     description: '',
+    score: 0,
     techniqueMitreIds: [],
   })
 
@@ -92,6 +93,7 @@
   const isDirty = computed(() =>
     exposure.value.name !== initialState.value.name ||
     (exposure.value.description ?? '') !== initialState.value.description ||
+    (exposure.value.score ?? 0) !== initialState.value.score ||
     !setEqual(selectedTechniqueMitreIds.value, initialState.value.techniqueMitreIds),
   )
 
@@ -142,6 +144,7 @@
     initialState.value = {
       name: exposure.value.name ?? '',
       description: exposure.value.description ?? '',
+      score: exposure.value.score ?? 0,
       techniqueMitreIds: [...selectedTechniqueMitreIds.value],
     }
   }
@@ -161,8 +164,15 @@
     }
   })
 
-  const saveExposure = () => {
+  const saveExposure = async () => {
     if (elementId.value) {
+      // Guarantee the ATTACK_TECHNIQUE catalog is hydrated before mapping mitreIds→internalIds.
+      // hydrateCatalog is idempotent (early-returns once ready), so this is a cheap no-op after
+      // the picker (or a prior save) has hydrated it — and the only thing that makes the map
+      // reliable when the user edited an exposure with existing techniques without ever opening
+      // the (lazily-mounted) techniques tab. The null-guard below now fires only on a genuine
+      // hydration failure, not the "loading forever" case.
+      await techniqueStore.hydrateCatalog('ATTACK_TECHNIQUE')
       const attackTechniqueIds = mitreIdsToInternalIds(selectedTechniqueMitreIds.value)
       if (attackTechniqueIds === null) {
         snackBar.value.show = true
@@ -221,6 +231,12 @@
     // typing anything flips the dirty bit.
     snapshotInitialState()
   }
+
+  // Test seam — expose the save/dirty internals asserted by ExposureDialog.test.ts
+  // (catalog-hydration-before-save, score dirty tracking).
+  defineExpose({
+    saveExposure, isDirty, exposure, selectedTechniqueMitreIds, snapshotInitialState, initialState,
+  })
 </script>
 
 <template>
@@ -270,7 +286,7 @@
                               <v-text-field v-model="exposure.name" label="Name" />
                             </v-col>
                             <v-col cols="6">
-                              <v-text-field label="Score" />
+                              <v-text-field v-model.number="exposure.score" label="Score" type="number" />
                             </v-col>
                           </v-row>
                           <v-row>

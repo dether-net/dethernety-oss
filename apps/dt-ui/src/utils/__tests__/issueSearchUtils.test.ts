@@ -63,9 +63,17 @@ describe('parseSearchQuery', () => {
   it('should parse separate top-level groups as distinct local groups', () => {
     const result = parseSearchQuery('(status:"open") (severity:"high" OR severity:"low")')
     expect(result.localGroups).toHaveLength(2)
-    expect(result.localGroups[0].conditions).toEqual([{ key: 'status', value: 'open' }])
+    // Quoted local values carry the quoted flag so they match exactly downstream.
+    expect(result.localGroups[0].conditions).toEqual([{ key: 'status', value: 'open', quoted: true }])
     expect(result.localGroups[1].operator).toBe('OR')
     expect(result.localGroups[1].conditions).toHaveLength(2)
+  })
+
+  it('flags a quoted local value as quoted and an unquoted one as not', () => {
+    const quoted = parseSearchQuery('(likelihood:"low")')
+    expect(quoted.localGroups[0].conditions).toEqual([{ key: 'likelihood', value: 'low', quoted: true }])
+    const unquoted = parseSearchQuery('(likelihood:low)')
+    expect(unquoted.localGroups[0].conditions).toEqual([{ key: 'likelihood', value: 'low', quoted: false }])
   })
 
   it('should not truncate a remote value containing an apostrophe', () => {
@@ -242,6 +250,32 @@ describe('applyLocalFiltering', () => {
     expect(filtered[0].name).toBe('SQL Injection')
   })
 
+  // Likelihood filter regression: the UI builds `(likelihood:"low")` (quoted), so
+  // a quoted value must match EXACTLY — `low` must not substring-match `very-low`.
+  const likelihoodIssues = [
+    { id: 'lo', name: 'Low', syncedAttributes: { likelihood: 'low' } },
+    { id: 'vlo', name: 'VeryLow', syncedAttributes: { likelihood: 'very-low' } },
+  ] as any[]
+
+  it('exact-matches a quoted likelihood filter (low does not match very-low)', () => {
+    const filtered = applyLocalFiltering(likelihoodIssues, parseSearchQuery('(likelihood:"low")').localGroups)
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].name).toBe('Low')
+  })
+
+  it('exact-matches a quoted very-low likelihood filter to only very-low', () => {
+    const filtered = applyLocalFiltering(likelihoodIssues, parseSearchQuery('(likelihood:"very-low")').localGroups)
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].name).toBe('VeryLow')
+  })
+
+  it('still substring-matches an unquoted local value', () => {
+    // Proves the fix is a quoted-flag gate, not a blanket switch to exact match:
+    // unquoted `low` matches both low and very-low.
+    const filtered = applyLocalFiltering(likelihoodIssues, parseSearchQuery('(likelihood:low)').localGroups)
+    expect(filtered).toHaveLength(2)
+  })
+
   it('should bound deep attribute search by depth', () => {
     // `severity` is NOT a top-level key here, so evaluateCondition falls through
     // to the bounded deep search rather than the direct-path lookup.
@@ -292,9 +326,9 @@ describe('validateSearchQuery', () => {
     expect(validateSearchQuery('just plain text').valid).toBe(false)
   })
 
-  // Characterization tests — lock the current behavior (Session 1 does not
-  // change validateSearchQuery): a key with an empty value is accepted, an
-  // empty parenthesised group has no key:value pair and is rejected.
+  // Characterization tests — lock the current behavior of validateSearchQuery:
+  // a key with an empty value is accepted, an empty parenthesised group has no
+  // key:value pair and is rejected.
   it('should accept a key with an empty value', () => {
     expect(validateSearchQuery('key:').valid).toBe(true)
   })

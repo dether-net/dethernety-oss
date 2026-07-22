@@ -55,7 +55,8 @@
 
   analysisStore.fetchAnalysisClasses({ classType: 'model_analysis' })
   issueStore.fetchIssueClasses({})
-  authStore.refreshTokenIfNeeded()
+  // Token validity is ensured on mount by the Apollo authLink (ensureValidToken)
+  // before the store fetches above go out — no separate refresh call needed.
 </script>
 
 <template>

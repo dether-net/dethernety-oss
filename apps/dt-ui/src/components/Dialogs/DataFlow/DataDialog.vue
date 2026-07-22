@@ -472,13 +472,15 @@
 
   const onClassChangeDiscard = async () => {
     showClassChangeDialog.value = false
-    if (dataId.value) {
-      const currentDataItem = flowStore.getDataItem({ dataItemId: dataId.value })
-      if (currentDataItem) {
-        name.value = currentDataItem.name
-        description.value = currentDataItem.description
-      }
-    }
+    // Discard ALL pending edits (not just name/description) before applying the new class —
+    // otherwise onSubmit persists the very edits the user discarded: sensitivity/regulatoryFlags
+    // leaked, and dirty attributes were written under the NEW class relationship. revertPending
+    // restores every general field from initialState and re-initialises attributes.
+    revertPending()
+    // revertPending's attribute reset is debounced (100 ms); clear the dirty flag synchronously
+    // so the immediate onSubmit below skips saveAttributes (which would otherwise flush the
+    // discarded pendingAttributes under the new class before the debounced re-init runs).
+    attributesDirty.value = false
     if (pendingClassId.value) {
       dataClass.value = pendingClassId.value
       pendingClassId.value = null
@@ -531,6 +533,12 @@
     issueExposureId.value = ''
   }
 
+  // Test seam — expose the discard/revert internals asserted by DataDialog.test.ts
+  // (discard-and-change-class reverts all edited fields, not just name/description).
+  defineExpose({
+    onClassChangeDiscard, name, description, dataClass,
+    sensitivity, regulatoryFlags, attributesDirty, pendingClassId, initialState,
+  })
 
 </script>
 

@@ -8,6 +8,10 @@ export const useModelsStore = defineStore('models', () => {
   const models = ref<Model[]>([])
   const modules = ref<Module[]>([])
   const error = ref<string>('')
+  // Fetch-scoped error, distinct from the shared `error` ref (which create/update/
+  // delete/getModel/fetchModules also write). The models grid reads this so an
+  // unrelated op's failure never flips the grid into an error state.
+  const fetchModelsError = ref<string>('')
   const isLoading = ref<boolean>(false)
   const isCreating = ref<boolean>(false)
   const isUpdating = ref<boolean>(false)
@@ -34,20 +38,43 @@ export const useModelsStore = defineStore('models', () => {
     isDeleting.value = false
   }
 
+  // Request-generation token: folder-switch fires overlapping fetches; only the latest
+  // may publish to `models`, so an older response can't clobber a newer grid.
+  let fetchModelsGen = 0
   const fetchModels = async ({ folderId, ephemeral, updateStore = true }: { folderId?: string | undefined, ephemeral?: boolean, updateStore?: boolean } = {}): Promise<Model[]> => {
+    // Non-publishing callers (ephemeral, or updateStore:false — e.g. ContentSelectDialog) only
+    // want the array back. Isolate them from shared grid state and the publish generation, or
+    // they'd supersede an in-flight grid fetch and blank the grid on a successful load.
+    if (ephemeral || !updateStore) {
+      try {
+        return (await dtModel.getModels({ folderId })) as Model[]
+      } catch {
+        return []
+      }
+    }
+
+    const gen = ++fetchModelsGen
     try {
       isLoading.value = true
       error.value = ''
+      fetchModelsError.value = ''
       const results = await dtModel.getModels({ folderId })
-      if (updateStore && !ephemeral) {
+      if (gen === fetchModelsGen) {
         models.value = results as Model[]
       }
       return results as Model[]
     } catch (err) {
-      error.value = handleApiError(err as Error, 'load models')
-      throw err
+      // Return the empty sentinel (no re-throw): the grid reads fetchModelsError.
+      const message = handleApiError(err as Error, 'load models')
+      if (gen === fetchModelsGen) {
+        error.value = message
+        fetchModelsError.value = message
+      }
+      return []
     } finally {
-      isLoading.value = false
+      if (gen === fetchModelsGen) {
+        isLoading.value = false
+      }
     }
   }
 
@@ -58,8 +85,8 @@ export const useModelsStore = defineStore('models', () => {
       const results = await dtModule.getModules()
       modules.value = results as Module[]
     } catch (err) {
+      // Set error state and resolve (no re-throw): the sole caller is fire-and-forget.
       error.value = handleApiError(err as Error, 'load modules')
-      throw err
     } finally {
       isLoading.value = false
     }
@@ -209,7 +236,6 @@ export const useModelsStore = defineStore('models', () => {
     try {
       isDeleting.value = true
       error.value = ''
-      console.log('deleteModel:', modelId)
       const deleteInfo = await dtModel.deleteModel({ modelId })
       
       return deleteInfo
@@ -257,7 +283,7 @@ export const useModelsStore = defineStore('models', () => {
 
   return {
     // State
-    models, modules, error, isLoading, isCreating, isUpdating, isDeleting,
+    models, modules, error, fetchModelsError, isLoading, isCreating, isUpdating, isDeleting,
     
     // Actions
     resetStore, fetchModules, fetchModels, getModel, createModel, updateModel, deleteModel,

@@ -393,7 +393,10 @@ export function useHostContext() {
     router,
     route,
 
-    // Stores (limited set for security)
+    // Pinia stores: analysisStore + issueStore only. This is an API-surface / coupling
+    // choice (modules shouldn't reach into flowStore internals), NOT a data boundary —
+    // modules already hold full token-scoped GraphQL via `utils` below. See "Module
+    // trust model" for the honest surface.
     stores: {
       analysisStore,
       issueStore
@@ -420,10 +423,17 @@ export function useHostContext() {
       resolveComponent
     },
 
-    // Utilities
+    // Utilities — INCLUDING full token-scoped GraphQL. The dt-core accessors below are
+    // constructed on the host's shared *authenticated* Apollo client, so a module can
+    // read AND write (create/update/delete); authorization is enforced only server-side,
+    // exactly as for the host UI. This is the real module trust surface — see below.
     utils: {
       resolveComponent: safeResolveComponent,
-      getPageDisplayName
+      getPageDisplayName,
+      dtUtils: new DtUtils(apolloClient),
+      dtModel: new DtModel(apolloClient),
+      dtClass: new DtClass(apolloClient),
+      dtMitreAttack: new DtMitreAttack(apolloClient)
     }
   }
 }
@@ -489,12 +499,28 @@ it, so there is no drift and no second issue implementation in module code.
 | **Component** | `resolveComponent`, `getCurrentInstance` |
 | **Async** | `nextTick` |
 
-### Why Limited Store Exposure?
+### Module trust model — full-trust, governed server-side
 
-Only `analysisStore` and `issueStore` are exposed:
-- Prevents modules from accessing sensitive auth data
-- Limits scope of potential module bugs
-- Enforces separation of concerns
+Runtime-loaded modules are **first-party, trusted code**. Beyond the two Pinia stores,
+`useHostContext().utils` hands each module `DtUtils` / `DtModel` / `DtClass` /
+`DtMitreAttack` constructed on the host's shared **authenticated** Apollo client — i.e.
+full, token-scoped GraphQL **including create / update / delete**. There is **no
+client-side capability boundary**; authorization is enforced only server-side (per-request
+JWT), exactly as for the host UI itself.
+
+Two things are commonly mistaken for a security boundary but are not:
+
+- **Limiting the exposed Pinia *store* set to `analysisStore` + `issueStore`** is an
+  API-surface / coupling choice (modules shouldn't reach into `flowStore` internals). It is
+  **not** a data-access or exfiltration control — a module already has the full GraphQL
+  surface via `utils.dtUtils` and can read or mutate anything the session is authorized for.
+- **`authStore` not being handed out** means a module can't read the raw refresh token, but
+  a module *can* still make authenticated requests through the bridged client.
+
+The real control is the same as the backend's: **only load modules you trust** (backend
+allowlist + source validation in production; see
+[SECURITY_MODEL.md](../../../SECURITY_MODEL.md)). Treat a loaded module as part of the
+application's trust base.
 
 ---
 
@@ -727,8 +753,9 @@ const { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } = vue
 const analysisStore = stores.analysisStore
 const issueStore = stores.issueStore
 
-// Access utilities
+// Access utilities — incl. full token-scoped GraphQL (governed server-side)
 const getPageDisplayName = utils.getPageDisplayName
+const dtUtils = utils.dtUtils // read/write GraphQL: dtUtils.performQuery / performMutation
 
 // Define component props and emits
 interface Props {
@@ -789,7 +816,8 @@ watch(() => props.content, (newContent) => {
 | What | How | Example |
 |------|-----|---------|
 | Vue primitives | From `useHostContext().vue` | `const { ref, computed } = vue` |
-| Stores | From `useHostContext().stores` | `const { analysisStore } = stores` |
+| Stores (Pinia) | From `useHostContext().stores` | `const { analysisStore } = stores` (only these two; not a security boundary) |
+| GraphQL (full CRUD) | From `useHostContext().utils` | `utils.dtUtils.performMutation(...)` — authenticated, governed server-side |
 | Router | From `useHostContext().router` | `router.push('/path')` |
 | Utilities | From `useHostContext().utils` | `utils.getPageDisplayName()` |
 | Other module components | Direct import | `import MyDialog from './MyDialog.vue'` |
@@ -822,28 +850,35 @@ pnpm build  # or: npx vite build
 │                        Module Trust Boundary                            │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  TRUSTED                          UNTRUSTED                             │
-│  ────────                         ─────────                             │
-│  - Backend module registry        - Module code execution               │
-│  - GraphQL API                    - Dynamic imports                     │
-│  - Host application               - Third-party module content          │
+│  A loaded module runs as FIRST-PARTY TRUSTED code inside the host       │
+│  application. It receives full token-scoped GraphQL (create/update/     │
+│  delete) via useHostContext().utils.dtUtils — there is NO client-side   │
+│  capability sandbox. The trust boundary is at LOAD TIME, not runtime.   │
 │                                                                         │
 │  Security relies on:                                                    │
 │  1. Backend validates module sources                                    │
-│  2. Module whitelist in production                                      │
-│  3. Limited store exposure                                              │
-│  4. No access to authStore                                              │
+│  2. Module allowlist in production (only load modules you trust)        │
+│  3. Server-side authorization on every GraphQL request (per-request JWT)│
+│                                                                         │
+│  NOT security controls (common misconceptions):                        │
+│  - "Limited store exposure" — an API-surface choice, not a data boundary│
+│  - "authStore not exposed" — hides the raw token, but the module still  │
+│    makes authenticated requests through the bridged client              │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Mitigations
 
+Because a loaded module is trusted first-party code with full token-scoped GraphQL, the
+mitigations are all at **load time** and **server-side** — there is no client-side
+capability sandbox to rely on.
+
 | Risk | Mitigation |
 |------|------------|
-| Malicious module code | Backend module whitelist in production |
-| Token theft | authStore not exposed to modules |
-| Data exfiltration | Limited store exposure |
+| Malicious / untrusted module code | Backend module allowlist + source validation in production ("only load modules you trust") |
+| Unauthorized data access or mutation | Server-side authorization on every GraphQL request (per-request JWT) — the same control that governs the host UI |
+| Raw refresh-token theft | `authStore` not exposed (module can still make authenticated requests, but cannot read the raw token) |
 | XSS via module | CSP headers, module content review |
 | Memory leaks | Blob URL cleanup in finally block |
 

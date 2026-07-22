@@ -114,24 +114,35 @@ export const useIssueStore = defineStore('issue', () => {
     clearError()
   }
 
+  // Request-generation token: only the latest in-flight call may publish to the store,
+  // so an out-of-order (older) response can't clobber a newer one on rapid re-filtering.
+  let fetchIssueClassesGen = 0
   const fetchIssueClasses = async (
     { classType, moduleId, classId, className, moduleName, classCategory }:
     { classType?: string, moduleId?: string, classId?: string, className?: string, moduleName?: string, classCategory?: string }
   ): Promise<Class[]> => {
+    const gen = ++fetchIssueClassesGen
     try {
       isLoading.value = true
       clearError()
-      
+
       const result = await dtIssue.findIssueClasses({ classType, moduleId, classId, className, moduleName, classCategory })
-      issueClasses.value = result
+      if (gen === fetchIssueClassesGen) {
+        issueClasses.value = result
+      }
       return result
     } catch (err) {
       const errorMessage = handleApiError(err as Error, 'fetch issue classes')
-      error.value = errorMessage
+      if (gen === fetchIssueClassesGen) {
+        error.value = errorMessage
+      }
       console.error('Error fetching issue classes:', err)
-      throw err
+      // Return the empty sentinel (no re-throw): callers read issueStore.error.
+      return []
     } finally {
-      isLoading.value = false
+      if (gen === fetchIssueClassesGen) {
+        isLoading.value = false
+      }
     }
   }
 
@@ -167,28 +178,38 @@ export const useIssueStore = defineStore('issue', () => {
     issueDataClipboard.value = null
   }
 
+  // Request-generation token: search-as-you-type / folder-switch fires overlapping calls;
+  // only the latest may publish, so an older response can't clobber the newer list.
+  let fetchIssuesGen = 0
   const fetchIssues = async (
     { name, issueId, classId, elementIds, classType, moduleId, moduleName, issueStatus }: FetchIssuesParams
   ): Promise<Issue[]> => {
+    const gen = ++fetchIssuesGen
     try {
       isLoading.value = true
       clearError()
 
       const result = await dtIssue.findIssues({ name, issueId, classId, elementIds, classType, moduleId, moduleName, issueStatus })
-      // Reset detail atomically with the summary swap — doing it before the await
-      // would unmount an open editor card (gated on detailLoaded) for the whole
-      // round-trip. Fresh summaries replace the list; previously-merged detail is
-      // stale, so any still-open panel is re-hydrated by performSearch.
-      detailLoaded.value = new Set()
-      issues.value = result
+      if (gen === fetchIssuesGen) {
+        // Reset detail atomically with the summary swap — doing it before the await
+        // would unmount an open editor card (gated on detailLoaded) for the whole
+        // round-trip. Fresh summaries replace the list; previously-merged detail is
+        // stale, so any still-open panel is re-hydrated by performSearch.
+        detailLoaded.value = new Set()
+        issues.value = result
+      }
       return result
     } catch (err) {
       const errorMessage = handleApiError(err as Error, 'fetch issues')
-      error.value = errorMessage
+      if (gen === fetchIssuesGen) {
+        error.value = errorMessage
+      }
       console.error('Error fetching issues:', err)
       throw err
     } finally {
-      isLoading.value = false
+      if (gen === fetchIssuesGen) {
+        isLoading.value = false
+      }
     }
   }
 

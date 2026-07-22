@@ -85,42 +85,63 @@ export const useAnalysisStore = defineStore('analysis', () => {
     currentAnalysis.value = analysis
   }
 
+  // Request-generation tokens: element/folder-switch fires overlapping finder calls;
+  // only the latest may publish to the store, so an older response can't clobber a newer one.
+  let fetchAnalysisClassesGen = 0
   const fetchAnalysisClasses = async (
     { classType, moduleId, classId, className }:
     { classType?: string, moduleId?: string, classId?: string, className?: string }
   ): Promise<AnalysisClass[]> => {
+    const gen = ++fetchAnalysisClassesGen
     try {
       loadingStates.value.fetchingAnalysisClasses = true
       error.value = ''
-      
+
       const classes = await dtAnalysis.findAnalysisClasses({ classType, moduleId, classId, className });
-      analysisClasses.value = classes ?? [];
+      if (gen === fetchAnalysisClassesGen) {
+        analysisClasses.value = classes ?? [];
+      }
       return classes ?? [];
     } catch (err) {
-      error.value = handleApiError('fetch analysis classes', err)
-      throw err
+      // Return the empty sentinel (no re-throw): callers read analysisStore.error.
+      if (gen === fetchAnalysisClassesGen) {
+        error.value = handleApiError('fetch analysis classes', err)
+      }
+      return []
     } finally {
-      loadingStates.value.fetchingAnalysisClasses = false
+      if (gen === fetchAnalysisClassesGen) {
+        loadingStates.value.fetchingAnalysisClasses = false
+      }
     }
   }
 
+  let fetchAnalysesGen = 0
   const fetchAnalyses = async (
     { analysisId, elementId, classType, moduleId, classId }:
     { analysisId?: string, elementId?: string, classType?: string, moduleId?: string, classId?: string }
   ): Promise<Analysis[]> => {
+    const gen = ++fetchAnalysesGen
     try {
       loadingStates.value.fetchingAnalyses = true
       error.value = ''
-      
+
       const result = await dtAnalysis.findAnalyses({ analysisId, elementId, classType, moduleId, classId });
       const safeResult = result ?? [];
-      analyses.value = safeResult.map(analysis => structuredClone(analysis));
+      if (gen === fetchAnalysesGen) {
+        analyses.value = safeResult.map(analysis => structuredClone(analysis));
+      }
       return safeResult;
     } catch (err) {
-      error.value = handleApiError('fetch analyses', err)
-      throw err
+      // Return the empty sentinel (no re-throw): callers read analysisStore.error
+      // to distinguish a fetch failure from a genuinely empty result.
+      if (gen === fetchAnalysesGen) {
+        error.value = handleApiError('fetch analyses', err)
+      }
+      return []
     } finally {
-      loadingStates.value.fetchingAnalyses = false
+      if (gen === fetchAnalysesGen) {
+        loadingStates.value.fetchingAnalyses = false
+      }
     }
   }
 
@@ -241,6 +262,10 @@ export const useAnalysisStore = defineStore('analysis', () => {
     }
   }
 
+  // In-flight latch keyed by the full find-identity: two concurrent callers for the same
+  // element would both miss the find and both create (a fresh UUID each) → duplicate Analysis
+  // nodes. Collapsing them onto one promise guarantees exactly one find→create per identity.
+  const inFlightGetOrCreate = new Map<string, Promise<Analysis>>()
   const getOrCreateAnalysis = async (
     { elementId, classType, moduleId, classId, className, analysisName, analysisDescription }:
     { elementId: string, classType?: string, moduleId?: string, classId?: string, className?: string, analysisName?: string, analysisDescription?: string }
@@ -248,28 +273,41 @@ export const useAnalysisStore = defineStore('analysis', () => {
     if (!elementId) {
       throw new Error('Element ID is required')
     }
-    
-    const analysis = await dtAnalysis.findAnalyses({ elementId, classType, moduleId, classId })
-    if (analysis && analysis.length > 0) {
-      return analysis[0]
+
+    const key = [elementId, classType ?? '', moduleId ?? '', classId ?? ''].join('|')
+    const existing = inFlightGetOrCreate.get(key)
+    if (existing) return existing
+
+    const run = (async (): Promise<Analysis> => {
+      const analysis = await dtAnalysis.findAnalyses({ elementId, classType, moduleId, classId })
+      if (analysis && analysis.length > 0) {
+        return analysis[0]
+      }
+
+      const analysisClasses = await dtAnalysis.findAnalysisClasses({ classType, moduleId, classId, className })
+      if (analysisClasses && analysisClasses.length > 0) {
+        const analysisClass = analysisClasses[0]
+        const createdAnalysis = await dtAnalysis.createAnalysis({
+          id: generateUUID(),
+          elementId,
+          name: analysisName || className || classType || 'New Analysis',
+          description: analysisDescription || '',
+          type: analysisClass.type,
+          category: analysisClass.category,
+          analysisClassId: analysisClass.id,
+        })
+        return createdAnalysis!
+      }
+
+      throw new Error('No analysis classes found for the specified criteria')
+    })()
+
+    inFlightGetOrCreate.set(key, run)
+    try {
+      return await run
+    } finally {
+      inFlightGetOrCreate.delete(key)
     }
-    
-    const analysisClasses = await dtAnalysis.findAnalysisClasses({ classType, moduleId, classId, className })
-    if (analysisClasses && analysisClasses.length > 0) {
-      const analysisClass = analysisClasses[0]
-      const createdAnalysis = await dtAnalysis.createAnalysis({
-        id: generateUUID(),
-        elementId,
-        name: analysisName || className || classType || 'New Analysis',
-        description: analysisDescription || '',
-        type: analysisClass.type,
-        category: analysisClass.category,
-        analysisClassId: analysisClass.id,
-      })
-      return createdAnalysis!
-    }
-    
-    throw new Error('No analysis classes found for the specified criteria')
   }
 
   const findAnalysis = async (

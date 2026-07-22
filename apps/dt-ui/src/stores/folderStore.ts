@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
 import { DtFolder, Folder } from '@dethernety/dt-core'
 import apolloClient from '@/plugins/apolloClient'
 
@@ -81,8 +82,9 @@ export const useFolderStore = defineStore('folder', () => {
       const results = await dtFolder.getFolders()
       folders.value = [...results]
     } catch (err) {
+      // Set error state and resolve (no re-throw): callers read folderStore.error
+      // and surface it, rather than catching an unhandled rejection / aborting init.
       error.value = handleApiError(err as Error, 'fetch')
-      throw err // Re-throw for component handling if needed
     } finally {
       isLoading.value = false
     }

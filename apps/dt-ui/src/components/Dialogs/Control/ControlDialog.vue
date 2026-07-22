@@ -427,9 +427,9 @@
   }
 
   const onCountermeasureFailed = () => {
-    snackBar.value = { show: true, message: 'Failed to create countermeasure', color: 'error' }
-    countermeasureId.value = null
-    showCountermeasureDialog.value = false
+    // Keep the countermeasure dialog mounted so the user's input survives a transient
+    // save failure. The child (CounterMeasureDialog) shows its own create/update-correct
+    // error snackbar, so the parent must not close the dialog or fire a second (wrong-worded) toast.
   }
 
   const onCountermeasureDelete = () => {
@@ -603,32 +603,42 @@
   }
 
   const showClassControl = async (classId: string) => {
+    // Reset before load so a prior class's attributes/schema can't bleed into the new class's form.
+    attributesLoading.value = true
+    lastLoadedAttributes.value = {}
+    attributesSchema.value = null
+    attributesUiSchema.value = null
+    attributesTemplateWarning.value = false
     try {
       selectedClassId.value = classId
       currentItemClass.value = await controlsStore.getClass({ classId })
-      if (currentItemClass.value) {
-        if (
-          currentItemClass.value.template &&
-          typeof currentItemClass.value.template.schema === 'object' &&
-          typeof currentItemClass.value.template.uischema === 'object'
-        ) {
-          attributesSchema.value = currentItemClass.value.template.schema
-          attributesUiSchema.value = currentItemClass.value.template.uischema as UISchemaElement
-          controlsStore.getAttributesFromClassRelationship({
-            classId: classId,
-            componentId: props.id,
-          }).then(attributes => {
-            if (attributes) {
-              lastLoadedAttributes.value = unflattenProperties(attributes)
-              attributesLoading.value = false
-            }
-          })
+      if (
+        currentItemClass.value?.template &&
+        typeof currentItemClass.value.template.schema === 'object' &&
+        typeof currentItemClass.value.template.uischema === 'object'
+      ) {
+        attributesSchema.value = currentItemClass.value.template.schema
+        attributesUiSchema.value = currentItemClass.value.template.uischema as UISchemaElement
+        // AWAIT (was a fire-and-forget .then) so the dialog opens with the new class's data,
+        // which the buffered-mode child then snapshots on mount — no stale bleed.
+        const attributes = await controlsStore.getAttributesFromClassRelationship({
+          classId: classId,
+          componentId: props.id,
+        })
+        if (attributes) {
+          lastLoadedAttributes.value = unflattenProperties(attributes)
         }
+      } else {
+        // No class or invalid/missing template — surface a warning, keep refs cleared (no stale schema).
+        attributesTemplateWarning.value = true
       }
     } catch (error) {
       console.error('Error loading class control:', error)
+      // Surface a warning instead of opening a silent blank form on a load failure.
+      attributesTemplateWarning.value = true
     } finally {
       // Always show the dialog, even if there was an error loading the class
+      attributesLoading.value = false
       showClassControlDialog.value = true
     }
   }
@@ -767,6 +777,14 @@
       showFolderSelectDialog.value = false
     })
   }
+
+  // Test seam — expose the countermeasure/attributes lifecycle internals asserted by
+  // ControlDialog.test.ts (dialog-open guards, attribute-reset-before-load).
+  defineExpose({
+    onCountermeasureFailed, onCountermeasureCreated, showCountermeasureDialog,
+    showClassControl, showClassControlDialog,
+    lastLoadedAttributes, attributesSchema, attributesUiSchema, attributesLoading, attributesTemplateWarning,
+  })
 
 </script>
 

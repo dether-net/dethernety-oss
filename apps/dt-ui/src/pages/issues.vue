@@ -242,8 +242,10 @@
   })
 
   const fetchIssueClasses = async () => {
-    const issueClasses = await issueStore.fetchIssueClasses({})
-    if (!issueClasses) {
+    await issueStore.fetchIssueClasses({})
+    // The finder returns [] and sets issueStore.error on failure (no throw), so
+    // read the error state rather than the (always-truthy) array return.
+    if (issueStore.error) {
       snackBar.value.show = true
       snackBar.value.message = 'Failed to fetch issue classes'
       snackBar.value.color = 'error'
@@ -274,11 +276,15 @@
     selectedIssueIds.value = []
   }
 
-  const deleteIssue = () => {
-    if (issueToDelete.value && issueToDelete.value.id) {
-      issueStore.deleteIssue(issueToDelete.value.id)
-      showConfirmDeleteDialog.value = false
-      issueToDelete.value = null
+  const deleteIssue = async () => {
+    if (!issueToDelete.value?.id) return
+    const id = issueToDelete.value.id
+    showConfirmDeleteDialog.value = false
+    issueToDelete.value = null
+    try {
+      await issueStore.deleteIssue(id)
+    } catch {
+      snackBar.value = { show: true, message: 'Failed to delete issue', color: 'error' }
     }
   }
 
@@ -309,6 +315,17 @@
       }
       return result ?? null
     })
+  }
+
+  // Speed-dial "New issue" click: createIssue returns a promise, so a bare
+  // template @click would drop a rejection silently. Catch it and surface a
+  // snackbar (mergeIssues has its own try/catch and stays as-is).
+  const onCreateIssueClick = async (issueClass: Class) => {
+    try {
+      await createIssue(issueClass)
+    } catch {
+      snackBar.value = { show: true, message: 'Failed to create issue', color: 'error' }
+    }
   }
 
   // Merge is destructive (closes the originals) — gate it behind a confirm that
@@ -868,7 +885,7 @@
               elevation="12"
               size="large"
               variant="plain"
-              @click="createIssue(issueClass)"
+              @click="onCreateIssueClick(issueClass)"
             >
               <span class="text-color">
                 {{ issueClass.name }}
@@ -925,7 +942,7 @@
             </v-btn>
           </div>
 
-          <v-expansion-panels v-else v-model="expanded" class="mx-10 px-10 pt-0 elevation-0 multiple" static>
+          <v-expansion-panels v-else v-model="expanded" class="mx-10 px-10 pt-0 elevation-0" multiple static>
             <v-expansion-panel
               v-for="issue in displayedIssues"
               :id="`issue-${issue.id}`"
