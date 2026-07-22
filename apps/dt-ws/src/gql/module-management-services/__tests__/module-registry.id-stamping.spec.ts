@@ -172,7 +172,7 @@ describe('ModuleRegistryService — id stamping', () => {
 
     it('rejects when getMetadata throws', async () => {
       const exploding = {
-        getMetadata: jest.fn().mockRejectedValue(new Error('aegra unreachable')),
+        getMetadata: jest.fn().mockRejectedValue(new Error('LangGraph server unreachable')),
       } as unknown as DTModule;
       await expect(validate(exploding)).resolves.toBe(false);
     });

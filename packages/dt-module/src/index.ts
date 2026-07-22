@@ -16,6 +16,15 @@ export * from './db-ops';
 export * from './embedding-file-cache';
 export * from './embedding-text';
 export * from './dt-file-opa-module';
+export * from './dt-remote-module';
+export {
+  CloudSessionExpiredError,
+  EvaluationNotEntitledError,
+  RemoteModuleUnavailableError,
+  ContentRecalledError,
+  RemoteModuleMisconfiguredError,
+} from './remote/errors';
+export type { DenialInfo, RecallInfo, WireErrorCode } from './remote/errors';
 export * from './rego-engine';
 export * from './rego-lint';
 export * from './rego-adhoc';

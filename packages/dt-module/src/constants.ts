@@ -8,15 +8,15 @@
  * The contract: each module is the authoritative source for its class
  * `id` values; ids are derived deterministically from `(moduleName,
  * classKind, className)` using `MODULE_CLASS_NAMESPACE_UUID`, or from
- * the graph name using `ASSISTANT_NAMESPACE_UUID` for aegra-derived
+ * the graph name using `ASSISTANT_NAMESPACE_UUID` for LangGraph-server-derived
  * AnalysisClass entries (see `dt-lg-module.ts`).
  */
 
 /**
- * Aegra-owned namespace for `assistant_id = uuid5(NAMESPACE, graphName)`.
- * Forked into dt-module so the platform can compute identical UUIDs without
- * round-tripping aegra. Source: aegra repo,
- * `libs/aegra-api/src/aegra_api/constants.py:5`.
+ * The namespace the LangGraph server uses for `assistant_id = uuid5(NAMESPACE,
+ * graphName)`. Mirrored into dt-module so the platform can compute identical
+ * UUIDs without round-tripping the server. This value MUST stay identical to the
+ * LangGraph server's own namespace constant.
  */
 export const ASSISTANT_NAMESPACE_UUID = '6ba7b821-9dad-11d1-80b4-00c04fd430c8';
 

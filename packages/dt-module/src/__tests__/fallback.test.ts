@@ -1,0 +1,77 @@
+import { describe, it, expect } from 'vitest';
+import { sanitizeText, isSafeActionUrl, buildFallbackTemplate } from '../remote/fallback';
+import { PORTAL_ORIGIN } from '../testing/fixtures';
+
+describe('sanitizeText', () => {
+  it('escapes HTML rather than stripping it', () => {
+    const out = sanitizeText('<script>alert(1)</script> & "quote" \'q\'');
+    expect(out).not.toContain('<');
+    expect(out).not.toContain('>');
+    expect(out).toContain('&lt;script&gt;');
+    expect(out).toContain('&amp;');
+    expect(out).toContain('&quot;');
+    expect(out).toContain('&#39;');
+  });
+
+  it('neutralizes markdown link and image pivots', () => {
+    expect(sanitizeText('[click](javascript:alert(1))')).not.toContain('](');
+    expect(sanitizeText('![img](data:text/html,evil)')).not.toContain('![');
+  });
+
+  it('drops control characters', () => {
+    expect(sanitizeText('a\x00bcd')).toBe('abcd');
+  });
+
+  it('bounds the length', () => {
+    expect(sanitizeText('x'.repeat(5000), 100).length).toBe(100);
+  });
+
+  it('returns an empty string for non-string input', () => {
+    expect(sanitizeText(undefined)).toBe('');
+    expect(sanitizeText(42 as unknown)).toBe('');
+  });
+});
+
+describe('isSafeActionUrl', () => {
+  it('keeps an https URL on the exact portal origin', () => {
+    expect(isSafeActionUrl(`${PORTAL_ORIGIN}/subscribe/x`, PORTAL_ORIGIN)).toBe(`${PORTAL_ORIGIN}/subscribe/x`);
+  });
+
+  it('drops a userinfo trick, a suffix origin, and non-https', () => {
+    expect(isSafeActionUrl('https://portal.acme.example@evil.com/x', PORTAL_ORIGIN)).toBeUndefined();
+    expect(isSafeActionUrl('https://portal.acme.example.evil.com/x', PORTAL_ORIGIN)).toBeUndefined();
+    expect(isSafeActionUrl('http://portal.acme.example/x', PORTAL_ORIGIN)).toBeUndefined();
+  });
+
+  it('fails closed when no portal origin was obtained', () => {
+    expect(isSafeActionUrl(`${PORTAL_ORIGIN}/x`, undefined)).toBeUndefined();
+  });
+
+  it('drops an unparseable URL', () => {
+    expect(isSafeActionUrl('not a url', PORTAL_ORIGIN)).toBeUndefined();
+  });
+});
+
+describe('buildFallbackTemplate', () => {
+  it('produces a renderable read-only notice with no input controls', () => {
+    const t = buildFallbackTemplate();
+    expect(t.schema).toBeDefined();
+    expect(t.uischema).toMatchObject({ type: 'VerticalLayout' });
+    const elements = (t.uischema as { elements: Array<{ type: string }> }).elements;
+    expect(elements.every((e) => e.type === 'Label')).toBe(true);
+  });
+
+  it('embeds only a portalOrigin-valid action URL', () => {
+    const denial = {
+      message: { title: 'T', body: 'B', actionUrl: 'https://evil.com/x', actionLabel: 'Go' },
+    };
+    const rejected = JSON.stringify(buildFallbackTemplate(denial, PORTAL_ORIGIN));
+    expect(rejected).not.toContain('evil.com');
+
+    const okDenial = {
+      message: { title: 'T', body: 'B', actionUrl: `${PORTAL_ORIGIN}/x`, actionLabel: 'Go' },
+    };
+    const kept = JSON.stringify(buildFallbackTemplate(okDenial, PORTAL_ORIGIN));
+    expect(kept).toContain(`${PORTAL_ORIGIN}/x`);
+  });
+});

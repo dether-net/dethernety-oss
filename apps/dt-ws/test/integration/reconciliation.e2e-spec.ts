@@ -222,7 +222,7 @@ describe('module reconciliation — install / orphan / revive end-to-end', () =>
     expect(log.list({ kind: 'revive' })).toHaveLength(1);
   });
 
-  it('B-strict variant: orphan, then aegra returns same name with different id, strict policy → rebind rejected, revive succeeds', async () => {
+  it('B-strict variant: orphan, then the server returns same name with different id, strict policy → rebind rejected, revive succeeds', async () => {
     // Install with 'audit' default, orphan it
     await install(meta('mod-a', [{ id: 'class-1', name: 'A' }]));
     await withWrite(mg.driver, (tx) =>
@@ -275,7 +275,7 @@ describe('module reconciliation — install / orphan / revive end-to-end', () =>
     expect((events[0] as any).newId).toBe('class-NEW');
   });
 
-  it('D variant: aegra returns RENAMED graph (different name) → old orphan stays, new class fresh', async () => {
+  it('D variant: the server returns a RENAMED graph (different name) → old orphan stays, new class fresh', async () => {
     await install(meta('mod-a', [{ id: 'class-1', name: 'OldName' }]));
     await withWrite(mg.driver, (tx) =>
       tx.run(`MATCH (c:AnalysisClass {id: 'class-1'}) CREATE (:Analysis {id: 'an-1'})-[:IS_INSTANCE_OF]->(c)`),

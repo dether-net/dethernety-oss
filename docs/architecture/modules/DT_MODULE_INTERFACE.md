@@ -1191,6 +1191,49 @@ The `MATCH (m:Module {name})` succeeds only because the hook runs post-commit �
 
 ---
 
+## Remote content modules (DtRemoteModule)
+
+`DtRemoteModule` is a sibling of `DtFileOpaModule` that implements the same `DTModule` contract, but serves metadata, class templates, guides, embeddings, and evaluation from an HTTP content service over the module content wire protocol instead of from a local data directory. Every difference from a file-backed module (network, caching, denial, not-evaluated) is expressed *through* the `DTModule` contract — a returned template, a returned finding list, or a thrown error — never a new platform hook, so the platform (and dt-ui) stay unaware that the module is remote.
+
+**Source file:** `packages/dt-module/src/dt-remote-module.ts`
+
+### Mounting
+
+An operator mounts a remote module with a trivial stub whose default export constructs a `DtRemoteModule` for one module key at one pinned content version:
+
+```typescript
+import { DtRemoteModule } from '@dethernety/dt-module';
+
+export default class MyRemoteModule extends DtRemoteModule {
+  constructor(driver, logger) {
+    super({ moduleKey: 'my-module', pin: 'sha256:…' }, driver, logger);
+  }
+}
+```
+
+### Configuration
+
+| Setting | Scope | Meaning |
+|---------|-------|---------|
+| `MODULE_CONTENT_BASE_URL` | Deployment (env) | The content service base URL. **No default** — an unset value leaves the module inert (it registers nothing and reports unavailable). |
+| `MODULE_CONTENT_CACHE_DIR` | Deployment (env) | Where the metadata/content caches live. **Must be co-durable with the graph database** — the caches and the classes they protect have to survive a restart together. An unset or ephemeral directory logs a loud boot warning; see below. |
+| `moduleKey` + `pin` | Per module (stub literal) | Which module, at which immutable content-hash version. |
+
+### Boot, caching, and the pin
+
+- **Boot is credential-free** and completes offline from cache. `getMetadata()` fetches the module document + embeddings and returns the platform's metadata verbatim; `getEmbedding()` answers synchronously from vectors prefetched at registration.
+- The metadata cache is placed **co-durable with the graph database** so that a warm deployment boots offline and a registered module never has to fail its load. A remote module that failed to load would be swept along with its classes' bindings; the client's rule is therefore to **never throw once it has registered** — on an offline pin-miss it serves the newest cached document for the module, keeping ids stable. This is why the cache directory placement is a correctness concern, not just a latency one, and why an ephemeral/unset directory warns loudly.
+- The **pin** is an immutable content hash. All reads serve at that pin; an assessment can state exactly what content produced it. The operator advances a version by editing the stub's `pin` and restarting — registration re-registers the *same* class ids at the new content (ids are stable across versions), so an upgrade never orphans or rebinds.
+
+### Entitlement, denial, and not-evaluated
+
+- Template/guide calls forward the caller's bearer token. A caller who is **not entitled** (or a deployment with no cloud credential) receives valid, self-sanitized read-only fallback content — the platform renders it like any other module template. Server-authored denial text is escaped to inert plain text and length-bounded before it is embedded, and any action URL is honoured only on the service-declared portal origin.
+- Evaluation reads the element's attributes locally, sends only the class-schema-declared keys to the service (payload minimization), and returns the findings. A denied or unavailable evaluation **throws a typed error** — never an empty result, which would masquerade as evaluated-clean and overwrite prior findings. A recalled content version (`410`) surfaces the operator reason and stops serving that pin's cached content.
+
+`DtRemoteModule` implements the catalog, content, and evaluation surfaces of the wire protocol; other surfaces are separate modules.
+
+---
+
 ## Related Documentation
 
 | Document | Description |
