@@ -106,7 +106,7 @@ export class WireClient {
   private readonly timeoutMs: number;
 
   constructor(options: WireClientOptions = {}) {
-    this.baseUrl = options.baseUrl?.replace(/\/+$/, '');
+    this.baseUrl = stripTrailingSlashes(options.baseUrl);
     // Bind so a bare global `fetch` keeps its expected `this`.
     this.fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -218,6 +218,15 @@ export class WireClient {
 /** Percent-encode an opaque path segment; keys are never parsed for structure. */
 function enc(segment: string): string {
   return encodeURIComponent(segment);
+}
+
+/** Strip trailing '/' from a base URL. A linear scan rather than a `/\/+$/`
+ * replace, which backtracks quadratically on a long run of slashes. */
+function stripTrailingSlashes(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  let end = url.length;
+  while (end > 0 && url.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return url.slice(0, end);
 }
 
 function describe(err: unknown): string {
