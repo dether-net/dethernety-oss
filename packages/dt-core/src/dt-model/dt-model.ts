@@ -135,7 +135,7 @@ export class DtModel {
                 label: rootBoundary.name,
                 description: rootBoundary.description,
                 controls: rootBoundary.controls?.map((boundary: { id: any }) => boundary.id),
-                dataItems: rootBoundary.data?.map((data: { id: any }) => data.id),
+                dataItems: rootBoundary.dataItems?.map((data: { id: any }) => data.id),
               },
             }
             results.defaultBoundary = defaultBoundary
@@ -244,6 +244,12 @@ export class DtModel {
         const model = response.models[0]
           return {
             ...model,
+            // Flatten the array-shaped `folder` relationship to a single object (mirrors
+            // getModel). Lets the update orchestrator preserve the model's folder by
+            // re-passing existingModel.folder?.id instead of unlinking it every push.
+            folder: Array.isArray(model.folder) && model.folder.length > 0
+              ? model.folder[0]
+              : model.folder,
             defaultBoundary: Array.isArray(model.defaultBoundary) && model.defaultBoundary.length > 0
               ? {
                 ...model.defaultBoundary[0],
@@ -317,8 +323,8 @@ export class DtModel {
    * @returns The created model
    */
   createModel = async (
-    { name, description, modules, folderId, scope }:
-    { name: string, description: string, modules: string[], folderId: string | undefined, scope?: ModelScopeLocal }
+    { name, description, modules, folderId, scope, controls }:
+    { name: string, description: string, modules: string[], folderId: string | undefined, scope?: ModelScopeLocal, controls?: string[] }
   ): Promise<Model> => {
     try {
       const defaultBoundaryName = `Default Boundary`
@@ -349,6 +355,18 @@ export class DtModel {
             where: { node: { id: { eq: module } } },
           })),
         },
+        // Model-level controls connected at create time (SUPPORTS). Create-only
+        // connect — no disconnect — so it never clears anything and never touches
+        // the folder relationship. Omitted when there are none.
+        ...(controls && controls.length > 0
+          ? {
+              controls: {
+                connect: controls.map(id => ({
+                  where: { node: { id: { eq: id } } },
+                })),
+              },
+            }
+          : {}),
         folder: { }
       }
       if (folderId) {

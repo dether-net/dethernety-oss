@@ -130,6 +130,8 @@ export interface MonolithicModel {
   description?: string;
   /** Asset-context scope (grouped, snake_case); absent when unset. */
   scope?: ModelScopeLocal;
+  /** Model-level controls (SUPPORTS relationship); absent when none. */
+  controls?: ControlReference[];
   /** Root boundary containing all elements */
   defaultBoundary: MonolithicBoundary;
   /** All data flows in the model */
@@ -179,6 +181,11 @@ export function monolithicToSplit(model: MonolithicModel): SplitModel {
       name: model.name,
       description: model.description,
       defaultBoundaryId,
+      // Carry model-level controls and scope so this stays symmetric with
+      // splitToMonolithic (which reads manifest.model.controls / .scope) —
+      // otherwise a round-trip through this standalone pair would silently drop them.
+      ...(model.controls ? { controls: model.controls } : {}),
+      ...(model.scope ? { scope: model.scope } : {}),
     },
     modules: model.modules ?? [],
     exportedAt: new Date().toISOString(),
@@ -212,6 +219,10 @@ export function monolithicToSplit(model: MonolithicModel): SplitModel {
     description: item.description,
     classData: item.classData,
     attributes: item.attributes,
+    // First-class asset-context fields — splitToMonolithic spreads them back
+    // (`...item`), so omitting them here silently dropped both on round-trip.
+    sensitivity: item.sensitivity,
+    regulatory_flags: item.regulatory_flags,
   }));
 
   // Extract attributes into consolidated format
@@ -267,6 +278,13 @@ export function splitToMonolithic(split: SplitModel): MonolithicModel {
     // can lift it onto the flat platform Model fields (model.schema carries the
     // grouped local shape unchanged). Absent when scope.json was never set.
     scope: split.manifest.model.scope,
+    // Model-level controls ride through so import restores them at model create.
+    // NOTE: this same field also reaches the UPDATE path (DtUpdateSplit →
+    // updateModelProperties), where it REPLACE-syncs model controls — a present list
+    // reconciles, an explicit [] clears (consistent with element-level controls);
+    // absent preserves. The exporter is present-only, so a normal round-trip never
+    // clears.
+    controls: split.manifest.model.controls,
     defaultBoundary,
     dataFlows,
     dataItems,
@@ -322,6 +340,10 @@ function extractStructureComponent(component: MonolithicComponent): StructureCom
     controls: component.controls,
     dataItemIds: component.dataItemIds,
     representedModel: component.representedModel,
+    // First-class asset-context flag — must ride the forward conversion or the
+    // round-trip flips true→false (splitToMonolithic emits a definite boolean),
+    // and pushing that under REPLACE clears crown jewels on the platform.
+    crownJewel: component.crownJewel,
   };
 }
 
@@ -336,25 +358,31 @@ function extractAttributes(model: MonolithicModel): ConsolidatedAttributesFile {
     dataItems: {},
   };
 
+  // Attributes are extracted whenever present — NOT gated on classData. A
+  // classless element (e.g. a crown-jewel-only unclassified component) is a
+  // supported shape whose attributes previously vanished through this
+  // conversion. `classData` is carried only when present (ElementAttributes
+  // declares it optional for exactly this synthesized-entry case).
+
   // Process boundaries recursively
   function processBoundary(boundary: MonolithicBoundary): void {
-    if (boundary.classData && boundary.attributes) {
+    if (boundary.attributes) {
       result.boundaries![boundary.id] = {
         elementId: boundary.id,
         elementType: 'boundary',
         elementName: boundary.name,
-        classData: boundary.classData,
+        ...(boundary.classData ? { classData: boundary.classData } : {}),
         attributes: boundary.attributes,
       };
     }
 
     boundary.components?.forEach(component => {
-      if (component.classData && component.attributes) {
+      if (component.attributes) {
         result.components![component.id] = {
           elementId: component.id,
           elementType: 'component',
           elementName: component.name,
-          classData: component.classData,
+          ...(component.classData ? { classData: component.classData } : {}),
           attributes: component.attributes,
         };
       }
@@ -367,12 +395,12 @@ function extractAttributes(model: MonolithicModel): ConsolidatedAttributesFile {
 
   // Process data flows
   model.dataFlows?.forEach(flow => {
-    if (flow.classData && flow.attributes) {
+    if (flow.attributes) {
       result.dataFlows![flow.id] = {
         elementId: flow.id,
         elementType: 'dataFlow',
         elementName: flow.name,
-        classData: flow.classData,
+        ...(flow.classData ? { classData: flow.classData } : {}),
         attributes: flow.attributes,
       };
     }
@@ -380,12 +408,12 @@ function extractAttributes(model: MonolithicModel): ConsolidatedAttributesFile {
 
   // Process data items
   model.dataItems?.forEach(item => {
-    if (item.classData && item.attributes) {
+    if (item.attributes) {
       result.dataItems![item.id] = {
         elementId: item.id,
         elementType: 'dataItem',
         elementName: item.name,
-        classData: item.classData,
+        ...(item.classData ? { classData: item.classData } : {}),
         attributes: item.attributes,
       };
     }
@@ -477,8 +505,17 @@ export interface ModelValidationWarning {
   elementId?: UUID;
 }
 
+/** Component types the platform accepts (mirrors common.schema `ComponentType`). */
+const VALID_COMPONENT_TYPES = new Set(['PROCESS', 'EXTERNAL_ENTITY', 'STORE']);
+
 /**
  * Validate a monolithic model.
+ *
+ * Never throws on malformed input — a missing `defaultBoundary` or a flow with
+ * no `source` returns `{ valid: false }` with the matching error rather than a
+ * TypeError (the pre-repair validator crashed on exactly the inputs it existed
+ * to reject). Wired into the import path (DtImport.importModel) so it actually
+ * runs before any mutation.
  */
 export function validateMonolithicModel(model: MonolithicModel): ModelValidation {
   const errors: ModelValidationError[] = [];
@@ -499,32 +536,115 @@ export function validateMonolithicModel(model: MonolithicModel): ModelValidation
       message: 'Default boundary is required',
       path: 'defaultBoundary',
     });
-  } else {
-    if (!model.defaultBoundary.id) {
-      errors.push({
-        code: 'MISSING_BOUNDARY_ID',
-        message: 'Default boundary must have an ID',
-        path: 'defaultBoundary.id',
-      });
-    }
+    // Every structural check below walks defaultBoundary — without it the model
+    // is unusable, so return the accumulated errors instead of dereferencing
+    // undefined (the old fall-through crashed in collectAllComponentIds).
+    return { valid: false, errors, warnings };
+  }
+  if (!model.defaultBoundary.id) {
+    errors.push({
+      code: 'MISSING_BOUNDARY_ID',
+      message: 'Default boundary must have an ID',
+      path: 'defaultBoundary.id',
+    });
   }
 
-  // Validate data flow references
-  if (model.dataFlows) {
-    const componentIds = collectAllComponentIds(model.defaultBoundary);
+  // Junk-shape guard: a collection that is present but not an array, or an entry
+  // that is not an object, is malformed input — surface a MALFORMED_STRUCTURE
+  // error and skip it rather than crashing on the dereference (the never-throw
+  // contract has to hold for arbitrary junk, not just the historic crash shapes).
+  const asEntries = <T>(value: unknown, path: string): T[] => {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) {
+      errors.push({
+        code: 'MALFORMED_STRUCTURE',
+        message: `${path} must be an array, got ${typeof value}`,
+        path,
+      });
+      return [];
+    }
+    return value.filter((entry, i) => {
+      if (entry && typeof entry === 'object') return true;
+      errors.push({
+        code: 'MALFORMED_STRUCTURE',
+        message: `${path}[${i}] must be an object, got ${entry === null ? 'null' : typeof entry}`,
+        path: `${path}[${i}]`,
+      });
+      return false;
+    }) as T[];
+  };
 
-    for (const flow of model.dataFlows) {
-      if (!componentIds.has(flow.source.id)) {
+  // Duplicate element ids: idMapping.set on import silently overwrites, so two
+  // elements sharing an id would bind every reference to the second only.
+  const seenIds = new Set<UUID>();
+  const checkId = (id: UUID | undefined, kind: string, name?: string) => {
+    if (!id) return;
+    if (seenIds.has(id)) {
+      errors.push({
+        code: 'DUPLICATE_ELEMENT_ID',
+        message: `Duplicate element id "${id}" (${kind}${name ? ` "${name}"` : ''}) — element ids must be unique across the model`,
+        elementId: id,
+      });
+    }
+    seenIds.add(id);
+  };
+
+  // Component scalar shapes: a bad `type`/position fails GraphQL coercion
+  // mid-import, leaving a partial model — reject up front instead.
+  const checkComponent = (c: MonolithicComponent) => {
+    checkId(c.id, 'component', c.name);
+    if (c.type !== undefined && !VALID_COMPONENT_TYPES.has(c.type)) {
+      errors.push({
+        code: 'INVALID_COMPONENT_TYPE',
+        message: `Component "${c.name || c.id}" has invalid type "${c.type}" (expected one of: ${[...VALID_COMPONENT_TYPES].join(', ')})`,
+        elementId: c.id,
+      });
+    }
+    for (const field of ['positionX', 'positionY'] as const) {
+      const v = c[field];
+      if (v !== undefined && v !== null && (typeof v !== 'number' || !Number.isFinite(v))) {
+        errors.push({
+          code: 'INVALID_POSITION',
+          message: `Component "${c.name || c.id}": ${field} must be a finite number, got ${typeof v}`,
+          elementId: c.id,
+        });
+      }
+    }
+  };
+
+  const walkBoundary = (b: MonolithicBoundary, path: string) => {
+    checkId(b.id, 'boundary', b.name);
+    asEntries<MonolithicComponent>(b.components, `${path}.components`).forEach(checkComponent);
+    asEntries<MonolithicBoundary>(b.boundaries, `${path}.boundaries`).forEach(
+      (child, i) => walkBoundary(child, `${path}.boundaries[${i}]`)
+    );
+  };
+  walkBoundary(model.defaultBoundary, 'defaultBoundary');
+  const dataFlows = asEntries<MonolithicDataFlow>(model.dataFlows, 'dataFlows');
+  const dataItems = asEntries<MonolithicDataItem>(model.dataItems, 'dataItems');
+  dataFlows.forEach(f => checkId(f.id, 'dataFlow', f.name));
+  dataItems.forEach(i => checkId(i.id, 'dataItem', i.name));
+
+  // Validate data flow references. Boundaries are legal flow endpoints (the
+  // split-import validator always accepted them) — use the shared collector so
+  // the two validators can't drift apart again.
+  if (dataFlows.length > 0) {
+    const endpointIds = collectFlowEndpointIds(model.defaultBoundary);
+
+    for (const flow of dataFlows) {
+      // A missing endpoint reference is invalid, not skippable — and must not
+      // crash the validator (the old `flow.source.id` threw on it).
+      if (!flow.source?.id || !endpointIds.has(flow.source.id)) {
         errors.push({
           code: 'INVALID_FLOW_SOURCE',
-          message: `Data flow "${flow.name}" references non-existent source component`,
+          message: `Data flow "${flow.name}" references ${flow.source?.id ? 'a non-existent' : 'no'} source element`,
           elementId: flow.id,
         });
       }
-      if (!componentIds.has(flow.target.id)) {
+      if (!flow.target?.id || !endpointIds.has(flow.target.id)) {
         errors.push({
           code: 'INVALID_FLOW_TARGET',
-          message: `Data flow "${flow.name}" references non-existent target component`,
+          message: `Data flow "${flow.name}" references ${flow.target?.id ? 'a non-existent' : 'no'} target element`,
           elementId: flow.id,
         });
       }
@@ -532,8 +652,8 @@ export function validateMonolithicModel(model: MonolithicModel): ModelValidation
   }
 
   // Validate data item references
-  if (model.dataItems) {
-    const dataItemIds = new Set(model.dataItems.map(item => item.id));
+  if (dataItems.length > 0) {
+    const dataItemIds = new Set(dataItems.map(item => item.id));
     const usedDataItemIds = collectUsedDataItemIds(model);
 
     for (const usedId of usedDataItemIds) {
@@ -555,14 +675,25 @@ export function validateMonolithicModel(model: MonolithicModel): ModelValidation
 }
 
 /**
- * Collect all component IDs from a boundary hierarchy.
+ * Collect every legal data-flow endpoint id (boundaries AND components) from a
+ * boundary hierarchy. Shared by the monolithic validator and the split-import
+ * validator so they agree on endpoint semantics — the pre-consolidation copies
+ * disagreed (the monolithic one collected components only, failing legitimate
+ * boundary-attached flows with INVALID_FLOW_SOURCE). Null-safe: a missing
+ * boundary yields an empty set.
  */
-function collectAllComponentIds(boundary: MonolithicBoundary): Set<UUID> {
+export function collectFlowEndpointIds(
+  boundary: { id?: UUID, boundaries?: any[], components?: Array<{ id?: UUID }> } | undefined | null
+): Set<UUID> {
   const ids = new Set<UUID>();
 
-  function process(b: MonolithicBoundary): void {
-    b.components?.forEach(c => ids.add(c.id));
-    b.boundaries?.forEach(process);
+  function process(b: { id?: UUID, boundaries?: any[], components?: Array<{ id?: UUID }> } | undefined | null): void {
+    if (!b || typeof b !== 'object') return;
+    // Boundaries can also be source/target of flows.
+    if (b.id) ids.add(b.id);
+    // Array.isArray (not optional chaining): a truthy non-array must not crash.
+    if (Array.isArray(b.components)) b.components.forEach(c => { if (c?.id) ids.add(c.id); });
+    if (Array.isArray(b.boundaries)) b.boundaries.forEach(process);
   }
 
   process(boundary);
@@ -570,19 +701,29 @@ function collectAllComponentIds(boundary: MonolithicBoundary): Set<UUID> {
 }
 
 /**
- * Collect all data item IDs referenced in a model.
+ * Collect all data item IDs referenced in a model. Junk-tolerant (null entries,
+ * non-array collections are skipped) — the validator reports malformed shapes
+ * separately; this collector must never throw on them.
  */
 function collectUsedDataItemIds(model: MonolithicModel): Set<UUID> {
   const ids = new Set<UUID>();
+  const addAll = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach(id => { if (id) ids.add(id); });
+  };
 
-  function processBoundary(b: MonolithicBoundary): void {
-    b.dataItemIds?.forEach(id => ids.add(id));
-    b.components?.forEach(c => c.dataItemIds?.forEach(id => ids.add(id)));
-    b.boundaries?.forEach(processBoundary);
+  function processBoundary(b: MonolithicBoundary | null | undefined): void {
+    if (!b || typeof b !== 'object') return;
+    addAll(b.dataItemIds);
+    if (Array.isArray(b.components)) {
+      b.components.forEach(c => { if (c && typeof c === 'object') addAll(c.dataItemIds); });
+    }
+    if (Array.isArray(b.boundaries)) b.boundaries.forEach(processBoundary);
   }
 
   processBoundary(model.defaultBoundary);
-  model.dataFlows?.forEach(f => f.dataItemIds?.forEach(id => ids.add(id)));
+  if (Array.isArray(model.dataFlows)) {
+    model.dataFlows.forEach(f => { if (f && typeof f === 'object') addAll(f.dataItemIds); });
+  }
 
   return ids;
 }

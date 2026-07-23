@@ -34,20 +34,23 @@ export class DtUtils {
    * @returns Promise result of the function
    */
   async withMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    // If there's already a promise for this key, wait for it
-    if (this.mutex.has(key)) {
-      await this.mutex.get(key)
-    }
-
-    // Create new promise for this execution
-    const promise = fn()
-    this.mutex.set(key, promise)
+    // Real FIFO mutex: chain each caller after the previous holder's *tail* so at
+    // most one `fn` per key is ever in flight. `prev.then(fn, fn)` runs our `fn`
+    // once the predecessor settles regardless of its outcome, so we never inherit
+    // the predecessor's rejection. The settle-only `tail` is what the next waiter
+    // chains on; the identity-checked delete removes only our own entry, so a
+    // later waiter that has already replaced us in the map is never cross-deleted.
+    const prev = this.mutex.get(key) ?? Promise.resolve()
+    const run = prev.then(() => fn(), () => fn())
+    const tail = run.then(() => {}, () => {})
+    this.mutex.set(key, tail)
 
     try {
-      return await promise
+      return await run
     } finally {
-      // Clean up the mutex entry
-      this.mutex.delete(key)
+      if (this.mutex.get(key) === tail) {
+        this.mutex.delete(key)
+      }
     }
   }
 
@@ -95,7 +98,10 @@ export class DtUtils {
    * @returns The merged object.
    */
   deepMerge (target: any, updates: any) {
-    for (const key in updates) {
+    // Iterate own enumerable keys only, and reuse an existing nested value only
+    // when it is an own object — never resolve or write through inherited members
+    // (e.g. toString/valueOf) onto shared built-ins.
+    for (const key of Object.keys(updates)) {
       if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
         continue;
       }
@@ -104,14 +110,15 @@ export class DtUtils {
         typeof updates[key] === 'object' &&
         !Array.isArray(updates[key])
       ) {
-        target[key] = target[key] || {}
+        const existing = Object.hasOwn(target, key) ? target[key] : undefined
+        target[key] = (existing && typeof existing === 'object') ? existing : {}
         this.deepMerge(target[key], updates[key])
       } else {
         target[key] = updates[key]
       }
     }
     return target
-  } 
+  }
 
   /**
    * Get a value from an object using a path.
@@ -209,28 +216,37 @@ export class DtUtils {
   private async withDeduplication<T>(
     key: string,
     operation: () => Promise<T>,
-    ttl: number = 5000
+    ttl: number = 15000
   ): Promise<T> {
-    // Check for existing request
-    if (this.requestDeduplicator.has(key)) {
-      const metadata = this.requestMetadata.get(key)!
-      metadata.count++
-      console.debug(`[DtUtils] Deduplicating request ${key} (${metadata.count} concurrent requests)`)
-      return this.requestDeduplicator.get(key)!
+    // Join an in-flight request under this key, if any.
+    const existing = this.requestDeduplicator.get(key) as Promise<T> | undefined
+    if (existing) {
+      const metadata = this.requestMetadata.get(key)
+      if (metadata) {
+        metadata.count++
+        console.debug(`[DtUtils] Deduplicating request ${key} (${metadata.count} concurrent requests)`)
+      }
+      return existing
     }
 
-    // Start new request
+    // Start a new request. Clear the TTL timer on settle, and evict only if the
+    // stored entry is still *this* promise, so a stale timer can never drop a
+    // newer entry mid-flight. The TTL is a leak backstop only — since mutations
+    // no longer retry, it comfortably exceeds any single operation's lifetime.
+    let timer: ReturnType<typeof setTimeout> | undefined
     const promise = operation().finally(() => {
-      this.requestDeduplicator.delete(key)
-      this.requestMetadata.delete(key)
+      if (timer) clearTimeout(timer)
+      if (this.requestDeduplicator.get(key) === promise) {
+        this.requestDeduplicator.delete(key)
+        this.requestMetadata.delete(key)
+      }
     })
 
     this.requestDeduplicator.set(key, promise)
     this.requestMetadata.set(key, { timestamp: Date.now(), count: 1 })
 
-    // Auto-cleanup after TTL
-    setTimeout(() => {
-      if (this.requestDeduplicator.has(key)) {
+    timer = setTimeout(() => {
+      if (this.requestDeduplicator.get(key) === promise) {
         this.requestDeduplicator.delete(key)
         this.requestMetadata.delete(key)
       }
@@ -248,55 +264,80 @@ export class DtUtils {
     dataPath: string,
     action: string
   ): Promise<T> {
-    return this.retryNetworkOperation(async () => {
-      const response = await this.apolloClient?.mutate({ mutation, variables })
-      let data: any = response?.data
-      if (dataPath) {
-        data = this.getValueFromPath({ obj: data, path: dataPath })
-      }
-      if (!data) throw new Error(`No data returned for ${action}`)
-      return data as T
-    })
+    // Mutations are NOT auto-retried: a network-classified error (timeout/502/504)
+    // may mean the write already committed server-side, so a blind retry risks a
+    // duplicate node. Queries keep retrying (see performQuery). This opt-out is
+    // the intended mechanism: of the entity creates only `Analysis` has a
+    // MERGE-by-client-id path (the `createAnalysisIdempotent` @cypher mutation),
+    // so a blind retry of any other create is unsafe. Restoring *safe* retry for
+    // the rest — MERGE-by-client-id generalised to the other creates — needs new
+    // backend `@cypher` mutations + UNIQUE constraints and is a deferred backend
+    // effort (out of dt-core scope); it is not re-enabled here. Guarded by the
+    // per-create `create-no-retry` tests.
+    const response = await this.apolloClient?.mutate({ mutation, variables })
+    let data: any = response?.data
+    if (dataPath) {
+      data = this.getValueFromPath({ obj: data, path: dataPath })
+    }
+    // Only nullish is "no data" — a legitimate boolean `false` (e.g. the
+    // dt-class-identity migrate/revive/delete mutations) must pass through, not throw.
+    if (data === undefined || data === null) throw new Error(`No data returned for ${action}`)
+    return data as T
   }
 
   /**
-   * Perform a mutation with network error handling, retry logic, and optional deduplication
+   * Perform a mutation with network error handling and optional deduplication.
+   * Mutations are NOT retried (creates are non-idempotent server-side — see
+   * executeActualMutation); retry remains query-only via performQuery.
    * @param mutation - The mutation to perform
    * @param variables - The variables to pass to the mutation
    * @param dataPath - The path to the data to return
    * @param action - The action to perform
-   * @param retryConfig - Optional retry configuration
+   * @param retryConfig - Accepted for signature compatibility; deliberately unused (no mutation retry)
    * @param deduplicationKey - Optional deduplication key (false = disable deduplication)
    * @returns The data returned from the mutation
    */
   async performMutation<T> (
-    { mutation, variables, dataPath, action, retryConfig, deduplicationKey }:
-    { 
-      mutation: any, 
-      variables: object, 
-      dataPath: string, 
+    // `retryConfig` is intentionally omitted from the destructure (mutations no
+    // longer retry here — see executeActualMutation); it stays in the type so
+    // callers keep compiling. The seam is reserved for future backend work
+    // that adds MERGE-by-client-id to the remaining creates, which would make
+    // them safe to retry — it is deliberately unused in dt-core today.
+    { mutation, variables, dataPath, action, deduplicationKey }:
+    {
+      mutation: any,
+      variables: object,
+      dataPath: string,
       action: string,
       retryConfig?: RetryConfig,
       deduplicationKey?: string | false
     }
   ): Promise<T> {
     const mutexKey = `${action}-${JSON.stringify(variables)}`
-    
-    return this.withMutex(mutexKey, async () => {
-      try {
-        // Only deduplicate if enabled and key provided
-        if (deduplicationKey !== false && deduplicationKey) {
-          return this.withDeduplication(deduplicationKey, () => 
-            this.executeActualMutation(mutation, variables, dataPath, action)
-          )
-        }
-        
-        return this.executeActualMutation(mutation, variables, dataPath, action)
-      } catch (error) {
-        this.handleError({ action, error, context: { variables, dataPath } })
-        throw error
+
+    // Single execution unit: serialise same-key ops on the mutex, then hit the network.
+    const exec = () =>
+      this.withMutex(mutexKey, () =>
+        this.executeActualMutation<T>(mutation, variables, dataPath, action)
+      )
+
+    try {
+      // Deduplicate identical in-flight submits. The effective key folds the
+      // serialised variables in, so two *distinct* writes that happen to share an
+      // id-only caller key no longer collapse (the silent lost-write fix). Dedup
+      // sits *outside* the mutex so identical rapid submits share one in-flight
+      // promise instead of serialising then re-executing. Awaiting here (unlike
+      // before) means a rejected mutation actually reaches handleError.
+      if (deduplicationKey !== false && deduplicationKey) {
+        const dedupKey = `${deduplicationKey}::${mutexKey}`
+        return await this.withDeduplication(dedupKey, exec)
       }
-    })
+
+      return await exec()
+    } catch (error) {
+      this.handleError({ action, error, context: { variables, dataPath } })
+      throw error
+    }
   }
 
   /**

@@ -29,7 +29,7 @@ describe('DtUpdate — data-item association threading (update)', () => {
     expect(spy.mock.calls[0][0].updatedNode.data.dataItems).toEqual(['D1', 'D2']);
   });
 
-  it('updateComponent omits data.dataItems when no dataItemIds (clean disconnect-all path)', async () => {
+  it('updateComponent sends empty arrays when no controls/dataItemIds (explicit REPLACE-clear)', async () => {
     const dtUpdate = new DtUpdate({} as any) as any;
     seed(dtUpdate);
     const spy = vi.fn().mockResolvedValue({ id: 'c1' });
@@ -37,7 +37,11 @@ describe('DtUpdate — data-item association threading (update)', () => {
 
     await dtUpdate.updateComponent({ id: 'c1', type: 'STORE', name: 'C' }, 'b0');
 
-    expect(spy.mock.calls[0][0].updatedNode.data).not.toHaveProperty('dataItems');
+    // The element re-sync is authoritative: an element with no controls/dataItems
+    // sends explicit [] so the builder clears them (disconnect-all). This is the
+    // signal that lets the conduit "safe node" — which OMITS the keys — preserve.
+    expect(spy.mock.calls[0][0].updatedNode.data.dataItems).toEqual([]);
+    expect(spy.mock.calls[0][0].updatedNode.data.controls).toEqual([]);
   });
 
   it('updateDataFlow threads mapped dataItemIds into edge.data.dataItems', async () => {

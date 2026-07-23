@@ -37,7 +37,12 @@ export class DtDataflow {
         variables,
         dataPath: 'createDataFlows.dataFlows[0]',
         action: 'createDataFlow',
-        deduplicationKey: `create-dataflow-${newEdge.source}-${newEdge.target}-${classId}`
+        // Key on the client edge id when present (each drawn/imported edge is unique);
+        // fall back to topology+handles+label so distinct parallel edges between the
+        // same pair+class don't collapse into one create. A genuine double-submit of
+        // the same edge still shares an identity and dedups. (MERGE-by-client-id
+        // is a separate, future change.)
+        deduplicationKey: `create-dataflow-${newEdge.id || `${newEdge.source}-${newEdge.target}-${newEdge.sourceHandle ?? ''}-${newEdge.targetHandle ?? ''}-${newEdge.label ?? ''}`}-${classId}`
       })
       
       if (createdDataFlow) {
@@ -86,34 +91,43 @@ export class DtDataflow {
           },
           sourceHandle: { set: edge.sourceHandle },
           targetHandle: { set: edge.targetHandle },
-          controls: {
-            disconnect: edge.data.controls === undefined ? {} : {
-              where: {
-                NOT: {
-                  OR: edge.data.controls.map((control: Control) => ({
-                    node: { id: { eq: control } },
-                  })),
+          // Guard the whole relationship key: an absent field (undefined) omits it
+          // entirely, leaving the association untouched — the conduit/import "safe
+          // node" passes rely on this to preserve controls/dataItems. A PRESENT
+          // array REPLACEs: `[]` clears via the bare disconnect-all, a populated
+          // list disconnects those not listed.
+          ...(edge.data.controls !== undefined && {
+            controls: {
+              disconnect: edge.data.controls.length === 0 ? {} : {
+                where: {
+                  NOT: {
+                    OR: edge.data.controls.map((control: Control) => ({
+                      node: { id: { eq: control } },
+                    })),
+                  },
                 },
               },
+              connect: edge.data.controls.map((control: Control) => ({
+                where: { node: { id: { eq: control } } },
+              })),
             },
-            connect: edge.data.controls === undefined ? [] : edge.data.controls.map((control: Control) => ({
-              where: { node: { id: { eq: control } } },
-            })),
-          },
-          dataItems: {
-            disconnect: edge.data.dataItems === undefined ? {} : {
-              where: {
-                NOT: {
-                  OR: edge.data.dataItems.map((dataItem: DataItem) => ({
-                    node: { id: { eq: dataItem } },
-                  })),
+          }),
+          ...(edge.data.dataItems !== undefined && {
+            dataItems: {
+              disconnect: edge.data.dataItems.length === 0 ? {} : {
+                where: {
+                  NOT: {
+                    OR: edge.data.dataItems.map((dataItem: DataItem) => ({
+                      node: { id: { eq: dataItem } },
+                    })),
+                  },
                 },
               },
+              connect: edge.data.dataItems.map((dataItem: DataItem) => ({
+                where: { node: { id: { eq: dataItem } } },
+              })),
             },
-            connect: edge.data.dataItems === undefined ? [] : edge.data.dataItems.map((dataItem: DataItem) => ({
-              where: { node: { id: { eq: dataItem } } },
-            })),
-          },
+          }),
         },
       }
       

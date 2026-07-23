@@ -40,10 +40,10 @@ const baseSplit = (): SplitModel => ({
       c1: { elementId: 'c1', elementType: 'component', elementName: 'C', classData: KLASS, attributes: {} },
     },
     dataFlows: {
-      f1: { elementId: 'f1', elementType: 'dataflow', elementName: 'flow', classData: KLASS, attributes: {} },
+      f1: { elementId: 'f1', elementType: 'dataFlow', elementName: 'flow', classData: KLASS, attributes: {} },
     },
     dataItems: {
-      d1: { elementId: 'd1', elementType: 'dataitem', elementName: 'PII', classData: KLASS, attributes: {} },
+      d1: { elementId: 'd1', elementType: 'dataItem', elementName: 'PII', classData: KLASS, attributes: {} },
     },
   },
 });
@@ -67,22 +67,22 @@ describe('splitToMonolithic — explicit-null classData survives the attributes-
     const split = baseSplit();
     split.dataFlows[0].classData = null;
     const mono = splitToMonolithic(split);
-    expect(mono.dataFlows[0].classData).toBeNull();
+    expect(mono.dataFlows![0].classData).toBeNull();
   });
 
   it('data item: explicit null is NOT resurrected from the bag', () => {
     const split = baseSplit();
     split.dataItems[0].classData = null;
     const mono = splitToMonolithic(split);
-    expect(mono.dataItems[0].classData).toBeNull();
+    expect(mono.dataItems![0].classData).toBeNull();
   });
 
   it('absent classData still falls back to the attributes bag (regression)', () => {
     const mono = splitToMonolithic(baseSplit());
     expect(mono.defaultBoundary.components![0].classData).toEqual(KLASS);
     expect(mono.defaultBoundary.boundaries![0].classData).toEqual(KLASS);
-    expect(mono.dataFlows[0].classData).toEqual(KLASS);
-    expect(mono.dataItems[0].classData).toEqual(KLASS);
+    expect(mono.dataFlows![0].classData).toEqual(KLASS);
+    expect(mono.dataItems![0].classData).toEqual(KLASS);
   });
 
   it('declared classData wins over the bag (regression)', () => {

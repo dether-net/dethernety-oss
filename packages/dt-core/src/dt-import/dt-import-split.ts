@@ -17,6 +17,7 @@ import {
   SplitModel,
   MonolithicModel,
   splitToMonolithic,
+  collectFlowEndpointIds,
 } from '../schemas/index.js'
 
 /**
@@ -159,7 +160,9 @@ export class DtImportSplit {
 
     // Validate data flow references if present
     if (splitModel.dataFlows && splitModel.structure.defaultBoundary) {
-      const componentIds = this.collectAllComponentIds(splitModel.structure.defaultBoundary)
+      // Shared with validateMonolithicModel so the two validators can't drift
+      // on endpoint semantics (boundaries are legal flow endpoints).
+      const componentIds = collectFlowEndpointIds(splitModel.structure.defaultBoundary)
 
       for (const flow of splitModel.dataFlows) {
         if (!flow.source?.id) {
@@ -196,29 +199,6 @@ export class DtImportSplit {
   }
 
   /**
-   * Collect all component IDs from a boundary hierarchy.
-   */
-  private collectAllComponentIds(boundary: any): Set<string> {
-    const ids = new Set<string>()
-
-    const process = (b: any): void => {
-      // Add boundary ID (boundaries can also be source/target of flows)
-      if (b.id) {
-        ids.add(b.id)
-      }
-      // Add component IDs
-      b.components?.forEach((c: any) => {
-        if (c.id) ids.add(c.id)
-      })
-      // Process nested boundaries
-      b.boundaries?.forEach(process)
-    }
-
-    process(boundary)
-    return ids
-  }
-
-  /**
    * Build ID mapping by comparing original IDs with created model.
    *
    * Since DtImport tracks idMapping internally but doesn't expose it,
@@ -234,12 +214,12 @@ export class DtImportSplit {
       return idMapping
     }
 
-    // Access the internal idMapping from DtImport if possible
-    // The DtImport instance should have captured all mappings during import
-    const dtImportAny = this.dtImport as any
-    if (dtImportAny.idMapping && dtImportAny.idMapping instanceof Map) {
-      // Copy the internal mapping
-      for (const [refId, serverId] of dtImportAny.idMapping) {
+    // Use the snapshot DtImport captured INSIDE its mutex. Reading the live private
+    // map here (the old `as any` reach-in) raced a queued second import, whose body
+    // starts with idMapping.clear() — this continuation runs after the mutex releases,
+    // so the live map may already belong to the next import by the time we copy it.
+    if (importResult.idMapping instanceof Map) {
+      for (const [refId, serverId] of importResult.idMapping) {
         idMapping.set(refId, serverId)
       }
     }

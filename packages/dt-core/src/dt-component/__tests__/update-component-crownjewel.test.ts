@@ -55,3 +55,32 @@ describe('DtComponent.createComponentNode — crownJewel on create', () => {
     expect(performMutation.mock.calls[0][0].variables.crownJewel).toBeUndefined();
   });
 });
+
+describe('DtComponent.updateComponent — controls / dataItems REPLACE guards (P0)', () => {
+  const inputOf = (spy: ReturnType<typeof vi.fn>) => spy.mock.calls[0][0].variables.input;
+
+  it('omits controls and dataItems entirely when absent (preserve — the association passes rely on this)', async () => {
+    const { dtComponent, performMutation } = makeComponent();
+    await dtComponent.updateComponent({ updatedNode: node({}) as any, defaultBoundaryId: 'b0' });
+    const input = inputOf(performMutation);
+    expect(input).not.toHaveProperty('controls');
+    expect(input).not.toHaveProperty('dataItems');
+  });
+
+  it('clears via a bare disconnect-all when present-but-empty ([] = explicit clear)', async () => {
+    const { dtComponent, performMutation } = makeComponent();
+    await dtComponent.updateComponent({ updatedNode: node({ controls: [], dataItems: [] }) as any, defaultBoundaryId: 'b0' });
+    const input = inputOf(performMutation);
+    expect(input.controls).toEqual({ disconnect: {}, connect: [] });
+    expect(input.dataItems).toEqual({ disconnect: {}, connect: [] });
+  });
+
+  it('REPLACEs to the listed set when populated', async () => {
+    const { dtComponent, performMutation } = makeComponent();
+    await dtComponent.updateComponent({ updatedNode: node({ controls: ['c1'], dataItems: ['d1', 'd2'] }) as any, defaultBoundaryId: 'b0' });
+    const input = inputOf(performMutation);
+    expect(input.controls.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'c1' } } }] } } });
+    expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'c1' } } } }]);
+    expect(input.dataItems.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'd1' } } }, { node: { id: { eq: 'd2' } } }] } } });
+  });
+});

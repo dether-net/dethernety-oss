@@ -113,9 +113,15 @@ export const UPDATE_DATA_FLOW = gql`
 
 export const DELETE_DATA_FLOW = gql`
   mutation DeleteDataFlow($dataFlowId: ID!) {
-    deleteDataFlows(
-      where: { id: { eq: $dataFlowId } }, delete: { exposures: {} }
-    ) {
+    deleteExposures(where: { element: { some: { id: { eq: $dataFlowId }}}}) {
+      nodesDeleted
+      relationshipsDeleted
+    }
+    deleteAnalyses( where: { element: { some: { id: { eq: $dataFlowId }}}}) {
+      nodesDeleted
+      relationshipsDeleted
+    }
+    deleteDataFlows(where: { id: { eq: $dataFlowId } }) {
       nodesDeleted
       relationshipsDeleted
     }

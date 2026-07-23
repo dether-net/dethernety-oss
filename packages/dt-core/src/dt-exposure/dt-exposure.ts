@@ -80,7 +80,10 @@ export class DtExposure {
         input: {
           name: exposure.name,
           description: exposure.description,
-          type: Number.parseInt(exposure.type ?? '0'),
+          // `type` is a String field (schema) — pass it through unchanged, matching
+          // updateExposure. The old Number.parseInt turned a real value like
+          // "misconfiguration" into NaN/null on create.
+          type: exposure.type ?? null,
           category: exposure.category,
           score: exposure.score,
           attackVector: exposure.attackVector ?? null,

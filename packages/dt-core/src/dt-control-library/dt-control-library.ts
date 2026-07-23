@@ -178,6 +178,15 @@ export interface BrownfieldPushResult {
 // Implementation
 // =======================================================================
 
+/** Greenfield temp ids carry the `greenfield-` prefix (mirrors validator.ts's
+ *  GREENFIELD_TEMP_ID_RE). A control whose id lacks the prefix already has a
+ *  real server id — used to detect resume-after-crash in pushGreenfieldControl
+ *  (a still-`greenfield` file with a server id crashed before the lifecycle
+ *  flip). Fixed-prefix, linear-time — no ReDoS surface. */
+function isGreenfieldTempId(id: string): boolean {
+  return id.startsWith('greenfield-');
+}
+
 export class DtControlLibrary {
   private readonly apolloClient: Apollo.ApolloClient;
   private readonly dtControl: DtControl;
@@ -307,6 +316,29 @@ export class DtControlLibrary {
         return entry;
       });
 
+      // Carry over any local class with an UNPUSHED pendingEdit whose platform
+      // IS_INSTANCE_OF edge has disappeared (absent from controlClasses).
+      // Rebuilding `classes` purely from the platform set would silently drop
+      // the operator's in-flight edit — contradicting the preservation contract.
+      // Keep it with the platform snapshot (platformAttributes/pushedAt) omitted:
+      // there's no live binding to diff against, and that omission alongside a
+      // present pendingEdit is the drift signal (/dethereal:status surfaces the
+      // pendingEdit so the operator can re-bind or discard the edit).
+      const platformClassIds = new Set((platformCtrl.controlClasses ?? []).map(cc => cc.id));
+      for (const localClass of existing?.classes ?? []) {
+        if (localClass.pendingEdit && !platformClassIds.has(localClass.classId)) {
+          const carried: ControlFileClassEntry = {
+            classId: localClass.classId,
+            className: localClass.className,
+            moduleId: localClass.moduleId,
+            attributes: localClass.attributes,
+            pendingEdit: localClass.pendingEdit,
+          };
+          if (localClass.localEditedAt) carried.localEditedAt = localClass.localEditedAt;
+          classes.push(carried);
+        }
+      }
+
       const file: ControlFile = {
         id: platformId,
         name: platformName,
@@ -395,7 +427,25 @@ export class DtControlLibrary {
     let working = { ...file };
 
     // ----- Step A — Create on platform (skip when already done) -----
-    if (working.lifecycle === 'greenfield') {
+    // Resume guard: a `greenfield` file whose id is already a server UUID means
+    // createControl AND the WAL id-rewrite already completed and we crashed
+    // before the lifecycle flip at the end of this block. Re-entering the create
+    // branch would mint a DUPLICATE platform Control (createControl is not
+    // idempotent). Detect the resume state by id shape and only flip.
+    //
+    // Residual: a crash between createControl returning and appendOperation
+    // (below) leaves no journal and a still-temp id, so a retry re-creates.
+    // Closing that fully needs an idempotent createControl (client-supplied
+    // id / MERGE) — the deferred backend follow-up; it cannot be closed in
+    // dt-core alone. NB resume-correctness assumes the caller has already
+    // drained any stranded WAL journal (applyPendingRewrites) under the lock
+    // before invoking us — the sole consumer (the manage_controls tool) does so.
+    // A crash after appendOperation but before applyPendingRewrites, without
+    // that pre-drain, would leave the temp id on disk and re-create.
+    if (working.lifecycle === 'greenfield' && !isGreenfieldTempId(working.id)) {
+      working = { ...working, lifecycle: 'partially-pushed' };
+      await writeControlFile(modelDir, working);
+    } else if (working.lifecycle === 'greenfield') {
       const serverControl = await this.dtControl.createControl({
         newControl: { name: working.name } as Parameters<DtControl['createControl']>[0]['newControl'],
         classIds: working.classes.map(c => c.classId),
@@ -588,6 +638,17 @@ export class DtControlLibrary {
 
     let working = JSON.parse(JSON.stringify(file)) as ControlFile;
     const auditEntries: AuditLogEntry[] = [];
+    // Audit entries are BUFFERED here and flushed to disk only on a persisting
+    // path (right after writeControlFile) — never mid-pipeline. Appending before
+    // the file write duplicated `reverted`/mutate lines on every retry (the file
+    // that would clear pendingEdit hadn't persisted, so the retry re-ran the same
+    // class and re-appended). Flushing after persist trades a possible loss on a
+    // crash *between* the file write and the flush (acceptable — the subsystem's
+    // stance is "audit loss tolerable, duplication not") for exactly-once-per-
+    // persisted-push semantics.
+    const flushAudit = async () => {
+      for (const e of auditEntries) await appendAuditEntry(modelDir, e);
+    };
 
     // ----- Step 0 — Short-circuit -----
     const anyPending = working.classes.some(c => !!c.pendingEdit);
@@ -678,6 +739,7 @@ export class DtControlLibrary {
     };
     const plans: ClassPushPlan[] = [];
     let revertedAny = false;
+    let alreadyAppliedAny = false;
 
     for (let i = 0; i < working.classes.length; i++) {
       const entry = working.classes[i];
@@ -725,10 +787,20 @@ export class DtControlLibrary {
           blockedKeys.push(k);
           delete outboundPayload[k];
         } else {
-          // Conflict if server changed since our snapshot.
           const ourPrev = entry.pendingEdit.previousAttributes[k];
           const serverCurrent = platformAttrs[k];
-          if (JSON.stringify(ourPrev) !== JSON.stringify(serverCurrent)) {
+          // Already-applied (idempotent retry): the live server value already
+          // equals our intended new value. This is the crash-after-push,
+          // before-pendingEdit-clear state. Comparing the pre-push `ourPrev`
+          // against the now-pushed `serverCurrent` would flag a PHANTOM conflict
+          // and, via the undecided-conflict default, wedge pendingEdit. The key
+          // needs no push and is not a conflict — drop it. Content-based, so it
+          // self-gates (fires only when the desired state is genuinely present;
+          // also covers a no-op edit whose value already matched the server).
+          if (JSON.stringify(serverCurrent) === JSON.stringify(entry.attributes[k])) {
+            delete outboundPayload[k];
+          } else if (JSON.stringify(ourPrev) !== JSON.stringify(serverCurrent)) {
+            // Conflict if server changed since our snapshot.
             conflictKeys.push(k);
           }
         }
@@ -761,7 +833,7 @@ export class DtControlLibrary {
           editedBy: entry.pendingEdit.editedBy,
           authnOperator,
         });
-        await appendAuditEntry(modelDir, auditEntry);
+        // Buffer only — flushed on the persisting path (see flushAudit).
         auditEntries.push(auditEntry);
         // Clear localEditedAt alongside pendingEdit. The operator typed
         // back the pre-edit value — there's no longer an outstanding
@@ -783,17 +855,34 @@ export class DtControlLibrary {
 
       if (Object.keys(outboundPayload).length > 0) {
         plans.push({ classIdx: i, outboundPayload, blockedKeys, conflictKeys });
+      } else if (conflictKeys.length === 0) {
+        // All changed keys are already applied on the platform (idempotent
+        // retry / no-op edit) and none conflict — finalize like a completed
+        // push so the resolved pendingEdit doesn't linger and re-wedge on the
+        // next sync. No platform mutation and no audit (nothing was pushed this
+        // round — the push that applied these values happened, and audited, on
+        // the attempt that crashed before persisting).
+        const now = new Date().toISOString();
+        working.classes[i] = {
+          ...entry,
+          platformAttributes: { ...platformAttrs },
+          pushedAt: now,
+          pendingEdit: undefined,
+        };
+        alreadyAppliedAny = true;
       }
     }
 
-    // If every class entry reverted, we're done — persist + return.
-    // Note: lastPushedAt is intentionally NOT bumped on a revert-only path —
-    // §7 Step F's "regardless of per-class outcome" wording assumes at least
-    // one class entry was pushed. A revert moves no bytes to the platform
-    // and writes a `reverted` audit entry instead, which is the right
-    // operator-facing signal.
+    // If nothing needs a platform push (all classes reverted and/or already
+    // applied), we're done — persist any pendingEdit-clears + flush buffered
+    // audit, then return. Note: lastPushedAt is intentionally NOT bumped here —
+    // §7 Step F's "regardless of per-class outcome" wording assumes at least one
+    // class entry was pushed; a revert/already-applied round moves no bytes.
     if (plans.length === 0) {
-      if (revertedAny) await writeControlFile(modelDir, working);
+      if (revertedAny || alreadyAppliedAny) {
+        await writeControlFile(modelDir, working);
+        await flushAudit();
+      }
       return { file: working, auditEntries, mutated: false };
     }
 
@@ -869,7 +958,13 @@ export class DtControlLibrary {
     }
 
     if (resolvedPlans.length === 0) {
+      // Persisting path (every conflict key was dropped/accepted-theirs, so
+      // nothing is left to push) — commit + flush buffered audit. A revert
+      // buffered in Step C is persisted here (its pendingEdit-clear commits), so
+      // its audit entry MUST flush now or it is lost forever (no retry
+      // regenerates it once pendingEdit is gone on disk).
       await writeControlFile(modelDir, working);
+      await flushAudit();
       return { file: working, auditEntries, mutated: false };
     }
 
@@ -1039,7 +1134,7 @@ export class DtControlLibrary {
           queryAttempts:
             auditKind === 'force-unverified' ? decision.queryAttempts ?? 1 : undefined,
         });
-        await appendAuditEntry(modelDir, auditEntry);
+        // Buffer only — flushed after the persisting writeControlFile below.
         auditEntries.push(auditEntry);
       }
     }
@@ -1055,6 +1150,9 @@ export class DtControlLibrary {
     };
 
     await writeControlFile(modelDir, working);
+    // Persisted — now flush the buffered audit entries (reverted + mutate). A
+    // crash between the write and here loses audit but never duplicates it.
+    await flushAudit();
     return { file: working, auditEntries, mutated: true, usedStaleSnapshot };
   };
 

@@ -74,6 +74,10 @@ export class DtUpdate {
   private currentModelId: string = ''
   private defaultBoundaryId: string = ''
   private assignedModuleIds: string[] = []
+  // Set when BOTH control-catalog fetches fail during a batch: the catalog is
+  // unavailable (not genuinely empty), so resolveControls preserves rather than
+  // REPLACE-wipes, and one error is surfaced so success reflects it.
+  private controlCatalogUnavailable = false
   private stats: UpdateStats = { created: 0, updated: 0, deleted: 0 }
 
   // Track existing elements to detect deletions
@@ -138,6 +142,7 @@ export class DtUpdate {
     this.processedDataitemIds = new Set()
 
     this.cachedAvailableControls = null
+    this.controlCatalogUnavailable = false
 
     this.progress = {
       currentStep: 0,
@@ -251,18 +256,11 @@ export class DtUpdate {
 
       this.updateProgress(3, 'Updating model properties')
 
-      // Step 3: Update model properties
+      // Step 3: Update model properties (name/description/controls/modules/folder/scope)
+      // in a SINGLE write. Module resolution is folded into updateModelProperties so
+      // there is one source of truth — a second write (the former updateModules) re-sent
+      // the pre-update name/description/controls and reverted this step.
       await this.updateModelProperties(jsonData, existingModel)
-
-      // Step 4: Update modules
-      if (jsonData.modules) {
-        try {
-          await this.updateModules(jsonData.modules, existingModel)
-        } catch (e) {
-          // Non-fatal: log warning and continue
-          this.warnings.push(`Error updating modules: ${(e as Error).message}`)
-        }
-      }
 
       this.updateProgress(4, 'Updating data items')
 
@@ -421,9 +419,12 @@ export class DtUpdate {
     // Populate cache on first call
     if (this.cachedAvailableControls === null) {
       this.cachedAvailableControls = []
+      let noFolderOk = false
+      let allOk = false
       try {
         const noFolderControls = await this.dtControl.getControls({ folderId: undefined })
         this.cachedAvailableControls.push(...noFolderControls)
+        noFolderOk = true
       } catch { /* silently continue */ }
       try {
         const allControls = await this.dtControl.getControls({ folderId: 'all' })
@@ -432,8 +433,29 @@ export class DtUpdate {
             this.cachedAvailableControls.push(control)
           }
         }
+        allOk = true
       } catch { /* silently continue */ }
+      // The 'all' fetch is the superset (folderId:'all' → no folder filter), so the
+      // catalog is complete iff it succeeded — a half-outage where only the no-folder
+      // fetch worked would leave folder-scoped controls unresolvable and REPLACE-strip
+      // them just as silently as a full outage. Flag EITHER an 'all' failure or a full
+      // failure as UNAVAILABLE (this and later elements preserve) and surface ONE error
+      // so the run reports success:false rather than silently wiping controls.
+      // (noFolderOk alone is NOT sufficient; allOk alone is — hence the gate on allOk.)
+      if (!allOk) {
+        this.controlCatalogUnavailable = true
+        this.errors.push({
+          step: 'resolve_controls',
+          error: noFolderOk
+            ? "Control catalog incomplete (the 'all' fetch failed) — controls preserved, not synced"
+            : 'Control catalog unavailable (both fetches failed) — controls preserved, not synced',
+        })
+      }
     }
+
+    // Catalog outage: preserve existing controls (undefined ⇒ callers omit the key)
+    // rather than resolving this non-empty input against an empty catalog and wiping.
+    if (this.controlCatalogUnavailable) return undefined
 
     const controlIds: string[] = []
     for (const controlData of controls) {
@@ -475,16 +497,30 @@ export class DtUpdate {
 
   private updateModelProperties = async (data: any, existingModel: Model): Promise<void> => {
     try {
-      // Get current model state to preserve unchanged fields
-      const moduleIds = existingModel.modules?.map((m: Module) => m.id) || []
+      // Modules: resolve the NEW target ids from the JSON when the key is present
+      // (single source of truth for the model write). Preserve existing modules when
+      // the key is absent, or when nothing resolves — parity with the former
+      // updateModules, which skipped its write when no target module resolved. (So an
+      // explicit empty list preserves rather than clears — pushes cannot unassign all
+      // modules; that matches prior behaviour and is out of scope here.)
+      const existingModuleIds = existingModel.modules?.map((m: Module) => m.id) || []
+      let moduleIds = existingModuleIds
+      if (data.modules !== undefined) {
+        const resolved = await this.resolveTargetModuleIds(data.modules)
+        moduleIds = resolved.length > 0 ? resolved : existingModuleIds
+      }
+      this.assignedModuleIds = moduleIds
 
-      // Resolve controls from input, falling back to existing model controls
+      // Resolve controls from input, falling back to existing model controls. A catalog
+      // outage makes resolveControls return undefined — preserve existing rather than
+      // wipe (the `?? existing` fallback), matching the element paths.
+      const existingControlIds = existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || []
       let controlIds: string[]
       if (data.controls !== undefined) {
         const resolved = await this.resolveControls(data.controls)
-        controlIds = resolved ?? []
+        controlIds = resolved ?? existingControlIds
       } else {
-        controlIds = existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || []
+        controlIds = existingControlIds
       }
 
       await this.dtModel.updateModel({
@@ -493,86 +529,82 @@ export class DtUpdate {
         description: data.description || existingModel.description || '',
         modules: moduleIds,
         controls: controlIds,
-        folderId: undefined,
+        // Preserve the model's current folder by passing its id, so the builder
+        // reconnects the same folder (net no-op) instead of the disconnect-all that a
+        // hardcoded `undefined` triggered on every push. `existingModel.folder` is now
+        // populated by getModelData (DUMP_MODEL_DATA selects `folder { id }`).
+        folderId: existingModel.folder?.id,
         // Asset-context scope (grouped local shape; the builder lifts it onto the
         // flat platform fields with REPLACE semantics). Absent → platform untouched.
         scope: data.scope
       })
       this.stats.updated++
     } catch (e) {
-      this.warnings.push(`Error updating model properties: ${(e as Error).message}`)
+      // A thrown model-property write is a HARD failure — route to errors so `success`
+      // reflects it (was a swallowed warning that left success:true on a failed write).
+      this.errors.push({
+        step: 'update_model_properties',
+        error: (e as Error).message
+      })
     }
   }
 
-  private updateModules = async (modules: any[], existingModel: Model): Promise<void> => {
-    try {
-      if (!Array.isArray(modules)) {
-        this.warnings.push(`Modules is not an array: ${typeof modules}`)
-        return
-      }
-
-      // Resolve target module IDs from JSON
-      const targetModuleIds: string[] = []
-      for (const moduleRef of modules) {
-        if (typeof moduleRef !== 'object') {
-          this.warnings.push(`Invalid module reference (type: ${typeof moduleRef}): ${moduleRef}`)
-          continue
-        }
-
-        const moduleId = moduleRef.id
-        const moduleName = moduleRef.name
-        let actualModuleId: string | null = null
-
-        // Try to find module by ID first
-        if (moduleId) {
-          try {
-            const module = await this.dtModule.getModuleById(moduleId)
-            if (module) {
-              actualModuleId = moduleId
-            }
-          } catch (e) {
-            this.warnings.push(`Error fetching module ${moduleId}: ${(e as Error).message}`)
-          }
-        }
-
-        // If not found by ID, try by name
-        if (!actualModuleId && moduleName) {
-          try {
-            const modulesList = await this.dtModule.getModules()
-            for (const mod of modulesList) {
-              if (mod.name === moduleName) {
-                actualModuleId = mod.id
-                break
-              }
-            }
-          } catch (e) {
-            this.warnings.push(`Error fetching modules list: ${(e as Error).message}`)
-          }
-        }
-
-        if (actualModuleId) {
-          targetModuleIds.push(actualModuleId)
-        } else {
-          this.warnings.push(`Module not found: ${moduleName || moduleId}`)
-        }
-      }
-
-      // Update model with new module list (preserve existing controls)
-      if (targetModuleIds.length > 0) {
-        await this.dtModel.updateModel({
-          id: this.currentModelId,
-          name: existingModel.name || '',
-          description: existingModel.description || '',
-          modules: targetModuleIds,
-          controls: existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || [],
-          folderId: undefined
-        })
-        this.assignedModuleIds = targetModuleIds
-      }
-
-    } catch (e) {
-      this.warnings.push(`Error updating modules: ${(e as Error).message}`)
+  // Resolve module references (by id, then by name) to server module ids. Extracted
+  // from the former updateModules so updateModelProperties is the single writer of the
+  // model. NEVER lets a dtModule fetch error propagate: each fetch stays wrapped so a
+  // transient module-fetch failure is a warning, not a run-failing error (the caller's
+  // catch is now error-level). Only invoked with a present `modules` key.
+  private resolveTargetModuleIds = async (modules: any): Promise<string[]> => {
+    if (!Array.isArray(modules)) {
+      this.warnings.push(`Modules is not an array: ${typeof modules}`)
+      return []
     }
+
+    const targetModuleIds: string[] = []
+    for (const moduleRef of modules) {
+      if (typeof moduleRef !== 'object') {
+        this.warnings.push(`Invalid module reference (type: ${typeof moduleRef}): ${moduleRef}`)
+        continue
+      }
+
+      const moduleId = moduleRef.id
+      const moduleName = moduleRef.name
+      let actualModuleId: string | null = null
+
+      // Try to find module by ID first
+      if (moduleId) {
+        try {
+          const module = await this.dtModule.getModuleById(moduleId)
+          if (module) {
+            actualModuleId = moduleId
+          }
+        } catch (e) {
+          this.warnings.push(`Error fetching module ${moduleId}: ${(e as Error).message}`)
+        }
+      }
+
+      // If not found by ID, try by name
+      if (!actualModuleId && moduleName) {
+        try {
+          const modulesList = await this.dtModule.getModules()
+          for (const mod of modulesList) {
+            if (mod.name === moduleName) {
+              actualModuleId = mod.id
+              break
+            }
+          }
+        } catch (e) {
+          this.warnings.push(`Error fetching modules list: ${(e as Error).message}`)
+        }
+      }
+
+      if (actualModuleId) {
+        targetModuleIds.push(actualModuleId)
+      } else {
+        this.warnings.push(`Module not found: ${moduleName || moduleId}`)
+      }
+    }
+    return targetModuleIds
   }
 
   private updateDefaultBoundary = async (boundaryData: any): Promise<void> => {
@@ -604,17 +636,21 @@ export class DtUpdate {
         height: boundaryData.dimensionsHeight
       }
 
-      // Resolve controls from input
+      // Controls REPLACE on full sync: a genuinely-absent JSON key clears (send []);
+      // a present key uses the resolved list (incl []). If a present input can't be
+      // resolved (resolveControls → undefined), leave the key unset so the builder
+      // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(boundaryData.controls)
-      if (resolvedControls !== undefined) {
+      if (boundaryData.controls === undefined) {
+        boundaryNode.data.controls = []
+      } else if (resolvedControls !== undefined) {
         boundaryNode.data.controls = resolvedControls
       }
 
-      // Associate data items handled within the default boundary (REPLACE on full sync).
-      const defaultBoundaryDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
-      if (defaultBoundaryDataItems.length > 0) {
-        boundaryNode.data.dataItems = defaultBoundaryDataItems
-      }
+      // Data items REPLACE on full sync: always send the mapped list (incl []) so
+      // removed items are cleared via an explicit disconnect-all; the conduit pass
+      // omits this key (builds its own node) to preserve.
+      boundaryNode.data.dataItems = this.mapDataItemIds(boundaryData.dataItemIds)
 
       await this.dtBoundary.updateBoundaryNode({
         updatedNode: boundaryNode,
@@ -623,7 +659,11 @@ export class DtUpdate {
       this.stats.updated++
 
     } catch (e) {
-      this.warnings.push(`Error updating default boundary: ${(e as Error).message}`)
+      // A thrown default-boundary write is a HARD failure — route to errors.
+      this.errors.push({
+        step: 'update_default_boundary',
+        error: (e as Error).message
+      })
     }
 
     try {
@@ -643,7 +683,12 @@ export class DtUpdate {
       }
 
     } catch (e) {
-      this.warnings.push(`Error updating default boundary class: ${(e as Error).message}`)
+      // A thrown class-bind is a HARD failure — route to errors (consistent with how
+      // non-default boundaries treat the same operation in updateBoundary's outer catch).
+      this.errors.push({
+        step: 'update_default_boundary_class',
+        error: (e as Error).message
+      })
     }
   }
 
@@ -655,7 +700,7 @@ export class DtUpdate {
         // Check if data item exists
         if (itemId && this.existingDataitemIds.has(itemId)) {
           // Update existing data item
-          await this.dtDataitem.updateDataItem({
+          const result = await this.dtDataitem.updateDataItem({
             dataItemId: itemId,
             name: itemData.name,
             description: itemData.description || '',
@@ -666,9 +711,25 @@ export class DtUpdate {
             sensitivity: itemData.sensitivity,
             regulatoryFlags: itemData.regulatory_flags
           })
+          // Map + mark processed regardless of outcome: the item EXISTS, so it must
+          // not become an orphan-delete target even if the update itself failed.
           this.idMapping.set(itemId, itemId)
           this.processedDataitemIds.add(itemId)
-          this.stats.updated++
+          // updateDataItem never throws — it encodes failure as residualOk:false.
+          // Count as updated only on genuine success; otherwise surface an error so
+          // `success` reflects it (was an unconditional stats.updated++ = miscounted).
+          if (result.residualOk) {
+            this.stats.updated++
+          } else {
+            this.errors.push({
+              step: 'update_data_items',
+              elementName: itemData.name || 'unknown',
+              elementId: itemId,
+              error: result.bindingResult?.errorCode
+                ? `Data item update failed (binding: ${result.bindingResult.errorCode})`
+                : 'Data item update failed (residual mutation did not persist)'
+            })
+          }
         } else {
           // Create new data item
           const createdItem = await this.dtDataitem.createDataItem({
@@ -685,6 +746,15 @@ export class DtUpdate {
             this.idMapping.set(itemData.id, createdItem.id)
             this.processedDataitemIds.add(createdItem.id)
             this.stats.created++
+          } else if (!createdItem) {
+            // createDataItem returned no row (the mutation didn't persist) — a real
+            // errors throw is caught below; a silent null was previously ignored.
+            this.errors.push({
+              step: 'update_data_items',
+              elementName: itemData.name || 'unknown',
+              elementId: itemData.id,
+              error: 'Data item create returned no result'
+            })
           }
         }
 
@@ -707,6 +777,12 @@ export class DtUpdate {
       try {
         const boundaryId = boundaryData.id
 
+        // Track the server id of this boundary directly (not via idMapping) so a newly
+        // created boundary with NO JSON id still parents its subtree. Keying idMapping
+        // with '' (the old `boundaryData.id || ''`) collided all id-less boundaries and
+        // made the child lookup resolve to '' → recursion was skipped, dropping the tree.
+        let actualBoundaryId = ''
+
         // Check if boundary exists
         if (boundaryId && this.existingBoundaryIds.has(boundaryId)) {
           // Update existing boundary
@@ -714,18 +790,21 @@ export class DtUpdate {
           this.idMapping.set(boundaryId, boundaryId)
           this.processedBoundaryIds.add(boundaryId)
           this.stats.updated++
+          actualBoundaryId = boundaryId
         } else {
           // Create new boundary
           const created = await this.createBoundary(boundaryData, parentBoundaryId)
           if (created) {
-            this.idMapping.set(boundaryData.id || '', created.id)
+            // Only map when there is a source id to map from — never pollute idMapping
+            // with a '' key.
+            if (boundaryId) {
+              this.idMapping.set(boundaryId, created.id)
+            }
             this.processedBoundaryIds.add(created.id)
             this.stats.created++
+            actualBoundaryId = created.id
           }
         }
-
-        // Get the actual boundary ID (either updated or created)
-        const actualBoundaryId = this.idMapping.get(boundaryId) || ''
 
         if (actualBoundaryId) {
           // Process nested boundaries recursively
@@ -783,17 +862,21 @@ export class DtUpdate {
         height: boundaryData.dimensionsHeight || 0
       }
 
-      // Resolve controls from input
+      // Controls REPLACE on full sync: a genuinely-absent JSON key clears (send []);
+      // a present key uses the resolved list (incl []). If a present input can't be
+      // resolved (resolveControls → undefined), leave the key unset so the builder
+      // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(boundaryData.controls)
-      if (resolvedControls !== undefined) {
+      if (boundaryData.controls === undefined) {
+        boundaryNode.data.controls = []
+      } else if (resolvedControls !== undefined) {
         boundaryNode.data.controls = resolvedControls
       }
 
-      // Associate data items handled within this boundary (REPLACE on full sync).
-      const boundaryDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
-      if (boundaryDataItems.length > 0) {
-        boundaryNode.data.dataItems = boundaryDataItems
-      }
+      // Data items REPLACE on full sync: always send the mapped list (incl []) so
+      // removed items are cleared via an explicit disconnect-all; the conduit pass
+      // omits this key (builds its own node) to preserve.
+      boundaryNode.data.dataItems = this.mapDataItemIds(boundaryData.dataItemIds)
 
       await this.dtBoundary.updateBoundaryNode({
         updatedNode: boundaryNode,
@@ -860,7 +943,10 @@ export class DtUpdate {
       const createdBoundary = await this.dtBoundary.createBoundaryNode({
         newNode: boundaryNode,
         classId,
-        defaultBoundaryId: this.defaultBoundaryId
+        // createBoundaryNode only honours an ARRAY-shaped parentNode; ours is a string,
+        // so the parent must ride in via defaultBoundaryId (same pattern as DtImport) —
+        // passing the model root here would flatten every nested create under it.
+        defaultBoundaryId: parentBoundaryId || this.defaultBoundaryId
       })
 
       if (createdBoundary && boundaryData.attributes && classId) {
@@ -1000,7 +1086,14 @@ export class DtUpdate {
         baselineConduits: baselineOutbound,
       })
     } catch (e) {
-      this.warnings.push(`Could not associate conduits with boundary ${element.name}: ${(e as Error).message}`)
+      // A thrown conduit reconcile is a HARD failure — route to errors (a dropped peer,
+      // handled above via `dropped`, stays an advisory warning).
+      this.errors.push({
+        step: 'associate_conduits',
+        elementName: element.name || hostServerId,
+        elementId: hostServerId,
+        error: (e as Error).message
+      })
     }
   }
 
@@ -1065,18 +1158,21 @@ export class DtUpdate {
         parentNode: parentBoundaryId
       }
 
-      // Resolve controls from input
+      // Controls REPLACE on full sync: a genuinely-absent JSON key clears (send []);
+      // a present key uses the resolved list (incl []). If a present input can't be
+      // resolved (resolveControls → undefined), leave the key unset so the builder
+      // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(componentData.controls)
-      if (resolvedControls !== undefined) {
+      if (componentData.controls === undefined) {
+        componentNode.data.controls = []
+      } else if (resolvedControls !== undefined) {
         componentNode.data.controls = resolvedControls
       }
 
-      // Associate data items (REPLACE on full sync). Assign only when non-empty;
-      // an absent/empty list falls through to the mutation's disconnect-all path.
-      const componentDataItems = this.mapDataItemIds(componentData.dataItemIds)
-      if (componentDataItems.length > 0) {
-        componentNode.data.dataItems = componentDataItems
-      }
+      // Data items REPLACE on full sync: always send the mapped list (incl []) so
+      // removed items are cleared via an explicit disconnect-all; the conduit pass
+      // omits this key (builds its own node) to preserve.
+      componentNode.data.dataItems = this.mapDataItemIds(componentData.dataItemIds)
 
       await this.dtComponent.updateComponent({
         updatedNode: componentNode,
@@ -1143,7 +1239,10 @@ export class DtUpdate {
       const createdComponent = await this.dtComponent.createComponentNode({
         newNode: componentNode,
         classId,
-        defaultBoundaryId: this.defaultBoundaryId
+        // createComponentNode only honours an ARRAY-shaped parentNode; ours is a string,
+        // so the parent must ride in via defaultBoundaryId (same pattern as DtImport) —
+        // passing the model root here would flatten every nested create under it.
+        defaultBoundaryId: parentBoundaryId || this.defaultBoundaryId
       })
 
       if (createdComponent && componentData.attributes && classId) {
@@ -1261,17 +1360,21 @@ export class DtUpdate {
         }
       }
 
-      // Resolve controls from input
+      // Controls REPLACE on full sync: a genuinely-absent JSON key clears (send []);
+      // a present key uses the resolved list (incl []). If a present input can't be
+      // resolved (resolveControls → undefined), leave the key unset so the builder
+      // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(flowData.controls)
-      if (resolvedControls !== undefined) {
+      if (flowData.controls === undefined) {
+        edge.data.controls = []
+      } else if (resolvedControls !== undefined) {
         edge.data.controls = resolvedControls
       }
 
-      // Associate data items carried by this flow (REPLACE on full sync).
-      const flowDataItems = this.mapDataItemIds(flowData.dataItemIds)
-      if (flowDataItems.length > 0) {
-        edge.data.dataItems = flowDataItems
-      }
+      // Data items REPLACE on full sync: always send the mapped list (incl []) so
+      // removed items are cleared via an explicit disconnect-all; the conduit pass
+      // omits this key (builds its own node) to preserve.
+      edge.data.dataItems = this.mapDataItemIds(flowData.dataItemIds)
 
       await this.dtDataflow.updateDataFlow({
         edge,
@@ -1469,15 +1572,23 @@ export class DtUpdate {
       })
 
       if (!success) {
-        this.warnings.push(
-          `Failed to set attributes for element '${elementName}' (ID: ${elementId})`
-        )
+        // A failed attribute write is silent partial data loss — route to errors so
+        // `success` reflects it (the class-instantiation attributes did not persist).
+        this.errors.push({
+          step: 'set_element_attributes',
+          elementName,
+          elementId,
+          error: 'Failed to set instantiation attributes'
+        })
       }
 
     } catch (e) {
-      this.warnings.push(
-        `Error setting attributes for element '${elementName}' (ID: ${elementId}): ${(e as Error).message}`
-      )
+      this.errors.push({
+        step: 'set_element_attributes',
+        elementName,
+        elementId,
+        error: (e as Error).message
+      })
     }
   }
 }

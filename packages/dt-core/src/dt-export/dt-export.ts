@@ -1,7 +1,7 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module } from '../interfaces/core-types-interface.js'
+import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module, Control } from '../interfaces/core-types-interface.js'
 import { DtModel } from '../dt-model/dt-model.js'
 import { DtClass } from '../dt-class/dt-class.js'
 import { DtComponent } from '../dt-component/dt-component.js'
@@ -72,7 +72,16 @@ export class DtExport {
   }
 
   /**
-   * Export a model to JSON format
+   * Export a model to the monolithic (single-file) JSON shape.
+   *
+   * This is the shared builder the canonical split-zip path runs through
+   * (DtExportSplit → exportModel → monolithicToSplit). The DIRECT single-file
+   * round-trip (this shape fed straight to DtImport.importModel) is unsupported:
+   * it emits flat platform scope / camelCase `regulatoryFlags` / no flattened
+   * conduits, whereas DtImport expects grouped `scope` / snake `regulatory_flags` /
+   * `conduits`. No product path exercises it — all callers use the *Split wrappers,
+   * which re-lower these correctly. Do not rely on monolithic→monolithic fidelity.
+   *
    * @param modelId - The ID of the model to export
    * @returns The exported model data
    */
@@ -91,6 +100,9 @@ export class DtExport {
           id: modelData.id,
           name: modelData.name,
           description: modelData.description,
+          // Model-level controls (SUPPORTS relationship). Emitted so the split
+          // round-trip can restore them at import; previously dropped entirely.
+          controls: modelData.controls?.map((c: Control) => ({ id: c.id, name: c.name })),
           // Flat asset-context scope (the model object is not spread). Component
           // crownJewel and data-item sensitivity/regulatoryFlags ride the
           // existing spreads in enrichComponent / enrichDataItem.
@@ -332,8 +344,10 @@ export class DtExport {
         }
       }
 
-      // Process data items
-      const flowData = (dataFlow as any).data || []
+      // Process data items — the fetched field is `.dataItems` (DUMP_MODEL_DATA
+      // selects `dataItems { id }`); the old `.data` read never matched, so every
+      // dataflow's dataItemIds were silently dropped on export.
+      const flowData = dataFlow.dataItems || []
       if (Array.isArray(flowData) && flowData.length > 0) {
         const flowDataItemIds = flowData
           .map((dataRef: any) => typeof dataRef === 'string' ? dataRef : dataRef.id)
@@ -385,8 +399,10 @@ export class DtExport {
         enrichedBoundary.representedModel = representedModel
       }
 
-      // Process data items
-      const boundaryData = (boundary as any).data || []
+      // Process data items — the fetched field is `.dataItems` (DUMP_MODEL_DATA
+      // selects `dataItems { id }`); the old `.data` read never matched, so every
+      // boundary's dataItemIds were silently dropped on export.
+      const boundaryData = boundary.dataItems || []
       if (Array.isArray(boundaryData) && boundaryData.length > 0) {
         const boundaryDataItemIds = boundaryData
           .map((dataRef: any) => typeof dataRef === 'string' ? dataRef : dataRef.id)

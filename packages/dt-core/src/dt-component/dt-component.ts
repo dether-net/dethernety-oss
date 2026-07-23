@@ -121,34 +121,43 @@ export class DtComponent {
               },
             },
           },
-          controls: {
-            disconnect: updatedNode.data.controls === undefined ? {} : {
-              where: {
-                NOT: {
-                  OR: updatedNode.data.controls.map((control: Control) => ({
-                    node: { id: { eq: control } },
-                  })),
+          // Guard the whole relationship key: an absent field (undefined) omits it
+          // entirely, leaving the association untouched — the conduit/import "safe
+          // node" passes rely on this to preserve controls/dataItems. A PRESENT
+          // array REPLACEs: `[]` clears via the bare disconnect-all, a populated
+          // list disconnects those not listed.
+          ...(updatedNode.data.controls !== undefined && {
+            controls: {
+              disconnect: updatedNode.data.controls.length === 0 ? {} : {
+                where: {
+                  NOT: {
+                    OR: updatedNode.data.controls.map((control: Control) => ({
+                      node: { id: { eq: control } },
+                    })),
+                  },
                 },
               },
+              connect: updatedNode.data.controls.map((control: Control) => ({
+                where: { node: { id: { eq: control } } },
+              })),
             },
-            connect: updatedNode.data.controls === undefined ? [] : updatedNode.data.controls.map((control: Control) => ({
-              where: { node: { id: { eq: control } } },
-            })),
-          },
-          dataItems: {
-            disconnect: updatedNode.data.dataItems === undefined ? {} : {
-              where: {
-                NOT: {
-                  OR: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
-                    node: { id: { eq: dataItem } },
-                  })),
+          }),
+          ...(updatedNode.data.dataItems !== undefined && {
+            dataItems: {
+              disconnect: updatedNode.data.dataItems.length === 0 ? {} : {
+                where: {
+                  NOT: {
+                    OR: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
+                      node: { id: { eq: dataItem } },
+                    })),
+                  },
                 },
               },
+              connect: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
+                where: { node: { id: { eq: dataItem } } },
+              })),
             },
-            connect: updatedNode.data.dataItems === undefined ? [] : updatedNode.data.dataItems.map((dataItem: DataItem) => ({
-              where: { node: { id: { eq: dataItem } } },
-            })),
-          },
+          }),
         },
       }
       

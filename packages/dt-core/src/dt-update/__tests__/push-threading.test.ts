@@ -26,7 +26,9 @@ describe('DtUpdate — asset-context threading (update)', () => {
 
   it('updateDataItems forwards sensitivity + regulatory_flags to updateDataItem', async () => {
     const dtUpdate = new DtUpdate({} as any) as any;
-    const spy = vi.fn().mockResolvedValue({});
+    // Return a genuine success shape so the orchestrator's residualOk check counts it
+    // as updated (not the error branch) — this test only asserts the forwarded args.
+    const spy = vi.fn().mockResolvedValue({ dataItem: { id: 'd1' }, bindingResult: null, residualOk: true });
     dtUpdate.dtDataitem.updateDataItem = spy;
     dtUpdate.existingDataitemIds = new Set(['d1']); // route to the update branch
 
