@@ -111,3 +111,31 @@ describe('updateBoundaryNode — conduits', () => {
     ])
   })
 })
+
+describe('updateBoundaryNode — controls / dataItems REPLACE guards (P0)', () => {
+  it('omits controls and dataItems entirely when absent (preserve — the conduit/import safe-node relies on this)', async () => {
+    const { dtBoundary, performMutation } = make()
+    await dtBoundary.updateBoundaryNode({ updatedNode: node({ label: 'B' }), defaultBoundaryId: 'b0' })
+    const input = inputOf(performMutation)
+    expect(input).not.toHaveProperty('controls')
+    expect(input).not.toHaveProperty('dataItems')
+  })
+
+  it('clears via a bare disconnect-all when present-but-empty ([] = explicit clear)', async () => {
+    const { dtBoundary, performMutation } = make()
+    await dtBoundary.updateBoundaryNode({ updatedNode: node({ label: 'B', controls: [], dataItems: [] }), defaultBoundaryId: 'b0' })
+    const input = inputOf(performMutation)
+    expect(input.controls).toEqual({ disconnect: {}, connect: [] })
+    expect(input.dataItems).toEqual({ disconnect: {}, connect: [] })
+  })
+
+  it('REPLACEs to the listed set when populated (disconnect those NOT listed, connect listed)', async () => {
+    const { dtBoundary, performMutation } = make()
+    await dtBoundary.updateBoundaryNode({ updatedNode: node({ label: 'B', controls: ['c1', 'c2'], dataItems: ['d1'] }), defaultBoundaryId: 'b0' })
+    const input = inputOf(performMutation)
+    expect(input.controls.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'c1' } } }, { node: { id: { eq: 'c2' } } }] } } })
+    expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'c1' } } } }, { where: { node: { id: { eq: 'c2' } } } }])
+    expect(input.dataItems.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'd1' } } }] } } })
+    expect(input.dataItems.connect).toEqual([{ where: { node: { id: { eq: 'd1' } } } }])
+  })
+})

@@ -11,6 +11,7 @@ import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
 import { DtControl } from '../dt-control/dt-control.js'
+import { validateMonolithicModel } from '../schemas/model.schema.js'
 
 export interface ImportProgress {
   currentStep: number
@@ -29,6 +30,14 @@ export interface ImportError {
 
 export interface ImportResult {
   success: boolean
+  /**
+   * Snapshot of the reference-ID → server-ID mapping, captured inside the import
+   * mutex before it releases. Present on the completed-import result (success or
+   * partial); absent on early validation/terminal-failure returns. Consumers must
+   * use this rather than reaching into DtImport's live private map, which a queued
+   * concurrent import clears.
+   */
+  idMapping?: Map<string, string>
   model?: Model
   errors: ImportError[]
   warnings: string[]
@@ -54,6 +63,18 @@ export class DtImport {
 
   // Internal state for import process
   private idMapping: Map<string, string> = new Map()
+  // Create-time parent (originalElementId -> parent server id): the boundary a node was
+  // actually created under, so later update passes derive parentNode from the creation
+  // structure instead of trusting the file's per-element `parentBoundary.id` (which a
+  // crafted/omitted parent could use to re-parent a nested node).
+  private elementParent: Map<string, string> = new Map()
+  // Per-import catalog memo: the module and control catalogs are fetched once and reused
+  // for the whole run (both are `network-only` and return the entire catalog — resolving
+  // each element against a fresh fetch is the per-element DoS this replaces). `null` = not
+  // yet loaded; an empty array is a valid "loaded but nothing/failed" state (a down catalog
+  // is down for the whole import — retrying per element is the pathology, not the fix).
+  private cachedModules: Module[] | null = null
+  private cachedControls: any[] | null = null
   private errors: ImportError[] = []
   private warnings: string[] = []
   private currentModelId: string = ''
@@ -87,11 +108,17 @@ export class DtImport {
    * @returns Promise with import result
    */
   importModel = async (jsonData: any, options: ImportOptions = {}): Promise<ImportResult> => {
-    const mutexKey = `importModel_${Date.now()}`
+    // Constant key (not `importModel_${Date.now()}`, which minted a fresh key per call and
+    // so never serialized): two concurrent imports on one DtImport share instance state
+    // (idMapping/elementParent/caches/errors/currentModelId), so they must run one at a time.
+    const mutexKey = 'importModel'
     return this.dtUtils.withMutex(mutexKey, async () => {
       try {
         // Reset state
         this.idMapping.clear()
+        this.elementParent.clear()
+        this.cachedModules = null
+        this.cachedControls = null
         this.errors = []
         this.warnings = []
         this.currentModelId = ''
@@ -113,6 +140,33 @@ export class DtImport {
             success: false,
             errors: [{ step: 'validation', error: validationResult.error || 'Invalid import data format' }],
             warnings: [],
+            progress: this.progress
+          }
+        }
+
+        // Type gate: reject scalar shapes that would fail GraphQL coercion mid-import
+        // (a bad `type`/position) BEFORE any mutation, so a bad file can't leave a partial model.
+        const typeErrors = this.validateElementTypes(jsonData)
+        if (typeErrors.length > 0) {
+          return {
+            success: false,
+            errors: typeErrors.map(error => ({ step: 'validation', error })),
+            warnings: [],
+            progress: this.progress
+          }
+        }
+
+        // Structural validation (the repaired schema validator): duplicate ids,
+        // dangling flow endpoints, component type enum — errors abort before any
+        // mutation; warnings (e.g. orphaned data-item refs) surface but don't block.
+        // Both entry paths land here (the split path passes splitToMonolithic output).
+        const structural = validateMonolithicModel(jsonData)
+        this.warnings.push(...structural.warnings.map(w => w.message))
+        if (!structural.valid) {
+          return {
+            success: false,
+            errors: structural.errors.map(e => ({ step: 'validation', error: e.message })),
+            warnings: this.warnings,
             progress: this.progress
           }
         }
@@ -186,11 +240,29 @@ export class DtImport {
           model: createdModel,
           errors: this.errors,
           warnings: this.warnings,
-          progress: this.progress
+          progress: this.progress,
+          // Snapshot taken INSIDE the mutexed body: a queued second import's first act
+          // is this.idMapping.clear(), so any post-await read of the live private Map
+          // (as DtImportSplit.buildIdMapping used to do) races it. The copy is immutable
+          // once returned.
+          idMapping: new Map(this.idMapping)
         }
 
       } catch (error) {
         this.dtUtils.handleError({ action: 'importModel', error })
+        // Rollback on terminal failure: an exception aborted the import mid-way. If a model
+        // was already created, delete it (best-effort) so the hard failure doesn't leave an
+        // orphaned half-built model. Scoped to the model THIS import just created — never
+        // pre-existing data. A delete failure is a warning, not a rethrow. Soft per-element
+        // errors (accumulated in this.errors without throwing) keep partial-success semantics
+        // and do NOT trigger rollback.
+        if (this.currentModelId) {
+          try {
+            await this.dtModel.deleteModel({ modelId: this.currentModelId })
+          } catch (rollbackError) {
+            this.warnings.push(`Rollback failed — partial model ${this.currentModelId} may remain: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`)
+          }
+        }
         return {
           success: false,
           errors: [{ step: 'general', error: error instanceof Error ? error.message : 'Unknown error occurred' }],
@@ -234,6 +306,50 @@ export class DtImport {
     return { valid: true }
   }
 
+  // Lightweight up-front type gate: reject the scalar shapes that would fail GraphQL
+  // coercion mid-import (e.g. positionX:"12", type:123) BEFORE any mutation, so a bad file
+  // can't leave a partial model. Kept as a cheap pre-gate for arbitrary junk shapes; the
+  // richer structural validator (validateMonolithicModel — duplicate ids, flow endpoints,
+  // type enum) is now wired right after it in importModel.
+  // Absent/null fields are allowed (they default); 0 is a valid position (never false-positive).
+  private validateElementTypes = (jsonData: any): string[] => {
+    const errors: string[] = []
+    // Reject non-numbers AND non-finite numbers: Infinity is truthy, so it survives the
+    // `|| default` fallbacks at create time and reaches GraphQL as an invalid coordinate.
+    const badNumber = (v: any) => v !== undefined && v !== null && (typeof v !== 'number' || !Number.isFinite(v))
+    const badString = (v: any) => v !== undefined && v !== null && typeof v !== 'string'
+    const numericFields = ['positionX', 'positionY', 'dimensionsWidth', 'dimensionsHeight', 'dimensionsMinWidth', 'dimensionsMinHeight']
+
+    const checkElement = (el: any, kind: string) => {
+      if (!el || typeof el !== 'object') return
+      const label = el.name || el.id || '<unnamed>'
+      for (const f of numericFields) {
+        if (badNumber(el[f])) errors.push(`${kind} "${label}": ${f} must be a number, got ${typeof el[f]}`)
+      }
+      if (badString(el.type)) errors.push(`${kind} "${label}": type must be a string, got ${typeof el.type}`)
+    }
+
+    const walkBoundary = (boundary: any) => {
+      if (!boundary || typeof boundary !== 'object') return
+      checkElement(boundary, 'Boundary')
+      if (Array.isArray(boundary.components)) {
+        for (const c of boundary.components) checkElement(c, 'Component')
+      }
+      if (Array.isArray(boundary.boundaries)) {
+        for (const b of boundary.boundaries) walkBoundary(b)
+      }
+    }
+
+    walkBoundary(jsonData.defaultBoundary)
+    if (Array.isArray(jsonData.dataFlows)) {
+      for (const df of jsonData.dataFlows) checkElement(df, 'DataFlow')
+    }
+    if (Array.isArray(jsonData.dataItems)) {
+      for (const di of jsonData.dataItems) checkElement(di, 'DataItem')
+    }
+    return errors
+  }
+
   private createModel = async (jsonData: any, folderId?: string): Promise<Model | null> => {
     try {
       // Resolve module IDs
@@ -241,12 +357,18 @@ export class DtImport {
       
       // If no modules found, try to get default module
       if (moduleIds.length === 0) {
-        const modules = await this.dtModule.getModules()
+        const modules = await this.getCachedModules()
         if (modules.length > 0) {
           moduleIds.push(modules[0].id)
           this.warnings.push('No matching modules found, using default module')
         }
       }
+
+      // Resolve model-level controls (by id/name) so they are restored at create
+      // time — the export→manifest→import round-trip carries them on jsonData.controls.
+      const modelControlIds = jsonData.controls
+        ? await this.resolveControls(jsonData.controls)
+        : []
 
       const model = await this.dtModel.createModel({
         name: jsonData.name,
@@ -254,7 +376,8 @@ export class DtImport {
         modules: moduleIds,
         folderId: folderId || undefined,
         // Asset-context scope (grouped local shape; builder sets present fields).
-        scope: jsonData.scope
+        scope: jsonData.scope,
+        controls: modelControlIds
       })
 
       if (model) {
@@ -272,9 +395,24 @@ export class DtImport {
     }
   }
 
+  // Fetch the module catalog once per import and reuse it. getModules() is `network-only`
+  // and returns every class of every module; resolving each element against a fresh fetch
+  // (up to 3x per class-bearing element in resolveClass) is the perf-cliff / DoS this fixes.
+  private getCachedModules = async (): Promise<Module[]> => {
+    if (this.cachedModules === null) {
+      try {
+        this.cachedModules = await this.dtModule.getModules()
+      } catch {
+        // Catalog unavailable for this import — cache empty so we don't hammer it per element.
+        this.cachedModules = []
+      }
+    }
+    return this.cachedModules
+  }
+
   private resolveModuleIds = async (modules: any[]): Promise<string[]> => {
     const moduleIds: string[] = []
-    const availableModules = await this.dtModule.getModules()
+    const availableModules = await this.getCachedModules()
 
     for (const moduleData of modules) {
       // Priority 1: Match by ID
@@ -466,6 +604,8 @@ export class DtImport {
       }
 
       this.idMapping.set(componentData.id, newComponent.id)
+      // Authoritative parent = the boundary this node was actually created under.
+      this.elementParent.set(componentData.id, parentBoundaryId)
 
       // Set attributes after creation (class was already assigned during creation)
       if (classId && componentData.attributes) {
@@ -565,6 +705,8 @@ export class DtImport {
       }
 
       this.idMapping.set(boundaryData.id, newBoundary.id)
+      // Authoritative parent = the boundary this boundary was actually created under.
+      this.elementParent.set(boundaryData.id, parentBoundaryId)
 
       // Persist zoning — createBoundaryNode (ADD_BOUNDARY) has no zoning input, so follow up with an
       // update when the boundary declares any. Reuse the create node shape (label/position/size are written
@@ -815,7 +957,8 @@ export class DtImport {
                   label: dataFlow.name,
                   data: {
                     description: dataFlow.description || '',
-                    controls: [], // Controls were set separately
+                    // Controls were set at create time — OMIT the key so the builder
+                    // preserves them (an explicit [] would disconnect-all).
                     dataItems: [], // Start with empty, will be updated
                   },
                   markerEnd: 'arrowclosed',
@@ -863,7 +1006,8 @@ export class DtImport {
                 data: {
                   label: element.name,
                   description: element.description || '',
-                  controls: [], // Controls were set separately
+                  // Controls were set at create time — OMIT the key so the builder
+                  // preserves them (an explicit [] would disconnect-all).
                   dataItems: mappedDataItemIds,
                   minWidth: element.dimensionsMinWidth || 200,
                   minHeight: element.dimensionsMinHeight || 150,
@@ -874,7 +1018,7 @@ export class DtImport {
                 },
                 width: element.dimensionsWidth || 400,
                 height: element.dimensionsHeight || 300,
-                parentNode: element.parentBoundary?.id ? this.idMapping.get(element.parentBoundary.id) : undefined,
+                parentNode: this.elementParent.get(element.id),
               }
 
               await this.dtBoundary.updateBoundaryNode({
@@ -889,14 +1033,15 @@ export class DtImport {
                 data: {
                   label: element.name,
                   description: element.description || '',
-                  controls: [], // Controls were set separately
+                  // Controls were set at create time — OMIT the key so the builder
+                  // preserves them (an explicit [] would disconnect-all).
                   dataItems: mappedDataItemIds,
                 },
                 position: {
                   x: element.positionX || 0,
                   y: element.positionY || 0,
                 },
-                parentNode: element.parentBoundary?.id ? this.idMapping.get(element.parentBoundary.id) || this.findDefaultBoundaryId() : this.findDefaultBoundaryId(),
+                parentNode: this.elementParent.get(element.id) || this.findDefaultBoundaryId(),
               }
 
               await this.dtComponent.updateComponent({
@@ -971,7 +1116,7 @@ export class DtImport {
               position: { x: element.positionX || 0, y: element.positionY || 0 },
               width: element.dimensionsWidth || 400,
               height: element.dimensionsHeight || 300,
-              parentNode: element.parentBoundary?.id ? this.idMapping.get(element.parentBoundary.id) : undefined,
+              parentNode: this.elementParent.get(element.id),
             }
             await this.dtBoundary.updateBoundaryNode({
               updatedNode,
@@ -1027,7 +1172,7 @@ export class DtImport {
       if (classData.id) {
         // Try to verify the class exists by checking all modules
         try {
-          const modules = await this.dtModule.getModules()
+          const modules = await this.getCachedModules()
 
           
           for (const module of modules) {
@@ -1067,7 +1212,7 @@ export class DtImport {
 
       // Priority 2: Match by module ID and class name
       if (classData.module?.id && classData.name) {
-        const modules = await this.dtModule.getModules()
+        const modules = await this.getCachedModules()
         const matchingModule = modules.find(m => m.id === classData.module.id)
         
         if (matchingModule) {
@@ -1080,7 +1225,7 @@ export class DtImport {
 
       // Priority 3: Match by module name and class name
       if (classData.module?.name && classData.name) {
-        const modules = await this.dtModule.getModules()
+        const modules = await this.getCachedModules()
         const matchingModule = modules.find(m => m.name === classData.module.name)
 
         if (matchingModule) {
@@ -1091,11 +1236,11 @@ export class DtImport {
         }
       }
 
-      // Silently dropping a class link is the failure mode that bit us
-      // after S6 made class ids stable+migratable: an export's id may no
-      // longer exist locally (operator ran `migrateClassId`), and Priority
-      // 2/3 are unreachable if the export omitted `module`. Surface it so
-      // the import dialog can show it as a warning.
+      // Silently dropping a class link is a real failure mode now that class
+      // ids are stable + migratable: an export's id may no longer exist locally
+      // (operator ran `migrateClassId`), and Priority 2/3 are unreachable if the
+      // export omitted `module`. Surface it so the import dialog can show it as
+      // a warning.
       const idHint = classData.id ? `id=${classData.id}` : 'id=<missing>'
       const nameHint = classData.name ? `name=${classData.name}` : 'name=<missing>'
       const moduleHint = classData.module
@@ -1396,30 +1541,34 @@ export class DtImport {
 
   private resolveControls = async (controls: any[]): Promise<string[]> => {
     const controlIds: string[] = []
-    
-    // Try to get controls from all folders (including no folder)
-    let availableControls: any[] = []
-    
-    try {
-      // Get controls with no folder
-      const noFolderControls = await this.dtControl.getControls({ folderId: undefined })
-      availableControls.push(...noFolderControls)
-    } catch (error) {
-      // Silently continue
-    }
-    
-    try {
-      // Get all controls (from all folders)
-      const allControls = await this.dtControl.getControls({ folderId: 'all' })
-      // Add controls that aren't already in the list
-      for (const control of allControls) {
-        if (!availableControls.find(c => c.id === control.id)) {
-          availableControls.push(control)
-        }
+
+    // Load the control catalog once per import (no-folder + all-folders, deduped by id) and
+    // reuse it. getControls is `network-only`; fetching it twice per control-bearing element
+    // is the DoS. Cache even an empty/failed load — a down catalog is down for the run.
+    if (this.cachedControls === null) {
+      const merged: any[] = []
+      try {
+        // Get controls with no folder
+        const noFolderControls = await this.dtControl.getControls({ folderId: undefined })
+        merged.push(...noFolderControls)
+      } catch (error) {
+        // Silently continue
       }
-    } catch (error) {
-      // Silently continue
+      try {
+        // Get all controls (from all folders)
+        const allControls = await this.dtControl.getControls({ folderId: 'all' })
+        // Add controls that aren't already in the list
+        for (const control of allControls) {
+          if (!merged.find(c => c.id === control.id)) {
+            merged.push(control)
+          }
+        }
+      } catch (error) {
+        // Silently continue
+      }
+      this.cachedControls = merged
     }
+    const availableControls = this.cachedControls
 
     for (const controlData of controls) {
       // Priority 1: Match by ID

@@ -340,8 +340,14 @@ export class DtControl {
         condition.id = { in: controlIds }
       }
 
-      // Path 2 (and additional filters for Path 1): build condition
-      if (controlId) condition.id = { eq: controlId }
+      // Path 2 (and additional filters for Path 1): build condition. When BOTH an
+      // element-derived id set and an explicit controlId are present, intersect
+      // (controlId must be within the element set) instead of clobbering the set.
+      if (controlId) {
+        condition.id = condition.id?.in
+          ? { in: condition.id.in.filter((id: string) => id === controlId) }
+          : { eq: controlId }
+      }
       if (name) condition.name = { contains: name }
 
       if (classId || classType) {

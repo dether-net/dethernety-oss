@@ -176,4 +176,19 @@ describe('DtUpdate — conduit write pass (real baseline + orphan exclusion)', (
     expect(spy).not.toHaveBeenCalled(); // nothing to reconcile once the orphan peer is dropped
     expect(dtUpdate.warnings.some((w: string) => w.includes('orphan'))).toBe(true);
   });
+
+  it('the conduit pass omits controls/dataItems from the node it hands updateBoundaryNode (builder then preserves — P0)', async () => {
+    // Caller-side half of the P0 fix: the safe node carries only conduits, no
+    // controls/dataItems keys. The builder-side half (omitted key → no disconnect)
+    // is covered by update-boundary-zoning.test.ts. Together: controls survive.
+    const edge = [{ peerId: 'b1', direction: 'OUTBOUND', justification: 'x' }];
+    const { dtUpdate, spy, jsonData } = seeded({ conduits: edge, baseline: [] });
+
+    await dtUpdate.associateConduitsWithBoundaries(jsonData);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const data = spy.mock.calls[0][0].updatedNode.data;
+    expect(data).not.toHaveProperty('controls');
+    expect(data).not.toHaveProperty('dataItems');
+  });
 });

@@ -242,6 +242,7 @@ export const UPDATE_ISSUE = gql`
         createdAt
         updatedAt
         issueStatus
+        attributes
         syncedAttributes
         comments
         elementsWithExtendedInfo {
@@ -272,6 +273,11 @@ export const UPDATE_ISSUE = gql`
           description
         }
         components {
+          id
+          name
+          description
+        }
+        dataFlows {
           id
           name
           description

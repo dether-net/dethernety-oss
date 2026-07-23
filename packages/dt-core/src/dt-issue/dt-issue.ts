@@ -90,6 +90,7 @@ export class DtIssue {
         name?: { eq?: string },
         type?: { eq?: string },
         issueStatus?: { eq?: string },
+        OR?: Array<Record<string, { some?: { id?: { in?: string[] } } }>>,
         issueClass?: {
           single?: {
             id?: { eq?: string }
@@ -121,16 +122,21 @@ export class DtIssue {
         condition.issueClass = { single: classFilter }
       }
       if (elementIds) {
-        condition.model = { some: { id: { in: elementIds } } }
-        condition.components = { some: { id: { in: elementIds } } }
-        condition.dataFlows = { some: { id: { in: elementIds } } }
-        condition.securityBoundaries = { some: { id: { in: elementIds } } }
-        condition.controls = { some: { id: { in: elementIds } } }
-        condition.data = { some: { id: { in: elementIds } } }
-        condition.analyses = { some: { id: { in: elementIds } } }
-        condition.exposures = { some: { id: { in: elementIds } } }
-        condition.countermeasures = { some: { id: { in: elementIds } } }
-        // condition.elements = { some: { id: { in: elementIds } } }
+        // Match an issue linking the element in ANY of its collections — OR them.
+        // (Sibling keys on `condition` are AND'd under the `{ AND: condition }`
+        // wrapper below, so nine sibling `some` filters required the element in ALL
+        // nine collections simultaneously.) The OR still AND's with the other filters.
+        condition.OR = [
+          { model: { some: { id: { in: elementIds } } } },
+          { components: { some: { id: { in: elementIds } } } },
+          { dataFlows: { some: { id: { in: elementIds } } } },
+          { securityBoundaries: { some: { id: { in: elementIds } } } },
+          { controls: { some: { id: { in: elementIds } } } },
+          { data: { some: { id: { in: elementIds } } } },
+          { analyses: { some: { id: { in: elementIds } } } },
+          { exposures: { some: { id: { in: elementIds } } } },
+          { countermeasures: { some: { id: { in: elementIds } } } },
+        ]
       }
       if (moduleId || moduleName) {
         const moduleFilter: { id?: { eq?: string }, name?: { eq?: string } } = {}
@@ -316,10 +322,17 @@ export class DtIssue {
         issueStatus: { set: issueStatus },
         comments: { set: comments },
         updatedAt: { set: new Date().toISOString() },
-        issueClass: {
-          disconnect: {},
-          connect: { where: { node: { id: { eq: issueClassId } } } }
-        },
+        // Guard the class relationship: only rebind when a class id is supplied.
+        // Omitting it (an update that doesn't touch the class) previously emitted a
+        // bare disconnect-all + a connect on `eq: undefined`, wiping the issue's
+        // class. Absent id → omit the key → preserve; present → disconnect old +
+        // connect new (single-valued move).
+        ...(issueClassId !== undefined && {
+          issueClass: {
+            disconnect: {},
+            connect: { where: { node: { id: { eq: issueClassId } } } }
+          },
+        }),
       }
       
       const response = await this.dtUtils.performMutation<{ updateIssues: { issues: Issue[] } }>({

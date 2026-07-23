@@ -168,4 +168,5 @@ export {
   type ModelValidationError,
   type ModelValidationWarning,
   validateMonolithicModel,
+  collectFlowEndpointIds,
 } from './model.schema.js';

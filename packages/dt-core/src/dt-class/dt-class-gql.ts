@@ -103,6 +103,10 @@ export const GET_CONTROL_CLASS_BY_ID = gql`
       category
       template
       guide
+      module {
+        id
+        name
+      }
     }
   }
 `

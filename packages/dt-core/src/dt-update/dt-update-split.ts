@@ -15,12 +15,14 @@ import * as Apollo from '@apollo/client'
 
 import { DtUpdate, UpdateResult, UpdateOptions, UpdateProgress, UpdateError, UpdateStats } from './dt-update.js'
 import { DtClass } from '../dt-class/dt-class.js'
+import { DtModel } from '../dt-model/dt-model.js'
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import {
   SplitModel,
   splitToMonolithic,
   ConsolidatedAttributesFile,
   ElementAttributes,
+  collectFlowEndpointIds,
 } from '../schemas/index.js'
 
 /**
@@ -72,12 +74,14 @@ export interface UpdateSplitOptions extends UpdateOptions {
 export class DtUpdateSplit {
   private dtUpdate: DtUpdate
   private dtClass: DtClass
+  private dtModel: DtModel
   private apolloClient: Apollo.ApolloClient
 
   constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUpdate = new DtUpdate(apolloClient)
     this.dtClass = new DtClass(apolloClient)
+    this.dtModel = new DtModel(apolloClient)
   }
 
   /**
@@ -169,9 +173,65 @@ export class DtUpdateSplit {
       },
     }
 
+    // Scope writes to the target model. setElementAttributes writes to whatever
+    // element the record key names — without this check, an attributes file keyed
+    // by an element id from a DIFFERENT model of the same user writes onto that
+    // foreign element. Fetch the model's element-id set once (O(1), not per entry)
+    // and reject non-member entries per-entry. Fail closed: if the membership set
+    // can't be established, abort the whole update with a clear, retryable error
+    // rather than writing unscoped.
+    let memberIds: Set<string>
+    try {
+      const modelData = await this.dtModel.getModelData({ modelId })
+      if (!modelData) {
+        result.success = false
+        result.errors.push({ step: 'attributes_scope', error: `Model ${modelId} not found — cannot verify element ownership for attributes update` })
+        return result
+      }
+      memberIds = new Set<string>([modelId])
+      const db = modelData.defaultBoundary
+      if (db?.id) memberIds.add(db.id)
+      db?.allDescendantComponents?.forEach((c: any) => { if (c?.id) memberIds.add(c.id) })
+      db?.allDescendantBoundaries?.forEach((b: any) => { if (b?.id) memberIds.add(b.id) })
+      db?.allDescendantDataFlows?.forEach((f: any) => { if (f?.id) memberIds.add(f.id) })
+      modelData.dataItems?.forEach((d: any) => { if (d?.id) memberIds.add(d.id) })
+    } catch (error) {
+      result.success = false
+      result.errors.push({ step: 'attributes_scope', error: `Could not verify element ownership for model ${modelId}: ${error instanceof Error ? error.message : 'unknown error'}` })
+      return result
+    }
+
+    // Per-entry guard: the record key must match the entry's own elementId (the
+    // write targets the KEY, so a mismatch silently redirects it), and the element
+    // must belong to this model.
+    const entryAllowed = (key: string, entry: ElementAttributes): string | null => {
+      // A null/junk entry value (hand-edited attributes.json) must fail per-entry,
+      // not throw out of the loop.
+      if (!entry || typeof entry !== 'object') {
+        return `Attributes record "${key}" is not an object — entry skipped`
+      }
+      if (entry.elementId && key !== entry.elementId) {
+        return `Attributes record key "${key}" does not match its elementId "${entry.elementId}" — entry skipped`
+      }
+      if (!memberIds.has(key)) {
+        return `Element ${key} does not belong to model ${modelId} — entry skipped`
+      }
+      return null
+    }
+    const rejectEntry = (key: string, entry: ElementAttributes, reason: string, statsKey: 'boundaries' | 'components' | 'dataFlows' | 'dataItems') => {
+      result.errors.push({ step: `update_${statsKey}_attributes`, elementName: entry?.elementName, elementId: key, error: reason })
+      result.stats[statsKey].failed++
+      result.stats.total.failed++
+    }
+
     // Process boundary attributes
     if (attributes.boundaries) {
       for (const [elementId, elementAttrs] of Object.entries(attributes.boundaries)) {
+        const rejection = entryAllowed(elementId, elementAttrs)
+        if (rejection) {
+          rejectEntry(elementId, elementAttrs, rejection, 'boundaries')
+          continue
+        }
         const success = await this.setElementAttributes(elementId, elementAttrs, result, 'boundaries')
         if (success) {
           result.stats.boundaries.updated++
@@ -186,6 +246,11 @@ export class DtUpdateSplit {
     // Process component attributes
     if (attributes.components) {
       for (const [elementId, elementAttrs] of Object.entries(attributes.components)) {
+        const rejection = entryAllowed(elementId, elementAttrs)
+        if (rejection) {
+          rejectEntry(elementId, elementAttrs, rejection, 'components')
+          continue
+        }
         const success = await this.setElementAttributes(elementId, elementAttrs, result, 'components')
         if (success) {
           result.stats.components.updated++
@@ -200,6 +265,11 @@ export class DtUpdateSplit {
     // Process data flow attributes
     if (attributes.dataFlows) {
       for (const [elementId, elementAttrs] of Object.entries(attributes.dataFlows)) {
+        const rejection = entryAllowed(elementId, elementAttrs)
+        if (rejection) {
+          rejectEntry(elementId, elementAttrs, rejection, 'dataFlows')
+          continue
+        }
         const success = await this.setElementAttributes(elementId, elementAttrs, result, 'dataFlows')
         if (success) {
           result.stats.dataFlows.updated++
@@ -214,6 +284,11 @@ export class DtUpdateSplit {
     // Process data item attributes
     if (attributes.dataItems) {
       for (const [elementId, elementAttrs] of Object.entries(attributes.dataItems)) {
+        const rejection = entryAllowed(elementId, elementAttrs)
+        if (rejection) {
+          rejectEntry(elementId, elementAttrs, rejection, 'dataItems')
+          continue
+        }
         const success = await this.setElementAttributes(elementId, elementAttrs, result, 'dataItems')
         if (success) {
           result.stats.dataItems.updated++
@@ -312,6 +387,44 @@ export class DtUpdateSplit {
       errors.push({ step: 'validation', error: 'Missing default boundary in structure' })
     } else if (!splitModel.structure.defaultBoundary.id) {
       errors.push({ step: 'validation', error: 'Missing default boundary ID' })
+    }
+
+    // Flow-reference validation (mirrors the import-side validator, via the shared
+    // endpoint collector). Skipping this was lossy under deleteOrphaned: a typo'd
+    // source id passed validation, the new flow was skipped with a warning, and the
+    // pre-existing flow it should have replaced was deleted as an orphan.
+    if (splitModel.dataFlows && splitModel.structure.defaultBoundary) {
+      const endpointIds = collectFlowEndpointIds(splitModel.structure.defaultBoundary)
+
+      for (const flow of splitModel.dataFlows) {
+        if (!flow.source?.id) {
+          errors.push({
+            step: 'validation',
+            elementName: flow.name,
+            error: `Data flow "${flow.name}" is missing source reference`,
+          })
+        } else if (!endpointIds.has(flow.source.id)) {
+          errors.push({
+            step: 'validation',
+            elementName: flow.name,
+            error: `Data flow "${flow.name}" references non-existent source: ${flow.source.id}`,
+          })
+        }
+
+        if (!flow.target?.id) {
+          errors.push({
+            step: 'validation',
+            elementName: flow.name,
+            error: `Data flow "${flow.name}" is missing target reference`,
+          })
+        } else if (!endpointIds.has(flow.target.id)) {
+          errors.push({
+            step: 'validation',
+            elementName: flow.name,
+            error: `Data flow "${flow.name}" references non-existent target: ${flow.target.id}`,
+          })
+        }
+      }
     }
 
     return errors

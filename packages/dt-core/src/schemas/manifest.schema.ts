@@ -9,6 +9,7 @@
 import type {
   UUID,
   ModuleReference,
+  ControlReference,
   SCHEMA_VERSION,
 } from './common.schema.js';
 
@@ -101,6 +102,8 @@ export interface ModelMetadata {
   defaultBoundaryId: UUID;
   /** Asset-context scope (grouped, snake_case); absent when unset. */
   scope?: ModelScopeLocal;
+  /** Model-level controls (SUPPORTS relationship); absent when none. */
+  controls?: ControlReference[];
 }
 
 /**

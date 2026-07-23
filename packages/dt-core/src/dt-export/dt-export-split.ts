@@ -73,6 +73,11 @@ export class DtExportSplit {
         description: model.description,
         defaultBoundaryId,
         ...(scope ? { scope } : {}),
+        // Model-level controls (present-only, like scope) so the split round-trip
+        // can restore them at import.
+        ...(model.controls && model.controls.length > 0
+          ? { controls: model.controls.filter(c => c.id).map(c => ({ id: c.id!, name: c.name })) }
+          : {}),
       },
       files: {
         structure: DEFAULT_FILE_NAMES.structure,
@@ -159,12 +164,14 @@ export class DtExportSplit {
 
     // Add control references if present
     if (boundary.controls && boundary.controls.length > 0) {
+      // NOTE: control provenance (`source`) is intentionally NOT emitted — it is not
+      // selected on export and import discards it (resolves controls by id/name only).
+      // A real round-trip needs a backend edge property; out of scope for the library.
       result.controls = boundary.controls
         .filter(ctrl => ctrl.id)
         .map(ctrl => ({
           id: ctrl.id!,
           name: ctrl.name,
-          source: ctrl.source as 'discovered' | 'declared' | 'both' | undefined,
         }))
     }
 
@@ -245,12 +252,13 @@ export class DtExportSplit {
 
     // Add control references if present
     if (component.controls && component.controls.length > 0) {
+      // NOTE: control provenance (`source`) intentionally not emitted — see the
+      // boundary converter above (not selected on export, discarded on import).
       result.controls = component.controls
         .filter(ctrl => ctrl.id)
         .map(ctrl => ({
           id: ctrl.id!,
           name: ctrl.name,
-          source: ctrl.source as 'discovered' | 'declared' | 'both' | undefined,
         }))
     }
 
@@ -307,12 +315,13 @@ export class DtExportSplit {
 
     // Add control references if present
     if (flow.controls && flow.controls.length > 0) {
+      // NOTE: control provenance (`source`) intentionally not emitted — see the
+      // boundary converter above (not selected on export, discarded on import).
       result.controls = flow.controls
         .filter(ctrl => ctrl.id)
         .map(ctrl => ({
           id: ctrl.id!,
           name: ctrl.name,
-          source: ctrl.source as 'discovered' | 'declared' | 'both' | undefined,
         }))
     }
 

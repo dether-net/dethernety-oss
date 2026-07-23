@@ -119,6 +119,10 @@ export const DUMP_MODEL_DATA = gql`
       trustAssumptions
       controls {
         id
+        name
+      }
+      folder {
+        id
       }
       defaultBoundary {
         id
@@ -127,6 +131,13 @@ export const DUMP_MODEL_DATA = gql`
         zone
         domains
         planes
+        controls {
+          id
+          name
+        }
+        dataItems {
+          id
+        }
         outboundConduitsConnection {
           edges {
             properties { justification controlRefs }

@@ -146,7 +146,7 @@ export const GET_MODULE_BY_NAME = gql`
 
 export const SAVE_MODULE = gql`
   mutation SaveModule($moduleId: ID!, $attributes: String!) {
-    updateModules(where: {id: { eq: $moduleId }}, update: {attributes: $attributes}) {
+    updateModules(where: {id: { eq: $moduleId }}, update: {attributes: {set: $attributes}}) {
       modules {
         id
         name
