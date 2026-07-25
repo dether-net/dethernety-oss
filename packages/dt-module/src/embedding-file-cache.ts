@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { slugifyModelName } from './embedding-text';
+import { classEmbeddingText, hashEmbeddingText, slugifyModelName } from './embedding-text';
 
 /**
  * Maximum vector length accepted from a pre-computed file. Vectors longer than
@@ -66,7 +66,10 @@ export class EmbeddingFileCache {
       modelCache = this.load(slug);
       this.cache.set(slug, modelCache);
     }
-    return modelCache.get(className) ?? null;
+    // Return a copy: the cached array is shared across the process lifetime, so a consumer that
+    // normalizes it in place must not corrupt the cache for every other caller.
+    const vector = modelCache.get(className);
+    return vector ? vector.slice() : null;
   }
 
   /**
@@ -104,13 +107,27 @@ export class EmbeddingFileCache {
         const vectorPath = path.join(classDir, 'embeddings', `${modelSlug}.json`);
         if (!fs.existsSync(vectorPath)) continue;
 
-        const className = this.readClassName(defPath);
-        if (!className) continue;
+        const def = this.readClassDef(defPath);
+        if (!def) continue;
 
-        const vector = this.readVector(vectorPath);
-        if (!vector) continue;
+        const parsed = this.readVector(vectorPath);
+        if (!parsed) continue;
 
-        result.set(className, vector);
+        // Content-hash staleness check. A stamped hash that no longer matches the current class
+        // text means the vector was computed from stale text (class edited without regenerating)
+        // — treat it as a cache miss so it is recomputed. A legacy file with no stamped hash is
+        // served unchanged (unverified), exactly as before this shipped.
+        if (parsed.contentHash !== null) {
+          const expected = hashEmbeddingText(classEmbeddingText(def, classTypeDir));
+          if (parsed.contentHash !== expected) {
+            this.logger.warn('Stale embedding vector (content-hash mismatch); recomputing', {
+              vectorPath,
+            });
+            continue;
+          }
+        }
+
+        result.set(def.name, parsed.vector);
       }
     }
 
@@ -125,17 +142,37 @@ export class EmbeddingFileCache {
     }
   }
 
-  private readClassName(defPath: string): string | null {
+  private readClassDef(
+    defPath: string,
+  ): { name: string; description?: string; category?: string; type?: string } | null {
     try {
       const parsed = JSON.parse(fs.readFileSync(defPath, 'utf8'));
       const name = parsed?.name;
-      return typeof name === 'string' && name.length > 0 ? name : null;
+      if (typeof name !== 'string' || name.length === 0) return null;
+      // Pass the raw description/category/type through UNCOERCED — the CLI writer feeds the raw
+      // class.json values into the same composer, and composeClassText coerces them identically
+      // on both sides. Sanitizing them here (e.g. nulling a non-string) would make the recomputed
+      // hash diverge from the stamped one and permanently miss the cache for that class.
+      return {
+        name,
+        description: parsed.description,
+        category: parsed.category,
+        type: parsed.type,
+      };
     } catch {
       return null;
     }
   }
 
-  private readVector(vectorPath: string): number[] | null {
+  /**
+   * Read and validate a pre-computed vector file. Accepts two on-disk shapes: a bare JSON array
+   * (legacy — `contentHash: null`, served unverified) or a `{ vector, contentHash }` wrapper
+   * (new — verified by the caller against the current class text). Never throws — every failure
+   * mode returns `null` (a cache miss), so an old/mismatched/malformed file degrades to recompute.
+   */
+  private readVector(
+    vectorPath: string,
+  ): { vector: number[]; contentHash: string | null } | null {
     let raw: string;
     try {
       raw = fs.readFileSync(vectorPath, 'utf8');
@@ -155,29 +192,58 @@ export class EmbeddingFileCache {
       return null;
     }
 
-    if (!Array.isArray(parsed)) {
-      this.logger.warn('Embedding file must be a top-level JSON array', { vectorPath });
+    let candidate: unknown;
+    let contentHash: string | null;
+    if (Array.isArray(parsed)) {
+      candidate = parsed;
+      contentHash = null;
+    } else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).vector)) {
+      // A wrapper file is verified by contract — the writer always stamps a sha256. A
+      // missing/mangled hash means the file is corrupted; reject it (cache miss) rather
+      // than silently downgrading to unverified serving.
+      const h = (parsed as any).contentHash;
+      if (typeof h !== 'string' || !/^[0-9a-f]{64}$/.test(h)) {
+        this.logger.warn('Embedding wrapper file has a missing or malformed contentHash', {
+          vectorPath,
+        });
+        return null;
+      }
+      candidate = (parsed as any).vector;
+      contentHash = h;
+    } else {
+      this.logger.warn('Embedding file must be a JSON array or { vector, contentHash } object', {
+        vectorPath,
+      });
       return null;
     }
 
-    if (parsed.length === 0 || parsed.length > MAX_VECTOR_DIMENSIONS) {
+    const arr = candidate as unknown[];
+    if (arr.length === 0 || arr.length > MAX_VECTOR_DIMENSIONS) {
       this.logger.warn('Embedding vector length out of bounds', {
         vectorPath,
-        length: parsed.length,
+        length: arr.length,
         max: MAX_VECTOR_DIMENSIONS,
       });
       return null;
     }
 
-    for (const v of parsed) {
+    let sumSq = 0;
+    for (const v of arr) {
       if (typeof v !== 'number' || !Number.isFinite(v)) {
         this.logger.warn('Embedding vector contains non-finite or non-numeric entry', {
           vectorPath,
         });
         return null;
       }
+      sumSq += v * v;
     }
 
-    return parsed as number[];
+    // A zero-magnitude vector yields degenerate/NaN cosine similarity downstream — reject it.
+    if (sumSq === 0) {
+      this.logger.warn('Embedding vector has zero magnitude', { vectorPath });
+      return null;
+    }
+
+    return { vector: arr as number[], contentHash };
   }
 }

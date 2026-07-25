@@ -18,7 +18,8 @@ import * as path from 'node:path';
 // using the package subpath (`@dethernety/dt-module/embedding`) works at
 // tsx runtime but ts-jest cannot resolve it from outside dt-ws's rootDir.
 import {
-  composeClassText,
+  classEmbeddingText,
+  hashEmbeddingText,
   normalizeClassType,
   parseEmbeddingResponse,
   slugifyModelName,
@@ -117,7 +118,7 @@ export async function runEmbed(opts: EmbedOptions): Promise<void> {
     }
 
     for (let k = 0; k < chunk.length; k++) {
-      writeVector(chunk[k].classDir, modelSlug, vectors[k]);
+      writeVector(chunk[k].classDir, modelSlug, vectors[k], hashEmbeddingText(chunk[k].text));
       written++;
     }
   }
@@ -212,12 +213,10 @@ function collectJobs(
         continue;
       }
 
-      const text = composeClassText({
-        name: def.name,
-        description: def.description,
-        category: def.category,
-        type: normalizedType,
-      });
+      // Route through the shared composer so the write-time text (and its content hash) is
+      // byte-identical to what the cache recomputes at read time. `normalizedType` above still
+      // drives the skip decision; classEmbeddingText re-derives the same normalized type.
+      const text = classEmbeddingText(def, classTypeDir);
 
       jobs.push({ classDir, className: def.name, text });
     }
@@ -251,9 +250,17 @@ async function embedChunk(
   return parseEmbeddingResponse(data, texts.length);
 }
 
-function writeVector(classDir: string, modelSlug: string, vector: number[]): void {
+function writeVector(
+  classDir: string,
+  modelSlug: string,
+  vector: number[],
+  contentHash: string,
+): void {
   const embeddingsDir = path.join(classDir, 'embeddings');
   fs.mkdirSync(embeddingsDir, { recursive: true });
   const file = path.join(embeddingsDir, `${modelSlug}.json`);
-  fs.writeFileSync(file, JSON.stringify(vector));
+  // { vector, contentHash } — the hash binds the vector to the class text it was computed from
+  // so the runtime cache can detect (and recompute) a stale vector. Older bare-array files
+  // remain readable (served unverified).
+  fs.writeFileSync(file, JSON.stringify({ vector, contentHash }));
 }

@@ -204,6 +204,18 @@ export function runContractSuite(harness: ContractHarness): void {
       expect(evalPosts(harness.mock) - before).toBe(1);
     });
 
+    it('a missing element (no graph node) throws, never fabricates a clean result from empty input', async () => {
+      // Driver whose IS_INSTANCE_OF read finds no node → getInstantiationAttributes returns null.
+      const missingDriver = {
+        session: () => ({ run: async () => ({ records: [] }), close: async () => undefined }),
+      };
+      const client = harness.makeClient(undefined, missingDriver);
+      await client.getMetadata();
+      const before = evalPosts(harness.mock);
+      await expect(client.getExposures('ghost', CLASS_ID, ENTITLED_TOKEN)).rejects.toThrow();
+      expect(evalPosts(harness.mock) - before).toBe(0); // failed loud before any cloud round trip
+    });
+
     it('the eval payload carries only schema-declared attribute keys', async () => {
       const client = harness.makeClient(
         undefined,

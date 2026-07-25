@@ -407,10 +407,13 @@ export class DtFileOpaModule implements DTModule {
   /**
    * Evaluate one rule of a class's policy in-process.
    *
-   * Returns `null` when there is nothing to evaluate — no instantiation attributes, no
-   * `policies.rego`, or an empty one — and the caller yields no findings. A real
-   * evaluation failure throws (`RegoEngine.evaluate` is fail-loud), so `null` never
-   * doubles as an error.
+   * Returns `null` when there is nothing to evaluate — no `policies.rego`, or an empty
+   * one — and the caller yields no findings. A real evaluation failure throws
+   * (`RegoEngine.evaluate` is fail-loud), so `null` never doubles as an error. A missing
+   * *element* (no graph node — `getInstantiationAttributes` returns `null`) also throws:
+   * reporting a non-existent element as "no findings" would fabricate a clean result,
+   * the same not-evaluated contract `DtRemoteModule.evaluate` enforces. An element that
+   * exists without instantiation attributes arrives as `{}` and evaluates normally.
    */
   private async evaluatePolicy(
     id: string,
@@ -422,7 +425,9 @@ export class DtFileOpaModule implements DTModule {
     this.validateModulePath(policiesPath);
 
     const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
-    if (!attributes) return null;
+    if (attributes === null) {
+      throw new Error(`Element "${id}" was not found for evaluation`);
+    }
 
     if (!fs.existsSync(policiesPath)) {
       this.logger.warn(`Policies file not found: ${policiesPath}`);

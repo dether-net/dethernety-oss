@@ -82,12 +82,17 @@ export interface LgModuleOptions {
   /** LangGraph API URL - defaults to process.env.LANGGRAPH_API_URL or 'http://localhost:8123' */
   langgraphApiUrl?: string;
 
+  /**
+   * Timeout (ms) applied to LangGraph control-plane requests (assistant/thread/run
+   * metadata calls made at install, boot and status polls). Defaults to
+   * process.env.LANGGRAPH_TIMEOUT_MS or 30000. Does NOT bound a run's result stream —
+   * the SDK exempts `runs.stream` from the client timeout, so long analyses are unaffected.
+   */
+  langgraphTimeoutMs?: number;
+
   /** Analysis configuration defining available graphs and their behavior */
   analysisConfig: LgAnalysisConfig;
 
   /** Module metadata (description, version, author, icon) */
   metadata: LgModuleMetadata;
-
-  /** Optional custom template JSON string */
-  moduleTemplate?: string;
 }

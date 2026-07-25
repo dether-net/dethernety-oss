@@ -7,6 +7,8 @@
  * embeds is byte-equal to the text the runtime would have embedded.
  */
 
+import { createHash } from 'crypto';
+
 /** Valid ComponentType values from the GraphQL schema for component classes. */
 export const VALID_COMPONENT_TYPES = new Set([
   'PROCESS',
@@ -79,26 +81,58 @@ export function composeMitigationText(m: {
 /**
  * Parse the embedding response, supporting OpenAI and Ollama formats.
  *
- *   OpenAI              : { data: [{ embedding: [...] }, ...] }
+ *   OpenAI              : { data: [{ index, embedding: [...] }, ...] }
  *   Ollama /api/embed   : { embeddings: [[...], [...]] }
  *   Ollama legacy single: { embedding: [...] }
+ *
+ * Callers zip the returned vectors back onto their inputs BY POSITION, so order
+ * and count must match the request exactly:
+ *   - OpenAI carries a per-item `index` precisely because array order is not
+ *     guaranteed; results are sorted by it before mapping (a stable no-op when
+ *     `index` is absent, e.g. Ollama or older stubs).
+ *   - Every entry is validated to be a non-empty finite-numeric array, and the
+ *     total is checked against `expectedCount`. A malformed, reordered, or
+ *     short response throws instead of silently mis-assigning vectors to classes.
  */
 export function parseEmbeddingResponse(
   data: any,
-  _expectedCount: number,
+  expectedCount: number,
 ): number[][] {
+  let vectors: number[][];
   if (Array.isArray(data?.data)) {
-    return data.data.map((item: any) => item.embedding);
+    vectors = [...data.data]
+      .sort((a: any, b: any) => (a?.index ?? 0) - (b?.index ?? 0))
+      .map((item: any) => item?.embedding);
+  } else if (Array.isArray(data?.embeddings)) {
+    vectors = data.embeddings;
+  } else if (Array.isArray(data?.embedding)) {
+    vectors = [data.embedding];
+  } else {
+    throw new Error(
+      `Unexpected embedding API response format. Expected OpenAI ({ data: [...] }) or Ollama ({ embeddings: [...] }) format, got keys: [${Object.keys(data || {}).join(', ')}]`,
+    );
   }
-  if (Array.isArray(data?.embeddings)) {
-    return data.embeddings;
+
+  for (let i = 0; i < vectors.length; i++) {
+    const v = vectors[i];
+    if (
+      !Array.isArray(v) ||
+      v.length === 0 ||
+      !v.every((n) => typeof n === 'number' && Number.isFinite(n))
+    ) {
+      throw new Error(
+        `Embedding response item ${i} is not a non-empty numeric array — malformed response, refusing to store a mis-shaped vector.`,
+      );
+    }
   }
-  if (Array.isArray(data?.embedding)) {
-    return [data.embedding];
+
+  if (vectors.length !== expectedCount) {
+    throw new Error(
+      `Embedding response returned ${vectors.length} vectors for ${expectedCount} inputs — count mismatch, refusing to mis-align vectors to inputs.`,
+    );
   }
-  throw new Error(
-    `Unexpected embedding API response format. Expected OpenAI ({ data: [...] }) or Ollama ({ embeddings: [...] }) format, got keys: [${Object.keys(data || {}).join(', ')}]`,
-  );
+
+  return vectors;
 }
 
 /**
@@ -130,6 +164,34 @@ export function normalizeClassType(
   }
 
   return rawType ?? '';
+}
+
+/**
+ * The exact embedding text for a class, composed the same way at write time (CLI) and at read
+ * time (cache staleness check). Both sides MUST route through this so a stored content-hash and
+ * a recomputed one agree — any divergence would make the cache mis-verify and recompute forever.
+ * `normalizeClassType` already encodes the layout distinction, so this is correct for both the
+ * OPA and (retired) JSON layouts. The `?? rawType ?? ''` fallback only matters for a class whose
+ * type no longer normalizes (skipped at write time, so never verified from a real vector).
+ */
+export function classEmbeddingText(
+  def: { name: string; description?: string; category?: string; type?: string },
+  classTypeDir: string,
+): string {
+  return composeClassText({
+    name: def.name,
+    description: def.description,
+    category: def.category,
+    type: normalizeClassType(classTypeDir, def.type) ?? def.type ?? '',
+  });
+}
+
+/**
+ * Content hash of a composed embedding text, stamped into each pre-computed vector file so a
+ * stale vector (class text edited without regenerating) is detected instead of silently served.
+ */
+export function hashEmbeddingText(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 /**

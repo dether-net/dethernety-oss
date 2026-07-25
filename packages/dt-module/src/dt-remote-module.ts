@@ -130,7 +130,10 @@ export class DtRemoteModule implements DTModule {
   getEmbedding(className: string, embeddingModel: string): number[] | null {
     if (!embeddingModel) return null;
     const slug = slugifyModelName(embeddingModel);
-    return this.vectors.get(slug)?.get(className) ?? null;
+    // Copy on return — the cached array is shared for the module's lifetime, so an in-place
+    // normalization by a consumer must not corrupt it (same contract as EmbeddingFileCache).
+    const vector = this.vectors.get(slug)?.get(className);
+    return vector ? vector.slice() : null;
   }
 
   /**
@@ -178,8 +181,16 @@ export class DtRemoteModule implements DTModule {
     }
     try {
       const raw = await this.dbOps.getInstantiationAttributes(id, classId);
+      // `null` means no such element node (getInstantiationAttributes returns `{}` for an
+      // element that exists but has no instantiation attributes, `null` only when the MATCH
+      // finds no node). Evaluating a non-existent element against empty input would fabricate a
+      // clean result — this module's contract is to throw for a not-evaluated state, never to
+      // synthesise one — so fail loud before the round trip.
+      if (raw === null) {
+        throw new RemoteModuleUnavailableError(`Element "${id}" was not found for evaluation`);
+      }
       const schema = await this.schemaFor(classId, token); // hard precondition — throws if unobtainable
-      const attributes = stripToSchema(raw ?? {}, schema); // the schema is the allowlist
+      const attributes = stripToSchema(raw, schema); // the schema is the allowlist
       const hash = attributesHash(attributes);
 
       const cached = this.responseCache.getEval(classId, this.pin, hash);

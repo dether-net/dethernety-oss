@@ -7,6 +7,10 @@ import * as path from 'path';
 // package's exports field (resolves to the pure embedding-text bundle,
 // no ESM-only transitive deps).
 import { runEmbed } from '../../../../scripts/module-manager/embed';
+import {
+  classEmbeddingText,
+  hashEmbeddingText,
+} from '../../../../packages/dt-module/src/embedding-text';
 
 type Fetch = typeof fetch;
 
@@ -131,13 +135,14 @@ describe('module-manager embed CLI', () => {
     expect(calls[0].body.model).toBe('nomic-embed-text');
     expect(calls[0].body.input).toHaveLength(3);
 
+    // On-disk shape is now { vector, contentHash }; read the vector field.
     const readVec = (typeDir: string, slug: string): number[] =>
       JSON.parse(
         fs.readFileSync(
           path.join(tmp, 'data', 'mod-opa', typeDir, slug, 'embeddings', 'nomic-embed-text.json'),
           'utf8',
         ),
-      );
+      ).vector;
 
     expect(readVec('component', 'app-server')).toHaveLength(3);
     expect(readVec('component', 'db')).toHaveLength(3);
@@ -287,13 +292,17 @@ describe('module-manager embed CLI', () => {
       logger: silentLogger(),
     });
 
-    const vec = JSON.parse(
+    const parsed = JSON.parse(
       fs.readFileSync(
         path.join(tmp, 'data', 'mod-oa', 'component', 'a', 'embeddings', 'text-embedding-3-small.json'),
         'utf8',
       ),
     );
-    expect(vec).toEqual([0.1, 0.2, 0.3]);
+    expect(parsed.vector).toEqual([0.1, 0.2, 0.3]);
+    // The vector is bound to the class text it was computed from.
+    expect(parsed.contentHash).toBe(
+      hashEmbeddingText(classEmbeddingText({ name: 'A', type: 'PROCESS' }, 'component')),
+    );
   });
 
   it('sends Authorization header when --api-key provided', async () => {

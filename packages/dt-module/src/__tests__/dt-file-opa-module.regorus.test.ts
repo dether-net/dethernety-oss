@@ -382,6 +382,23 @@ describe('fail-loud contract survives the wiring', () => {
     mod.dispose();
   });
 
+  it('throws for a missing element (null attributes) — never fabricates a clean result', async () => {
+    // getInstantiationAttributes returns null only when the element node does not exist.
+    // Reporting that as "no findings" would be a silent false-negative; the same
+    // not-evaluated condition throws in DtRemoteModule, and the two must agree.
+    const { dataDir, paths } = makeModule([COMPONENT]);
+    const mod = buildModule(dataDir, { classPath: paths.web, attributes: null });
+    await mod.getMetadata();
+
+    await expect(mod.getExposures('ghost', 'class')).rejects.toThrow(/not found for evaluation/);
+
+    // An element that exists but has no instantiation attributes arrives as {} and
+    // evaluates normally (no findings because no rule matches empty input).
+    (mod as any).dbOps.getInstantiationAttributes.mockResolvedValue({});
+    expect(await mod.getExposures('inst', 'class')).toEqual([]);
+    mod.dispose();
+  });
+
   it('leaves the module usable after a throwing evaluation', async () => {
     const { dataDir, paths } = makeModule([
       { classType: 'component', slug: 'bad', type: 'PROCESS', rego: WRONG_TYPE_REGO },
@@ -450,8 +467,11 @@ describe('skip paths', () => {
   });
 
   it('returns [] when the element has no instantiation attributes', async () => {
+    // "No instantiation attributes" is `{}` (the Cypher COALESCE map for an existing
+    // element with no IS_INSTANCE_OF edge) — `null` means the element node itself is
+    // missing, which throws (see the missing-element test).
     const { dataDir, paths } = makeModule([COMPONENT]);
-    const mod = buildModule(dataDir, { classPath: paths.web, attributes: null });
+    const mod = buildModule(dataDir, { classPath: paths.web, attributes: {} });
     await mod.getMetadata();
 
     expect(await mod.getExposures('inst', 'class')).toEqual([]);

@@ -1,3 +1,43 @@
+/**
+ * Coerce a neo4j `Integer` to a plain JS value at the graph→policy-engine seam.
+ *
+ * The base library is deliberately driver-agnostic (the driver is typed `any` to avoid a
+ * `neo4j-driver` dependency — see interfaces/module-interface.ts), so the `Integer` is
+ * duck-typed by its shape rather than via `neo4j.isInt`. Real driver values are `Integer`
+ * instances carrying `toNumber`/`inSafeRange`; anything without that shape (strings,
+ * booleans, plain objects, neo4j temporal/spatial types, bare `{low,high}` POJOs that never
+ * occur in production) falls through untouched — never a crash.
+ *
+ * Without this, a lossless `Integer` is `JSON.stringify`-d into Rego as `{"low":8080,"high":0}`.
+ * In Rego's total ordering an object outranks every number, so a rule like `input.port > 1024`
+ * compares object-vs-number and fires for *every* port; `< 1024` never fires. Coercing a
+ * safe-range Integer to a plain number makes numeric policies evaluate correctly and identically
+ * on Neo4j and Memgraph. An out-of-range value (|v| > 2^53 — not reachable for realistic
+ * attributes such as ports) is preserved losslessly as its exact decimal string instead of a
+ * lossy number; a string still mis-orders against a number in Rego, so this only avoids
+ * precision loss, it does not make the (unreachable) out-of-range comparison meaningful.
+ *
+ * Recurses into arrays: only the UI flattens attributes to scalar leaf keys before saving —
+ * non-UI writers (import, direct API) persist native lists, whose Integer elements would
+ * otherwise reach the leaf wrapped in an array and reintroduce the misfire for array-valued
+ * numeric attributes (`input.open_ports[_] > 1024`). Bolt property values are scalars or lists
+ * of scalars, so arrays are the only container to descend.
+ */
+function coerceNeoInt(v: any): any {
+  if (Array.isArray(v)) return v.map(coerceNeoInt);
+  if (
+    v !== null &&
+    typeof v === 'object' &&
+    typeof v.low === 'number' &&
+    typeof v.high === 'number' &&
+    typeof v.toNumber === 'function' &&
+    typeof v.inSafeRange === 'function'
+  ) {
+    return v.inSafeRange() ? v.toNumber() : v.toString();
+  }
+  return v;
+}
+
 export class DbOps {
   private driver: any;
 
@@ -40,9 +80,11 @@ export class DbOps {
       for (let i = 0; i < keys.length; i++) {
         const k = keys[i];
   
-        // If we're at the last key, assign the value.
+        // If we're at the last key, assign the value (coercing neo4j Integers to plain
+        // JS values at this single leaf point — every scalar, nested key and array element
+        // passes through here).
         if (i === keys.length - 1) {
-          current[k] = value;
+          current[k] = coerceNeoInt(value);
         } else {
           // Decide whether the next key is a number (an array index) or a property.
           const nextKey = keys[i + 1];
@@ -83,44 +125,16 @@ export class DbOps {
       return await session
         .run(`MATCH (n) WHERE n.id = $id RETURN n.${attribute} AS ${attribute}`, { id })
         .then((result: any) => {
+          if (result.records.length === 0) {
+            throw new Error(`No node found for id "${id}"`);
+          }
           return result.records[0].get(attribute);
         });
     } catch (error) {
       console.error(`Error getting attribute ${attribute} for node ${id}:`, error);
       throw error;
     } finally {
-      await session.close();
-    } 
-  }
-
-  /**
-   * Gets the attributes of a module.
-   * @param name The name of the module
-   * @returns The attributes
-   */
-  async getModuleAttributes(name: string): Promise<object> {
-    let session: any = null;
-    try {
-      session = this.driver.session();
-      return await session
-        .run(`MATCH (m:Module {name: $name}) RETURN m.attributes AS attributes`, { name })
-        .then((result: any) => {
-          const retValue = result.records[0].get('attributes') as string;
-          if (retValue) {
-            try {
-              return JSON.parse(retValue);
-            } catch (parseError) {
-              console.error(`Invalid JSON in module attributes for ${name}:`, parseError instanceof Error ? parseError.message : String(parseError));
-              return {};
-            }
-          }
-          return {};
-        });
-    } catch (error) {
-      console.error(`Error getting attributes for module ${name}:`, error);
-      throw error;
-    } finally {
-      await session.close();
+      if (session) await session.close();
     }
   }
 
@@ -136,6 +150,9 @@ export class DbOps {
       return await session
         .run(`MATCH (n {id: $id})-[:IS_INSTANCE_OF]->(c) RETURN c.id AS classId`, { id })
         .then((result: any) => {
+          if (result.records.length === 0) {
+            throw new Error(`No class found for node id "${id}"`);
+          }
           return result.records[0].get('classId');
         });
     } catch (error) {
@@ -165,7 +182,7 @@ export class DbOps {
       console.error(`Error getting class ids for nodes ${id}:`, error);
       throw error;
     } finally {
-      await session.close();
+      if (session) await session.close();
     }
   }
 
@@ -191,6 +208,9 @@ export class DbOps {
           { id, classId },
         )
         .then((result: any) => {
+          if (result.records.length === 0) {
+            return null;
+          }
           return this.unflattenProperties(result.records[0].get('attributes').properties);
         });
     } catch (error) {
@@ -199,7 +219,7 @@ export class DbOps {
       }:`, error);
       throw error;
     } finally {
-      await session.close();
+      if (session) await session.close();
     }
   }
 }
