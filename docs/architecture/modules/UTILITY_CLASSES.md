@@ -79,7 +79,7 @@ async getAttribute(id: string, attribute: string): Promise<any>
 - `id` - Node ID
 - `attribute` - Attribute name to retrieve
 
-**Returns:** The attribute value
+**Returns:** The attribute value. Throws a descriptive error (`No node found for id "…"`) when no node matches, rather than surfacing an opaque `TypeError`.
 
 **Example:**
 ```typescript
@@ -91,26 +91,6 @@ const regoPolicies = await dbOps.getAttribute(dtClassId, 'regoPolicies');
 **Cypher Query:**
 ```cypher
 MATCH (n) WHERE n.id = $id RETURN n.{attribute} AS {attribute}
-```
-
----
-
-#### getModuleAttributes()
-
-Retrieves parsed JSON attributes for a module.
-
-```typescript
-async getModuleAttributes(name: string): Promise<object>
-```
-
-**Parameters:**
-- `name` - Module name
-
-**Returns:** Parsed attributes object or empty object
-
-**Cypher Query:**
-```cypher
-MATCH (m:Module {name: $name}) RETURN m.attributes AS attributes
 ```
 
 ---
@@ -148,14 +128,14 @@ async getInstantiationAttributes(id: string, classId: string): Promise<any>
 - `id` - Element node ID
 - `classId` - Class node ID
 
-**Returns:** Unflattened attributes object
+**Returns:** Unflattened attributes object, or `null` when the element node does not exist (a node that exists without an `IS_INSTANCE_OF` edge returns `{}` via the `COALESCE`). neo4j `Integer` values are coerced to plain JS numbers (out-of-range → decimal string) at the leaf, including inside native lists, so numeric policy comparisons evaluate correctly and identically on Neo4j and Memgraph.
 
 **Example:**
 ```typescript
 // Element has IS_INSTANCE_OF relationship to class with properties:
-// { "authentication.enabled": true, "encryption.tls.version": "1.3" }
+// { "authentication.enabled": true, "encryption.tls.version": "1.3", "port": Integer(8080) }
 const attrs = await dbOps.getInstantiationAttributes(componentId, classId);
-// Returns: { authentication: { enabled: true }, encryption: { tls: { version: "1.3" } } }
+// Returns: { authentication: { enabled: true }, encryption: { tls: { version: "1.3" } }, port: 8080 }
 ```
 
 **Cypher Query:**
@@ -170,7 +150,7 @@ RETURN COALESCE(r, {}) AS attributes
 
 #### unflattenProperties()
 
-Converts flat dot-notation properties to nested objects. Handles both object properties and array indices.
+Converts flat dot-notation properties to nested objects. Handles both object properties and array indices, and coerces any neo4j `Integer` leaf value to a plain JS number (out-of-range → decimal string).
 
 ```typescript
 unflattenProperties(obj: any): any
@@ -179,7 +159,7 @@ unflattenProperties(obj: any): any
 **Parameters:**
 - `obj` - Flat object with dot-notation keys
 
-**Returns:** Nested object structure
+**Returns:** Nested object structure with neo4j Integers coerced to plain values
 
 **Example:**
 ```typescript

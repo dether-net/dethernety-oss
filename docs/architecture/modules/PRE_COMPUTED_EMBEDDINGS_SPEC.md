@@ -81,7 +81,7 @@ data/{moduleName}/
         ├── class.json            # existing class definition
         ├── policies.rego         # existing
         └── embeddings/           # this feature
-            └── {modelSlug}.json  # JSON array: [0.01, -0.02, …]
+            └── {modelSlug}.json  # { "vector": [0.01, …], "contentHash": "<sha256>" }
 ```
 
 **JSON layout:**
@@ -94,15 +94,42 @@ data/{moduleName}/
             └── {modelSlug}.json
 ```
 
-File contents are a top-level JSON array of floats — no wrapper, no
-metadata. The filename carries the model identity (slugified so forward
-slashes, backslashes, and whitespace become `-`; e.g.
+File contents are a `{ vector, contentHash }` object: `vector` is the array
+of floats, `contentHash` is the SHA-256 of the class's composed embedding
+text, stamped so the runtime cache can detect a vector left stale by an
+un-regenerated text edit (see [Content-hash binding](#content-hash-binding)).
+The reader also accepts a **legacy bare-array** file (a top-level JSON array,
+the pre-hash format) and serves it unverified — so old caches keep working
+with no mass recompute. The filename carries the model identity (slugified so
+forward slashes, backslashes, and whitespace become `-`; e.g.
 `sentence-transformers/all-MiniLM-L6-v2` →
 `sentence-transformers-all-MiniLM-L6-v2.json`).
 
 **Why per-class, not one big file:** class directories stay self-contained,
 diffs are reviewable per class, and authors can regenerate a single
 class without touching the others.
+
+### Content-hash binding
+
+Each `{ vector, contentHash }` file carries the SHA-256 of the class's composed
+embedding text, so a vector left stale by an un-regenerated text edit (edit a
+class `description` without re-running the CLI) is **detected** instead of
+silently serving the old-text vector into similarity search.
+
+The mechanism rests on one invariant: the writer's stamped hash and the cache's
+recomputed hash must be **byte-identical**. Both sides route through the single
+shared composer `classEmbeddingText(def, classTypeDir)`
+(`composeClassText` + `normalizeClassType`) and hash it with `hashEmbeddingText`
+— the writer over the raw `class.json` fields it read, the cache over the same
+raw fields it reads at load time — so there is no second composition to drift
+against. On a mismatch the cache treats the vector as a **miss** and the runtime
+recomputes it on the fly.
+
+The format is **additive and backward-compatible**: a legacy bare-array file
+(the pre-hash format) has no hash and is served unverified, so existing caches
+keep working and there is no mass recompute when this ships. Newly generated
+files gain the hash and full staleness protection. (This supersedes the earlier
+"deferred — frozen plain-array JSON for v1" position.)
 
 ## Base-class Default
 
@@ -116,13 +143,22 @@ constructor and implements `getEmbedding()` by delegating to
 
 Behavior:
 - Lazy per-model walk: on first lookup for a given model slug, walks the
-  class-type directories, reads the class-definition file to get the
-  canonical `name`, and loads the matching `embeddings/{slug}.json`.
+  class-type directories, reads the class-definition file (`name`,
+  `description`, `category`, `type`), and loads the matching
+  `embeddings/{slug}.json`.
+- For a `{ vector, contentHash }` file, recomputes the class-text hash
+  (`hashEmbeddingText(classEmbeddingText(def, classTypeDir))` — the same
+  composer the writer used) and treats a mismatch as a **cache miss** so the
+  vector is recomputed on the fly. A legacy bare-array file has no hash and is
+  served as-is. A wrapper whose `contentHash` is missing or not a 64-char hex
+  digest is rejected as corrupt (miss).
 - Builds an in-memory `Map<className, number[]>` per model; subsequent
-  lookups are O(1) with no I/O.
-- Returns `null` when the vector file is missing, malformed, oversized
-  (> 8192 dims — a sanity bound), or contains non-finite / non-numeric
-  entries.
+  lookups are O(1) with no I/O. `get()` returns a **copy** so a consumer that
+  normalizes the vector in place cannot corrupt the shared cache.
+- Returns `null` (a cache miss) when the vector file is missing, malformed,
+  oversized (> 8192 dims — a sanity bound), zero-magnitude, or contains
+  non-finite / non-numeric entries. `readVector` never throws — every failure
+  degrades to a recompute.
 
 Constructor:
 ```typescript
@@ -332,27 +368,36 @@ Modules ship a `pnpm embed` alias that reads `EMBEDDING_MODEL` and
    the class-definition file.
 4. Normalizes `type` via `normalizeClassType` (OPA layout only — the
    JSON layout is not normalized).
-5. Composes embedding text via the shared `composeClassText` — byte-
-   equal to what the runtime would produce.
+5. Composes embedding text via the shared `classEmbeddingText`
+   (`composeClassText` + `normalizeClassType`) — byte-equal to what the
+   runtime cache produces, so the stamped content hash matches on read.
 6. Batches the texts at `--batch-size` (default 128) and POSTs to the
    endpoint. Chunking is mandatory, not optional: OpenAI caps around 2048
    inputs, Ollama is RAM-bounded, and the motivating scenario is 1000-
    class modules.
 7. Parses the response via the shared `parseEmbeddingResponse` —
-   supports OpenAI (`{data: [{embedding}]}`), Ollama `/api/embed`
+   supports OpenAI (`{data: [{index, embedding}]}`), Ollama `/api/embed`
    (`{embeddings: [...]}`), and Ollama legacy `/api/embeddings`
-   (`{embedding: [...]}`) formats.
-8. Writes each vector to `{classDir}/embeddings/{modelSlug}.json`,
-   creating the `embeddings/` directory if needed.
+   (`{embedding: [...]}`) formats. Results are ordered by each item's `index`
+   (OpenAI) and validated (every entry a non-empty numeric array, count equal
+   to the request) — a reordered or malformed response throws rather than
+   pairing a class to the wrong vector.
+8. Writes each vector as `{ vector, contentHash }` to
+   `{classDir}/embeddings/{modelSlug}.json`, where
+   `contentHash = hashEmbeddingText(text)` for the same text embedded in
+   step 5, creating the `embeddings/` directory if needed.
 
 ### What the CLI does NOT do
 
 - No retries on HTTP errors. Build-time tools fail loudly; rerun after
-  fixing the endpoint.
+  fixing the endpoint. (Response *shape and count* are validated — a
+  malformed batch throws — but that is not a retry.)
 - No dimension validation against an expected value. The platform
   validates at install time.
 - No stale-file cleanup for removed classes. `rm -rf` the module's
   `embeddings/` directories before regenerating if class names churn.
+  (A vector left stale by a *text* edit no longer needs cleanup: the
+  content hash makes the runtime cache detect it and recompute.)
 - Does not instantiate the compiled module. The CLI reads JSON files
   directly — the `DtFileOpaModule` constructor needs a live Bolt
   driver, and `getMetadata()` eagerly registers every policy in the
@@ -362,11 +407,13 @@ Modules ship a `pnpm embed` alias that reads `EMBEDDING_MODEL` and
 ### Shared helpers
 
 [`packages/dt-module/src/embedding-text.ts`](../../../packages/dt-module/src/embedding-text.ts)
-exports `composeClassText`, `parseEmbeddingResponse`,
-`slugifyModelName`, and `normalizeClassType`. Both `EmbeddingService`
-(in dt-ws) and the CLI (in scripts) import from this one file. The
-sub-path export `@dethernety/dt-module/embedding` keeps the HTTP
-response parser out of the `dt-ui` bundle.
+exports `composeClassText`, `classEmbeddingText`, `hashEmbeddingText`,
+`parseEmbeddingResponse`, `slugifyModelName`, and `normalizeClassType`.
+Both `EmbeddingService` (in dt-ws) and the CLI (in scripts) import from this
+one file, and the CLI writer and the cache reader both go through
+`classEmbeddingText`/`hashEmbeddingText` so the stamped and recomputed hashes
+are byte-identical. The sub-path export `@dethernety/dt-module/embedding`
+keeps the HTTP response parser out of the `dt-ui` bundle.
 
 **Layering:** `oss/scripts/` cannot depend on `dt-ws`; it depends on
 `@dethernety/dt-module`. The shared-helper extraction is what makes the
@@ -434,10 +481,6 @@ model.
 - **Automatic regeneration on `pnpm build`.** Would couple the build to
   the network and defeat the whole point. Regeneration is an explicit
   author action (`pnpm embed`).
-- **Content-hash sidecar to detect text drift.** Deferred — the shared
-  `composeClassText` helper plus the CLI-runtime byte-equality at the
-  source close most of the drift risk. Revisit if production evidence
-  justifies it. The file format is frozen plain-array JSON for v1.
 - **`DtLgModule`.** Its analysis classes are derived from the LangGraph
   server rather than from on-disk class definitions; where pre-computed
   vectors would come from is a separate design. v1 is file-based modules

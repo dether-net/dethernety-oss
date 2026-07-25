@@ -774,15 +774,21 @@ Calling the shell wrapper directly works too when you need ad-hoc flags:
 2. Auto-detects the layout — V2 OPA (`component/`, `dataFlow/`,
    `securityBoundary/`, `control/`, `data/` with `class.json`) or JSON
    (`ComponentClasses/` etc. with `metadata.json`).
-3. For each class, composes embedding text using the **same** helper
-   (`composeClassText`) the runtime uses — same formula, same
-   type-normalization — so pre-computed vectors score identically to
-   on-the-fly vectors.
+3. For each class, composes embedding text using the **same** shared helper
+   (`classEmbeddingText`, wrapping `composeClassText` + `normalizeClassType`)
+   the runtime cache uses — same formula, same type-normalization — so
+   pre-computed vectors score identically to on-the-fly vectors *and* the
+   content hash the writer stamps matches the one the cache recomputes.
 4. POSTs chunked batches (`--batch-size`, default 128) to the configured
    endpoint. Supports OpenAI, Ollama `/api/embed`, and Ollama legacy
-   `/api/embeddings` response formats.
-5. Writes each vector to
-   `{classDir}/embeddings/{modelSlug}.json` as a JSON array of floats.
+   `/api/embeddings` response formats; the response is validated (each entry
+   a non-empty numeric array, count matches the request) and, for OpenAI,
+   ordered by each item's `index` before being paired to its class.
+5. Writes each vector to `{classDir}/embeddings/{modelSlug}.json` as a
+   `{ "vector": [...], "contentHash": "<sha256>" }` object. The hash binds the
+   vector to the class text it was computed from, so the runtime cache can
+   detect (and recompute) a vector left stale by an un-regenerated text edit.
+   Older bare-array files remain readable (served unverified).
 
 ### CLI flags
 
@@ -793,9 +799,13 @@ Calling the shell wrapper directly works too when you need ad-hoc flags:
 | `--api-key` | no | Bearer token for the endpoint. |
 | `--batch-size` | no (default 128) | Classes per POST. Endpoints cap input list size — 128 works for Ollama and stays well under OpenAI's 2048 limit. |
 
-The CLI deliberately does not retry on API failure, does not validate
-vector dimensions, and does not delete stale vectors. Rerun after fixing
-the endpoint; `rm -rf data/<name>/*/*/embeddings/` to start clean.
+The CLI deliberately does not retry on API failure and does not validate
+vector dimensions against the model (the platform does that at install
+time). It does validate response shape and count, and it does not delete
+stale vectors — but a stale vector no longer poisons search: the content
+hash lets the runtime cache detect the mismatch and recompute on the fly.
+Rerun after fixing the endpoint; `rm -rf data/<name>/*/*/embeddings/` to
+start clean.
 
 ### Model switching
 
