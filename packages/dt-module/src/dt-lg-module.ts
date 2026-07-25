@@ -10,30 +10,8 @@ import { DtLgDocumentOps } from './dt-lg-document-ops';
 import { readSchemaExtension } from './schema-utils';
 import { deriveAnalysisClassId } from './identity';
 
-/**
- * Default template for LangGraph modules.
- * Provides configuration schema for the LangGraph API URL.
- */
-const DEFAULT_LG_TEMPLATE = `{
-  "schema": {
-    "type": "object",
-    "properties": {
-      "langgraph_api_url": {
-        "type": "string",
-        "format": "uri"
-      }
-    }
-  },
-  "uischema": {
-    "type": "VerticalLayout",
-    "elements": [
-      {
-        "type": "Control",
-        "scope": "#/properties/langgraph_api_url"
-      }
-    ]
-  }
-}`;
+/** Default timeout (ms) for LangGraph control-plane requests (see LgModuleOptions.langgraphTimeoutMs). */
+const DEFAULT_LG_TIMEOUT_MS = 30_000;
 
 /**
  * Base class for LangGraph-based Dethernety modules.
@@ -86,9 +64,6 @@ export class DtLgModule implements DTModule {
   /** Cached analysis class metadata from LangGraph assistants */
   protected readonly assistants: AnalysisClassMetadata[] = [];
 
-  /** Custom module template, if provided */
-  protected readonly customTemplate?: string;
-
   /** Module metadata (description, version, author, icon) */
   protected readonly metadata: LgModuleMetadata;
 
@@ -116,14 +91,22 @@ export class DtLgModule implements DTModule {
     this.driver = driver;
     this.logger = logger;
     this.analysisConfig = options.analysisConfig;
-    this.customTemplate = options.moduleTemplate;
     this.metadata = options.metadata;
 
     const apiUrl = options.langgraphApiUrl
       || process.env.LANGGRAPH_API_URL
       || 'http://localhost:8123';
 
-    this.client = new Client({ apiUrl });
+    // Bound control-plane requests (assistant/thread/run metadata at install, boot and
+    // status polls) so a reachable-but-wedged LangGraph server fails fast instead of hanging boot.
+    // `||` (not `??`) so a 0/NaN can never disable the timeout. The result stream is exempt
+    // — the SDK's streamWithRetry passes timeoutMs:null for runs.stream — so long analyses
+    // are unaffected.
+    const timeoutMs = options.langgraphTimeoutMs
+      || Number(process.env.LANGGRAPH_TIMEOUT_MS)
+      || DEFAULT_LG_TIMEOUT_MS;
+
+    this.client = new Client({ apiUrl, timeoutMs });
 
     // Initialize helper classes
     this.analysisOps = new DtLgAnalysisOps(this.client, this.analysisConfig, logger);
@@ -259,17 +242,10 @@ export class DtLgModule implements DTModule {
   // DTModule Interface - Public methods
   // ==========================================================================
 
-  /**
-   * Returns the module configuration template.
-   *
-   * Override this method to provide a custom template.
-   * Default template includes LangGraph API URL configuration.
-   *
-   * @returns Promise resolving to JSON template string
-   */
-  async getModuleTemplate(): Promise<string> {
-    return this.customTemplate || DEFAULT_LG_TEMPLATE;
-  }
+  // No getModuleTemplate: the only module-wide setting ever offered was the LangGraph API
+  // URL, which the constructor resolves from options/env — the template field was never
+  // wired to it. The platform's template resolver answers its documented fallback for
+  // modules without one (same pattern as DtFileOpaModule).
 
   /**
    * Runs an analysis using the specified analysis class.
@@ -378,12 +354,31 @@ export class DtLgModule implements DTModule {
   }
 
   /**
+   * Explicitly stops an in-flight analysis run, cancelling its result stream.
+   *
+   * The run's server-side lifecycle is decoupled (`onDisconnect: 'continue'`), so this
+   * cancels the observation stream and stops publishing for the session; it does not by
+   * itself delete the thread. Returns true if a live run was found and aborted.
+   */
+  async stopAnalysis(id: string): Promise<boolean> {
+    return this.analysisOps.stopRun(id);
+  }
+
+  /**
    * Gets the current status of an analysis session.
    *
    * Delegates to DtLgAnalysisOps for the actual implementation.
    */
   async getAnalysisStatus(id: string): Promise<AnalysisStatus> {
     return this.analysisOps.getStatus(id);
+  }
+
+  /**
+   * Best-effort teardown when the platform discards this module instance (reload/replace).
+   * Aborts every in-flight run so a superseded instance's streams stop publishing.
+   */
+  dispose(): void {
+    this.analysisOps.abortAll();
   }
 
   /**

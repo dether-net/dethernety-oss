@@ -62,12 +62,46 @@ interface Message {
  * ```
  */
 export class DtLgAnalysisOps {
+  /**
+   * One AbortController per in-flight run, keyed by sessionId. The single owner of run
+   * cancellation: `startStream` registers on start and clears in `finally`; `stopRun`,
+   * `deleteSession` and `abortAll` cancel through it. Its `has(sessionId)` also lets a new
+   * run supersede an active one on the same session (no interleave on the shared channel).
+   */
+  private readonly runs = new Map<string, AbortController>();
+
   constructor(
     private readonly client: Client,
     private readonly config: LgAnalysisConfig,
     private readonly logger: Logger
   ) {
     this.logger.log('DtLgAnalysisOps initialized');
+  }
+
+  /**
+   * Abort the in-flight run for a session, if any, and drop its registry entry.
+   * @returns true if a live run was found and aborted.
+   */
+  private abortRun(id: string): boolean {
+    const controller = this.runs.get(id);
+    if (!controller) return false;
+    controller.abort();
+    this.runs.delete(id);
+    return true;
+  }
+
+  /**
+   * Explicitly cancel an in-flight run (backs DtLgModule.stopAnalysis). The run's server-side
+   * lifecycle is decoupled; this stops the observation stream and its publishing.
+   */
+  stopRun(id: string): boolean {
+    return this.abortRun(id);
+  }
+
+  /** Abort every in-flight run and clear the registry (backs DtLgModule.dispose). */
+  abortAll(): void {
+    for (const controller of this.runs.values()) controller.abort();
+    this.runs.clear();
   }
 
   // ==========================================================================
@@ -106,6 +140,9 @@ export class DtLgAnalysisOps {
    * @returns Promise resolving to true if deleted, false otherwise
    */
   async deleteSession(id: string): Promise<boolean> {
+    // Abort any in-flight run for this session BEFORE tearing down the thread, so the
+    // stream loop breaks and stops publishing to a session that is about to be deleted.
+    this.abortRun(id);
     try {
       await this.client.threads.delete(id);
       this.logger.debug('Analysis session deleted', { sessionId: id });
@@ -317,15 +354,25 @@ export class DtLgAnalysisOps {
    * @returns Promise resolving to analysis status
    */
   async getStatus(sessionId: string): Promise<AnalysisStatus> {
+    // Read-only existence probe. A status poll must NEVER create the thread — the old
+    // create-on-read re-materialised a just-deleted session as an empty-scope zombie. A
+    // missing/unreachable thread is reported as a benign not-started status (maps to the
+    // UI's "ready" phase), not 'failed', which would render a spurious error/retry state.
+    let thread: unknown;
     try {
-      // Ensure session exists
-      await this.createSession(sessionId, '');
+      thread = await this.client.threads.get(sessionId);
+    } catch (error) {
+      this.logger.debug('Analysis session not found on status probe', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.notFoundStatus();
+    }
+    if (!thread) {
+      return this.notFoundStatus();
+    }
 
-      const thread = await this.client.threads.get(sessionId);
-      if (!thread) {
-        throw new Error(`Analysis session ${sessionId} not found`);
-      }
-
+    try {
       const state = await this.client.threads.getState(sessionId);
 
       let messages: any[] = [];
@@ -444,6 +491,12 @@ export class DtLgAnalysisOps {
     pubSub: ExtendedPubSubEngine,
     streamMode: string
   ): Promise<boolean> {
+    // Register a cancellable handle for this run. A new run on the same session SUPERSEDES
+    // any active one (abort it first) so two runs never interleave on the one streamResponse
+    // channel. stopRun/deleteSession/abortAll cancel through this controller.
+    const controller = new AbortController();
+    this.runs.get(sessionId)?.abort();
+    this.runs.set(sessionId, controller);
     try {
       // Durable runs: keep the run executing if the observing stream
       // disconnects. The create-and-stream endpoint defaults on_disconnect
@@ -453,10 +506,11 @@ export class DtLgAnalysisOps {
       // refreshed. "continue" decouples the run lifecycle from this
       // observation stream; progress is still recoverable via thread-state
       // polling and a re-attached /stream join. Callers may override.
+      // `signal` is last so payload can never clobber it — aborting it cancels this stream.
       const streamResponse = await this.client.runs.stream(
         sessionId,
         assistantId,
-        { onDisconnect: 'continue', ...payload }
+        { onDisconnect: 'continue', ...payload, signal: controller.signal }
       );
 
       // A run that fails INSIDE the graph is delivered as a yielded `error`
@@ -467,6 +521,12 @@ export class DtLgAnalysisOps {
       let streamError: string | null = null;
 
       for await (const chunk of streamResponse) {
+        // A chunk can arrive buffered just as an abort (stop/delete/supersede) fires — the SDK
+        // may resolve a read() with a value before the abort propagates. Stop before publishing
+        // it, so no content chunk leaks to a torn-down session or interleaves onto a superseding
+        // run's channel (both share this sessionId).
+        if (controller.signal.aborted) break;
+
         const typedChunk = chunk as AnalysisChunk;
 
         if (typedChunk.event === 'error') {
@@ -480,7 +540,7 @@ export class DtLgAnalysisOps {
           for (const message of typedChunk.data) {
             if (message?.content !== undefined && message.type === 'AIMessageChunk') {
               pubSub.publish('streamResponse', {
-                streamResponse: message,
+                streamResponse: this.projectMessage(message),
                 sessionId,
               });
             }
@@ -492,7 +552,7 @@ export class DtLgAnalysisOps {
           for (const message of messages) {
             if (message?.content !== undefined) {
               pubSub.publish('streamResponse', {
-                streamResponse: message,
+                streamResponse: this.projectMessage(message),
                 sessionId,
               });
             }
@@ -503,17 +563,27 @@ export class DtLgAnalysisOps {
       // Terminal event: the stream ended. Report 'error' if the run failed
       // in-graph, else 'complete'. Subscribers otherwise receive only content
       // chunks and never learn the run finished.
+      // Skip when this run was aborted (stop/delete/supersede): the session may be gone or
+      // owned by a newer run, so a terminal frame here would be a publish-after-delete.
       if (streamError) {
         this.logger.error('Analysis run errored in-graph', { sessionId, error: streamError });
       }
-      pubSub.publish('streamResponse', {
-        streamResponse: streamError
-          ? this.makeTerminalChunk('error', streamError)
-          : this.makeTerminalChunk('complete'),
-        sessionId,
-      });
+      if (!controller.signal.aborted) {
+        pubSub.publish('streamResponse', {
+          streamResponse: streamError
+            ? this.makeTerminalChunk('error', streamError)
+            : this.makeTerminalChunk('complete'),
+          sessionId,
+        });
+      }
       return !streamError;
     } catch (error) {
+      // An intentional abort surfaces here as an AbortError when it interrupts an in-flight
+      // read. It is a cancellation, not a failure — do not log-as-error or publish to a
+      // session that is being torn down or superseded.
+      if (controller.signal.aborted) {
+        return false;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('Stream failed', { sessionId, error: message });
       // Terminal event: surface the failure so subscribers stop waiting.
@@ -522,6 +592,11 @@ export class DtLgAnalysisOps {
         sessionId,
       });
       return false;
+    } finally {
+      // Only clear our own entry — a superseding run may already own this session's slot.
+      if (this.runs.get(sessionId) === controller) {
+        this.runs.delete(sessionId);
+      }
     }
   }
 
@@ -549,6 +624,46 @@ export class DtLgAnalysisOps {
    * An error's human detail rides on `additional_kwargs.error` instead, where a
    * type-aware consumer reads it after branching on `type === 'error'`.
    */
+  /**
+   * A benign "no such run" status for a missing/unreachable thread. An empty `status` maps to
+   * the UI's "ready" phase (the analysis can be run) and triggers neither the flow dialog's
+   * `'idle'`→navigate-to-results branch nor its error icon — unlike `'failed'`, which would
+   * render a spurious error/retry state for a session that simply does not exist.
+   */
+  private notFoundStatus(): AnalysisStatus {
+    return {
+      createdAt: '',
+      updatedAt: '',
+      status: '',
+      hasDocument: false,
+      interrupts: {},
+      messages: [],
+      metadata: {},
+    };
+  }
+
+  /**
+   * Project a streamed LangGraph message to the canonical AIResponse field set before it
+   * crosses the pubSub trust boundary. Drops `response_metadata` and any other backend/LLM
+   * internals (model name, token usage, system fingerprint, logprobs) that the raw message
+   * carries verbatim. This is exactly the field set makeTerminalChunk and the dt-ws
+   * null-fallback already use, so content chunks and terminals stay shape-consistent.
+   */
+  private projectMessage(msg: any): Record<string, unknown> {
+    return {
+      content: msg?.content ?? '',
+      id: msg?.id ?? '',
+      type: msg?.type,
+      name: msg?.name ?? null,
+      example: msg?.example ?? false,
+      additional_kwargs: msg?.additional_kwargs ?? {},
+      tool_calls: msg?.tool_calls ?? [],
+      invalid_tool_calls: msg?.invalid_tool_calls ?? [],
+      usage_metadata: msg?.usage_metadata ?? {},
+      tool_call_chunks: msg?.tool_call_chunks ?? [],
+    };
+  }
+
   private makeTerminalChunk(type: 'complete' | 'error', errorMessage = ''): Record<string, unknown> {
     return {
       content: '',

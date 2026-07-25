@@ -659,9 +659,9 @@ Constructor options for `DtLgModule`.
 ```typescript
 export interface LgModuleOptions {
   langgraphApiUrl?: string;         // LangGraph API URL
+  langgraphTimeoutMs?: number;      // Control-plane request timeout (default 30000; the run stream is exempt)
   analysisConfig: LgAnalysisConfig; // Graph configurations
   metadata: LgModuleMetadata;       // Module metadata
-  moduleTemplate?: string;          // Custom template JSON
 }
 ```
 
@@ -737,7 +737,7 @@ async getMetadata(): Promise<DTMetadata>
 
 **Optional.** Returns a JSON string containing the JSON Schema and UI Schema for module-wide configuration. A module implements it only if it has genuine module-wide settings to expose; when a module does not define it, the platform's template resolver returns its documented fallback.
 
-`DtFileOpaModule` does **not** implement `getModuleTemplate()`: Rego policies evaluate in-process and need no configuration, so there is no module-wide setting to surface.
+`DtFileOpaModule` does **not** implement `getModuleTemplate()`: Rego policies evaluate in-process and need no configuration, so there is no module-wide setting to surface. `DtLgModule` likewise does not: its only conceivable module-wide setting (the LangGraph API URL) is resolved from constructor options/environment, not from a template.
 
 ```typescript
 getModuleTemplate?(): Promise<string>
