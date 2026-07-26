@@ -16,9 +16,9 @@
   },
   "dependencies": {
     "@dethernety/dt-module": "workspace:*",
-    "@nestjs/common": "^11.1.27"
+    "@nestjs/common": "^11.1.28"
   },
   "devDependencies": {
-    "@types/node": "^25.9.4"
+    "@types/node": "^25.9.5"
   }
 }
