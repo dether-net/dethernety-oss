@@ -32,7 +32,7 @@
     "CLAUDE.md"
   ],
   "dependencies": {
-    "@apollo/client": "^4.2.3",
+    "@apollo/client": "^4.2.8",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cross-fetch": "^4.1.0",
     "graphql": "^16.14.2",
@@ -42,10 +42,10 @@
   },
   "devDependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@types/node": "^25.9.4",
+    "@types/node": "^25.9.5",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   },
   "license": "AGPL-3.0-only",
   "engines": {
