@@ -21,8 +21,14 @@ function makeStubConfigService(): ConfigService {
   } as unknown as ConfigService;
 }
 
-function buildFactory(decodeReturn: any) {
-  const jwtAuthGuard = { decodeUserFromAuthHeader: jest.fn().mockResolvedValue(decodeReturn) } as any;
+function buildFactory(decodeReturn: any, allowlisted = true) {
+  const jwtAuthGuard = {
+    decodeUserFromAuthHeader: jest.fn().mockResolvedValue(decodeReturn),
+    // The factory gates on the allowlist as well as the decode (see its own
+    // comment). The stub predates that gate and omitted this, which made every
+    // decode-succeeds case throw rather than assert.
+    assertAllowlisted: jest.fn().mockReturnValue(allowlisted),
+  } as any;
   const neo4jDriver = { marker: 'driver' } as any;
   const factory = createGraphQLContextFactory({
     configService: makeStubConfigService(),
@@ -38,7 +44,11 @@ describe('createGraphQLContextFactory', () => {
 
     const ctx = await factory({ req: { headers: { authorization: 'Bearer not-a-real-token' } } });
 
-    expect(ctx.token).toBe('not-a-real-token'); // raw string retained on `token`
+    // `token` is cleared too, not just jwt/user. This assertion previously
+    // expected the raw string to be retained, which was the pre-allowlist
+    // behaviour. (The allowlist gate itself is exercised below; here the
+    // decode simply fails, so all three are empty either way.)
+    expect(ctx.token).toBeUndefined();
     expect(ctx.jwt).toBeUndefined(); // MUST NOT be the raw string
     expect(ctx.jwt).not.toBe('not-a-real-token');
     expect(ctx.user).toBeUndefined();
@@ -53,6 +63,25 @@ describe('createGraphQLContextFactory', () => {
     expect(ctx.jwt).toBe(payload);
     expect(ctx.user).toBe(payload);
     expect(ctx.token).toBe('good.token.here'); // stripped raw string
+  });
+
+  it('a validated-but-unlisted caller has token, jwt AND user all cleared', async () => {
+    // The gate that makes DEPLOYMENT_ALLOWLIST real on the GraphQL path. The
+    // decode succeeds here, so only assertAllowlisted can clear the context —
+    // without this test, deleting the allowlist check entirely leaves every
+    // other case in this file green.
+    const payload = { sub: 'unlisted-user' };
+    const { factory, jwtAuthGuard } = buildFactory(payload, false);
+
+    const ctx = await factory({ req: { headers: { authorization: 'Bearer good.token.here' } } });
+
+    expect(jwtAuthGuard.assertAllowlisted).toHaveBeenCalledWith(payload);
+    // `token` in particular: @authentication re-verifies a raw bearer by
+    // signature alone as a fallback, so leaving it would authenticate the
+    // caller the allowlist just rejected.
+    expect(ctx.token).toBeUndefined();
+    expect(ctx.jwt).toBeUndefined();
+    expect(ctx.user).toBeUndefined();
   });
 
   it('no Authorization header yields token/jwt/user undefined but a usable driver context', async () => {

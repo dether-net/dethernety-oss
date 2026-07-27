@@ -24,7 +24,7 @@ This guide covers all environment variables for the Dethernety platform. The bac
 | `NEO4J_PASSWORD` | String | — | Database password. **Required.** |
 | `NEO4J_DATABASE` | String | — | Database name. Unset = the server's default database (works on both Neo4j and Memgraph; Memgraph rejects sessions that name a database it doesn't have). |
 | `NEO4J_ENCRYPTED` | Boolean | `true` | Enable TLS encryption |
-| `NEO4J_TRUST_CERT` | Boolean | `false` | Trust self-signed certificates. Must be `false` in production. |
+| `NEO4J_TRUST_CERT` | Boolean | `false` | Disable TLS certificate verification — accepts **any** certificate, including expired, wrong-hostname and self-signed. Must be `false` in production. |
 
 Boolean variables accept only `true`/`false` (case-insensitive); any other value — including `1`, `yes`, `on` — parses as `false`.
 
@@ -245,7 +245,7 @@ The following variables are validated as **required** when `NODE_ENV=production`
 | `ALLOWED_ORIGINS` | CORS security |
 
 Additionally, the following are enforced in production:
-- `NEO4J_TRUST_CERT` must be `false` (no self-signed certificates)
+- `NEO4J_TRUST_CERT` must be `false` (certificate verification stays on)
 - `ENABLE_MODULE_HOT_RELOAD` should be `false`
 - `DEBUG_AUTH` and `ENABLE_DEV_TOOLS` are not served to the frontend
 

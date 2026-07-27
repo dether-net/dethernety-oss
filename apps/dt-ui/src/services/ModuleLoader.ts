@@ -64,9 +64,10 @@ export class ModuleLoader {
         console.log(`Module loading completed. Successfully loaded: ${this.loadedModules.size}`)
       }
     } catch (error) {
-      if (import.meta.env.DEV) {
-        console.error('Failed to load available modules:', error)
-      }
+      // Always logged, in every build. A module-loading failure produces an
+      // app that looks completely healthy and simply has no features, so a
+      // DEV-only log means nobody finds out.
+      console.error('Failed to load available modules:', error)
     }
   }
 
@@ -109,8 +110,10 @@ export class ModuleLoader {
           if (import.meta.env.DEV) {
             console.log(`Module ${config.name} loaded successfully`)
           }
-        } else if (import.meta.env.DEV) {
-          console.warn(`Module ${config.name} does not have an install function`, module)
+        } else {
+          // Not DEV-gated: a bundle that loads but installs nothing is the same
+          // "app works but has no modules" failure as the catch below.
+          console.error(`Module ${config.name} does not have an install function`, module)
         }
       } finally {
         // Clean up the blob URL to free memory
@@ -118,9 +121,10 @@ export class ModuleLoader {
       }
 
     } catch (error) {
-      if (import.meta.env.DEV) {
-        console.error(`Failed to load module ${config.name}:`, error)
-      }
+      // See loadAvailableModules: never silence this. A CSP that blocks the
+      // blob: import, a bad bundle, or a missing host dependency all land
+      // here, and all of them present as "the app works but has no modules".
+      console.error(`Failed to load module ${config.name}:`, error)
     }
   }
 

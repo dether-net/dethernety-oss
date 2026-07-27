@@ -42,14 +42,12 @@ export default defineConfig(({ mode }) => {
           configFile: 'src/styles/settings.scss',
         },
       }) as any,
-      Fonts({
-        google: {
-          families: [{
-            name: 'Roboto',
-            styles: 'wght@100;300;400;500;700;900',
-          }],
-        },
-      }) as any,
+      // No `google:` block. It injected a stylesheet link to fonts.googleapis
+      // plus an inline onload handler — three CSP violations on every page
+      // load, and a third-party request from a deployment that may be
+      // air-gapped. Roboto is now imported from the bundled roboto-fontface
+      // package in plugins/vuetify.ts instead, so the typeface is unchanged.
+      Fonts() as any,
     ],
     define: { 'process.env': {} },
     resolve: {

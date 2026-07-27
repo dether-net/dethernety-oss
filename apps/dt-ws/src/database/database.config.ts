@@ -67,7 +67,11 @@ export class DatabaseConfig {
   @IsOptional()
   @IsBoolean()
   @Transform(parseBooleanEnv)
-  trust?: boolean = false; // Trust self-signed certificates (only for dev)
+  // Named for what it does, not what it is called on the wire: enabling this
+  // makes the driver accept ANY certificate, i.e. it DISABLES verification.
+  // Backed by NEO4J_TRUST_CERT, whose name is a documented public surface and
+  // is deliberately unchanged.
+  trustSelfSignedCerts?: boolean = false; // dev only
 
   // Monitoring Settings
   @IsOptional()
@@ -114,7 +118,7 @@ export const databaseConfig = registerAs('database', (): DatabaseConfig => {
     maxConnectionLifetime: process.env.NEO4J_MAX_CONNECTION_LIFETIME ? parseInt(process.env.NEO4J_MAX_CONNECTION_LIFETIME) : undefined,
     maxTransactionRetryTime: process.env.NEO4J_MAX_RETRY_TIME ? parseInt(process.env.NEO4J_MAX_RETRY_TIME) : undefined,
     encrypted: process.env.NEO4J_ENCRYPTED,
-    trust: process.env.NEO4J_TRUST_CERT,
+    trustSelfSignedCerts: process.env.NEO4J_TRUST_CERT,
     enableMetrics: process.env.NEO4J_ENABLE_METRICS,
     enableLogging: process.env.NEO4J_ENABLE_LOGGING,
     healthCheckInterval: process.env.NEO4J_HEALTH_CHECK_INTERVAL ? parseInt(process.env.NEO4J_HEALTH_CHECK_INTERVAL) : undefined,

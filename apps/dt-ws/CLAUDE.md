@@ -18,8 +18,8 @@ pnpm generate:noauth-schema  # Generate auth-disabled GraphQL schema variant
 
 - 1MB JSON/URL-encoded request limit
 - Global ValidationPipe: whitelist, forbid non-whitelisted, transform
-- Security headers (CSP, HSTS, X-Frame-Options) in production only
-- Dynamic CORS with OIDC domain support
+- Security headers in **all** environments; HSTS production-only. Built by `src/common/middleware/security-headers.ts` (registered first, so preflights and body-parser rejections are covered too) and documented in `docs/SECURITY_MODEL.md`. `SECURITY_HEADERS_CSP=enforce|report-only|off` adjusts CSP delivery at runtime
+- Dynamic CORS (`ALLOWED_ORIGINS` in production, permissive otherwise). The OIDC origins feed `connect-src` in the CSP, not CORS
 - Graceful shutdown on SIGTERM/SIGINT
 - Log levels: production (error/warn/log), dev (all including debug/verbose)
 

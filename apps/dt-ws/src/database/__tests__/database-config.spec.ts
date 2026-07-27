@@ -47,7 +47,7 @@ describe('databaseConfig factory', () => {
     expect(config.encrypted).toBe(true);
     expect(config.enableMetrics).toBe(true);
     expect(config.enableLogging).toBe(true);
-    expect(config.trust).toBe(false);
+    expect(config.trustSelfSignedCerts).toBe(false);
     expect(config.enableDebug).toBe(false);
   });
 
@@ -58,7 +58,7 @@ describe('databaseConfig factory', () => {
     const config = databaseConfig();
     expect(config.encrypted).toBe(true);
     expect(config.enableMetrics).toBe(false);
-    expect(config.trust).toBe(true);
+    expect(config.trustSelfSignedCerts).toBe(true);
   });
 
   it('unset numeric env vars keep the class defaults (the undefined-wipe regression)', () => {

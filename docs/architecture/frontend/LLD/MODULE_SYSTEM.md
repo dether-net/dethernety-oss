@@ -879,7 +879,7 @@ capability sandbox to rely on.
 | Malicious / untrusted module code | Backend module allowlist + source validation in production ("only load modules you trust") |
 | Unauthorized data access or mutation | Server-side authorization on every GraphQL request (per-request JWT) — the same control that governs the host UI |
 | Raw refresh-token theft | `authStore` not exposed (module can still make authenticated requests, but cannot read the raw token) |
-| XSS via module | CSP headers, module content review |
+| XSS via module | Module allowlist, module content review. **Not** the CSP — it deliberately permits `blob:` so module bundles can execute (see [SECURITY_MODEL.md](../../../SECURITY_MODEL.md)) |
 | Memory leaks | Blob URL cleanup in finally block |
 
 ### Production Configuration
