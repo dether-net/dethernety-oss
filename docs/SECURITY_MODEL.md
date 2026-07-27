@@ -69,18 +69,60 @@ A global NestJS validation pipe runs on all incoming requests with `whitelist: t
 
 ### HTTP security headers
 
-The backend sets the following headers on all responses:
+The backend sets the following headers, in every environment:
 
-| Header | Value |
-|--------|-------|
-| Content-Security-Policy | `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'` |
-| Strict-Transport-Security | `max-age=31536000; includeSubDomains` |
-| X-Frame-Options | `DENY` |
-| X-Content-Type-Options | `nosniff` |
-| Referrer-Policy | `strict-origin-when-cross-origin` |
-| Permissions-Policy | `camera=(), microphone=(), geolocation=()` |
+| Header | Value | Applies |
+|--------|-------|---------|
+| Content-Security-Policy | `default-src 'self'; script-src 'self' blob: 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' <OIDC origins>; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'none'` | always, except the GraphQL playground page (see below) |
+| X-Frame-Options | `DENY` | always |
+| X-Content-Type-Options | `nosniff` | always |
+| Referrer-Policy | `strict-origin-when-cross-origin` | always |
+| Permissions-Policy | `geolocation=(), microphone=(), camera=()` | always |
+| Strict-Transport-Security | `max-age=31536000; includeSubDomains` | production only |
 
-**Known trade-off:** The CSP includes `'unsafe-inline'` for `style-src` because Vuetify (the UI framework) injects inline styles at runtime. Removing this would require a Vuetify configuration change or a nonce-based CSP approach.
+`connect-src` is assembled at startup from `OIDC_ISSUER` and `OIDC_DOMAIN`, so the
+identity provider's origin is permitted without widening the policy for anything else.
+
+**HSTS is deliberately production-only.** Asserting it from a deployment reachable over
+plain HTTP achieves nothing, and pins the hostname if that host later gets TLS. Every
+other header applies everywhere, including single-host and self-hosted installs.
+
+**Known trade-offs.** Three directives are wider than they look, each for a concrete
+reason:
+
+- `'unsafe-inline'` in `style-src`, because Vuetify injects inline styles at runtime.
+  Removing it would need a Vuetify configuration change or a nonce-based policy.
+- `blob:` in `script-src`, because the frontend loads each module's UI bundle by
+  importing a blob URL. This is a real weakening — the application executes
+  server-supplied JavaScript by design — and the durable fix is to serve bundles from a
+  same-origin URL, which requires the bundle route to stop requiring a bearer token.
+  Without `blob:` the application loads with no module UIs at all.
+- `'unsafe-eval'` in `script-src`, because the dynamic-form layer compiles JSON Schema
+  validators with the `Function` constructor at runtime. Schemas arrive from modules at
+  runtime, so they cannot be precompiled during the build, and the validator is not
+  pluggable. Without it, every schema-driven form — element attributes, module
+  configuration, issue detail — fails while being constructed and renders empty.
+
+What the policy still buys with those three in place: no external script hosts, no
+inline `<script>`, no plugins or objects, no framing, no off-origin form submission, and
+network access restricted to the application's own origin plus the identity provider.
+
+`worker-src 'none'` is explicit because `worker-src` falls back to `script-src`, which
+would otherwise inherit `blob:` and permit blob-backed workers. The application uses
+none.
+
+**The GraphQL playground page**, served only when the playground is enabled, is exempt
+from the CSP header alone. It ships a nonce-less inline script and loads its bundle from
+a CDN, so admitting it would require `'unsafe-inline'` on every other route. The
+remaining headers still apply to it. The exemption follows the playground's own
+configuration flag, so it cannot outlive the page it exists for.
+
+**`SECURITY_HEADERS_CSP`** controls delivery of the CSP only: `enforce` (default),
+`report-only` (send `Content-Security-Policy-Report-Only` instead, so violations are
+visible in the browser console without blocking), or `off`. It exists because a policy
+that blocks a needed script produces an empty page with no server-side signal, and an
+install without an update channel would otherwise need a full image rebuild to recover.
+An unrecognised value falls back to `enforce`. The other headers are unconditional.
 
 ---
 

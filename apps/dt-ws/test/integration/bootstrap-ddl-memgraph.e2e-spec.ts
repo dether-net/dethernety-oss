@@ -30,7 +30,7 @@ function makeConfigService(uri: string): ConfigService {
           // Plain-bolt test container; metrics OFF so no health-check
           // setInterval leaks into the serial Jest run.
           encrypted: false,
-          trust: false,
+          trustSelfSignedCerts: false,
           enableMetrics: false,
           enableLogging: false,
           healthCheckInterval: 60000,

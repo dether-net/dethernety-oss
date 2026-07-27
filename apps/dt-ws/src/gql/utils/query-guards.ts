@@ -26,7 +26,24 @@ export function buildValidationRules(config: QueryGuardConfig): ValidationRule[]
   const rules: ValidationRule[] = [];
   if (config.queryDepthLimit > 0) {
     const depthRule = depthLimit(config.queryDepthLimit);
-    if (depthRule) rules.push(depthRule);
+    // Fail closed. Silently skipping the rule would leave the server accepting
+    // arbitrarily deep queries while gql.module.ts still logged the configured
+    // depth — a disabled guard indistinguishable from a configured one. Both
+    // callers run at construction time (the GraphQL useFactory and the SSE
+    // controller's onModuleInit), so this aborts boot rather than failing
+    // requests; no request can reach it. The two abort differently, though:
+    // the useFactory throw is handled by Nest's initialisation error path,
+    // while the onModuleInit throw surfaces through main.ts's own catch.
+    // A non-positive limit skips this branch entirely; note that
+    // GQL_QUERY_DEPTH_LIMIT itself is validated as 1-50, so that is an
+    // internal path rather than a supported way to turn the guard off.
+    if (typeof depthRule !== 'function') {
+      throw new Error(
+        `graphql-depth-limit did not return a validation rule (got ${typeof depthRule}). ` +
+          'Refusing to start without the query-depth guard.',
+      );
+    }
+    rules.push(depthRule);
   }
   return rules;
 }

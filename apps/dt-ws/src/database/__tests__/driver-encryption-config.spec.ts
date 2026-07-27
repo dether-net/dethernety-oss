@@ -20,7 +20,7 @@ jest.mock('neo4j-driver', () => ({
 
 function makeService(uri: string, encrypted: boolean) {
   return new DatabaseService({
-    get: () => ({ uri, username: 'u', password: 'p', encrypted, trust: false }),
+    get: () => ({ uri, username: 'u', password: 'p', encrypted, trustSelfSignedCerts: false }),
   } as any);
 }
 

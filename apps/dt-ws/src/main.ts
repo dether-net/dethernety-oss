@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { buildSecurityHeaders } from './common/middleware/security-headers';
 import * as express from 'express';
 
 async function bootstrap() {
@@ -17,13 +18,19 @@ async function bootstrap() {
         : ['error', 'warn', 'log', 'debug', 'verbose'],
     });
 
+    // Get configuration service
+    const configService = app.get(ConfigService);
+
+    // Security headers, registered FIRST so they also cover responses that never
+    // reach a route: CORS preflights (the cors middleware ends the response
+    // without calling next()) and body-parser rejections (413 / malformed JSON,
+    // which skip straight to the error handler).
+    app.use(buildSecurityHeaders(configService));
+
     // Request body size limits
     app.use(express.json({ limit: '1mb' }));
     app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
-    // Get configuration service
-    const configService = app.get(ConfigService);
-    
     // Global validation pipe
     app.useGlobalPipes(new ValidationPipe({
       whitelist: true,
@@ -44,30 +51,6 @@ async function bootstrap() {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     });
-
-    // Security headers
-    if (process.env.NODE_ENV === 'production') {
-      // Build connect-src dynamically to allow OIDC provider domains
-      const connectSrcParts = ["'self'"];
-      if (process.env.OIDC_ISSUER) {
-        try { connectSrcParts.push(new URL(process.env.OIDC_ISSUER).origin); } catch { /* invalid URL, skip */ }
-      }
-      if (process.env.OIDC_DOMAIN) {
-        const sanitizedDomain = process.env.OIDC_DOMAIN.replace(/[^a-zA-Z0-9.\-:]/g, '');
-        connectSrcParts.push(`https://${sanitizedDomain}`);
-      }
-      const connectSrc = connectSrcParts.join(' ');
-
-      app.use((req, res, next) => {
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-        res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-        res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ${connectSrc}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`);
-        next();
-      });
-    }
 
     // Graceful shutdown
     process.on('SIGTERM', async () => {

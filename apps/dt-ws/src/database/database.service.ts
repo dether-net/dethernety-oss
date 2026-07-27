@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import neo4j, { Driver, Session, Result, Integer } from 'neo4j-driver';
+import type { Config as Neo4jDriverConfig } from 'neo4j-driver';
 import { DatabaseConfig } from './database.config';
 
 export interface DatabaseMetrics {
@@ -144,20 +145,27 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     // so the URL must win and the config keys must be omitted entirely.
     const uriConfiguresEncryption = /^[a-z0-9]+\+s(sc)?:\/\//i.test(this.config.uri);
 
-    const driverConfig: any = {
+    // Hoisted out of the spread below and typed as a Pick, which is what makes
+    // the annotation bite: excess-property checking does NOT reach properties
+    // introduced by a spread, so writing these inline would compile happily
+    // even if the driver renamed or dropped them. `Pick` constrains the key
+    // set, so a driver major that moves either key fails the build instead of
+    // silently changing the TLS posture at runtime.
+    const encryptionConfig: Pick<Neo4jDriverConfig, 'encrypted' | 'trust'> = {
+      encrypted: this.config.encrypted ? 'ENCRYPTION_ON' : 'ENCRYPTION_OFF',
+      // `trust` is the driver's key; the right-hand side is our field.
+      trust: this.config.trustSelfSignedCerts
+        ? 'TRUST_ALL_CERTIFICATES'
+        : 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
+    };
+
+    const driverConfig: Neo4jDriverConfig = {
       maxConnectionPoolSize: this.config.maxConnectionPoolSize,
       connectionAcquisitionTimeout: this.config.connectionAcquisitionTimeout,
       connectionTimeout: this.config.connectionTimeout,
       maxConnectionLifetime: this.config.maxConnectionLifetime,
       maxTransactionRetryTime: this.config.maxTransactionRetryTime,
-      ...(uriConfiguresEncryption
-        ? {}
-        : {
-            encrypted: this.config.encrypted ? 'ENCRYPTION_ON' : 'ENCRYPTION_OFF',
-            trust: this.config.trust
-              ? 'TRUST_ALL_CERTIFICATES'
-              : 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
-          }),
+      ...(uriConfiguresEncryption ? {} : encryptionConfig),
       logging: this.config.enableLogging ? {
         level: this.config.enableDebug ? 'debug' : 'info',
         logger: (level: string, message: string) => {

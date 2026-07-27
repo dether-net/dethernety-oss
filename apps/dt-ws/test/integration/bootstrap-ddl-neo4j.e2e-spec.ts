@@ -35,7 +35,7 @@ function makeConfigService(uri: string): ConfigService {
           maxConnectionLifetime: 3600000,
           maxTransactionRetryTime: 30000,
           encrypted: false,
-          trust: false,
+          trustSelfSignedCerts: false,
           enableMetrics: false,
           enableLogging: false,
           healthCheckInterval: 60000,

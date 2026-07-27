@@ -6,6 +6,10 @@
 
 // Styles
 import '@mdi/font/css/materialdesignicons.css'
+// Roboto served from the bundle rather than fetched from a font CDN at runtime:
+// the dependency was already declared but never imported, so the typeface came
+// solely from a third-party <link> in index.html.
+import 'roboto-fontface/css/roboto/roboto-fontface.css'
 import 'vuetify/styles'
 import colors from 'vuetify/util/colors'
 import { md2 } from 'vuetify/blueprints'
