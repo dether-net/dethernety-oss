@@ -1,6 +1,6 @@
 {
   "name": "@dethernety/dt-module",
-  "version": "0.9.0",
+  "version": "0.11.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -19,6 +19,16 @@
       "require": "./dist/rego-adhoc.js",
       "default": "./dist/rego-adhoc.js"
     },
+    "./rego-engine": {
+      "types": "./dist/rego-engine.d.ts",
+      "require": "./dist/rego-engine.js",
+      "default": "./dist/rego-engine.js"
+    },
+    "./rego-mapping": {
+      "types": "./dist/rego-mapping.d.ts",
+      "require": "./dist/rego-mapping.js",
+      "default": "./dist/rego-mapping.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "require": "./dist/testing/index.js",
@@ -32,6 +42,12 @@
       ],
       "rego-adhoc": [
         "dist/rego-adhoc.d.ts"
+      ],
+      "rego-engine": [
+        "dist/rego-engine.d.ts"
+      ],
+      "rego-mapping": [
+        "dist/rego-mapping.d.ts"
       ],
       "testing": [
         "dist/testing/index.d.ts"
