@@ -29,6 +29,7 @@ export * from './rego-engine';
 export * from './rego-lint';
 export * from './rego-adhoc';
 export * from './rego-builtins';
+export * from './rego-mapping';
 export * from './dt-lg-analysis-ops';
 export * from './dt-lg-document-ops';
 export * from './dt-lg-module';

@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
-import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps, VALID_ATTACK_VECTORS } from './index';
+import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps } from './index';
 import { EmbeddingFileCache } from './embedding-file-cache';
 import { RegoEngine } from './rego-engine';
+import { mapExposureFinding, mapCountermeasureFinding } from './rego-mapping';
 
 /**
  * V2 classType folder mapping.
@@ -473,27 +474,14 @@ export class DtFileOpaModule implements DTModule {
       exposures.push(
         ...result
           .filter((e: any) => e.name)
-          .map((e: any) => {
-            const rawAV = (e.attack_vector ?? e.attackVector ?? null)?.toUpperCase();
-            const attackVector = rawAV && VALID_ATTACK_VECTORS.has(rawAV) ? rawAV : 'UNSPECIFIED';
-            if (rawAV && !VALID_ATTACK_VECTORS.has(rawAV)) {
+          .map((e: any) =>
+            mapExposureFinding(e, (rawValue, exposureName) =>
               this.logger.warn('Invalid attackVector in policy output, defaulting to UNSPECIFIED', {
-                moduleName: this.moduleName, rawValue: rawAV, exposureName: e.name,
+                moduleName: this.moduleName, rawValue, exposureName,
                 classId,
-              });
-            }
-            return {
-              name: e.name,
-              description: e.description,
-              type: e.type,
-              category: e.category,
-              score: e.score,
-              attackVector,
-              // Whole ref array passes through verbatim — each ref's `attributes` (e.g.
-              // justification) survives for the edge writer. Only the interface type widened.
-              exploitedBy: e.exploited_by || e.exploitedBy,
-            };
-          }),
+              }),
+            ),
+          ),
       );
     } catch (err: unknown) {
       this.logger.error('Error getting exposures', {
@@ -515,31 +503,7 @@ export class DtFileOpaModule implements DTModule {
       const result = await this.evaluatePolicy(id, classId, 'countermeasures');
       if (result === null) return countermeasures;
 
-      countermeasures.push(
-        ...result
-          .filter((c: any) => c.name)
-          .map((c: any) => ({
-            name: c.name,
-            description: c.description,
-            type: c.type,
-            category: c.category,
-            score: c.score,
-            // Identity block → RESPONDS_WITH (snake or camel as the policy emits it).
-            respondsWith: c.responds_with || c.respondsWith,
-            // Verb blocks → COUNTERMEASURE_<VERB> edges. This is the snake→camel adaptation of
-            // the frozen policy shape and the only place it is read. Unknown verb keys (a future
-            // verb, or a stray key) are simply not projected — the closed set is enforced here by
-            // omission, and again downstream by the dt-ws verb→edge allowlist.
-            mitigates: c.mitigates,
-            protectsAgainst: c.protects_against,
-            detects: c.detects,
-            isolates: c.isolates,
-            deceives: c.deceives,
-            evicts: c.evicts,
-            restores: c.restores,
-            respondsTo: c.responds_to,
-          })),
-      );
+      countermeasures.push(...result.filter((c: any) => c.name).map((c: any) => mapCountermeasureFinding(c)));
     } catch (err: unknown) {
       this.logger.error('Error getting countermeasures', {
         moduleName: this.moduleName,
