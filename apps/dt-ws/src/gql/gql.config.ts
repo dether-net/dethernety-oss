@@ -120,7 +120,7 @@ export default registerAs('gql', () => {
   const config = {
     playground: process.env.NODE_ENV !== 'production',
     introspection: process.env.NODE_ENV !== 'production',
-    oidcJwksUri: process.env.OIDC_JKWS_URI,
+    oidcJwksUri: process.env.OIDC_JWKS_URI,
     oidcIssuer: process.env.OIDC_ISSUER,
     oidcAudience: process.env.OIDC_AUDIENCE,
     queryDepthLimit: parseInt(process.env.GQL_QUERY_DEPTH_LIMIT || '10', 10),

@@ -592,7 +592,7 @@ NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=${NEO4J_PASSWORD}
 
 # Security Settings
-OIDC_JKWS_URI=https://auth-provider/.well-known/jwks.json
+OIDC_JWKS_URI=https://auth-provider/.well-known/jwks.json
 GQL_QUERY_DEPTH_LIMIT=10
 GQL_QUERY_COMPLEXITY_LIMIT=1000
 

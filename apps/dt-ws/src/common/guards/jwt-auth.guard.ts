@@ -90,7 +90,7 @@ export class JwtAuthGuard implements CanActivate {
         if (process.env.NODE_ENV === 'production') {
           this.logger.error(
             'SECURITY: No OIDC configuration in production mode. ' +
-            'Rejecting request. Set OIDC_JKWS_URI to enable JWT validation.'
+            'Rejecting request. Set OIDC_JWKS_URI to enable JWT validation.'
           );
           throw new UnauthorizedException(
             'Authentication service not configured. Contact your administrator.'

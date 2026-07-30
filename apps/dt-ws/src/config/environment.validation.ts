@@ -151,7 +151,7 @@ export class EnvironmentVariables {
   // GraphQL Configuration
   @IsOptional()
   @IsUrl({ require_tld: false })
-  OIDC_JKWS_URI?: string;
+  OIDC_JWKS_URI?: string;
 
   @IsOptional()
   @IsNumber()
@@ -349,8 +349,8 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
       productionErrors.push('NEO4J_PASSWORD is required in production');
     }
 
-    if (!validatedConfig.OIDC_JKWS_URI) {
-      productionErrors.push('OIDC_JKWS_URI is required in production for JWT validation');
+    if (!validatedConfig.OIDC_JWKS_URI) {
+      productionErrors.push('OIDC_JWKS_URI is required in production for JWT validation');
     }
 
     if (!validatedConfig.OIDC_ISSUER) {
