@@ -31,7 +31,7 @@ Main NestJS module that provides GraphQL API functionality with Neo4j integratio
 | `NEO4J_URI` | string | required | Neo4j database connection URI |
 | `NEO4J_USERNAME` | string | required | Neo4j username |
 | `NEO4J_PASSWORD` | string | required | Neo4j password |
-| `OIDC_JKWS_URI` | string | optional | OIDC JWKS endpoint for JWT validation |
+| `OIDC_JWKS_URI` | string | optional | OIDC JWKS endpoint for JWT validation |
 | `GQL_SCHEMA_PATH` | string | schema/schema.graphql | Path to GraphQL schema file |
 | `GQL_QUERY_DEPTH_LIMIT` | number | 10 | Maximum query nesting depth |
 | `GQL_QUERY_COMPLEXITY_LIMIT` | number | 1000 | Maximum query complexity score |
@@ -353,7 +353,7 @@ const complexityRule = createComplexityLimitRule(1000);
 // OIDC JWT validation
 authorization: {
   key: {
-    url: process.env.OIDC_JKWS_URI
+    url: process.env.OIDC_JWKS_URI
   }
 }
 ```

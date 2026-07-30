@@ -40,7 +40,7 @@ All OIDC variables are configured on the backend. In production, the backend ser
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `OIDC_JKWS_URI` | URL | — | JWKS endpoint for JWT validation. **Required in production.** |
+| `OIDC_JWKS_URI` | URL | — | JWKS endpoint for JWT validation. **Required in production.** |
 | `OIDC_ISSUER` | URL | — | OIDC provider issuer URL. **Required in production.** |
 | `OIDC_CLIENT_ID` | String | — | OIDC client identifier. **Required in production.** |
 | `OIDC_REDIRECT_URI` | URL | — | OAuth2 callback URL (e.g., `https://app.example.com/auth/callback`) |
@@ -54,17 +54,17 @@ Provider presets configure OAuth2 endpoint paths and token claim names automatic
 **Example configurations:**
 ```bash
 # Zitadel
-OIDC_JKWS_URI=https://your-instance.zitadel.cloud/oauth/v2/keys
+OIDC_JWKS_URI=https://your-instance.zitadel.cloud/oauth/v2/keys
 OIDC_ISSUER=https://your-instance.zitadel.cloud
 OIDC_AUDIENCE=your-project-id
 
 # Auth0
-OIDC_JKWS_URI=https://your-tenant.auth0.com/.well-known/jwks.json
+OIDC_JWKS_URI=https://your-tenant.auth0.com/.well-known/jwks.json
 OIDC_ISSUER=https://your-tenant.auth0.com
 OIDC_AUDIENCE=https://your-api-identifier
 
 # Keycloak
-OIDC_JKWS_URI=https://keycloak.example.com/realms/your-realm/protocol/openid-connect/certs
+OIDC_JWKS_URI=https://keycloak.example.com/realms/your-realm/protocol/openid-connect/certs
 OIDC_ISSUER=https://keycloak.example.com/realms/your-realm
 OIDC_AUDIENCE=your-client-id
 ```
@@ -237,7 +237,7 @@ The following variables are validated as **required** when `NODE_ENV=production`
 | Variable | Reason |
 |----------|--------|
 | `NEO4J_PASSWORD` | Database access |
-| `OIDC_JKWS_URI` | JWT token validation |
+| `OIDC_JWKS_URI` | JWT token validation |
 | `OIDC_ISSUER` | Authentication |
 | `OIDC_CLIENT_ID` | Authentication |
 | `OIDC_AUDIENCE` | JWT audience validation |
@@ -277,7 +277,7 @@ ALLOWED_MODULES=dethernety-general
 OIDC_ISSUER=http://localhost:8080
 OIDC_CLIENT_ID=your-client-id
 OIDC_REDIRECT_URI=http://localhost:3005/auth/callback
-OIDC_JKWS_URI=http://localhost:8080/.well-known/jwks.json
+OIDC_JWKS_URI=http://localhost:8080/.well-known/jwks.json
 ```
 
 ### Without authentication (demo)

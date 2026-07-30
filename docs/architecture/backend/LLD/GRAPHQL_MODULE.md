@@ -54,7 +54,7 @@ NODE_ENV=production                    // Enables production security
 NEO4J_URI=bolt://localhost:7687       // Neo4j connection
 NEO4J_USERNAME=neo4j                  // Database username
 NEO4J_PASSWORD=password               // Database password
-OIDC_JKWS_URI=https://auth/.../jwks   // JWT validation endpoint
+OIDC_JWKS_URI=https://auth/.../jwks   // JWT validation endpoint
 GQL_QUERY_DEPTH_LIMIT=10              // Max query nesting depth
 GQL_QUERY_COMPLEXITY_LIMIT=1000       // Max query complexity score
 ```
