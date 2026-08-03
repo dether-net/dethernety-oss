@@ -39,7 +39,7 @@
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/serve-static": "^5.0.5",
     "@types/jsonwebtoken": "^9.0.10",
-    "axios": "^1.18.1",
+    "axios": "^1.19.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "express": "5.2.1",
