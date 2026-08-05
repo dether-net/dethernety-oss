@@ -16,6 +16,27 @@
   text-align: center;
 }
 
+/* Node label: lifted above the connection handles, with a halo.
+   A label with no break opportunity lays out as one line that can exceed the
+   node's width, and centring spills it to both sides. The left and right handles
+   sit on that spill — and, being positioned elements, paint after inline content
+   — so they covered the first and last glyphs and the label read as truncated.
+   Stacking order is the fix; the shadow keeps the overspill legible where it
+   crosses an edge or the canvas.
+   Boundary labels use `.top-right-text` and are unaffected. */
+.vue-flow__node .node-label {
+  position: relative;
+  z-index: 3;
+  /* The label sits above the handles, so it must not take the pointer with it:
+     without this, an overspilling label becomes the hit target over the left and
+     right handles and swallows the drag that starts a new connection. */
+  pointer-events: none;
+  text-shadow:
+    0 0 3px rgba(18, 20, 26, 0.95),
+    0 0 6px rgba(18, 20, 26, 0.9),
+    0 0 11px rgba(18, 20, 26, 0.7);
+}
+
 .vue-flow__node-PROCESS {
   width: 80px;
   height: 80px;
