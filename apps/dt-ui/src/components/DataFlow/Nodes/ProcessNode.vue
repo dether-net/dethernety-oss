@@ -20,7 +20,7 @@
 </script>
 
 <template>
-  <div>{{ props.data.label }}
+  <div><span class="node-label">{{ props.data.label }}</span>
     <Handle id="top" :position="Position.Top" />
     <Handle id="right" :position="Position.Right" />
     <Handle id="bottom" :position="Position.Bottom" />
