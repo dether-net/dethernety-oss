@@ -55,8 +55,8 @@ describe('source-globs', () => {
  *
  * These cases match real paths through git itself, because `detect-drift.js`
  * resolves these globs as git `:(glob)` pathspecs. A JS matcher would be an
- * approximation: picomatch lets a leading `**​/` match zero directories, git
- * does not, and that difference is the whole bug.
+ * approximation: picomatch lets a leading double-star segment match zero
+ * directories, git does not, and that difference is the whole bug.
  */
 describe('source-globs — real path matching (git :(glob) semantics)', () => {
   let repo: string
