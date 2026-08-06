@@ -198,4 +198,46 @@ describe('detect-drift.js', () => {
     const scoped: string[] = JSON.parse(r.stdout).scoped
     expect(scoped.filter((p) => p === 'infra/main.tf').length).toBe(1)
   })
+
+  // Every other case above puts the model AT the repo root, which hides a whole
+  // class of bug: git resolves pathspecs relative to the process cwd, and the
+  // script runs git from the model directory. Without `:(top,...)` the source
+  // globs are matched against the model directory rather than the repository,
+  // so drift silently reports zero changes for any model kept in a subfolder —
+  // which is the common layout when models live beside the code they describe.
+  it('detects source changes when the model lives in a subdirectory', () => {
+    gitInit(tempDir)
+    writeFile(tempDir, 'services/api/k8s/deployment.yaml', 'v1')
+    writeFile(tempDir, 'threat-models/api/README.md', 'model')
+    const sha = gitCommitAll(tempDir, 'init')
+
+    const modelDir = join(tempDir, 'threat-models', 'api')
+    writeState(modelDir, { lastReconcileCommit: sha })
+
+    writeFile(tempDir, 'services/api/k8s/deployment.yaml', 'v2')
+    gitCommitAll(tempDir, 'edit manifest')
+
+    const r = runScript(modelDir)
+    expect(r.status).toBe(0)
+    const scoped: string[] = JSON.parse(r.stdout).scoped
+    expect(scoped, 'paths are reported relative to the repo root').toContain(
+      'services/api/k8s/deployment.yaml',
+    )
+  })
+
+  // Real-world manifest directories are not always named `k8s/` or `manifests/`.
+  it('detects changes under a hyphenated manifest directory', () => {
+    gitInit(tempDir)
+    writeFile(tempDir, 'vendored/app/kubernetes-manifests/cartservice.yaml', 'v1')
+    const sha = gitCommitAll(tempDir, 'init')
+    writeState(tempDir, { lastReconcileCommit: sha })
+
+    writeFile(tempDir, 'vendored/app/kubernetes-manifests/cartservice.yaml', 'v2')
+    gitCommitAll(tempDir, 'edit manifest')
+
+    const r = runScript(tempDir)
+    expect(r.status).toBe(0)
+    const scoped: string[] = JSON.parse(r.stdout).scoped
+    expect(scoped).toContain('vendored/app/kubernetes-manifests/cartservice.yaml')
+  })
 })

@@ -81,9 +81,16 @@ function main() {
   }
 
   // Load source globs and build pathspec args (git :(glob) magic).
+  //
+  // `top` is load-bearing. Git resolves pathspecs relative to the process cwd,
+  // and we run git from the model directory — so a bare `:(glob)k8s/**` looks
+  // for manifests *inside the model directory*, matches nothing, and drift
+  // silently reports zero changes for any model that does not happen to sit at
+  // the repository root. `:(top,glob)` anchors the pattern at the repo root,
+  // which is what the source globs are written against.
   const globsPath = join(__dirname, '..', 'src', 'utils', 'source-globs.v1.json');
   const globs = JSON.parse(readFileSync(globsPath, 'utf8')).globs;
-  const pathspecs = globs.map((g) => `:(glob)${g}`);
+  const pathspecs = globs.map((g) => `:(top,glob)${g}`);
 
   // Diff baseline..HEAD with rename/copy detection, then dirty tree, scoped by globs.
   // -z output keeps paths intact (NUL-delimited, no C-quoting) so embedded spaces,
