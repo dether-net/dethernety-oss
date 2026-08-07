@@ -35,7 +35,7 @@
       "zod": "4.3.6",
       "@babel/core": ">=7.29.6 <8.0.0",
       "hono": "^4.12.34",
-      "@hono/node-server": "^1.19.15",
+      "@hono/node-server": "^2.0.5",
       "ip-address": ">=10.3.1",
       "fast-uri": ">=3.1.5 <4.0.0",
       "multer": ">=2.2.0 <3.0.0",
