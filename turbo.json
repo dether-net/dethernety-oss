@@ -42,7 +42,15 @@
     },
     "test": {
       "dependsOn": ["^test"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "passThroughEnv": [
+        "TESTCONTAINERS_RYUK_DISABLED",
+        "TESTCONTAINERS_HOST_OVERRIDE",
+        "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE",
+        "DOCKER_HOST",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH"
+      ]
     }
   },
   "globalDependencies": [".env*"]
