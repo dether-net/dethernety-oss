@@ -1,6 +1,6 @@
 {
   "name": "dethereal",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with MITRE ATT&CK, and sync with the Dethernety platform.",
   "author": {
     "name": "dether.net",

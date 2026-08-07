@@ -5,6 +5,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-07
+
+A release that removes a service from the deployment, adds security boundary zoning to the
+model, and hardens the platform across four libraries. Compared against the previous tag,
+`v0.4.0`.
+
+**Upgrading:** the OPA server is no longer part of any deployment — see *Removed*. Container
+images are now published, so a deployment no longer has to build one.
+
+### Added
+
+- **Security boundary zoning** — trust zones, domains, roles and approved channels on
+  boundaries, with conduits between them. Declared zone policy surfaces in the Threat Report,
+  and Boundary Crossings appear in the export alongside the data-flow policy. The Dethereal
+  plugin models and pushes zoning as well, so it is authorable from either surface.
+- **Published container images.** Releases now publish a multi-architecture image
+  (`linux/amd64`, `linux/arm64`) to the GitHub Container Registry, signed with cosign against
+  the release workflow's own identity — so verification needs no key from us — with build
+  provenance attested alongside. The run summary prints the `cosign verify` invocation.
+- **`DtRemoteModule`** in `@dethernety/dt-module`: a sibling of `DtFileOpaModule` that serves
+  class metadata, templates, guides, embeddings and evaluation from an HTTP content service
+  instead of a local data directory. Every difference — network, caching, unavailability — is
+  expressed through the existing `DTModule` contract, so the platform stays unaware that a
+  module is remote.
+- **`afterInstall` module lifecycle hook**, invoked post-commit, with documentation.
+- **Class unassignment** — a remove-class action in the UI, and explicit-null `classData` on
+  model push so the removal survives a round trip.
+- **Read-only `dt-core` accessors exposed to module bundles**, plus disposition-reason prefill.
+- **Optional per-request token on the four content methods** (`getClassTemplate`,
+  `getClassGuide`, `getExposures`, `getCountermeasures`), a deployment access allowlist, and a
+  configurable OIDC scope — all backward compatible with existing modules.
+- **Rego finding mappers as a reusable subpath export** of `@dethernety/dt-module`.
+
+### Changed
+
+- **Rego evaluates in process.** Both the runtime and authoring paths now use
+  `@dethernety/regorus-wasm`, a vendored WebAssembly build of Regorus, instead of calling out to
+  a policy server.
+- **`@dethernety/dt-module` is versioned independently of the platform** from this release. It
+  moves with its own interface rather than with the application.
+- **`@dether.net/dethereal` 0.3.4** — the plugin is versioned and published on its own line, not
+  with the platform. This version carries its refreshed dependency ranges; a package whose
+  declared dependencies move has to be republished for the change to reach anyone installing it,
+  and the repository had moved ahead of the published copy.
+- **The default MITRE embedding corpus** is committed rather than regenerated per build.
+
+### Removed
+
+- **The OPA server.** It is gone from the compose stack, the configuration guide and the
+  documentation, and nothing in the platform contacts a policy server. Deployments running one
+  for this platform can decommission it; no configuration replaces it.
+
+### Fixed
+
+- **`OIDC_JWKS_URI` was read as `OIDC_JKWS_URI`.** The transposition was internally consistent,
+  so nothing appeared broken — but an operator who spelled the variable correctly got
+  schema-level authentication silently un-enforced outside production, and a boot failure
+  naming a variable they had not set inside it.
+- **The production container image probed the wrong port.** It declared `EXPOSE 3000` and
+  health-checked `localhost:3000` while the server listens on 3003, so the container reported
+  `unhealthy` for its whole life and anything gating on health waited for a condition that
+  could not arrive. `docker:run` published the same wrong port.
+- Node labels are drawn above connection handles in the diagram editor.
+- **Dethereal drift detection** sees source files outside the model directory, so a model whose
+  sources live elsewhere in the repository no longer reports as drift-free when it is not.
+- MITRE technique mappings in `dethernety-general` re-synced after a corrected export.
+- **Four remediation sweeps** across the backend, the frontend, the data-access layer and the
+  module base library, covering concurrency, correctness, crash safety, the analysis lifecycle,
+  module-installer safety, class-identity migration, cross-engine DDL, and honest health
+  reporting.
+
+### Security
+
+- **Only verified JWT claims reach the GraphQL auth context.** The context factories previously
+  placed the unverified `Authorization` bearer into `context.jwt`, which the schema layer treats
+  as authenticated.
+- **Fail-closed query depth guard**, and security headers in every environment rather than only
+  in production.
+- **Deployment access allowlist**, fail-closed for a network-reachable deployment on a shared
+  identity provider.
+- Dependency sweeps with security override floor bumps.
+
 ## [0.4.0] - 2026-06-24
 
 A feature release expanding the Threat Report's reachability analysis, redesigning
@@ -319,6 +401,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.5.0]: https://github.com/dether-net/dethernety-oss/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dether-net/dethernety-oss/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dether-net/dethernety-oss/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dether-net/dethernety-oss/compare/v0.2.0...v0.2.1
