@@ -62,23 +62,33 @@ COPY apps/dt-ws/public ./apps/dt-ws/public
 RUN chown -R nestjs:nodejs /app
 USER nestjs
 
-# Set production environment
+# Set production environment. The app refuses to start under NODE_ENV=production without
+# ALLOWED_MODULES, ALLOWED_ORIGINS, NEO4J_PASSWORD and the OIDC settings (see
+# apps/dt-ws/src/config/environment.validation.ts) — so a deployment that wants the auth-less
+# evaluation mode overrides this at runtime rather than using a different image.
 ENV NODE_ENV=production
 
-# Expose port
-EXPOSE 3000
+# 3003 is the server's default port (environment.validation.ts) and the port every compose file,
+# quadlet and docs example uses. EXPOSE and the health check must agree with it: a probe on the
+# wrong port never succeeds, so the container reports `unhealthy` forever and anything gating on
+# `service_healthy` waits for a condition that cannot arrive.
+EXPOSE 3003
 
 # Set working directory to where the app and its node_modules are
 WORKDIR /app/apps/dt-ws
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health/simple || exit 1
+  CMD curl -f http://localhost:3003/health/simple || exit 1
 
-# Add metadata
-LABEL maintainer="dether-net" \
-      version="1.0" \
-      description="Dethernety production container"
+# Add metadata. VERSION is supplied by the build (--build-arg VERSION=...) so the published image
+# reports the release it was cut from; unset, it says so rather than claiming a number.
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="Dethernety" \
+      org.opencontainers.image.description="Graph-native threat modeling platform" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/dether-net/dethernety-oss"
 
 # Start the application with proper signal handling
 CMD ["node", "--enable-source-maps", "dist/main.js"]

@@ -1,4 +1,13 @@
-name: Docker Build
+name: Docker
+
+# One workflow, two jobs, one definition of how the image is built.
+#
+# On a pull request it BUILDS (a gate — catches a broken Dockerfile before merge).
+# On a `v*` tag it BUILDS AND PUBLISHES to the GitHub Container Registry, signed.
+#
+# Splitting these into two files would duplicate the pnpm/turbo/asset-prep preamble, and the two
+# copies would drift — at which point the thing CI proves and the thing users pull stop being the
+# same image. The `push` input is what differs, and nothing else.
 
 on:
   pull_request:
@@ -7,10 +16,36 @@ on:
       - "apps/**"
       - "packages/**"
       - "modules/**"
+      - ".github/workflows/docker.yml"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to publish (e.g. 0.4.0). Publishes to the container registry."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/dethernety
 
 jobs:
-  docker:
+  image:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Required to push to the registry.
+      packages: write
+      # Required for keyless signing: cosign exchanges this workflow's OIDC identity for a
+      # short-lived certificate, so there is no signing key to generate, store, rotate or lose.
+      # This is the whole reason the images are built here rather than anywhere else.
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
@@ -33,10 +68,117 @@ jobs:
       - name: Build
         run: pnpm turbo build --filter='!mitre-frameworks'
 
+      # The SPA is served by the API process from its own public/ directory, so the frontend build
+      # has to land there before the image is assembled.
       - name: Prepare Docker assets
         run: |
           mkdir -p apps/dt-ws/public
           cp -r apps/dt-ui/dist/* apps/dt-ws/public/
 
-      - name: Build Docker image
-        run: docker build -f Dockerfile.production -t dethernety:test .
+      # Every value below arrives through `env`, never through `${{ }}` interpolation into the
+      # script. Tag names and dispatch inputs are caller-supplied, and interpolation would splice
+      # them into the shell — in a job that holds `packages: write` and `id-token: write`, i.e. the
+      # ability to push AND SIGN an image with this project's identity. That is precisely the
+      # signature the keyless design exists to make trustworthy, so it must not be forgeable from
+      # a tag name.
+      - name: Resolve version and publish decision
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          case "${GITHUB_EVENT_NAME}" in
+            push)              VERSION="${GITHUB_REF_NAME#v}";  PUBLISH=true ;;
+            workflow_dispatch) VERSION="${INPUT_VERSION}";      PUBLISH=true ;;
+            *)                 VERSION="pr-${PR_NUMBER}";       PUBLISH=false ;;
+          esac
+          # A version reaches an image tag, a label and the registry, so constrain it here rather
+          # than trusting the trigger: letters, digits, dot, dash, underscore.
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+            echo "::error::refusing to build: '${VERSION}' is not a usable version string"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
+
+      # Cross-building for arm64 under emulation. Both architectures are required rather than
+      # nice-to-have: the audience runs this on Apple Silicon laptops (arm64) and on Linux hosts
+      # (amd64), and an image that only serves one of them fails half of first runs.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the container registry
+        if: steps.meta.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` moves; the version tags do not. Deployments pin an exact version — a compose
+      # bundle that referenced `latest` would silently change the platform under a running
+      # deployment, which is the opposite of the upgrade contract.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.production
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.meta.outputs.publish == 'true' }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        if: steps.meta.outputs.publish == 'true'
+        uses: sigstore/cosign-installer@v3
+
+      # Signed by digest, not by tag: a tag can be repointed, a digest cannot. Verification on a
+      # deployment checks this signature against the workflow identity below.
+      - name: Sign the image
+        if: steps.meta.outputs.publish == 'true'
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Attest build provenance
+        if: steps.meta.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          PUBLISH: ${{ steps.meta.outputs.publish }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "### Image"
+            echo
+            echo '```'
+            echo "${IMAGE}:${VERSION}"
+            echo "digest ${DIGEST}"
+            echo '```'
+            if [ "${PUBLISH}" = "true" ]; then
+              echo "Published and signed. Verify with:"
+              echo
+              echo '```'
+              echo "cosign verify ${IMAGE}:${VERSION} \\"
+              echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' \\"
+              echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+              echo '```'
+            else
+              echo "Built only (pull request) — not pushed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

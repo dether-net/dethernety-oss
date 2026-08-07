@@ -8,7 +8,7 @@
     "build:production": "turbo build:production",
     "build:docker": "turbo build:docker",
     "docker:build": "docker build -f Dockerfile.production -t dethernety:latest .",
-    "docker:run": "docker run --env-file .env.production -p 3000:3000 dethernety:latest",
+    "docker:run": "docker run --env-file .env.production -p 3003:3003 dethernety:latest",
     "lint": "turbo lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "test": "turbo run test",
