@@ -22,7 +22,13 @@ export async function startMemgraph(): Promise<MemgraphHandle> {
   const container = await new GenericContainer(IMAGE)
     .withExposedPorts(BOLT_PORT)
     .withWaitStrategy(Wait.forListeningPorts())
-    .withStartupTimeout(60_000)
+    // 180s, not 60s. The container itself is ready in well under a second --
+    // measured at 0.2-0.4s even with eight starting at once. This budget is
+    // wall-clock, so what exhausts it is the Node process being starved when
+    // the whole repo's test tasks run in parallel, not the database being slow.
+    // A 60s ceiling turned that starvation into a hard failure; a larger one
+    // costs nothing on the happy path, which still returns immediately.
+    .withStartupTimeout(180_000)
     .start();
 
   const host = container.getHost();
