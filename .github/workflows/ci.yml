@@ -46,6 +46,61 @@ jobs:
         run: pnpm turbo run test --filter='./apps/dt-ws'
         continue-on-error: true
 
+  # The one package here that is published to npm, guarded on the two ways its release can
+  # silently half-happen.
+  #
+  # Its own job, without `continue-on-error`, for the same reason as rego-parity below: the
+  # `Test` step above is filtered to ./apps/dt-ws AND cannot fail the build, so a check placed
+  # there would exist without running. Both failures below are invisible until someone installs
+  # the plugin and gets something other than what this repository says they should.
+  dethereal-release:
+    name: Dethereal release integrity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # The republish guard compares this ref against the base, so a shallow clone has
+          # nothing to compare with.
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The version is declared in three files. package.json is what npm publishes,
+      # .claude-plugin/plugin.json is what the plugin reports, and .mcp.json pins the version
+      # npx fetches — which makes it the one that decides what a user actually runs. Bumping
+      # the package alone publishes a new version that no plugin install ever reaches.
+      - name: Version declarations agree
+        working-directory: apps/dethereal
+        run: pnpm vitest run src/__tests__/mcp-config.test.ts
+
+      # A published package's dependencies are resolved from the ranges the published copy
+      # declares, not from this repository's lockfile — so a sweep that moves them without a
+      # version bump leaves a repository that is fixed and a registry that is not.
+      - name: Dependency changes are accompanied by a version bump
+        working-directory: apps/dethereal
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "${BASE}" ] || [ "${BASE}" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base ref to compare against (first push on this ref) — skipping."
+            exit 0
+          fi
+          node scripts/check-republish.mjs "${BASE}"
+
   # Differentially evaluates every policy in `modules/` through both the vendored
   # in-process Regorus WASM engine and the reference `opa` binary, and fails on any
   # disagreement. Security findings are produced by evaluating Rego, so the two engines
