@@ -16,23 +16,57 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
+      # A tag name is caller-supplied. It reaches an awk program, a heredoc delimiter
+      # and a release title, so constrain it once, here, before anything reads it —
+      # the same gate the image workflow puts in front of its version string.
+      #
+      # Git permits `/`, `{`, `}`, `(`, `)` and `"` in a ref name, which is enough to
+      # make a tag that is also a valid awk program.
+      - name: Extract and validate version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'; then
+            echo "::error::refusing to release: '${GITHUB_REF_NAME}' is not a release tag"
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog for this version
         id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          CHANGELOG=$(awk "/^## .*${GITHUB_REF_NAME#v}/"'{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+          set -euo pipefail
+          # The version is passed to awk as a VARIABLE and compared literally. Building
+          # the program text by concatenation is what made a tag name executable, and a
+          # validated version is not a reason to go back to it.
+          BODY=$(awk -v v="${VERSION}" '
+            index($0, "## [" v "]") == 1 { flag = 1; next }
+            /^## / { flag = 0 }
+            flag' CHANGELOG.md)
+
+          # Without this, a heading-format drift ships a release with empty notes and
+          # nothing says so.
+          if [ -z "$(printf '%s' "${BODY}" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no '## [${VERSION}]' section"
+            exit 1
+          fi
+
+          # Random delimiter: a changelog line equal to the delimiter would otherwise
+          # end the value early and let the following lines set arbitrary step outputs.
+          DELIM="body-$(openssl rand -hex 16)"
           {
-            echo "BODY<<EOF"
-            echo "$CHANGELOG"
-            echo "EOF"
+            printf 'BODY<<%s\n' "${DELIM}"
+            printf '%s\n' "${BODY}"
+            printf '%s\n' "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Determine prerelease status
         id: prerelease
         run: |
+          set -euo pipefail
           if echo "$GITHUB_REF_NAME" | grep -q "\-rc"; then
             echo "IS_PRERELEASE=true" >> "$GITHUB_OUTPUT"
           else

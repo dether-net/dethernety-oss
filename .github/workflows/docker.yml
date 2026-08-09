@@ -81,6 +81,15 @@ jobs:
       # ability to push AND SIGN an image with this project's identity. That is precisely the
       # signature the keyless design exists to make trustworthy, so it must not be forgeable from
       # a tag name.
+      #
+      # `env` alone is necessary and not sufficient, and the release workflow proved it: a value
+      # can arrive through the runner environment without ever touching `${{ }}` and still be
+      # spliced into an interpreter's program text. The rule that actually holds is
+      #
+      #   validate the value before anything reads it, and never build a program by string
+      #   concatenation — hand it to the interpreter as a variable (`awk -v`, `jq --arg`)
+      #
+      # which is what the version gate below does, and why it runs before every other step.
       - name: Resolve version and publish decision
         id: meta
         env:
