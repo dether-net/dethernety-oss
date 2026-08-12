@@ -157,8 +157,17 @@ jobs:
         working-directory: staging
         run: sha256sum -c SHA256SUMS
 
+      # Pin cosign 3.x: its `sign-blob --bundle` emits the NEW Sigstore bundle format
+      # (application/vnd.dev.sigstore.bundle.v0.3+json), which the consumer's verifier
+      # (sigstore-go) requires. cosign 2.x's `--bundle` emits the LEGACY format, which
+      # sigstore-go cannot parse ("unknown field base64Signature") — and cosign's own
+      # verify-blob accepts both, so a 2.x line silently produces bundles that pass CI here
+      # but fail at the consumer. The installer default has drifted across 2.x/3.x lines, so
+      # this must be pinned. Do not unpin. (An assertion after signing guards it in depth.)
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v3.1.3'
 
       # The index lists the module set for this version at a fixed, constructible
       # download URL, so it can be read with a plain HTTPS GET and no GitHub API call
@@ -200,6 +209,20 @@ jobs:
           set -euo pipefail
           for f in *.tar.gz modules.json; do
             cosign sign-blob "$f" --bundle "$f.bundle" --yes
+          done
+
+      # Guard in depth: assert every bundle is the NEW Sigstore format. cosign's verify-blob
+      # (the steps below) accepts the legacy format too, so it cannot catch a regression to
+      # cosign 2.x's default — this can, and fails the release before it ships rather than
+      # publishing assets the consumer's verifier will reject with "unknown field
+      # base64Signature". The new format carries a `mediaType`; the legacy format does not.
+      - name: Bundles are the new Sigstore format
+        working-directory: staging
+        run: |
+          set -euo pipefail
+          for f in *.tar.gz.bundle modules.json.bundle; do
+            jq -e '.mediaType // "" | startswith("application/vnd.dev.sigstore.bundle")' "$f" >/dev/null \
+              || { echo "::error::$f is not the new Sigstore bundle format (cosign 2.x legacy?) — the consumer verifier cannot parse it"; exit 1; }
           done
 
       # The instruction published in the summary is the instruction that runs here, on
