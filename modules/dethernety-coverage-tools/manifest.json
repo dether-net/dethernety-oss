@@ -4,6 +4,7 @@
   "displayName": "Dethernety Coverage Tools",
   "description": "Graded, element-scoped, disposition-agnostic MITRE coverage facts (a reusable query primitive).",
   "tags": ["coverage", "mitre"],
+  "compatibility": { "dtModule": "^0.11.0" },
   "dependencies": [],
   "restarts": ["dethernety.service"]
 }
