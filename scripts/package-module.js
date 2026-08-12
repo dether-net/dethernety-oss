@@ -15,10 +15,17 @@
  *   ├── manifest.json
  *   ├── dethernety/{name}/
  *   │   ├── *Module.js (+ .d.ts)
+ *   │   ├── .dethernety-module.json  (identity stamp — see step 5.5)
  *   │   ├── data/       (if source data/ exists)
- *   │   └── frontend/   (if source frontend/ exists)
+ *   │   └── frontend/   (bundle.js only, if source frontend/ exists)
  *   ├── langgraph/      (if source langgraph/ exists)
  *   └── data/           (if source data/*.cypher or *.csv exist — legacy ingestion)
+ *
+ * The archive is NOT reproducible: tar is invoked without `--sort`, `--mtime` or
+ * ownership normalisation and gzip is not given `-n`, so two runs over identical
+ * content produce different bytes. Anything that needs to answer "is this the same
+ * payload" must use the stamp's `payloadDigest`, which is content-derived, and not a
+ * digest of this file.
  *
  * Usage:
  *   node ../../scripts/package-module.js          (from module dir)
@@ -27,8 +34,18 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import {
+  STAMP_FILENAME,
+  computePayloadDigest,
+  resolveBuiltFrom,
+  copyDirRecursive,
+  checkDtModuleCompatibility,
+} from './module-payload.mjs';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Lint every `policies.rego` under the module's data tree before it is packaged.
@@ -129,28 +146,43 @@ const packageDir = path.join(distDir, 'package');
 
 console.log(`Packaging ${name} v${version}...`);
 
+// ---------------------------------------------------------------------------
+// 0. Base-library compatibility  (BEFORE anything is destroyed)
+// ---------------------------------------------------------------------------
+//
+// A manifest that misdeclares what it was built against produces a package that
+// installs cleanly and fails at load. Same class of defect as a policy that fails the
+// Rego lint, so it gets the same treatment: refuse to produce an archive.
+//
+// This runs before the package directory is wiped. A build that is going to fail must
+// not first destroy the previous, working package — which is what the Rego lint does
+// today, further down, for want of anywhere better to sit.
+//
+// Assert agreement; never rewrite. The manifest is authored deliberately, and a
+// packager that silently corrected it would make the declaration worthless.
+{
+  const dtModulePkg = path.join(SCRIPT_DIR, '..', 'packages', 'dt-module', 'package.json');
+  const actual = fs.existsSync(dtModulePkg)
+    ? JSON.parse(fs.readFileSync(dtModulePkg, 'utf8')).version
+    : null;
+
+  const verdict = checkDtModuleCompatibility(manifest, actual);
+  if (!verdict.ok) {
+    console.error('✗ Compatibility check failed — no package produced.');
+    console.error(`  ${verdict.reason}`);
+    console.error('  Update manifest.json deliberately, or correct the installed version.');
+    process.exit(1);
+  }
+  if (!verdict.skipped) {
+    console.log(`  dt-module compatibility: ${verdict.declared} satisfied by ${verdict.actual}`);
+  }
+}
+
 // Clean and create package directory
 if (fs.existsSync(packageDir)) {
   fs.rmSync(packageDir, { recursive: true });
 }
 fs.mkdirSync(packageDir, { recursive: true });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function copyDirRecursive(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // 1. manifest.json (always)
@@ -236,16 +268,76 @@ if (fs.existsSync(langgraphSourceDir)) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Frontend bundle  →  dethernety/{name}/frontend/
+// 5. Frontend bundle  →  dethernety/{name}/frontend/bundle.js
 // ---------------------------------------------------------------------------
+//
+// An allowlist of exactly one file, mirroring step 2's extension allowlist rather
+// than inventing a second, weaker discipline.
+//
+// The backend serves precisely one file out of a module frontend — `bundle.js`, both
+// when discovering which modules have a UI and when answering the bundle request.
+// Nothing at runtime opens the Vue sources, the vite config, or the build output
+// directory, and each module's vite config inlines dynamic imports and CSS so the
+// bundle is self-contained by construction. Everything else is dead weight in the
+// package.
 
 const frontendSourceDir = path.join(projectRoot, 'frontend');
 
 if (fs.existsSync(frontendSourceDir)) {
-  fs.mkdirSync(moduleDestDir, { recursive: true });
+  const bundleSource = path.join(frontendSourceDir, 'bundle.js');
+
+  // Refusing here converts a silent failure into a loud one. A module that ships a
+  // frontend/ without a bundle loads, registers, and reports healthy — and then
+  // renders nothing, because the lookup that would have found the bundle treats a
+  // missing file as "this module has no UI" rather than as an error.
+  if (!fs.existsSync(bundleSource)) {
+    console.error('✗ frontend/ exists but frontend/bundle.js does not — no package produced.');
+    console.error('  The convention is `cd frontend && vite build && cp dist/bundle.js bundle.js`.');
+    console.error('  Packaging a frontend without its bundle yields a module that loads and');
+    console.error('  reports healthy while rendering no UI at all.');
+    process.exit(1);
+  }
+
   const frontendDestDir = path.join(moduleDestDir, 'frontend');
-  copyDirRecursive(frontendSourceDir, frontendDestDir);
-  console.log(`  Copied frontend/ → dethernety/${name}/frontend/`);
+  fs.mkdirSync(frontendDestDir, { recursive: true });
+  fs.copyFileSync(bundleSource, path.join(frontendDestDir, 'bundle.js'));
+  console.log(`  Copied frontend/bundle.js → dethernety/${name}/frontend/`);
+}
+
+// ---------------------------------------------------------------------------
+// 5.5 Identity stamp  →  dethernety/{name}/.dethernety-module.json
+// ---------------------------------------------------------------------------
+//
+// An unpacked module otherwise carries no identity: manifest.json sits at the package
+// root and never reaches the module directory, so nothing in the installed tree records
+// what version it is or whether it matches a given package.
+//
+// Position is fixed at both ends. After every copy, or the digest does not cover the
+// payload it claims to describe; before the archive, or it is not in it. It is
+// written rather than copied — it does not exist in the source tree, and step 2's
+// extension allowlist would drop it if it did.
+
+if (fs.existsSync(moduleDestDir)) {
+  const payloadDigest = computePayloadDigest(moduleDestDir);
+  const stamp = {
+    name,
+    version,
+    builtFrom: resolveBuiltFrom(projectRoot),
+    payloadDigest,
+  };
+  fs.writeFileSync(
+    path.join(moduleDestDir, STAMP_FILENAME),
+    `${JSON.stringify(stamp, null, 2)}\n`,
+    'utf8',
+  );
+  console.log(`  Stamped dethernety/${name}/${STAMP_FILENAME}`);
+  console.log(`    ${payloadDigest}`);
+} else {
+  // Legacy data-only packages produce no dethernety/{name}/ at all — they are a
+  // manifest plus .cypher files for ingestion. There is no installed tree to stamp,
+  // and fabricating an empty one would add a directory the module loader scans on
+  // every start and finds nothing in. manifest.json remains their identity.
+  console.log('  No dethernety/<name>/ payload — no identity stamp (data-only package).');
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +348,10 @@ console.log('  Creating tar.gz archive...');
 const archiveName = `${name}-${version}.tar.gz`;
 const archivePath = path.join(distDir, archiveName);
 
-execSync(`tar -czf "${archivePath}" -C "${packageDir}" .`);
+// execFileSync, not execSync: these paths are built from manifest-supplied values, and
+// a shell would give a name containing a quote or a backtick command execution during
+// an ordinary build.
+execFileSync('tar', ['-czf', archivePath, '-C', packageDir, '.']);
 
 const size = (fs.statSync(archivePath).size / 1024).toFixed(1);
 console.log('');
@@ -265,5 +360,5 @@ console.log(`  Archive: ${archivePath}`);
 console.log(`  Size: ${size} KB`);
 console.log('');
 console.log('Package contents:');
-const contents = execSync(`tar -tzf "${archivePath}"`, { encoding: 'utf8' });
+const contents = execFileSync('tar', ['-tzf', archivePath], { encoding: 'utf8' });
 console.log(contents);

@@ -167,3 +167,42 @@ jobs:
       # (0 errors, 0 warnings) and the builtin-partition drift guard against the blob.
       - name: dt-module unit tests
         run: pnpm --filter @dethernety/dt-module test
+
+  # The packaging script runs on every module build and decides what a published
+  # package contains: which files land in the payload, and the identity stamp that tells
+  # one build of a module from another.
+  #
+  # Its own job, without `continue-on-error`, for the same reason as the two above: the
+  # `Test` step in `build` is filtered to one app AND cannot fail the build, so a check
+  # placed there would exist without running. The `Build` step does exercise the
+  # packager for every module, so a crash is already caught — but a silent payload
+  # regression is not, because nothing inspects what the packager produced.
+  #
+  # Stdlib-only, so no install step: `scripts/` resolves no dependencies, and keeping
+  # it that way is what makes this job cheap enough to run on every push.
+  #
+  # The glob is shell-expanded rather than passed as a directory: a bare directory
+  # argument is resolved as a module to execute, not as a set of tests to discover.
+  packaging:
+    name: Module packaging (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      matrix:
+        # package-module.js is ESM in a `.js` file with no `type` field anywhere above
+        # it, so it depends on Node's module detection — which is exactly the thing
+        # that differs across these majors.
+        node-version: [20, 22]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Packaging and module-hash unit tests
+        run: node --test scripts/*.test.mjs

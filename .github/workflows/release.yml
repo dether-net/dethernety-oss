@@ -1,29 +1,54 @@
 name: Release
 
+# On a `v*` tag: create the GitHub release, and publish the module payloads as release
+# assets — each cosign-signed, with a signed index over the set.
+#
+# Two jobs, and the split is the point. `modules` runs the workspace's own toolchain
+# — pnpm lifecycle scripts, turbo, tsc, vite — and holds NO id-token. `publish` holds
+# the signing identity and runs cosign, jq and gh, and no workspace code at all. A
+# malicious postinstall in a dependency cannot mint a Sigstore certificate under this
+# project's identity, because the job that runs it has no token to exchange. The image
+# workflow cannot make this split — buildx needs the working tree — which is why this
+# one does.
+
 on:
   push:
     tags:
       - "v*"
 
+# Nothing at workflow level that a job does not need; each job widens its own scope
+# with a comment justifying it.
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  # Never cancel a release mid-flight. A cancelled run can leave a draft release and a
+  # half-uploaded asset set — slower is strictly better than partial here.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
+  # ---------------------------------------------------------------------------
+  # Build and stage the module payloads. Third-party code executes here; this job
+  # must not be able to sign anything.
+  # ---------------------------------------------------------------------------
+  modules:
+    name: Build module payloads
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # A tag name is caller-supplied. It reaches an awk program, a heredoc delimiter
-      # and a release title, so constrain it once, here, before anything reads it —
-      # the same gate the image workflow puts in front of its version string.
-      #
-      # Git permits `/`, `{`, `}`, `(`, `)` and `"` in a ref name, which is enough to
-      # make a tag that is also a valid awk program.
-      - name: Extract and validate version from tag
-        id: version
+      # A tag name is caller-supplied and reaches a filename, a JSON document and a
+      # certificate SAN. Constrain it once, here, before anything reads it — the same
+      # gate the image workflow puts in front of its version string.
+      - name: Validate tag
+        id: tag
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -31,24 +56,222 @@ jobs:
             echo "::error::refusing to release: '${GITHUB_REF_NAME}' is not a release tag"
             exit 1
           fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # Assert agreement, never rewrite — the rule the release-integrity job already
+      # applies to the one npm package here. A tag that disagrees with package.json
+      # ships an image labelled one version beside a release named another.
+      - name: Tag agrees with the workspace version
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          DECLARED=$(jq -r .version package.json)
+          if [ "${DECLARED}" != "${VERSION}" ]; then
+            echo "::error::tag v${VERSION} does not match package.json ${DECLARED}"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `build` declares `outputs: ["dist/**"]`, so the payload is a cacheable turbo
+      # artifact. Cold today; if remote caching is ever enabled, a cache entry built on
+      # another machine would become a signed release asset. Force a real build.
+      - name: Build
+        run: pnpm turbo build --filter='!mitre-frameworks' --force
+
+      # manifest.json is repo content at the tagged commit, and both fields reach a
+      # filename and the index. Validate before use, assert the manifest name matches
+      # the directory, and fail on a count other than exactly three — an added module
+      # must announce itself here rather than ship unnoticed, and a dropped one must
+      # not pass silently.
+      - name: Collect and validate module payloads
+        env:
+          EXPECTED: "dethernety-general dethernety-coverage-tools dethernety-threat-report"
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for m in ${EXPECTED}; do
+            NAME=$(jq -r .name    "modules/$m/manifest.json")
+            VER=$(jq  -r .version "modules/$m/manifest.json")
+            printf '%s' "$NAME" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$' \
+              || { echo "::error::unusable module name in $m: '$NAME'"; exit 1; }
+            printf '%s' "$VER"  | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              || { echo "::error::unusable module version in $m: '$VER'"; exit 1; }
+            [ "$NAME" = "$m" ] \
+              || { echo "::error::manifest name '$NAME' != directory '$m'"; exit 1; }
+            SRC="modules/$m/dist/${NAME}-${VER}.tar.gz"
+            [ -f "$SRC" ] || { echo "::error::no payload at $SRC"; exit 1; }
+            cp "$SRC" staging/
+          done
+          COUNT=$(find staging -maxdepth 1 -name '*.tar.gz' | wc -l | tr -d ' ')
+          [ "$COUNT" -eq 3 ] || { echo "::error::expected 3 payloads, staged ${COUNT}"; exit 1; }
+          (cd staging && sha256sum *.tar.gz > SHA256SUMS)
+          cat staging/SHA256SUMS
+
+      - name: Upload staged payloads
+        uses: actions/upload-artifact@v4
+        with:
+          name: module-payloads
+          path: staging/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Sign, index, and publish. Holds the release write and the signing identity; runs
+  # no workspace code. Everything it signs arrived from a job that could not obtain a
+  # certificate.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Sign and publish the release
+    needs: modules
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download staged payloads
+        uses: actions/download-artifact@v4
+        with:
+          name: module-payloads
+          path: staging
+
+      # The artifact hop is trusted, but asserting across it is free and catches a
+      # packing surprise before it reaches a signature.
+      - name: Payloads survived the artifact hop
+        working-directory: staging
+        run: sha256sum -c SHA256SUMS
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # The index lists the module set for this version at a fixed, constructible
+      # download URL, so it can be read with a plain HTTPS GET and no GitHub API call
+      # (the unauthenticated API is rate-limited per IP; asset downloads are not). It is
+      # built from each tarball's OWN manifest.json, so index and asset cannot disagree
+      # by construction, and jq consumes untrusted JSON through --argjson, never string
+      # concatenation.
+      #
+      # assetDigest is the sha256 of the tarball — download integrity. It is NOT the
+      # payload's `.dethernety-module.json` payloadDigest, which is a content-tree digest
+      # over the unpacked files. Different scopes, names kept distinct on purpose.
+      - name: Build the index
+        working-directory: staging
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          : > entries.ndjson
+          for f in *.tar.gz; do
+            MANIFEST=$(tar -xOzf "$f" ./manifest.json)
+            jq -n \
+              --arg   asset  "$f" \
+              --arg   digest "sha256:$(sha256sum "$f" | cut -d' ' -f1)" \
+              --argjson m     "$MANIFEST" \
+              '{name: $m.name, version: $m.version, asset: $asset,
+                assetDigest: $digest, compatibility: ($m.compatibility // null)}' \
+              >> entries.ndjson
+          done
+          jq -n --arg tag "$TAG" --arg sha "$SHA" --slurpfile mods entries.ndjson \
+            '{schema: "dethernety.modules/1", tag: $tag, commit: $sha,
+              modules: ($mods | sort_by(.name))}' > modules.json
+          rm entries.ndjson
+          cat modules.json
+
+      - name: Sign every asset and the index
+        working-directory: staging
+        run: |
+          set -euo pipefail
+          for f in *.tar.gz modules.json; do
+            cosign sign-blob "$f" --bundle "$f.bundle" --yes
+          done
+
+      # The instruction published in the summary is the instruction that runs here, on
+      # these exact bytes, with an EXACT identity — no regexp. The identity is derived
+      # from github.workflow_ref (what Fulcio records in the certificate SAN) rather
+      # than typed, so a rename of this file moves the check with it instead of leaving
+      # the published instruction quietly wrong. For a non-reusable workflow this equals
+      # the job's own ref; if this is ever made reusable, revisit — the SAN would then
+      # follow the calling workflow.
+      - name: Verify against the exact signing identity
+        working-directory: staging
+        env:
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          for f in *.tar.gz modules.json; do
+            cosign verify-blob "$f" --bundle "$f.bundle" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          done
+
+      # The identity pin must be load-bearing, not decorative. Verify with a
+      # deliberately WRONG identity — a certificate that was never issued for this
+      # workflow-at-this-tag — and require it to fail. Uses only the real bundle; forges
+      # nothing. If this passes, the pin above is not actually constraining anything.
+      - name: A wrong identity does not verify
+        working-directory: staging
+        env:
+          WRONG: https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/v0.0.0-not-this-release
+        run: |
+          set -euo pipefail
+          if cosign verify-blob modules.json --bundle modules.json.bundle \
+               --certificate-identity "${WRONG}" \
+               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+               2>/dev/null; then
+            echo "::error::a bundle verified against an identity it was not issued for"
+            exit 1
+          fi
+
+      # Not a test of cosign — a test of this workflow's wiring. It fails when a bundle
+      # beside an asset does not bind that asset's bytes, which is the mistake this
+      # pipeline can actually make: signing one tree and uploading another, or a stale
+      # artifact on a re-run.
+      - name: A modified payload does not verify
+        working-directory: staging
+        env:
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          cp modules.json tampered.json && printf '\n' >> tampered.json
+          if cosign verify-blob tampered.json --bundle modules.json.bundle \
+               --certificate-identity "${IDENTITY}" \
+               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+               2>/dev/null; then
+            echo "::error::a modified payload verified — the bundle does not bind these bytes"
+            exit 1
+          fi
+          rm tampered.json
 
       - name: Extract changelog for this version
         id: changelog
         env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
+          VERSION: ${{ needs.modules.outputs.version }}
         run: |
           set -euo pipefail
-          # The version is passed to awk as a VARIABLE and compared literally. Building
-          # the program text by concatenation is what made a tag name executable, and a
-          # validated version is not a reason to go back to it.
+          # The version is passed to awk as a VARIABLE and matched literally; building
+          # the program text by concatenation is what made a tag name executable.
           BODY=$(awk -v v="${VERSION}" '
             index($0, "## [" v "]") == 1 { flag = 1; next }
             /^## / { flag = 0 }
             flag' CHANGELOG.md)
 
-          # Without this, a heading-format drift ships a release with empty notes and
-          # nothing says so.
           if [ -z "$(printf '%s' "${BODY}" | tr -d '[:space:]')" ]; then
             echo "::error::CHANGELOG.md has no '## [${VERSION}]' section"
             exit 1
@@ -63,18 +286,49 @@ jobs:
             printf '%s\n' "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Determine prerelease status
-        id: prerelease
-        run: |
-          set -euo pipefail
-          if echo "$GITHUB_REF_NAME" | grep -q "\-rc"; then
-            echo "IS_PRERELEASE=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "IS_PRERELEASE=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub release
+      # Draft first, publish last. action-gh-release creates the release and THEN
+      # uploads assets, so there is a window where the release exists with none of them
+      # — and a reader that treats "release exists" as "all assets present" would fetch
+      # an incomplete set. A draft is invisible to the anonymous API, so a failed run
+      # reads as "no release at this version" rather than a half-populated release with
+      # a valid-looking but partial asset list.
+      - name: Create the release as a draft
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
           body: ${{ steps.changelog.outputs.BODY }}
-          prerelease: ${{ steps.prerelease.outputs.IS_PRERELEASE }}
+          fail_on_unmatched_files: true
+          files: |
+            staging/*.tar.gz
+            staging/*.tar.gz.bundle
+            staging/modules.json
+            staging/modules.json.bundle
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+
+      - name: Summary
+        env:
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "### Module payloads"
+            echo
+            echo "Verify a payload — the identity is pinned to this tag, so a certificate"
+            echo "issued for any other release will not satisfy it:"
+            echo
+            echo '```'
+            echo "cosign verify-blob dethernety-general-1.0.0.tar.gz \\"
+            echo "  --bundle dethernety-general-1.0.0.tar.gz.bundle \\"
+            echo "  --certificate-identity '${IDENTITY}' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo '```'
+            echo
+            echo "Index: https://github.com/${REPO}/releases/download/${TAG}/modules.json"
+          } >> "$GITHUB_STEP_SUMMARY"
