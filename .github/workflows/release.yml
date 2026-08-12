@@ -157,15 +157,18 @@ jobs:
         working-directory: staging
         run: sha256sum -c SHA256SUMS
 
-      # Pin cosign 3.x: its `sign-blob --bundle` emits the NEW Sigstore bundle format
-      # (application/vnd.dev.sigstore.bundle.v0.3+json), which the consumer's verifier
-      # (sigstore-go) requires. cosign 2.x's `--bundle` emits the LEGACY format, which
-      # sigstore-go cannot parse ("unknown field base64Signature") — and cosign's own
-      # verify-blob accepts both, so a 2.x line silently produces bundles that pass CI here
-      # but fail at the consumer. The installer default has drifted across 2.x/3.x lines, so
-      # this must be pinned. Do not unpin. (An assertion after signing guards it in depth.)
+      # cosign 3.x emits the NEW Sigstore bundle format by default from `sign-blob --bundle`
+      # (application/vnd.dev.sigstore.bundle.v0.3+json) — the format the consumer's verifier
+      # (sigstore-go) requires. cosign's LEGACY format cannot be parsed by sigstore-go ("unknown
+      # field base64Signature"), and cosign's own verify-blob accepts both, so a legacy bundle
+      # passes CI here but fails at the consumer (the assertion after signing guards that in depth).
+      #
+      # The installer is pinned to @v4: the @v3 line ended at v3.10.1 (Oct 2025) and verifies the
+      # downloaded cosign binary against a detached `.sig` that cosign 3.x no longer ships, so it
+      # cannot install any 3.x. cosign-installer v4's own default cosign is v3.0.6 — v4 installs 3.x
+      # by design. Keep the installer on a current major and cosign on 3.x; do not drop back to 2.x.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4
         with:
           cosign-release: 'v3.1.3'
 
