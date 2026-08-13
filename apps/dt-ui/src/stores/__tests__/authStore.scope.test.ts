@@ -40,6 +40,7 @@ const makeConfig = (oidcScope?: string): FrontendConfig => ({
   debugAuth: false,
   enableDevTools: false,
   userProfileUrl: '',
+  settingsUrl: '',
 })
 
 const loginAndReadScope = async (): Promise<string | null> => {

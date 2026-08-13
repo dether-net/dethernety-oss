@@ -1,0 +1,278 @@
+# Dethernety — pure open-source deployment (Docker Compose)
+#
+# Four long-running services plus one pre-start job:
+#
+#   db ─────────▶ console-init ──┐
+#                                ├──▶ platform ──▶ proxy
+#   ollama ──────────────────────┘
+#
+#   db            graph database (Bolt), reachable only inside the stack network
+#   ollama        embedding server used for class matching, stack-internal only
+#   console-init  ONE-SHOT: places the no-auth schema, fetches + verifies the code
+#                 modules, ingests the MITRE data — then exits. The platform is held
+#                 back until it has completed (see depends_on below).
+#   platform      the API + SPA + runtime /config, stack-internal only
+#   proxy         the single published entry point (TLS terminator in a later step)
+#
+# Only the proxy publishes a host port. The database and embedding server never
+# leave the stack network — no distribution artifact ships database engine bits;
+# ${DB_IMAGE} and ${OLLAMA_IMAGE} are references the operator's runtime resolves.
+#
+# Quickstart — the byodt control script wraps compose and carries the config layer plus the
+# generated secret layer on every command:
+#
+#   ./byodt up
+#
+# The password lives in .env.secrets (mode 0600) so it stays out of the readable
+# config layer; the two --env-file flags merge both layers for interpolation.
+
+name: dethernety
+
+services:
+  # --- Graph database ---------------------------------------------------------
+  # Plain image, pinned. The heavier MAGE variant is not required: class matching
+  # uses the built-in vector search, and the one procedure that is MAGE-only has a
+  # built-in fallback. Pinning avoids a silent multi-gigabyte difference in the
+  # first-run pull.
+  db:
+    image: ${DB_IMAGE}
+    command:
+      - "--bolt-num-workers=4"
+      - "--query-plan-cache-max-size=100"
+      - "--query-execution-timeout-sec=600"
+      - "--query-max-plans=100"
+      - "--cartesian-product-enabled=true"
+      - "--storage-gc-cycle-sec=300"
+      # How often the database writes an in-place snapshot for crash recovery. Tunable via
+      # SNAPSHOT_INTERVAL_SEC in .env (0 disables). These live in the data dir and are pruned by
+      # retention — not a substitute for `byodt backup`, which captures one and copies it out.
+      - "--storage-snapshot-interval-sec=${SNAPSHOT_INTERVAL_SEC:-300}"
+      # 4096 MiB is the measured floor — the embedding-bearing statements fail
+      # below it, and the ingest is deliberately not retried on a memory error.
+      - "--memory-limit=4096"
+      - "--query-vertex-count-to-expand-existing=10"
+    environment:
+      MEMGRAPH_USER: ${NEO4J_USERNAME}
+      MEMGRAPH_PASSWORD: ${NEO4J_PASSWORD}
+    volumes:
+      # DB_DATA (see .env) selects the store: the default host bind mount `./data/memgraph`
+      # (visible on disk) or the `memgraph-data` named volume (robust on VM-backed runtimes).
+      - "${DB_DATA:-./data/memgraph}:/var/lib/memgraph"
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+      memlock: { soft: -1, hard: -1 }
+    healthcheck:
+      # Healthy means "answers a query", not merely "process is up". The $$ escapes
+      # keep the variables for the container shell rather than compose.
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole --username \"$$MEMGRAPH_USER\" --password \"$$MEMGRAPH_PASSWORD\" || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    networks: [dethernety]
+    restart: unless-stopped
+
+  # --- Embedding server -------------------------------------------------------
+  # EMBEDDING_MODEL selects the model Ollama serves AND the model the platform
+  # queries; the healthcheck pulls it on first run, so the retry budget is sized
+  # for a slow connection rather than the fast-path default.
+  ollama:
+    image: ${OLLAMA_IMAGE}
+    environment:
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+    volumes:
+      - ./data/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q \"$$EMBEDDING_MODEL\" || ollama pull \"$$EMBEDDING_MODEL\"; ollama list | grep -q \"$$EMBEDDING_MODEL\""]
+      interval: 15s
+      timeout: 120s
+      retries: 40
+      start_period: 30s
+    networks: [dethernety]
+    restart: unless-stopped
+
+  # --- Pre-start one-shot -----------------------------------------------------
+  # Same image as the (future) console daemon, run with its default `init`
+  # entrypoint. It writes into the shared modules/ and schema/ mounts, so those
+  # directories must be writable by the image's unprivileged user — `byodt bootstrap`
+  # creates them with that in mind.
+  #
+  # Exit discipline is enforced by the binary, and the two halves differ on
+  # purpose: a version or schema failure exits non-zero and aborts the whole
+  # `up` (a schema that disagrees with the code serving it must not serve); a
+  # module-fetch or ingest failure exits zero and records the fault, leaving a
+  # running deployment to read the diagnosis on.
+  console-init:
+    image: ${CONSOLE_IMAGE}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Same mode layer as the platform: the one-shot reads ENABLE_NOAUTH from it to
+    # decide whether to place the real no-auth schema or an empty placeholder, so
+    # its decision always tracks the mode the platform will run.
+    env_file:
+      - ./mode/mode.env
+    environment:
+      PLATFORM_VERSION: ${PLATFORM_VERSION}
+      NEO4J_URI: bolt://db:7687
+      NEO4J_USERNAME: ${NEO4J_USERNAME}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-memgraph}
+      CONSOLE_RELEASE_BASE_URL: ${CONSOLE_RELEASE_BASE_URL:-https://github.com/dether-net/dethernety-oss}
+    volumes:
+      # Writable: the one-shot creates/removes files here.
+      - ./modules:/app/apps/dt-ws/custom_modules
+      - ./schema:/app/apps/dt-ws/schema
+    networks: [dethernety]
+    restart: "no"
+
+  # --- Platform (API + SPA + /config) -----------------------------------------
+  # Starts only once the database and embedding server are healthy AND the
+  # one-shot has completed successfully — a declared dependency, not a service
+  # that merely tends to finish first. Without it the platform could read a
+  # previous boot's schema or run before the graph is seeded.
+  platform:
+    image: ghcr.io/dether-net/dethernety:${PLATFORM_VERSION}
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      console-init:
+        condition: service_completed_successfully
+    # The mode layer the console owns and rewrites: pure-OSS by default (no-auth,
+    # development), or the cloud values once the operator connects the deployment in
+    # the console. It is applied here, on recreate — this is what makes `up -d`
+    # (never `restart`) the apply step. NODE_ENV and ENABLE_NOAUTH live in this file,
+    # NOT the environment block below, because a service's `environment:` overrides
+    # `env_file:` — leaving them here would pin the platform to no-auth forever.
+    # byodt seeds the file (and the console never deletes it), so the plain
+    # list form is used — it needs no recent-Compose feature and works under
+    # podman-compose too. Security headers and the query-depth guard apply in every
+    # mode regardless.
+    env_file:
+      - ./mode/mode.env
+    environment:
+      PORT: "3003"
+      NEO4J_URI: bolt://db:7687
+      NEO4J_USERNAME: ${NEO4J_USERNAME}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_ENCRYPTED: "false"
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-memgraph}
+      # Bolt is stack-internal and unencrypted, so cert trust is moot — and the
+      # platform's production validation rejects a truthy value outright.
+      NEO4J_TRUST_CERT: "false"
+      GQL_ENABLE_SUBSCRIPTIONS: "true"
+      GQL_QUERY_DEPTH_LIMIT: "10"
+      GQL_QUERY_COMPLEXITY_LIMIT: "1000"
+      CUSTOM_MODULES_PATH: custom_modules
+      ALLOWED_MODULES: "*"
+      ENABLE_MODULE_HOT_RELOAD: "false"
+      EMBEDDING_ENABLED: "true"
+      EMBEDDING_URL: http://ollama:11434/api/embed
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      EMBEDDING_SIMILARITY_THRESHOLD: ${EMBEDDING_SIMILARITY_THRESHOLD:-0.40}
+      # Surfaces a "Settings" link at the bottom of the platform sidebar, pointed
+      # at the operator console on this same origin. Override to front the console
+      # elsewhere, or set empty to hide the link.
+      SETTINGS_URL: ${SETTINGS_URL:-/console/}
+    volumes:
+      # Read-only: the platform loads modules the one-shot placed.
+      - ./modules:/app/apps/dt-ws/custom_modules:ro
+      # Single-file mount, so the generated no-auth schema lands beside the baked
+      # schema.graphql without shadowing the whole directory. The one-shot always
+      # writes this path (the real schema when no-auth is on, an empty file when it
+      # is off), so the mount target is always a stable regular file.
+      - ./schema/schema-noauth.graphql:/app/apps/dt-ws/schema/schema-noauth.graphql:ro
+      # Read-write: the durable content cache for mounted cloud modules. The path
+      # matches MODULE_CONTENT_CACHE_DIR, which the console emits into the mode layer.
+      - ./data/content-cache:/app/apps/dt-ws/.module-content-cache
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/health/simple', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks: [dethernety]
+    restart: unless-stopped
+
+  # --- Front door -------------------------------------------------------------
+  # The only published port. It depends on the platform having STARTED, not on it
+  # being healthy: the proxy answers its own /healthz so a front-door failure
+  # stays distinguishable from a backend failure, and it resolves the platform at
+  # request time so a platform outage is a 502 rather than a proxy that refuses
+  # to start (see proxy/nginx.conf).
+  #
+  # Port 3000 is deliberate: it is a pre-registered loopback callback, so a
+  # laptop deployment needs no identity-provider callback registration. Renaming
+  # it to 80 would silently reintroduce that step. The bind address defaults to
+  # loopback — this stack is single-tenant and unauthenticated at the edge.
+  proxy:
+    image: ${PROXY_IMAGE}
+    depends_on:
+      platform:
+        condition: service_started
+    volumes:
+      # The config is a template rendered at container start by 40-tls.sh (below), so it is mounted
+      # outside conf.d; the entrypoint writes the active conf.d/default.conf from it.
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf.in:ro
+      - ./proxy/40-tls.sh:/docker-entrypoint.d/40-tls.sh:ro
+      # The front door terminates TLS for the whole stack when a cert is present here (byodt tls).
+      - ./tls:/etc/nginx/tls:ro
+    ports:
+      # One published port; the front door serves HTTPS on it when a cert is installed, plain HTTP
+      # otherwise. TLS flips the protocol on this same container port, so the mapping is unchanged.
+      - "${FRONT_DOOR_BIND:-127.0.0.1}:${FRONT_DOOR_PORT:-3000}:80"
+    healthcheck:
+      # The published port flips to HTTPS with a cert, so the probe uses the internal always-plain
+      # health listener (nginx.conf :8081) instead.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/healthz | grep -q ok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks: [dethernety]
+    restart: unless-stopped
+
+  # --- Console daemon ---------------------------------------------------------
+  # The operator's status page, outside the request path. It has no dependency on
+  # any other service, so it can report while the stack is down; it watches the
+  # platform and surfaces the deployment's state (module install, data ingest,
+  # phase). Access is session-gated, and the session tracks the deployment
+  # posture: in this pure-OSS bundle the console mints it with no credential (single-user,
+  # loopback host trust), and once connected to the cloud it authenticates via OIDC. The
+  # session is carried as a request header, never a cookie, which closes CSRF outright.
+  #
+  # Not published on its own port: the front door proxies it under /console/ (see
+  # proxy/nginx.conf), so it shares the front door's origin — one endpoint, and the
+  # console's sign-in callback lives on the same host as the platform's. The daemon
+  # binds all interfaces inside the container (0.0.0.0:8080) and is reached as
+  # console:8080 on the stack network. The image is FROM scratch (no shell), so
+  # there is no container healthcheck.
+  console:
+    image: ${CONSOLE_IMAGE}
+    command: ["daemon"]
+    environment:
+      PLATFORM_URL: http://platform:3003
+      STATE_PATH: /app/apps/dt-ws/custom_modules/.byodt-console-state.json
+      # Where the daemon writes the mode layer. The ./mode mount below surfaces it on
+      # the host bundle dir, where the platform and one-shot read it back via env_file.
+      MODE_LAYER_PATH: /var/lib/dethernety/mode.env
+    volumes:
+      # Read-write: the daemon reads the state dotfile the one-shot wrote AND writes content-mount
+      # module stubs here (the platform loads them on the next recreate).
+      - ./modules:/app/apps/dt-ws/custom_modules
+      # Read-write: the daemon writes the mode layer here; scoped to its own dir so it
+      # never has write access to .env.secrets or the rest of the bundle.
+      - ./mode:/var/lib/dethernety
+    networks: [dethernety]
+    restart: unless-stopped
+
+networks:
+  dethernety:
+    driver: bridge
+
+# Declared so DB_DATA (see .env) can point the database at a named volume instead of a host bind
+# mount. Unused — and harmless — when DB_DATA is a bind path (the default).
+volumes:
+  memgraph-data:

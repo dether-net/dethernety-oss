@@ -106,6 +106,21 @@
         <v-list-item prepend-icon="mdi-alert-outline" title="Issues" :to="{ name: 'issues' }" value="issues" />
         <v-list-item prepend-icon="mdi-toy-brick-outline" title="Modules" :to="{ name: 'modules' }" value="modules" />
       </v-list>
+
+      <!-- Optional deployment-configured external link, pinned to the bottom.
+           Rendered only when settingsUrl is set; the platform is agnostic about
+           the target. Uses v-list-item's native href (a real anchor). -->
+      <template #append>
+        <v-list v-if="config?.settingsUrl" density="compact" nav>
+          <v-list-item
+            prepend-icon="mdi-cog-outline"
+            title="Settings"
+            :href="config.settingsUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          />
+        </v-list>
+      </template>
     </v-navigation-drawer>
 
     <!-- App Bar -->

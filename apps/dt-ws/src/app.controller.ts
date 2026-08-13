@@ -92,6 +92,11 @@ export class AppController {
       // Application Configuration
       appUrl: process.env.APP_URL || '',
       appBaseUrl: process.env.APP_BASE_URL || '/',
+
+      // Optional external link surfaced by the frontend (e.g. a "Settings" item).
+      // Empty by default; the deployment decides the target. The backend is a
+      // courier and never interprets it.
+      settingsUrl: process.env.SETTINGS_URL || '',
     };
 
     // Development-only configuration (not exposed in production)

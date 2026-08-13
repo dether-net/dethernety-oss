@@ -126,6 +126,10 @@ export interface FrontendConfig {
   enableDevTools: boolean;
 
   userProfileUrl: string;
+
+  // Optional external link rendered as a "Settings" item in the sidebar.
+  // Generic by design — the deployment decides the target (empty → hidden).
+  settingsUrl: string;
 }
 
 /**
@@ -240,6 +244,18 @@ async function fetchRuntimeConfig(): Promise<FrontendConfig> {
           return url.startsWith('/') ? url : '';
         }
       })(),
+
+      settingsUrl: (() => {
+        const url = config.settingsUrl || '';
+        if (!url) return '';
+        // Validate URL scheme to prevent javascript: XSS (same guard as userProfileUrl)
+        try {
+          const parsed = new URL(url);
+          return ['https:', 'http:'].includes(parsed.protocol) ? url : '';
+        } catch {
+          return url.startsWith('/') ? url : '';
+        }
+      })(),
     };
   } catch (error) {
     console.warn('Failed to fetch runtime config, falling back to development config:', error);
@@ -312,6 +328,7 @@ function getDevelopmentConfig(): FrontendConfig {
     enableDevTools: getEnvValue('ENABLE_DEV_TOOLS', isDev ? 'true' : 'false') === 'true',
 
     userProfileUrl: getEnvValue('USER_PROFILE_URL', ''),
+    settingsUrl: getEnvValue('SETTINGS_URL', ''),
   };
 }
 
@@ -416,6 +433,7 @@ export let oidcDomain: string = '';
 export let debugAuth: boolean = false;
 export let enableDevTools: boolean = false;
 export let userProfileUrl: string = '';
+export let settingsUrl: string = '';
 
 // Initialize configuration and update exports
 getConfig().then(config => {
@@ -432,6 +450,7 @@ getConfig().then(config => {
   debugAuth = config.debugAuth;
   enableDevTools = config.enableDevTools;
   userProfileUrl = config.userProfileUrl;
+  settingsUrl = config.settingsUrl;
 }).catch(error => {
   console.error('Failed to load configuration:', error);
 });

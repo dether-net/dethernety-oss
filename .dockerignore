@@ -5,6 +5,15 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# The console SPA is a self-contained package; its 100+ MB install tree and Vite output are
+# built on the host into the embed tree and are never needed in the console build context (the
+# Go build consumes internal/assets/embed/console-ui, not ui/). The bare `node_modules` / `dist`
+# patterns are context-root-anchored, so they do not match these nested paths — exclude them
+# explicitly rather than switching to `**/dist`, which would drop the platform image's prebuilt
+# dist trees from its own build context.
+apps/byodt-console/ui/node_modules
+apps/byodt-console/ui/dist
+
 # Build outputs (will be built in container)
 dist
 build

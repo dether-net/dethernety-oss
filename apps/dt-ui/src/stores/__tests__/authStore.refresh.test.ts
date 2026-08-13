@@ -43,6 +43,7 @@ const makeConfig = (): FrontendConfig => ({
   debugAuth: false,
   enableDevTools: false,
   userProfileUrl: '',
+  settingsUrl: '',
 })
 
 // Build a real 3-segment JWT whose payload carries `exp` (seconds). jwtDecode is
