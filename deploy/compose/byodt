@@ -1,0 +1,461 @@
+#!/usr/bin/env bash
+# byodt — manage this Dethernety deployment.
+#
+# A thin, verb-driven wrapper over Docker or Podman Compose for the compose bundle: it carries the two env
+# files every command needs (.env + .env.secrets), folds in first-run setup, and gives the common
+# operations plain names. Run it from anywhere — it operates on the bundle it lives in.
+#
+#   ./byodt up        # bootstrap (first run) + start
+#   ./byodt help      # all commands
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+readonly BYODT_VERSION="1.0.0"
+readonly ENV_FILE=".env"
+readonly SECRETS_FILE=".env.secrets"
+readonly MODE_FILE="mode/mode.env"
+SELF="$(basename "$0")"
+
+# --- output -------------------------------------------------------------------
+if [ -t 1 ]; then
+  BOLD=$(printf '\033[1m'); RED=$(printf '\033[31m'); GRN=$(printf '\033[32m'); YEL=$(printf '\033[33m'); RST=$(printf '\033[0m')
+else
+  BOLD=""; RED=""; GRN=""; YEL=""; RST=""
+fi
+info() { printf '%s==>%s %s\n' "$GRN" "$RST" "$*"; }
+warn() { printf '%swarning:%s %s\n' "$YEL" "$RST" "$*" >&2; }
+die()  { printf '%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
+
+# --- helpers ------------------------------------------------------------------
+compose() { resolve_engine; "$ENGINE" compose --env-file "$ENV_FILE" --env-file "$SECRETS_FILE" "$@"; }
+
+# The container engine ("docker" or "podman"), settled once by resolve_engine.
+ENGINE=""
+
+# engine_ok NAME — true when NAME is on PATH and its `compose` subcommand runs. The compose
+# probe is the point: it rejects a bare engine with no Compose provider, and it is the same
+# check used both to auto-detect and to validate an explicit choice.
+engine_ok() { command -v "$1" >/dev/null 2>&1 && "$1" compose version >/dev/null 2>&1; }
+
+# resolve_engine settles which engine runs the stack, once, into ENGINE. Precedence: an
+# exported CONTAINER_ENGINE (one-off override) > the value persisted in .env > auto-detection,
+# Docker first then Podman. Whatever it lands on, it validates that engine's compose is usable,
+# so a wrong choice fails here with a clear message instead of deep inside a compose call.
+# Persisting a detected value into .env is ensure_engine's job, not this function's.
+resolve_engine() {
+  [ -n "$ENGINE" ] && return 0
+  local choice="${CONTAINER_ENGINE:-}"
+  if [ -z "$choice" ] && [ -f "$ENV_FILE" ]; then
+    choice="$(env_value CONTAINER_ENGINE "")"
+  fi
+  if [ -z "$choice" ]; then
+    if engine_ok docker; then choice="docker"
+    elif engine_ok podman; then choice="podman"
+    else die "No usable container engine — install Docker (with the Compose plugin) or Podman 4.1+ (a Compose provider, plus a running machine on macOS), or set CONTAINER_ENGINE in $ENV_FILE."
+    fi
+  elif ! engine_ok "$choice"; then
+    die "CONTAINER_ENGINE=$choice, but '$choice compose' failed — check that $choice and its Compose provider are installed, and (macOS/Podman) that its machine is running ('podman machine start'); or set a different CONTAINER_ENGINE in $ENV_FILE."
+  fi
+  ENGINE="$choice"
+}
+
+require_engine() { resolve_engine; }
+
+# ready reports whether the bundle is in a startable state: the env files, a database password, and the
+# mode layer compose mounts as an env_file. Anything missing means `up` still has setup to do.
+ready() {
+  [ -f "$ENV_FILE" ] || return 1
+  [ -f "$SECRETS_FILE" ] || return 1
+  grep -Eq '^NEO4J_PASSWORD=.+' "$SECRETS_FILE" || return 1
+  [ -f "$MODE_FILE" ]
+}
+
+ensure_ready() {
+  ready || die "Not set up yet — run '$SELF bootstrap' (or just '$SELF up', which does it for you)."
+}
+
+# env_value KEY DEFAULT — read a key from .env, falling back to DEFAULT.
+env_value() {
+  local key="$1" def="$2" val=""
+  if [ -f "$ENV_FILE" ]; then
+    val="$(grep -E "^$key=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  fi
+  printf '%s' "${val:-$def}"
+}
+
+# secret_value KEY DEFAULT — read a key from .env.secrets (mode 0600), falling back to DEFAULT.
+# Host-side only: the wrapper reads the secret to pass DB credentials to mgconsole; it never
+# exposes .env.secrets to a container (the console is deliberately walled off from it).
+secret_value() {
+  local key="$1" def="$2" val=""
+  if [ -f "$SECRETS_FILE" ]; then
+    val="$(grep -E "^$key=" "$SECRETS_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  fi
+  printf '%s' "${val:-$def}"
+}
+
+# db_is_bind — true when the database stores data in a host bind mount (DB_DATA is a path), false
+# when it uses a named volume. Governs whether ensure_layout makes the host dir and how destroy wipes.
+db_is_bind() {
+  case "$(env_value DB_DATA ./data/memgraph)" in
+    .*|/*) return 0 ;;
+    *)     return 1 ;;
+  esac
+}
+
+front_door_url() {
+  printf 'http://%s:%s/console/' "$(env_value FRONT_DOOR_BIND 127.0.0.1)" "$(env_value FRONT_DOOR_PORT 3000)"
+}
+
+gen_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+  else
+    dd if=/dev/urandom bs=24 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
+  fi
+}
+
+# ensure_engine records the resolved engine in .env on first run, so every later command uses the
+# same one (fresh auto-detection could pick differently if the host later gains a second engine)
+# and the operator can see and change it. No-op once an active CONTAINER_ENGINE line exists.
+ensure_engine() {
+  resolve_engine
+  [ -f "$ENV_FILE" ] || return 0
+  if grep -Eq '^CONTAINER_ENGINE=' "$ENV_FILE"; then return 0; fi
+  printf '\n# Container engine, recorded by byodt on first run — edit to change.\nCONTAINER_ENGINE=%s\n' "$ENGINE" >> "$ENV_FILE"
+  info "Container engine: ${BOLD}$ENGINE${RST} (recorded CONTAINER_ENGINE in $ENV_FILE)."
+}
+
+# ensure_layout brings the on-disk bundle to a startable state: the .env file, the runtime directories
+# (world-writable, since the console one-shot and daemon write into them under an unprivileged uid that
+# need not match the operator's), and the pure open-source mode layer. It is idempotent and silent when
+# nothing is missing, so `up` runs it every time — a deployment that lost any of this (a fresh copy, a
+# removed dir) self-heals here rather than failing inside compose on a missing env_file or bind mount.
+ensure_layout() {
+  if [ ! -f "$ENV_FILE" ]; then
+    cp .env.example "$ENV_FILE"
+    info "Created $ENV_FILE from .env.example — review it before starting."
+  fi
+  ensure_engine
+
+  # Pre-create the runtime dirs a rootless engine (Podman) container must write as world-writable, so
+  # the container uid — which need not match the operator — can still write them. data/memgraph is a
+  # bind-mount dir only when DB_DATA is a path; a named volume needs no host dir, so make it only in
+  # bind mode. tls/ is deliberately NOT in this list: the proxy mounts it read-only and only the
+  # operator writes it (via `tls generate`), so a 0777 dir there would just let any local user replace
+  # the private key and force the plaintext fallback. Keep it 0700, and don't re-widen it each `up`.
+  mkdir -p modules schema data data/ollama data/content-cache mode
+  chmod 0777 modules schema data data/ollama data/content-cache mode
+  mkdir -p tls && chmod 0700 tls
+  if db_is_bind; then mkdir -p data/memgraph && chmod 0777 data/memgraph; fi
+
+  # The console rewrites this file (never deletes it) when the deployment is connected to the cloud.
+  if [ ! -f "$MODE_FILE" ]; then
+    printf 'ENABLE_NOAUTH=true\nNODE_ENV=development\n' > "$MODE_FILE"
+    info "Seeded $MODE_FILE with the pure open-source defaults."
+  fi
+}
+
+# ensure_password generates the database password once, into .env.secrets (mode 0600). A no-op once a
+# password exists, so it is safe to call on every `up`.
+ensure_password() {
+  if [ -f "$SECRETS_FILE" ] && grep -Eq '^NEO4J_PASSWORD=.+' "$SECRETS_FILE"; then
+    return 0
+  fi
+  local password
+  password="$(gen_secret)"
+  [ -n "$password" ] || die "Failed to generate a password (no openssl and no readable /dev/urandom)."
+  umask 077
+  {
+    if [ -f "$SECRETS_FILE" ]; then grep -v '^NEO4J_PASSWORD=' "$SECRETS_FILE" || true; fi
+    echo "NEO4J_PASSWORD=$password"
+  } > "$SECRETS_FILE.tmp"
+  mv "$SECRETS_FILE.tmp" "$SECRETS_FILE"
+  chmod 0600 "$SECRETS_FILE"
+  info "Wrote a new database password to $SECRETS_FILE (mode 0600)."
+}
+
+# do_bootstrap is full first-run setup: the explicit `bootstrap` command, and what `up` folds in.
+do_bootstrap() { ensure_layout; ensure_password; }
+
+# --- commands -----------------------------------------------------------------
+cmd_bootstrap() { do_bootstrap; info "Ready. Start with: ${BOLD}$SELF up${RST}"; }
+
+cmd_up() {
+  # Always repair the layout (idempotent, silent when complete) so a bundle missing the mode layer or a
+  # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
+  ensure_layout
+  ensure_password
+  info "Starting the stack…"
+  compose up -d "$@"
+  info "Up. Console: ${BOLD}$(front_door_url)${RST}"
+  info "First start pulls the embedding model and ingests reference data — '$SELF logs console-init' to follow."
+}
+
+# compose down flags that delete data/images this command promises to keep. Refuse them explicitly
+# rather than forwarding — a muscle-memory `down -v` must not wipe the named-volume graph, and `--rmi`
+# would make destroy's "nothing was deleted" untrue. Safe flags (--remove-orphans, -t) pass through.
+refuse_volume_flags() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      -v|--volumes|--rmi|--rmi=*)
+        die "Refusing '$a' — it deletes data/images this command keeps by design. Remove the graph explicitly instead ('$SELF destroy' prints how)." ;;
+    esac
+  done
+}
+
+cmd_down() { ensure_ready; refuse_volume_flags "$@"; info "Stopping (data kept)…"; compose down "$@"; }
+
+cmd_restart() {
+  ensure_ready
+  if [ "$#" -gt 0 ]; then
+    # Named services recreate exactly those, not their dependency chain: a `restart proxy`
+    # re-reads the proxy's config without bouncing the database underneath it (--force-recreate
+    # alone would pull in and recreate the dependencies too).
+    info "Recreating: $* (named service(s) only)"
+    compose up -d --force-recreate --no-deps "$@"
+  else
+    info "Recreating the stack (re-reads config + the mode layer)…"
+    compose up -d --force-recreate
+  fi
+}
+
+cmd_status() { ensure_ready; compose ps "$@"; }
+
+cmd_logs() { ensure_ready; compose logs -f "$@"; }
+
+cmd_update() {
+  ensure_ready
+  info "Pulling the pinned images…"; compose pull
+  info "Applying…"; compose up -d
+  info "Updated."
+}
+
+# db_query runs a single Cypher statement through mgconsole in the db container, non-interactively.
+# -T so stdin pipes; credentials come from .env (user) and .env.secrets (password), host-side.
+db_query() {
+  local user pass
+  user="$(env_value NEO4J_USERNAME dethernety)"
+  pass="$(secret_value NEO4J_PASSWORD "")"
+  [ -n "$pass" ] || die "No database password in $SECRETS_FILE."
+  printf '%s\n' "$1" | compose exec -T db mgconsole --username "$user" --password "$pass"
+}
+
+# cmd_backup captures a consistent Memgraph snapshot and copies it OUT to a durable location.
+# CREATE SNAPSHOT is hot and consistent (no downtime); the copy-out is the point — snapshots left in
+# the data dir are pruned by Memgraph's own retention (count 3). Auth is NOT in a snapshot (it is
+# separate system state), so a backup is graph-only: portable, and not a secret-bearing file.
+cmd_backup() {
+  ensure_ready
+  # Reachability + credentials, the same probe the healthcheck uses.
+  db_query 'RETURN 1;' >/dev/null 2>&1 \
+    || die "Database is not reachable (running? credentials right?). Check '$SELF status'."
+
+  # Ask for a fresh snapshot; on success CREATE SNAPSHOT returns the new file's container path, and
+  # we copy exactly that (not "newest by mtime", which could pick a stale file). It fails with a
+  # generic error when there have been no writes since the last snapshot; that case is benign (the
+  # newest existing snapshot is already current), so we fall back to it — listed inside the container.
+  info "Requesting a snapshot…"
+  local created snappath=""
+  created="$(db_query 'CREATE SNAPSHOT;' 2>/dev/null | grep -oE '/var/lib/memgraph/snapshots/[^"]+' | head -1 || true)"
+  if [ -n "$created" ]; then
+    snappath="$created"
+  else
+    local newest
+    newest="$(compose exec -T db sh -c 'ls -t /var/lib/memgraph/snapshots 2>/dev/null | head -1' 2>/dev/null | tr -d '\r')"
+    [ -n "$newest" ] && snappath="/var/lib/memgraph/snapshots/$newest"
+  fi
+  [ -n "$snappath" ] || die "No snapshot available to back up."
+
+  local destdir="${1:-backups}"
+  # No chmod here: the snapshot is the whole graph (sensitive), and `compose cp` writes it host-side
+  # as the operator, so nothing needs this dir widened — let the operator's umask govern, and never
+  # broaden a directory the operator named.
+  mkdir -p "$destdir"
+  local out="${destdir%/}/byodt-snapshot-$(env_value PLATFORM_VERSION 0)-$(date +%Y%m%d-%H%M%S).snapshot"
+  # Copy OUT through the container so this works for both a host bind mount and a named volume (the
+  # host cannot see a named volume's files directly). Same mechanism restore uses.
+  compose cp "db:$snappath" "$out" >/dev/null 2>&1 || die "Failed to copy the snapshot out of the db container."
+
+  info "Backup written: ${BOLD}$out${RST} ($(du -h "$out" 2>/dev/null | cut -f1 | tr -d ' '))"
+  info "The whole graph is in here (no password) — keep it private and ${BOLD}copy it off-box${RST} so it survives losing this machine."
+}
+
+# cmd_restore replaces the current graph with a backup snapshot. DESTRUCTIVE: RECOVER SNAPSHOT ...
+# FORCE clears all current data first (Memgraph moves existing WAL/snapshots aside to a hidden .old,
+# so it cannot load the wrong, newer state). Auth is untouched (separate store), so the platform
+# keeps using this deployment's own password. Snapshots are graph-only and version-sensitive.
+cmd_restore() {
+  ensure_ready
+  local file="${1:-}"
+  [ -n "$file" ] || die "usage: $SELF restore <backup-file>"
+  [ -f "$file" ] || die "No such backup file: $file"
+
+  # Best-effort version guard: our filenames encode the PLATFORM_VERSION the snapshot was taken on.
+  local cur bkv="" base rest
+  cur="$(env_value PLATFORM_VERSION 0)"
+  base="${file##*/}"
+  case "$base" in
+    byodt-snapshot-*.snapshot)
+      rest="${base#byodt-snapshot-}"; rest="${rest%.snapshot}"
+      rest="${rest%-*}"; bkv="${rest%-*}" ;;
+  esac
+  if [ -n "$bkv" ] && [ "$bkv" != "$cur" ]; then
+    warn "That backup was taken on version $bkv; this deployment is $cur — a snapshot may not load across versions."
+  fi
+
+  warn "This REPLACES the current graph with '$file'. All current graph data is cleared."
+  printf 'Type %srestore%s to confirm: ' "$BOLD" "$RST"
+  local reply=""; read -r reply || true
+  [ "$reply" = "restore" ] || die "Aborted — nothing was changed."
+
+  db_query 'RETURN 1;' >/dev/null 2>&1 \
+    || die "Database is not reachable — start it with '$SELF up' first."
+
+  # Stage the file where memgraph can read it. Host-written files under the data bind mount are not
+  # reliably visible inside the container (engine/VM file sharing), so copy it INTO a container-local
+  # path with `compose cp`, then make it world-readable as root — `compose cp` lands it owned by the
+  # host uid, which memgraph's uid cannot read. RECOVER SNAPSHOT then copies it into the snapshots dir.
+  local staged="/tmp/byodt-restore.snapshot"
+  info "Staging the snapshot into the database container…"
+  compose cp "$file" "db:$staged" >/dev/null 2>&1 || die "Could not copy the snapshot into the db container."
+  compose exec -u root -T db chmod 0644 "$staged" >/dev/null 2>&1 || die "Could not make the staged snapshot readable."
+  info "Restoring — clearing current data and applying the snapshot…"
+  if db_query "RECOVER SNAPSHOT \"$staged\" FORCE;"; then
+    compose exec -u root -T db rm -f "$staged" >/dev/null 2>&1 || true
+    info "Restore complete. If the app still shows old or empty data, run '$SELF restart platform'."
+  else
+    compose exec -u root -T db rm -f "$staged" >/dev/null 2>&1 || true
+    die "RECOVER SNAPSHOT failed — the current graph was left unchanged."
+  fi
+}
+
+cmd_destroy() {
+  ensure_ready
+  # Deliberately does NOT delete data. Tears the stack down (containers + network) and hands the
+  # operator the exact wipe commands to run explicitly — a script rm-ing an operator's data is a
+  # footgun. `down` (no -v) keeps volumes, so a named-volume DB_DATA survives too. Especially keep
+  # .env.secrets: it holds the DB password, and the database's auth was created with it — delete it
+  # while the graph exists and the operator is locked out of their own data.
+  refuse_volume_flags "$@"
+  info "Removing the stack — containers and network. Your data and config are kept."
+  compose down "$@"
+  info "Stack removed; nothing was deleted. '$SELF up' brings it back as it was."
+  printf '\n%sKeep .env.secrets%s — the database password, the key to your graph; deleting it while\n' "$BOLD" "$RST"
+  printf 'the graph exists locks you out of your own data.\n\n'
+  if db_is_bind; then
+    printf 'To reset the graph and re-ingest (a fresh graph adopts the kept password):\n'
+    printf '  rm -rf data/memgraph data/content-cache\n'
+  else
+    local vol; vol="$(env_value DB_DATA memgraph-data)"
+    printf 'The graph lives in the named volume %s%s%s. To reset it and re-ingest, remove it:\n' "$BOLD" "$vol" "$RST"
+    printf '  %s volume rm dethernety_%s   # find the exact name with: %s volume ls | grep %s\n' "$ENGINE" "$vol" "$ENGINE" "$vol"
+  fi
+  printf 'Left alone: your config (.env, .env.secrets, mode/, tls/).\n'
+}
+
+cmd_console() {
+  local url; url="$(front_door_url)"
+  info "Console: ${BOLD}${url}${RST}"
+  command -v open >/dev/null 2>&1 && open "$url" >/dev/null 2>&1 || true
+}
+
+cmd_version() {
+  printf '%sbyodt%s %s\n' "$BOLD" "$RST" "$BYODT_VERSION"
+  if [ -f "$ENV_FILE" ]; then
+    printf 'Pinned release (from %s):\n' "$ENV_FILE"
+    grep -E '^(PLATFORM_VERSION|[A-Z_]*_IMAGE)=' "$ENV_FILE" | sed 's/^/  /' || true
+  fi
+}
+
+cmd_compose() { ensure_ready; compose "$@"; }
+
+# Front-door TLS certificate management. The proxy terminates TLS for the whole stack when cert.pem +
+# key.pem are present in tls/; these helpers create or inspect them. Apply a change with `byodt up`.
+cmd_tls() {
+  local sub="${1:-status}"; shift || true
+  case "$sub" in
+    generate) tls_generate "$@" ;;
+    status)   tls_status ;;
+    *) die "usage: $SELF tls {generate|status}" ;;
+  esac
+}
+
+tls_generate() {
+  command -v openssl >/dev/null 2>&1 || die "openssl is required to generate a certificate."
+  local host="${1:-$(hostname 2>/dev/null || echo localhost)}"
+  mkdir -p tls
+  # RSA (not EC) for portability across the openssl/LibreSSL an operator's machine might ship. A
+  # self-signed cert encrypts the hop and makes the browser a secure context; it does not attest identity.
+  umask 077
+  if ! openssl req -x509 -newkey rsa:2048 -nodes -days 730 \
+      -keyout tls/key.pem -out tls/cert.pem \
+      -subj "/CN=${host}" \
+      -addext "subjectAltName=DNS:localhost,DNS:${host},IP:127.0.0.1" >/dev/null 2>&1; then
+    die "openssl failed to generate the certificate."
+  fi
+  chmod 600 tls/key.pem
+  info "Wrote a self-signed certificate to tls/ (SANs: localhost, ${host}, 127.0.0.1)."
+  info "Apply it with ${BOLD}$SELF up${RST} — the front door then serves HTTPS on the published port."
+}
+
+tls_status() {
+  if [ -f tls/cert.pem ] && [ -f tls/key.pem ]; then
+    info "A certificate is installed (tls/cert.pem) — the front door serves HTTPS once applied:"
+    if command -v openssl >/dev/null 2>&1; then
+      openssl x509 -in tls/cert.pem -noout -subject -issuer -dates 2>/dev/null | sed 's/^/  /' || true
+    fi
+  else
+    info "No certificate — the front door serves plain HTTP."
+    info "Add one with ${BOLD}$SELF tls generate${RST}, or drop your own cert.pem + key.pem into tls/, then ${BOLD}$SELF up${RST}."
+  fi
+}
+
+usage() {
+  cat <<EOF
+${BOLD}byodt${RST} — manage this Dethernety deployment
+
+${BOLD}Usage:${RST} $SELF <command> [args]
+
+  up                 Start the stack / apply changes (bootstraps on first run)
+  down               Stop the stack (data kept)
+  restart [service]  Recreate to apply config/mode changes (all, or one service)
+  status             Show service state
+  logs [service]     Follow logs (all, or one service)
+  update             Pull the pinned images and apply
+  backup [dir]       Snapshot the graph and copy it out (default: backups/)
+  restore <file>     Replace the graph from a backup snapshot (asks to confirm)
+  bootstrap          First-run setup (dirs, database password, mode seed)
+  destroy            Remove the stack (containers + network); data on disk is kept
+  console            Print (and open) the console URL
+  tls {generate|status}  Manage the front-door TLS certificate
+  version            Show the pinned release versions
+  compose [args]     Run the engine's compose with this bundle's env files
+  help               Show this help
+
+Services: db, ollama, console-init, platform, proxy, console
+EOF
+}
+
+# --- dispatch -----------------------------------------------------------------
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  up|start)            require_engine; cmd_up "$@" ;;
+  down|stop)           require_engine; cmd_down "$@" ;;
+  restart)             require_engine; cmd_restart "$@" ;;
+  status|ps)           require_engine; cmd_status "$@" ;;
+  logs)                require_engine; cmd_logs "$@" ;;
+  update|pull|upgrade) require_engine; cmd_update "$@" ;;
+  backup)              require_engine; cmd_backup "$@" ;;
+  restore)             require_engine; cmd_restore "$@" ;;
+  bootstrap|init)      cmd_bootstrap "$@" ;;
+  destroy|nuke)        require_engine; cmd_destroy "$@" ;;
+  console|open)        cmd_console "$@" ;;
+  tls)                 cmd_tls "$@" ;;
+  version|--version)   cmd_version "$@" ;;
+  compose)             require_engine; cmd_compose "$@" ;;
+  help|-h|--help)      usage ;;
+  *) printf '%serror:%s unknown command: %s\n\n' "$RED" "$RST" "$cmd" >&2; usage >&2; exit 2 ;;
+esac

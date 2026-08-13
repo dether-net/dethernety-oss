@@ -1,0 +1,12 @@
+{
+  "name": "@dethernety/byodt-console",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The deployment operator console — a Go binary (init one-shot + status daemon) that embeds the SPA under ui/. Scripts-only workspace manifest; the deployable is the Go binary built by ./Dockerfile. The SPA under ui/ is a self-contained --ignore-workspace package embedded at build time.",
+  "scripts": {
+    "dev": "pnpm --dir ui --ignore-workspace dev",
+    "build": "bash build-assets.sh",
+    "test": "bash build-assets.sh && go test ./... && pnpm --dir ui --ignore-workspace test",
+    "docker": "bash build-assets.sh && docker build --build-arg VERSION=\"${VERSION:-}\" -f Dockerfile -t byodt-console ../.."
+  }
+}

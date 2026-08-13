@@ -1,13 +1,17 @@
 name: Docker
 
-# One workflow, two jobs, one definition of how the image is built.
+# One workflow, one definition of how each image is built.
 #
 # On a pull request it BUILDS (a gate — catches a broken Dockerfile before merge).
 # On a `v*` tag it BUILDS AND PUBLISHES to the GitHub Container Registry, signed.
 #
-# Splitting these into two files would duplicate the pnpm/turbo/asset-prep preamble, and the two
-# copies would drift — at which point the thing CI proves and the thing users pull stop being the
-# same image. The `push` input is what differs, and nothing else.
+# Two images live here: `image` builds the platform, `console` builds the operator console. They
+# are cut from the SAME tag in the SAME run, which is what makes the compose bundle's
+# PLATFORM_VERSION and CONSOLE_IMAGE agree by construction rather than by an operator remembering
+# to bump both. Splitting the platform build into its own file would duplicate the
+# pnpm/turbo/asset-prep preamble and let the two copies drift — at which point the thing CI proves
+# and the thing users pull stop being the same image. The `push` input is what differs, and nothing
+# else.
 
 on:
   pull_request:
@@ -32,6 +36,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/dethernety
+  CONSOLE_IMAGE: ghcr.io/${{ github.repository_owner }}/byodt-console
 
 jobs:
   image:
@@ -184,6 +189,180 @@ jobs:
               echo
               echo '```'
               echo "cosign verify ${IMAGE}:${VERSION} \\"
+              echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' \\"
+              echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+              echo '```'
+            else
+              echo "Built only (pull request) — not pushed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The operator console image (byodt-console). Split into two jobs on purpose — mirroring the
+  # release workflow's modules/publish split — so the job that holds the signing token runs NO
+  # dependency code. `console-assets` builds the embed tree (which runs the SPA's npm install and any
+  # postinstall) with contents:read and no id-token; `console` downloads that tree and does only
+  # buildx + cosign, where the sole build-time code is `go build` inside buildkit (pure Go, CGO off —
+  # dependencies are compiled, never executed). A malicious SPA dependency therefore cannot reach the
+  # OIDC token to mint a signing certificate. Cut from the same tag/run as the platform image, so the
+  # bundle's PLATFORM_VERSION and CONSOLE_IMAGE agree by construction.
+  console-assets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # The only step that executes third-party code (the SPA's npm install + any postinstall, plus
+      # the schema/corpus copy). It holds no token — nothing here can sign anything.
+      - name: Populate the console embed tree
+        run: bash apps/byodt-console/build-assets.sh
+
+      # Hand the tree to the signing job as one tarball: deterministic (no upload-artifact
+      # path-flattening surprises) and a single integrity-checkable blob across the hop.
+      - name: Package the embed tree
+        run: tar -czf console-embed.tar.gz -C apps/byodt-console/internal/assets embed
+
+      - name: Upload the embed tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-embed
+          path: console-embed.tar.gz
+          retention-days: 1
+
+  console:
+    needs: console-assets
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Required to push to the registry.
+      packages: write
+      # Keyless signing: exchange this workflow's OIDC identity for a short-lived certificate.
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Restore the embed tree the assets job built — the checkout does not carry it (gitignored,
+      # produced by the build) — placing it exactly where the Dockerfile's COPY expects it.
+      - name: Download the embed tree
+        uses: actions/download-artifact@v4
+        with:
+          name: console-embed
+
+      - name: Unpack the embed tree
+        run: |
+          set -euo pipefail
+          mkdir -p apps/byodt-console/internal/assets
+          tar -xzf console-embed.tar.gz -C apps/byodt-console/internal/assets
+          test -f apps/byodt-console/internal/assets/embed/console-ui/index.html
+
+      # See the platform job's note above on why the version is resolved through validated env and
+      # never interpolated into the script. Identical gate; kept in lockstep with the image job.
+      - name: Resolve version and publish decision
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          case "${GITHUB_EVENT_NAME}" in
+            push)              VERSION="${GITHUB_REF_NAME#v}";  PUBLISH=true ;;
+            workflow_dispatch) VERSION="${INPUT_VERSION}";      PUBLISH=true ;;
+            *)                 VERSION="pr-${PR_NUMBER}";       PUBLISH=false ;;
+          esac
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+            echo "::error::refusing to build: '${VERSION}' is not a usable version string"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the container registry
+        if: steps.meta.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The build context is the module root: the Dockerfile copies go.mod, pkg/ and
+      # apps/byodt-console/ (with the embed tree just restored) from here. The only build-time code is
+      # `go build` inside buildkit — pure Go, CGO off — so no dependency code runs in this
+      # token-holding job. Cross-compiled per arch, so multi-arch is cheap; a separate cache scope
+      # keeps it from colliding with the platform image's gha cache.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/byodt-console/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.meta.outputs.publish == 'true' }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: |
+            ${{ env.CONSOLE_IMAGE }}:${{ steps.meta.outputs.version }}
+            ${{ env.CONSOLE_IMAGE }}:latest
+          cache-from: type=gha,scope=console
+          cache-to: type=gha,mode=max,scope=console
+
+      - name: Install cosign
+        if: steps.meta.outputs.publish == 'true'
+        uses: sigstore/cosign-installer@v3
+
+      # Signed by digest, not tag — a tag can be repointed, a digest cannot.
+      - name: Sign the image
+        if: steps.meta.outputs.publish == 'true'
+        run: cosign sign --yes "${CONSOLE_IMAGE}@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Attest build provenance
+        if: steps.meta.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.CONSOLE_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          PUBLISH: ${{ steps.meta.outputs.publish }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "### Console image"
+            echo
+            echo '```'
+            echo "${CONSOLE_IMAGE}:${VERSION}"
+            echo "digest ${DIGEST}"
+            echo '```'
+            if [ "${PUBLISH}" = "true" ]; then
+              echo "Published and signed. Verify with:"
+              echo
+              echo '```'
+              echo "cosign verify ${CONSOLE_IMAGE}:${VERSION} \\"
               echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' \\"
               echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
               echo '```'

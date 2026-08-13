@@ -206,3 +206,54 @@ jobs:
 
       - name: Packaging and module-hash unit tests
         run: node --test scripts/*.test.mjs
+
+  # The Go module rooted here: the console binary and the shared packages it builds on
+  # (payload digest, Cypher parsing, archive extraction, signature verification). Its own
+  # job — the Node jobs above never build Go — pinned to the toolchain the module declares.
+  go:
+    name: Go (shared library + console)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # The console embeds a build-populated tree — the noauth schema, the data corpus, and
+      # the built operator SPA — so it must be generated before anything compiles the module.
+      # Node runs the dependency-free schema generator; pnpm builds the self-contained
+      # --ignore-workspace SPA under ui/.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Populate console embed assets
+        run: bash apps/byodt-console/build-assets.sh
+
+      # build-assets.sh type-checks and bundles the SPA; run its unit suite too so a
+      # runtime-assertion regression fails CI (the ui package is not a workspace member, so
+      # turbo's test job never reaches it). Deps are already installed by the step above.
+      - name: Test console SPA
+        run: pnpm --dir apps/byodt-console/ui test
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -count=1

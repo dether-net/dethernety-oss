@@ -25,6 +25,26 @@ updates:
         update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 10
 
+  # The operator console's SPA is a self-contained package with its OWN lockfile
+  # (installed with --ignore-workspace), so the root "/" entry above does not see it.
+  # Its tree is built in CI in a job that — until the build/sign split — held the signing
+  # token, so keeping it patched matters. Track it explicitly.
+  - package-ecosystem: "npm"
+    directory: "/apps/byodt-console/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 10
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

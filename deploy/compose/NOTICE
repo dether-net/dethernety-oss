@@ -1,0 +1,57 @@
+Dethernety — Open-Source Deployment Bundle
+Third-Party Notices
+==========================================
+
+The Dethernety platform and operator console — the images published under
+ghcr.io/dether-net/ (dethernety, byodt-console) — are Dethernety's own work
+and are governed by the terms in LICENSE (GNU Affero General Public License v3.0).
+
+This deployment additionally *references* the third-party container images listed
+below. It does NOT redistribute them. Dethernety does not host, mirror, or embed
+these images: the compose file names them, and at run time (`byodt up` /
+`docker compose up`) your container runtime pulls each one directly from its
+publisher's own registry to the machine running the stack. Naming an image is a
+pointer, not distribution.
+
+The references live in .env (DB_IMAGE, OLLAMA_IMAGE, PROXY_IMAGE). If you repoint
+any of them to a registry you operate (for example, an air-gapped mirror), that
+copy is made by you, under your own responsibility and the component's license.
+
+Nothing in this notice grants you rights to the third-party components below; each
+is governed solely by its own license as provided by its publisher. Container
+images also bundle a base operating system and packages that carry their own
+licenses; consult each image for its complete bill of materials.
+
+------------------------------------------------------------------------------
+Memgraph — graph database (compose service: db)
+  Image:     memgraph/memgraph:3.8.1  (Docker Hub, published by Memgraph)
+  License:   Business Source License 1.1 (BSL 1.1)
+  Homepage:  https://memgraph.com
+
+  BSL 1.1 places conditions on PRODUCTION USE — not only on redistribution.
+  Those conditions bind you, the operator, directly: Dethernety does not and
+  cannot sublicense Memgraph to you. Before running this in production, confirm
+  your use falls within Memgraph's Additional Use Grant, or obtain a commercial
+  license from Memgraph. The full license text ships inside the image and is
+  published by Memgraph at https://memgraph.com.
+
+------------------------------------------------------------------------------
+Ollama — embedding server (compose service: ollama)
+  Image:     ollama/ollama:0.32.6  (Docker Hub, published by the Ollama project)
+  License:   MIT License
+  Homepage:  https://github.com/ollama/ollama
+
+  The embedding MODEL that Ollama serves (see EMBEDDING_MODEL in .env) is a
+  separate artifact, fetched at run time from its own publisher and carrying its
+  own license. It is not part of this bundle or of the Ollama image.
+
+------------------------------------------------------------------------------
+nginx — reverse proxy / TLS terminator (compose service: proxy)
+  Image:     nginx:1.27-alpine  (Docker Hub Official Image)
+  License:   BSD 2-Clause
+  Homepage:  https://nginx.org
+
+------------------------------------------------------------------------------
+
+The versions above are the tested set pinned in .env.example for this release.
+If you repoint or re-pin any image, its license is whatever that image carries.

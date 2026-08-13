@@ -63,3 +63,19 @@ apps/dt-ws/schema/schema-noauth.graphql
 # Frontend build outputs served by dt-ws
 apps/dt-ws/public/assets/
 apps/dt-ws/public/index.html
+
+# Console build-populated embed tree (noauth schema + data-module corpus copied in
+# before `go build`; see apps/byodt-console/build-assets.sh). The sources are elsewhere
+# in the tree; the copies are a build artifact.
+apps/byodt-console/internal/assets/embed/
+
+# Go binary build outputs
+apps/byodt-console/byodt-console
+apps/byodt-console/dist/
+
+# Console operator SPA (self-contained --ignore-workspace package): its install tree and its
+# Vite build output. The build output is copied into the embed tree above by build-assets.sh,
+# so ui/dist is a transient artifact, not the embedded copy. The committed pnpm-lock.yaml is
+# tracked — only these two are generated.
+apps/byodt-console/ui/node_modules/
+apps/byodt-console/ui/dist/

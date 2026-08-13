@@ -72,6 +72,28 @@ jobs:
             exit 1
           fi
 
+      # The compose bundle's .env.example is its release manifest (E7-D20): its
+      # PLATFORM_VERSION and the console image tag must equal the release version —
+      # asserted, not rewritten, so the shipped quickstart and the repo agree and a
+      # forgotten bump fails the release instead of shipping a bundle pinned to the
+      # previous platform. grep/cut read the file as data; the tag never enters a program.
+      - name: The bundle manifest agrees with the release version
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          ENVF=deploy/compose/.env.example
+          PVER=$(grep -E '^PLATFORM_VERSION=' "$ENVF" | head -1 | cut -d= -f2-)
+          CVER=$(grep -E '^CONSOLE_IMAGE=' "$ENVF" | head -1 | sed 's/^.*://')
+          if [ "$PVER" != "$VERSION" ]; then
+            echo "::error::${ENVF}: PLATFORM_VERSION=${PVER} != release v${VERSION}"
+            exit 1
+          fi
+          if [ "$CVER" != "$VERSION" ]; then
+            echo "::error::${ENVF}: CONSOLE_IMAGE tag ${CVER} != release v${VERSION}"
+            exit 1
+          fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -287,6 +309,34 @@ jobs:
           fi
           rm tampered.json
 
+      # The compose bundle, shipped as a versioned tarball beside the module payloads.
+      # git archive takes only tracked files at the tagged commit — never the working
+      # tree's runtime dirs (data/, tls/, backups/, .env.secrets) — and lays them under
+      # byodt-<v>/ so an extract yields one named directory. Signed with the same identity
+      # as every other asset; the committed .env.example already agrees with the tag
+      # (asserted in the modules job), so it ships as-is.
+      - name: Package and sign the bundle tarball
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          git archive --format=tar.gz --prefix="byodt-${VERSION}/" \
+            -o "bundle/byodt-${VERSION}.tar.gz" "HEAD:deploy/compose"
+          cosign sign-blob "bundle/byodt-${VERSION}.tar.gz" \
+            --bundle "bundle/byodt-${VERSION}.tar.gz.bundle" --yes
+
+      - name: The bundle tarball verifies against the exact identity
+        env:
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          cosign verify-blob "bundle/byodt-${VERSION}.tar.gz" \
+            --bundle "bundle/byodt-${VERSION}.tar.gz.bundle" \
+            --certificate-identity "${IDENTITY}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
       - name: Extract changelog for this version
         id: changelog
         env:
@@ -332,6 +382,8 @@ jobs:
             staging/*.tar.gz.bundle
             staging/modules.json
             staging/modules.json.bundle
+            bundle/byodt-*.tar.gz
+            bundle/byodt-*.tar.gz.bundle
 
       - name: Publish the release
         env:
@@ -359,4 +411,13 @@ jobs:
             echo '```'
             echo
             echo "Index: https://github.com/${REPO}/releases/download/${TAG}/modules.json"
+            echo
+            echo "### Compose bundle"
+            echo
+            echo "Download, extract, and run:"
+            echo
+            echo '```'
+            echo "curl -fsSLO https://github.com/${REPO}/releases/download/${TAG}/byodt-${TAG#v}.tar.gz"
+            echo "tar xzf byodt-${TAG#v}.tar.gz && cd byodt-${TAG#v} && ./byodt up"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

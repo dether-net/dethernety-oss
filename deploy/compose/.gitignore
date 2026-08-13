@@ -1,0 +1,12 @@
+# Everything here is generated on first run and owned by the operator — never
+# committed. The tracked bundle is only compose.yaml, .env.example, byodt,
+# proxy/nginx.conf, README.md, LICENSE and NOTICE.
+.env
+.env.secrets
+modules/
+schema/
+data/
+backups/
+tls/
+console/
+mode/

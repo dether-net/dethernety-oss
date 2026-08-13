@@ -16,19 +16,54 @@ permissions:
 
 jobs:
   analyze:
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, go]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Go analysis needs the toolchain in place before autobuild compiles the module.
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # ...and the console's build-populated embed tree, or autobuild's `go build` fails.
+      # The embed tree carries the built SPA, so the script needs pnpm as well as node —
+      # runners ship corepack but no pnpm on PATH, and without this the populate step below
+      # exits 127 before CodeQL sees any Go at all.
+      - name: Setup pnpm
+        if: matrix.language == 'go'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Set up Node.js
+        if: matrix.language == 'go'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Populate console embed assets
+        if: matrix.language == 'go'
+        run: bash apps/byodt-console/build-assets.sh
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
