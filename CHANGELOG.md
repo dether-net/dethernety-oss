@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-14
+
+The release that makes the platform self-hostable: a signed deployment you download and run,
+and an operator console that sets it up and reports on it — in place of assembling a stack by
+hand. Compared against the previous tag, `v0.5.0`.
+
+**Upgrading:** nothing in the platform itself changes. The `demo/` directory is gone — see
+*Removed* — and the deployment bundle replaces it as the supported way to run Dethernety. In the
+bundle, `PLATFORM_VERSION` is the single version knob: it selects the platform image and the
+console image together, so upgrading is a one-line change.
+
+### Added
+
+- **A complete deployment, published as a signed release asset.** `byodt-<version>.tar.gz`
+  carries a compose stack — graph database, embedding server, platform, operator console and an
+  nginx front door — plus `byodt`, a wrapper over Docker **or** Podman that carries the two
+  environment files every command needs, so the database password stays out of the readable
+  layer. `./byodt up` seeds the configuration, generates that password, creates the runtime
+  directories and starts the stack. One published port serves the platform and the console on the
+  same origin, bound to loopback by default.
+- **An operator console**, served through the front door at `/console/`. It runs twice, in two
+  forms. Before the platform starts, a one-shot places the schema, fetches and verifies the
+  signed modules, and ingests the MITRE corpus; a version or schema problem stops the start,
+  while a module or ingest problem is recorded and the stack still comes up, so the deployment is
+  diagnosable rather than silently empty. Then a daemon serves the console itself: per-service
+  status, the failure states worth acting on, and the configuration changes the operator owns.
+  Published as a multi-architecture image (`linux/amd64`, `linux/arm64`), cosign-signed against
+  the release workflow's own identity with build provenance attested.
+- **Verified module installation.** The console resolves the release by `PLATFORM_VERSION` and
+  never picks a version of its own; it verifies each payload against the signed `modules.json`
+  index with the certificate identity pinned to the exact release workflow, and extracts under
+  hardened tar limits.
+- **Operational commands** in the bundle: `status`, `logs`, `restart`, `update`, `down`,
+  `destroy`, and snapshot-based `backup` / `restore` — a hot, consistent graph snapshot copied
+  out of the stack, restorable onto any deployment of the same version. Automatic in-place
+  snapshots are configurable for crash recovery, and the database's storage can be a host bind
+  mount or a named volume, which is the difference between an inspectable data directory and one
+  that survives a VM-backed runtime's file-sharing layer.
+- **TLS at the front door**, terminating for the whole deployment — platform, console and API
+  behind one endpoint — from a generated self-signed certificate or your own.
+- **An optional cloud-connected posture.** A deployment stays local and calls out to nothing
+  unless an operator pastes a deployment login recipe into the console, which writes it into a
+  configuration layer the platform reads on the next recreate. The console copies out only a
+  closed set of variable names and refuses the whole paste if the recipe carries anything else,
+  so the recipe cannot reach the variables that would turn authentication off or load code at
+  boot. Disconnecting rewrites the same file with the local values and contacts nothing, so the
+  recovery path never depends on the thing it recovers from.
+- **Content mounts.** On a cloud-connected deployment the console can mount content-backed
+  modules — a small stub naming a module key and an immutable pin, not a download — and report
+  when a newer version of a mounted package exists.
+- **Deployment documentation**: an architecture set covering the deployment, the console, the
+  supply chain and the security model, and a user set covering installation, configuration,
+  operations, the cloud connection and troubleshooting.
+
+### Changed
+
+- **`@dether.net/dethereal` 0.3.5.** The plugin is versioned and published on its own line; this
+  version carries its refreshed dependency ranges.
+- **The documentation names the deployment rather than a demo.** The README, the configuration
+  guide and the glossary describe a deployment you run, with the auth-disabled mode named for
+  what it is — single-user and development — rather than for a demonstration.
+
+### Removed
+
+- **The `demo/` directory.** It existed to stand a stack up before there was a supported way to
+  run one; the deployment bundle is that way now, and keeping a second, differently-configured
+  stack in the tree only invited running the wrong one.
+
+### Security
+
+- **`nanoid` floored at 3.3.18** (`GHSA-2v37-7h3g-55p8`, CVSS 8.2 — custom generators can loop
+  indefinitely at size zero). It arrives transitively through `postcss`, so it is pinned by
+  override rather than lifted; the upper bound is load-bearing, because an unbounded floor
+  resolves an ESM-only major into a consumer that cannot take it.
+
 ## [0.5.0] - 2026-08-07
 
 A release that removes a service from the deployment, adds security boundary zoning to the
@@ -37,6 +112,13 @@ images are now published, so a deployment no longer has to build one.
   `getClassGuide`, `getExposures`, `getCountermeasures`), a deployment access allowlist, and a
   configurable OIDC scope — all backward compatible with existing modules.
 - **Rego finding mappers as a reusable subpath export** of `@dethernety/dt-module`.
+- **A signed module release channel.** The open-source code modules are published as
+  cosign-signed release assets alongside a signed `modules.json` index, which carries the release
+  tag so an older index cannot be replayed as a current one. Payloads are stamped with the
+  identity of the release that produced them. The release workflow is split in two so the signing
+  token is never present while any dependency's install scripts run. *(Recorded after the fact:
+  this landed between the entry below being written and the tag being cut, so it shipped in
+  0.5.0 — its assets are this release's assets — without appearing here.)*
 
 ### Changed
 
@@ -85,6 +167,10 @@ images are now published, so a deployment no longer has to build one.
   in production.
 - **Deployment access allowlist**, fail-closed for a network-reachable deployment on a shared
   identity provider.
+- **A tag name could execute in the release workflow.** A release step built its program text by
+  string concatenation around the tag, so the name a release is cut from was executable rather
+  than data. It is passed as a variable and matched literally now. *(Also recorded after the
+  fact — same window as the module channel above.)*
 - Dependency sweeps with security override floor bumps.
 
 ## [0.4.0] - 2026-06-24
@@ -401,6 +487,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.6.0]: https://github.com/dether-net/dethernety-oss/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dether-net/dethernety-oss/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dether-net/dethernety-oss/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dether-net/dethernety-oss/compare/v0.2.1...v0.3.0

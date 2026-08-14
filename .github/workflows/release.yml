@@ -72,11 +72,13 @@ jobs:
             exit 1
           fi
 
-      # The compose bundle's .env.example is its release manifest (E7-D20): its
-      # PLATFORM_VERSION and the console image tag must equal the release version —
-      # asserted, not rewritten, so the shipped quickstart and the repo agree and a
-      # forgotten bump fails the release instead of shipping a bundle pinned to the
-      # previous platform. grep/cut read the file as data; the tag never enters a program.
+      # The compose bundle's .env.example is its release manifest: its PLATFORM_VERSION
+      # must equal the release version — asserted, not rewritten, so the shipped quickstart
+      # and the repo agree and a forgotten bump fails the release instead of shipping a
+      # bundle pinned to the previous platform. The console image follows PLATFORM_VERSION
+      # through compose's default, so it cannot disagree on its own; the second check below
+      # guards a deliberate pin only. grep/cut read the file as data; the tag never enters
+      # a program.
       - name: The bundle manifest agrees with the release version
         env:
           VERSION: ${{ steps.tag.outputs.version }}
@@ -84,13 +86,16 @@ jobs:
           set -euo pipefail
           ENVF=deploy/compose/.env.example
           PVER=$(grep -E '^PLATFORM_VERSION=' "$ENVF" | head -1 | cut -d= -f2-)
-          CVER=$(grep -E '^CONSOLE_IMAGE=' "$ENVF" | head -1 | sed 's/^.*://')
           if [ "$PVER" != "$VERSION" ]; then
             echo "::error::${ENVF}: PLATFORM_VERSION=${PVER} != release v${VERSION}"
             exit 1
           fi
-          if [ "$CVER" != "$VERSION" ]; then
-            echo "::error::${ENVF}: CONSOLE_IMAGE tag ${CVER} != release v${VERSION}"
+          # The console image follows PLATFORM_VERSION through compose's default, so the two
+          # agree by construction. Guard the one way that can break: a shipped .env.example
+          # that pins CONSOLE_IMAGE to something else. Commented-out overrides are ignored.
+          CPIN=$(grep -E '^CONSOLE_IMAGE=' "$ENVF" | head -1 || true)
+          if [ -n "$CPIN" ] && [ "${CPIN##*:}" != "$VERSION" ]; then
+            echo "::error::${ENVF}: pins ${CPIN} — drop the pin, or set its tag to ${VERSION}"
             exit 1
           fi
 

@@ -84,7 +84,7 @@ User:         user@example.com
 Token valid:  60 minutes remaining
 ```
 
-If already authenticated, returns immediately without opening the browser. Expired tokens are refreshed automatically when possible. If the platform has auth disabled (development/demo mode), all tools work without login.
+If already authenticated, returns immediately without opening the browser. Expired tokens are refreshed automatically when possible. If the platform has auth disabled (no-auth mode), all tools work without login.
 
 ---
 

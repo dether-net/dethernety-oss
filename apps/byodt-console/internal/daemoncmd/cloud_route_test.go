@@ -82,9 +82,8 @@ func TestCloudApplyWritesModeLayerAndFlipsPhase(t *testing.T) {
 	if !isCloudModeFile(s.cfg.ModeLayerPath) {
 		t.Fatal("apply must write a cloud mode-layer file")
 	}
-	// The posture flip flushed the session; re-sign in (what the SPA does) before reading again.
-	sid = signIn(t, s)
-
+	// The applying session survives the flip (on the grace deadline), so the SPA reads on without a
+	// sign-in bounce — which is what keeps the response's "recreate the stack" instruction on screen.
 	// After: the phase reads post-cloud and cloudFileWritten is true.
 	_, modeBody := get(t, ts.URL, "/api/mode", sid)
 	if !strings.Contains(string(modeBody), phasePostCloud) || !strings.Contains(string(modeBody), `"cloudFileWritten":true`) {
@@ -103,8 +102,6 @@ func TestCloudApplyRefusesWhenAlreadyCloud(t *testing.T) {
 	if code, body := send(t, http.MethodPost, ts.URL+"/api/cloud", sid, applyBody("https://front.example/auth/callback")); code != http.StatusOK {
 		t.Fatalf("first apply must be 200, got %d %s", code, body)
 	}
-	// The first apply flipped the posture and flushed the session; re-sign in for the second call.
-	sid = signIn(t, s)
 	// The write guard: a second apply while a cloud file exists is refused — this closes the
 	// restart-window reconfiguration the console's own restart opens.
 	if code, _ := send(t, http.MethodPost, ts.URL+"/api/cloud", sid, applyBody("https://front.example/auth/callback")); code != http.StatusConflict {
@@ -187,7 +184,6 @@ func TestCloudModeConnectRestartWindow(t *testing.T) {
 	if code, body := send(t, http.MethodPost, ts.URL+"/api/cloud", sid, applyBody("https://front.example/auth/callback")); code != http.StatusOK {
 		t.Fatalf("apply must be 200, got %d %s", code, body)
 	}
-	sid = signIn(t, s) // posture flip flushed the session
 	_, body := get(t, ts.URL, "/api/mode", sid)
 	if !strings.Contains(string(body), phasePreCloud) ||
 		!strings.Contains(string(body), `"cloudFileWritten":true`) ||
@@ -217,7 +213,6 @@ func TestCloudModeDisconnectRestartWindow(t *testing.T) {
 	if code, _ := send(t, http.MethodDelete, ts.URL+"/api/cloud", sid, ""); code != http.StatusOK {
 		t.Fatal("disconnect must be 200")
 	}
-	sid = signIn(t, s) // posture flip flushed the session
 	_, body := get(t, ts.URL, "/api/mode", sid)
 	if !strings.Contains(string(body), phaseAuthenticated) ||
 		!strings.Contains(string(body), `"cloudFileWritten":false`) ||
@@ -238,8 +233,7 @@ func TestCloudModeUnreachableReportsCloudFile(t *testing.T) {
 	if code, _ := send(t, http.MethodPost, ts.URL+"/api/cloud", sid, applyBody("https://front.example/auth/callback")); code != http.StatusOK {
 		t.Fatal("apply must be 200")
 	}
-	sid = signIn(t, s) // posture flip flushed the session
-	plat.Close()       // platform goes away
+	plat.Close() // platform goes away
 
 	_, body := get(t, ts.URL, "/api/mode", sid)
 	if !strings.Contains(string(body), phaseUnreachable) ||

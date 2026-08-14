@@ -60,7 +60,7 @@
 │     Authentication via OIDC OAuth with PKCE. Opens browser for              │
 │     login, receives callback on localhost, caches tokens locally.           │
 │     Automatic token refresh when possible.                                  │
-│     Supports auth-disabled mode for demo/development (no login needed).     │
+│     Supports auth-disabled mode for no-auth deployments (no login needed).     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -266,7 +266,7 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 
 ### Auth-Disabled Mode
 
-When the platform's `/config` endpoint returns `authDisabled: true` (demo/development mode), the MCP server bypasses all OAuth flows:
+When the platform's `/config` endpoint returns `authDisabled: true` (no-auth mode), the MCP server bypasses all OAuth flows:
 
 ```
 ┌─────────────┐     ┌─────────────┐                    ┌─────────────┐
@@ -300,7 +300,7 @@ In this mode:
 | **Client-dependent tools** | Work without authentication (backend creates mock user) |
 | **Auth tools** (login, logout, refresh) | Return immediately with "auth not needed" message |
 
-See [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-demo--development) for the backend requirements.
+See [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development) for the backend requirements.
 
 ### Token Management
 
@@ -526,7 +526,7 @@ Fetched from `{DETHERNETY_URL}/config` (the backend's runtime config endpoint):
 
 ```typescript
 interface PlatformConfig {
-  authDisabled?: boolean      // True when auth is disabled (demo/development mode)
+  authDisabled?: boolean      // True when auth is disabled (no-auth mode)
   oidcIssuer: string          // OIDC provider issuer URL
   oidcClientId: string        // OIDC client identifier
   oidcDomain: string          // Cognito hosted UI domain (Cognito only)
@@ -555,7 +555,7 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 | **PKCE** | Protects against authorization code interception |
 | **Local Token Storage** | `~/.dethernety/tokens.json` with filesystem permissions |
 | **Token Expiration** | Access tokens expire in hours, refresh tokens in 30 days |
-| **Auth-Disabled Mode** | For demo/development only; backend creates mock user for unauthenticated requests |
+| **Auth-Disabled Mode** | For no-auth deployments only; backend creates mock user for unauthenticated requests |
 
 ### API Security
 

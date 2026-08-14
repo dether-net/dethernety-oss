@@ -12,7 +12,7 @@ import { getConfig, debug } from '../config.js'
  * Platform configuration returned from /config endpoint
  */
 export interface PlatformConfig {
-  /** Whether authentication is disabled (demo/development mode) */
+  /** Whether authentication is disabled (no-auth mode) */
   authDisabled?: boolean
   /** OIDC issuer URL (e.g., https://your-oidc-provider.example.com) */
   oidcIssuer: string
@@ -30,7 +30,7 @@ export interface PlatformConfig {
   graphqlWsUrl: string
   /** Subscription transport type (e.g., "sse") */
   subscriptionTransport: string
-  /** Full application URL (e.g., "https://demo.dethernety.io") */
+  /** Full application URL (e.g., "https://dethernety.example.com") */
   appUrl: string
   /** Application base path (e.g., "/") */
   appBaseUrl: string
@@ -68,7 +68,7 @@ export async function fetchPlatformConfig(baseUrl?: string): Promise<PlatformCon
 
     const platformConfig = (await response.json()) as PlatformConfig
 
-    // When auth is disabled (demo/development mode), skip OIDC validation
+    // When auth is disabled (no-auth mode), skip OIDC validation
     if (!platformConfig.authDisabled) {
       if (!platformConfig.oidcClientId) {
         throw new Error('Platform config missing oidcClientId')
@@ -83,7 +83,7 @@ export async function fetchPlatformConfig(baseUrl?: string): Promise<PlatformCon
     cacheBaseUrl = url
 
     if (platformConfig.authDisabled) {
-      debug('Platform config loaded — authentication is DISABLED (demo/development mode)')
+      debug('Platform config loaded — authentication is DISABLED (no-auth mode)')
     } else {
       debug('Platform config loaded successfully', {
         oidcProvider: platformConfig.oidcProvider,
@@ -148,7 +148,7 @@ export function getOAuthUrls(platformConfig?: PlatformConfig) {
 }
 
 /**
- * Check if authentication is disabled (demo/development mode)
+ * Check if authentication is disabled (no-auth mode)
  */
 export function isAuthDisabled(): boolean {
   return cachedConfig?.authDisabled === true

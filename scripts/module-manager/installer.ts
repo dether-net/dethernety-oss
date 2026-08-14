@@ -2,7 +2,7 @@
  * installer.ts — Module installation pipeline.
  *
  * Orchestrates: extract → validate manifest → copy components → ingest data → record state.
- * Mirrors the Installer from the Go management-service, simplified for local use.
+ * A module installer, simplified for local use.
  */
 
 import {

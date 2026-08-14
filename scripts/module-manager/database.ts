@@ -2,7 +2,7 @@
  * database.ts — Cypher file execution against Memgraph / Neo4j.
  *
  * Handles multi-statement parsing, comment stripping, and LOAD CSV.
- * Mirrors the DatabaseClient from the Go management-service.
+ * A local-use database client for module management.
  */
 
 import { statSync, readFileSync, readdirSync } from 'node:fs';
@@ -159,7 +159,7 @@ export class DatabaseClient {
       }
 
       // Escape sequences (e.g. \", \', \\) — skip the next character
-      // Must be checked BEFORE quote toggling (matches Go management-service)
+      // Must be checked BEFORE quote toggling (matches the server-side implementation)
       if (ch === '\\' && i + 1 < content.length) {
         current += ch;
         current += content[i + 1];

@@ -5,8 +5,10 @@ import { ClassIdentityEventLog } from './class-identity-event-log.service';
 // Edge-rename mechanics for the HAS_CLASS ↔ HAS_ORPHANED_CLASS transition.
 // MAGE's `refactor.rename_type` is the preferred path; the explicit
 // DELETE+CREATE+SET-properties fallback exists for non-MAGE Memgraph
-// deployments. The demo image bundles MAGE so the happy path is the hot
-// one. MAGE availability is probed once per process and cached.
+// deployments. Note the BYODt deployment's default database image
+// (memgraph/memgraph) does NOT ship the refactor module — only the
+// memgraph-mage variant does — so the fallback is the hot path there.
+// MAGE availability is probed once per process and cached.
 
 @Injectable()
 export class ClassReconciler {

@@ -15,7 +15,7 @@
  *   Memgraph harness in unit tests. The end-to-end proof that the generated
  *   inputs (`SecurityBoundaryUpdateInput.zone`, the conduit `connect` +
  *   `ConduitPropertiesCreateInput`) actually persist on Memgraph is covered
- *   by the Session-1 live round-trip on the demo stack, not here.
+ *   by the Session-1 live round-trip on a live stack, not here.
  * - The shape we care about — "the enums, fields, relationship and edge-
  *   property type are present and correctly typed" — is a function of the SDL
  *   source string. Pinning the source guarantees the schema builder gets the

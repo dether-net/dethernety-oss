@@ -66,7 +66,7 @@
 │     Authentication via OIDC OAuth with PKCE. Opens browser for              │
 │     login, receives callback on localhost, caches tokens locally.           │
 │     Transparent token refresh via refresh token when access token expires.   │
-│     Supports auth-disabled mode for demo/development (no login needed).     │
+│     Supports auth-disabled mode for no-auth deployments (no login needed).     │
 │                                                                             │
 │  5. PLUGIN INTEGRATION                                                      │
 │     ─────────────────────────                                               │
@@ -348,7 +348,7 @@ oss/apps/dethereal/src/
 
 ### Auth-Disabled Mode
 
-When the platform's `/config` endpoint returns `authDisabled: true` (demo/development mode), the MCP server bypasses all OAuth flows:
+When the platform's `/config` endpoint returns `authDisabled: true` (no-auth mode), the MCP server bypasses all OAuth flows:
 
 ```
 ┌─────────────┐     ┌─────────────┐                    ┌─────────────┐
@@ -1056,7 +1056,7 @@ Fetched from `{DETHERNETY_URL}/config` (the backend's runtime config endpoint):
 
 ```typescript
 interface PlatformConfig {
-  authDisabled?: boolean      // True when auth is disabled (demo/development mode)
+  authDisabled?: boolean      // True when auth is disabled (no-auth mode)
   oidcIssuer: string          // OIDC provider issuer URL
   oidcClientId: string        // OIDC client identifier
   oidcDomain: string          // Cognito hosted UI domain (Cognito only)
@@ -1089,7 +1089,7 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 | **Token Resolution** | Stored token (keyed by `baseUrl`) → transparent refresh if expired → auth-disabled fallback. No argument-level tokens (D61) |
 | **Transparent Token Refresh** | When access token is expired but refresh token is valid, `buildToolContext()` refreshes automatically before creating the Apollo client |
 | **JWT Expiry Check** | Token `exp` claim decoded and checked before use |
-| **Auth-Disabled Mode** | For demo/development only; backend creates mock user for unauthenticated requests |
+| **Auth-Disabled Mode** | For no-auth deployments only; backend creates mock user for unauthenticated requests |
 
 ### API Security
 

@@ -105,7 +105,12 @@ db_is_bind() {
 }
 
 front_door_url() {
-  printf 'http://%s:%s/console/' "$(env_value FRONT_DOOR_BIND 127.0.0.1)" "$(env_value FRONT_DOOR_PORT 3000)"
+  # Follow the certificate: with one installed the proxy serves HTTPS only, and an http:// URL
+  # earns nginx's "plain HTTP request was sent to an HTTPS port" — which `console` would hand
+  # straight to the browser.
+  local scheme=http
+  [ -f tls/cert.pem ] && [ -f tls/key.pem ] && scheme=https
+  printf '%s://%s:%s/console/' "$scheme" "$(env_value FRONT_DOOR_BIND 127.0.0.1)" "$(env_value FRONT_DOOR_PORT 3000)"
 }
 
 gen_secret() {
@@ -182,11 +187,29 @@ do_bootstrap() { ensure_layout; ensure_password; }
 # --- commands -----------------------------------------------------------------
 cmd_bootstrap() { do_bootstrap; info "Ready. Start with: ${BOLD}$SELF up${RST}"; }
 
+# The console image follows PLATFORM_VERSION unless .env pins CONSOLE_IMAGE. A pin left on an older
+# tag makes console-init abort the start — say so here, before the stack comes up, rather than letting
+# the operator discover it from a failed container. Bundles before the default existed shipped a pin,
+# so an .env carried across an upgrade is exactly how this happens.
+check_console_pin() {
+  local pin ver
+  pin="$(env_value CONSOLE_IMAGE '')"
+  [ -n "$pin" ] || return 0
+  ver="$(env_value PLATFORM_VERSION '')"
+  [ -n "$ver" ] || return 0
+  if [ "${pin##*:}" != "$ver" ]; then
+    warn "CONSOLE_IMAGE in .env is pinned to ${BOLD}${pin}${RST}, but PLATFORM_VERSION is ${BOLD}${ver}${RST}."
+    warn "The console refuses to serve a version it was not built for, so the start will abort."
+    warn "Comment CONSOLE_IMAGE out to let it follow PLATFORM_VERSION, or set its tag to ${ver}."
+  fi
+}
+
 cmd_up() {
   # Always repair the layout (idempotent, silent when complete) so a bundle missing the mode layer or a
   # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
   ensure_layout
   ensure_password
+  check_console_pin
   info "Starting the stack…"
   compose up -d "$@"
   info "Up. Console: ${BOLD}$(front_door_url)${RST}"
@@ -373,7 +396,9 @@ cmd_version() {
 cmd_compose() { ensure_ready; compose "$@"; }
 
 # Front-door TLS certificate management. The proxy terminates TLS for the whole stack when cert.pem +
-# key.pem are present in tls/; these helpers create or inspect them. Apply a change with `byodt up`.
+# key.pem are present in tls/; these helpers create or inspect them. Apply a change with
+# `byodt restart proxy` — the files sit inside an already-mounted directory, so `up` recreates
+# nothing and the proxy entrypoint never re-renders the TLS server block.
 cmd_tls() {
   local sub="${1:-status}"; shift || true
   case "$sub" in
@@ -398,7 +423,10 @@ tls_generate() {
   fi
   chmod 600 tls/key.pem
   info "Wrote a self-signed certificate to tls/ (SANs: localhost, ${host}, 127.0.0.1)."
-  info "Apply it with ${BOLD}$SELF up${RST} — the front door then serves HTTPS on the published port."
+  # `up` is NOT enough: the certificate lands inside the already-mounted ./tls directory, so no
+  # service's compose config changes and the proxy is not recreated — its entrypoint never
+  # re-renders the TLS server block. Recreating the proxy is what applies it.
+  info "Apply it with ${BOLD}$SELF restart proxy${RST} — the front door then serves HTTPS on the published port."
 }
 
 tls_status() {

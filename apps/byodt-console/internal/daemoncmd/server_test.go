@@ -576,27 +576,33 @@ func TestCloudSessionExpiresAtGate(t *testing.T) {
 	}
 }
 
-// TestPostureFlushOnConnectAndDisconnect: the two mode-mutation handlers flush the session set, so no
-// session minted under one posture survives the flip to the other.
-func TestPostureFlushOnConnectAndDisconnect(t *testing.T) {
-	// Connect (local → cloud): a live local session is dropped by cloudApply.
+// TestPostureFlipDropsOtherSessionsAndKeepsTheCaller: the two mode-mutation handlers drop the session
+// set on the flip, so no session minted under one posture survives into the other — except the caller
+// that performed the flip, which keeps its session for the grace window so it can act on the
+// "recreate the stack" instruction the same response carries. Asserted on both flip directions.
+func TestPostureFlipDropsOtherSessionsAndKeepsTheCaller(t *testing.T) {
+	// Connect (local → cloud).
 	plat := fakePlatform(t, false, nil)
 	defer plat.Close()
 	s := newTestServer(t, plat.URL, filepath.Join(t.TempDir(), "state.json"))
 	ts := httptest.NewServer(s.routes())
 	defer ts.Close()
 	sid := signIn(t, s)
+	other := signIn(t, s) // a second client, e.g. another tab
 	if code, _ := get(t, ts.URL, "/api/mode", sid); code != 200 {
 		t.Fatalf("the session must be valid before connect, got %d", code)
 	}
 	if code, body := send(t, http.MethodPost, ts.URL+"/api/cloud", sid, applyBody("https://front.example/auth/callback")); code != http.StatusOK {
 		t.Fatalf("connect must be 200, got %d %s", code, body)
 	}
-	if code, _ := get(t, ts.URL, "/api/mode", sid); code != http.StatusUnauthorized {
-		t.Fatalf("connect must flush the old session (401), got %d", code)
+	if code, _ := get(t, ts.URL, "/api/mode", sid); code != http.StatusOK {
+		t.Fatalf("connect must keep the applying session live so its instruction stays actionable, got %d", code)
+	}
+	if code, _ := get(t, ts.URL, "/api/mode", other); code != http.StatusUnauthorized {
+		t.Fatalf("connect must drop every other session (401), got %d", code)
 	}
 
-	// Disconnect (cloud → local): a live session is dropped by cloudDisable.
+	// Disconnect (cloud → local).
 	s2 := newTestServer(t, plat.URL, filepath.Join(t.TempDir(), "state.json"))
 	vars, _, err := cloudModeVars(validRecipeVars(), "https://front.example/auth/callback", "/cache")
 	if err != nil {
@@ -608,10 +614,14 @@ func TestPostureFlushOnConnectAndDisconnect(t *testing.T) {
 	ts2 := httptest.NewServer(s2.routes())
 	defer ts2.Close()
 	sid2 := signIn(t, s2)
+	other2 := signIn(t, s2)
 	if code, _ := send(t, http.MethodDelete, ts2.URL+"/api/cloud", sid2, ""); code != http.StatusOK {
 		t.Fatalf("disconnect must be 200, got %d", code)
 	}
-	if code, _ := get(t, ts2.URL, "/api/mode", sid2); code != http.StatusUnauthorized {
-		t.Fatalf("disconnect must flush the old session (401), got %d", code)
+	if code, _ := get(t, ts2.URL, "/api/mode", sid2); code != http.StatusOK {
+		t.Fatalf("disconnect must keep the disconnecting session live, got %d", code)
+	}
+	if code, _ := get(t, ts2.URL, "/api/mode", other2); code != http.StatusUnauthorized {
+		t.Fatalf("disconnect must drop every other session (401), got %d", code)
 	}
 }

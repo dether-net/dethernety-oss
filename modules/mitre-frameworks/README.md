@@ -61,7 +61,7 @@ consumed by the LangChain RAG / analysis subsystem):
 Both coexist; neither replaces the other. The graph export (`01/02/03`) and the
 embeddinggemma `05` embeddings are committed so a fresh checkout needn't
 regenerate the corpus — see [`.gitignore`](.gitignore). The default `pnpm build`
-(and the demos) only **package** the committed exports; run `pnpm build:data`
+(and the deployment bundle) only **package** the committed exports; run `pnpm build:data`
 to regenerate them when the MITRE source or the embedding model changes.
 
 ### Embedding provider precedence

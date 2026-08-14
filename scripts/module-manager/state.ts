@@ -1,7 +1,7 @@
 /**
  * state.ts — Track installed modules in installed-modules.json.
  *
- * Mirrors the StateManager from the Go management-service.
+ * A local-use state manager for installed modules.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';

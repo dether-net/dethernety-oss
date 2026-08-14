@@ -50,14 +50,7 @@ apps/dt-ws/.env copy
 
 venv
 
-# Demo runtime data
-demo/data/
-demo/config/ssl/
-demo/*.log
-demo/.DS_Store
-demo/login-client.pat
-
-# Generated schema without @authentication (demo / development only)
+# Generated schema without @authentication (no-auth deployments / development only)
 apps/dt-ws/schema/schema-noauth.graphql
 
 # Frontend build outputs served by dt-ws

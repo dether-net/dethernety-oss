@@ -24,24 +24,32 @@ Everything domain-specific -- component types, analysis logic, security controls
 
 ## Quick start
 
-### Demo (recommended)
+### Run a deployment (recommended)
 
-The fastest way to try Dethernety. No OIDC provider needed — authentication is
-disabled for local evaluation.
+The BYODt deployment runs the whole stack from published, signed images — a graph
+database, an embedding server, the platform, an operator console, and a front-door
+proxy. No source checkout and no build toolchain: a container engine is all you need.
 
-Prerequisites: Node.js 18+, pnpm 9+, Docker (with Compose v2).
-Python 3 is optional (needed for MITRE ATT&CK/D3FEND data).
+Prerequisites: Docker with the Compose plugin, or Podman 4.1+ with a Compose provider.
+
+Download `byodt-<version>.tar.gz` from the
+[latest release](https://github.com/dether-net/dethernety-oss/releases/latest),
+extract it, and start the stack:
 
 ```bash
-cd demo
-./demo.sh   # builds, starts, and installs modules
+tar xzf byodt-<version>.tar.gz
+cd byodt-<version>
+./byodt up
 ```
 
-Open **http://localhost:3003** — no login required.
+Open **<http://127.0.0.1:3000>**. The first run generates the database password,
+pulls the images, fetches and verifies the signed modules, and ingests the MITRE
+ATT&CK and D3FEND corpus, so it takes noticeably longer than later runs. The
+operator console lives at `/console/` on the same address.
 
-The script builds the workspace, creates a Docker image, starts three services
-(Memgraph + OPA + Dethernety), and installs modules. Subsequent runs skip the
-build. See [demo/README.md](demo/README.md) for details and troubleshooting.
+Full instructions, configuration reference, and day-to-day operations are in the
+[BYODt deployment guide](docs/user/byodt/README.md); the design is described in the
+[architecture set](docs/architecture/byodt/README.md).
 
 ### From source
 
@@ -145,7 +153,8 @@ dethernety-oss/
 ├── apps/
 │   ├── dt-ui/              Vue 3 frontend (Vuetify + Vue Flow)
 │   ├── dt-ws/              NestJS backend (GraphQL + Bolt/Cypher)
-│   └── dethereal/          Claude Code plugin (skills, agents, MCP server) for AI-assisted threat modeling
+│   ├── dethereal/          Claude Code plugin (skills, agents, MCP server) for AI-assisted threat modeling
+│   └── byodt-console/      Operator console for the BYODt deployment (Go + Vue 3)
 ├── packages/
 │   ├── dt-core/            Shared TypeScript interfaces and utilities
 │   ├── dt-module/          Module system base classes
@@ -155,7 +164,8 @@ dethernety-oss/
 │   ├── dethernety-general/ Default threat modeling module
 │   └── mitre-frameworks/   MITRE ATT&CK and D3FEND data
 ├── docs/                   Documentation
-├── demo/                   One-command demo (Memgraph + OPA + Dethernety)
+├── deploy/compose/         The BYODt deployment bundle (compose + control script)
+├── pkg/                    Shared Go packages (module verification, extraction)
 └── scripts/                Build scripts and module-manager CLI
 ```
 

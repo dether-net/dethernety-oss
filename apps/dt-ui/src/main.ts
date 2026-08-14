@@ -35,7 +35,7 @@ const initializeApp = async () => {
     }
     await initializeApolloClient()
 
-    // Resolve auth mode (incl. no-auth / demo) BEFORE loading modules. Module
+    // Resolve auth mode (incl. no-auth) BEFORE loading modules. Module
     // loading issues authenticated GraphQL queries via the Apollo authLink, which
     // skips token handling only once authStore.authDisabled is set. The router
     // guard also initialises auth mode, but that runs after mount() — too late for

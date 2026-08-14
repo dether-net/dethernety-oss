@@ -1,7 +1,7 @@
 /**
  * manifest.ts — Module manifest parsing and validation.
  *
- * Mirrors the manifest schema used by the Go management-service.
+ * The module manifest schema.
  */
 
 import { readFileSync } from 'node:fs';

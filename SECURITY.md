@@ -25,15 +25,16 @@ The following are in scope for security reports:
 - **dt-ui** (frontend) — XSS, CSRF, authentication bypass, sensitive data exposure
 - **dt-core** — Data access layer, input validation
 - **dt-module** — Module loading, sandboxing, code execution
-- **Demo environment** — Default credentials, insecure defaults
-- **Docker image** — Container security, exposed ports, privilege escalation
+- **BYODt deployment** — The deployment bundle and its control script: secret generation and handling, exposure defaults, the mode layer written by the console
+- **byodt-console** — The operator console: session handling, the module fetch/verify/extract path, and the shared Go packages under `pkg/`
+- **Docker images** — Container security, exposed ports, privilege escalation
 - **Dependencies** — Vulnerabilities in direct dependencies
 
 The following are out of scope:
 
 - Vulnerabilities in third-party services (Neo4j, Memgraph, OIDC providers)
 - Social engineering attacks
-- Denial of service attacks against demo/development environments
+- Denial of service attacks against local development environments
 - Issues in forks or unofficial distributions
 
 ## Security Best Practices

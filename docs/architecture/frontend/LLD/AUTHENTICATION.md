@@ -51,7 +51,7 @@ The frontend authentication system implements OIDC (OpenID Connect) with PKCE (P
 
 ## Auth-Disabled Mode
 
-When the backend returns `authDisabled: true` from the `/config` endpoint (see [Configuration Guide](../../../CONFIGURATION_GUIDE.md#auth-disabled-mode-demo--development)), the frontend bypasses all OIDC flows and operates without authentication.
+When the backend returns `authDisabled: true` from the `/config` endpoint (see [Configuration Guide](../../../CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development)), the frontend bypasses all OIDC flows and operates without authentication.
 
 ### How it works
 

@@ -283,7 +283,7 @@ useFactory: async (configService, ...) => {
 | Environment | Behaviour |
 |-------------|-----------|
 | `NODE_ENV=production` with OIDC configured | Full JWKS signature validation via `validateToken()` — returns the JWT payload on success, `undefined` on any failure (resolver-side gates handle the rejection) |
-| `NODE_ENV !== production` AND no `OIDC_JWKS_URI` | Returns a **dev mock user with `roles: ['admin']`** so local/demo deployments can exercise admin-gated operations without an IdP |
+| `NODE_ENV !== production` AND no `OIDC_JWKS_URI` | Returns a **dev mock user with `roles: ['admin']`** so local / single-user deployments can exercise admin-gated operations without an IdP |
 | Token missing or decode fails | Returns `undefined` — `ctx.user` is unset; `requireAdmin(ctx)` throws `ForbiddenException` |
 
 The dev-mock admin behaviour is intentional: it lets `pnpm dev` exercise the entire admin surface (including [`ClassIdentityResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#6-classidentityresolverservice)) without standing up an IdP. Production paths flow through the full JWT validation branch and never touch the mock.

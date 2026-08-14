@@ -81,7 +81,7 @@ claude --plugin-dir oss/apps/dethereal
 |---------------------|---------|---------|
 | `DETHERNETY_URL` | `http://localhost:3003` | Platform URL |
 
-For development/demo mode, the platform can run with authentication disabled (`ENABLE_NOAUTH=true`), and Dethereal detects this automatically.
+In no-auth mode the platform runs with authentication disabled (`ENABLE_NOAUTH=true`), and Dethereal detects this automatically.
 
 ---
 
@@ -134,7 +134,7 @@ Token valid:  60 minutes remaining
 - **OAuth 2.0 with PKCE** — secure browser-based login, no passwords in the terminal
 - **Token caching** — tokens are stored at `~/.dethernety/tokens.json`, keyed by platform URL
 - **Auto-refresh** — expired tokens are refreshed transparently when a valid refresh token exists
-- **Auth-disabled mode** — if the platform has auth disabled (development/demo), all tools work without login
+- **Auth-disabled mode** — if the platform has auth disabled (no-auth), all tools work without login
 
 ### Token Security
 

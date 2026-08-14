@@ -44,7 +44,7 @@ router.beforeEach(async (to) => {
     authInitialized = true
   }
 
-  // When auth is disabled (demo / development) allow all routes
+  // When auth is disabled (no-auth) allow all routes
   if (authStore.authDisabled) {
     return true
   }

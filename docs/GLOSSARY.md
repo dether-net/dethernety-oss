@@ -104,6 +104,22 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Bolt Protocol** -- The binary protocol used for client-database communication. Using Bolt (rather than a vendor API) allows switching between Neo4j and Memgraph.
 
-**OPA (Open Policy Agent)** -- An external policy engine that evaluates Rego policies. Used by modules for exposure detection and countermeasure computation.
+**Policy engine** -- The evaluator that runs a module's Rego policies for exposure detection and countermeasure computation. It runs **in process** (Regorus, compiled to WebAssembly, in `packages/regorus-wasm`) — a deployment does not run a separate policy service.
 
-**Rego** -- The policy language used by OPA. Modules define security rules as Rego policies.
+**Rego** -- The policy language the engine evaluates. Modules define security rules as Rego policies.
+
+## Deployment
+
+**BYODt deployment** -- A self-hosted Dethernety deployment: the graph database, embedding server, platform, operator console, and front-door proxy, run from published images on your own machine or server. Delivered as a versioned bundle. See the [deployment guide](user/byodt/README.md) and its [architecture](architecture/byodt/README.md).
+
+**Front door** -- The proxy that fronts a deployment on a single published port, serving the platform UI and API, and the operator console under `/console/`. It terminates TLS when a certificate is installed.
+
+**Operator console** -- The deployment's management surface (`byodt-console`). Runs once before the platform starts to place the schema, install verified modules, and ingest reference data; then serves a web console reporting deployment state and applying configuration changes.
+
+**Mode layer** -- The configuration file the console owns and rewrites: the small, fixed set of variables that switch a deployment between its standalone and cloud-connected postures. The platform reads it at startup, so a change takes effect when the stack is recreated.
+
+**Deployment recipe** -- The block of configuration an operator pastes into the console to connect a deployment to cloud sign-in. Only a fixed, known set of variable names is accepted; anything else is refused.
+
+**Content mount** -- A content package made available to a deployment through the console. The console writes a marker and stub into the modules directory; the platform loads it on the next start.
+
+**Pin** -- The recorded version of a mounted content package, so the console can report when a newer version is available.

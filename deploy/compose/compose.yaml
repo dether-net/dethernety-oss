@@ -103,7 +103,7 @@ services:
   # module-fetch or ingest failure exits zero and records the fault, leaving a
   # running deployment to read the diagnosis on.
   console-init:
-    image: ${CONSOLE_IMAGE}
+    image: ${CONSOLE_IMAGE:-ghcr.io/dether-net/byodt-console:${PLATFORM_VERSION}}
     depends_on:
       db:
         condition: service_healthy
@@ -250,7 +250,7 @@ services:
   # console:8080 on the stack network. The image is FROM scratch (no shell), so
   # there is no container healthcheck.
   console:
-    image: ${CONSOLE_IMAGE}
+    image: ${CONSOLE_IMAGE:-ghcr.io/dether-net/byodt-console:${PLATFORM_VERSION}}
     command: ["daemon"]
     environment:
       PLATFORM_URL: http://platform:3003

@@ -172,7 +172,7 @@ export class EnvironmentVariables {
   @Transform(boolEnv(true))
   GQL_ENABLE_SUBSCRIPTIONS?: boolean = true;
 
-  // Auth-less mode (demo / development only — NEVER allowed in production)
+  // Auth-less mode (no-auth — NEVER allowed in production)
   @IsOptional()
   @IsBoolean()
   @Transform(boolEnv(false))

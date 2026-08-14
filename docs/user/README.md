@@ -65,6 +65,20 @@ For comprehensive documentation on the Dethereal threat modeling plugin, see the
 | [Agents and Architecture](dethereal/AGENTS_AND_ARCHITECTURE.md) | AI agents, MCP tools, lifecycle hooks |
 | [Glossary](dethereal/GLOSSARY.md) | Plugin-specific terminology |
 
+## Running a deployment — BYODt
+
+Everything needed to run Dethernety on your own machine or server. See the
+[BYODt deployment guide](byodt/README.md):
+
+| Guide | Description |
+|-------|-------------|
+| [Overview](byodt/README.md) | What a BYODt deployment runs, what it needs, and how the pieces fit |
+| [Installation](byodt/INSTALLATION.md) | Prerequisites, obtaining the bundle, first start, and verifying health |
+| [Configuration](byodt/CONFIGURATION.md) | The `.env` settings reference, the generated secret, and database storage |
+| [Operations](byodt/OPERATIONS.md) | The `byodt` commands: start, apply changes, logs, backup and restore, TLS, upgrade |
+| [Cloud](byodt/CLOUD.md) | Connecting a deployment to cloud sign-in and content packages |
+| [Troubleshooting](byodt/TROUBLESHOOTING.md) | Symptoms, causes, and fixes |
+
 ---
 
 ## Suggested reading order
