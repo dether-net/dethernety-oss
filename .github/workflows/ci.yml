@@ -287,8 +287,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install podman-compose
-        run: pipx install podman-compose
+      # Install both engines' prerequisites rather than assuming the runner image carries them.
+      # This job exists because an unverified assumption about the environment shipped a broken
+      # release; taking one about the runner would be the same mistake in a different place. Each
+      # tool is installed only if absent, and every version is printed so a future failure is
+      # diagnosable from the log rather than by re-deriving what was present.
+      - name: Install the compose providers
+        run: |
+          set -euo pipefail
+          if ! command -v podman >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          command -v pipx >/dev/null 2>&1 || sudo apt-get install -y -qq pipx
+          pipx install podman-compose
+          # Ask pipx where it put the binary rather than assuming ~/.local/bin, and publish that to
+          # later steps — podman resolves its compose provider through PATH, so if this is wrong the
+          # provider pin below cannot take.
+          bindir=$(pipx environment --value PIPX_BIN_DIR 2>/dev/null || echo "$HOME/.local/bin")
+          echo "$bindir" >> "$GITHUB_PATH"
+          export PATH="$bindir:$PATH"
+          echo "  docker:         $(docker --version)"
+          echo "  docker compose: $(docker compose version)"
+          echo "  podman:         $(podman --version)"
+          echo "  podman-compose: $(podman-compose --version 2>&1 | tail -1)"
 
       # Prove the pin took before trusting anything the podman leg reports. Podman announces its
       # chosen provider on stderr; if that is not the Python one, this job is testing nothing and
