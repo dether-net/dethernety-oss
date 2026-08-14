@@ -224,7 +224,7 @@ Request → JWT Validation → Query Protection → Authorization → Execution 
 
 **Auth-Disabled Mode (non-production only):**
 
-For local development and demos, authentication can be disabled when `NODE_ENV !== 'production'`, no OIDC is configured, and `ENABLE_NOAUTH=true`. In this mode the `jwt-auth.guard` creates a mock `dev-user` for unauthenticated requests. The GraphQL schema is loaded from `schema-noauth.graphql` (a build-time generated file, excluded from git, with `@authentication` directives stripped) — if this file is not present, the schema service falls back to the standard `schema.graphql` with a warning. See the [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-demo--development) for details. This mode is blocked in production.
+For a single-user deployment or local development, authentication can be disabled when `NODE_ENV !== 'production'`, no OIDC is configured, and `ENABLE_NOAUTH=true`. In this mode the `jwt-auth.guard` creates a mock `dev-user` for unauthenticated requests. The GraphQL schema is loaded from `schema-noauth.graphql` (a build-time generated file, excluded from git, with `@authentication` directives stripped) — if this file is not present, the schema service falls back to the standard `schema.graphql` with a warning. See the [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development) for details. This mode is blocked in production.
 
 ### 2. Monitoring
 

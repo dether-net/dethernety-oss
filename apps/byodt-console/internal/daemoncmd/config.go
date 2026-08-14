@@ -51,7 +51,7 @@ const (
 type Config struct {
 	Version string // the console's own baked version (from main)
 
-	Bind string // listen address; loopback by default (the stack is single-tenant at the edge)
+	Bind string // listen address; all interfaces by default (see defaultBind) — exposure is the host publish/firewall
 	Port string // listen port
 
 	PlatformURL string // base URL the daemon probes for /config, /health and /graphql

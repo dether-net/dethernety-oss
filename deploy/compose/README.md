@@ -58,9 +58,12 @@ progress. Subsequent starts reuse the `data/` volume and are fast.
 
 ## Configuration
 
-Edit `.env`. The five image/version keys at the top name the tested release set
-and move together — prefer changing `PLATFORM_VERSION` to a published release
-rather than editing images individually.
+Edit `.env`. The image/version keys at the top name the tested release set.
+`PLATFORM_VERSION` is the release version: it selects both the platform image and
+the console image, so upgrading is a one-line change and the two cannot drift apart
+(the console refuses to start against a `PLATFORM_VERSION` it was not built for).
+The three third-party images are pinned separately so they can be repointed at a
+mirror.
 
 The container engine is auto-detected on the first run (Docker first, then Podman)
 and recorded as `CONTAINER_ENGINE` in `.env`; set it there yourself to force one.
@@ -121,11 +124,11 @@ single-tenant deployment behind your own boundary). To serve HTTPS:
 ```sh
 ./byodt tls generate        # a self-signed certificate for localhost, or:
                             # drop your own cert.pem + key.pem into tls/
-./byodt up                  # the front door picks it up and serves HTTPS
+./byodt restart proxy       # the front door picks it up and serves HTTPS
 ```
 
 Once a certificate is installed, browse to `https://…:3000`. The certificate lives
-in `tls/`; `./byodt tls status` shows it, and removing it (`rm tls/*.pem && ./byodt up`)
+in `tls/`; `./byodt tls status` shows it, and removing it (`rm tls/*.pem && ./byodt restart proxy`)
 reverts to plain HTTP. Everything behind the front door stays plain HTTP on the
 stack's internal network — only the edge is encrypted.
 

@@ -114,6 +114,25 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
+          # `latest` moves; the version tags do not. Deployments pin an exact version — a compose
+          # bundle that referenced `latest` would silently change the platform under a running
+          # deployment, which is the opposite of the upgrade contract. A PRERELEASE never moves it:
+          # a release candidate exists to be tried before it is the recommended version, and tagging
+          # it `latest` would hand it to everyone who did not pin. Any version carrying a `-suffix`
+          # is one (which also covers a `pr-<n>` build, though that never pushes).
+          #
+          # A fixed heredoc delimiter is safe here, unlike a changelog body: both interpolated
+          # values are constrained — IMAGE is a workflow constant, and VERSION passed the pattern
+          # gate directly above — so no emitted line can be the delimiter.
+          {
+            printf 'tags<<TAGS_EOF\n'
+            printf '%s:%s\n' "${IMAGE}" "${VERSION}"
+            case "${VERSION}" in
+              *-*) ;;
+              *)   printf '%s:latest\n' "${IMAGE}" ;;
+            esac
+            printf 'TAGS_EOF\n'
+          } >> "$GITHUB_OUTPUT"
 
       # Cross-building for arm64 under emulation. Both architectures are required rather than
       # nice-to-have: the audience runs this on Apple Silicon laptops (arm64) and on Linux hosts
@@ -132,9 +151,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `latest` moves; the version tags do not. Deployments pin an exact version — a compose
-      # bundle that referenced `latest` would silently change the platform under a running
-      # deployment, which is the opposite of the upgrade contract.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -144,9 +160,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ steps.meta.outputs.publish == 'true' }}
           build-args: VERSION=${{ steps.meta.outputs.version }}
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -290,6 +304,19 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
+          # Same tag policy as the platform image, for the same reason — see that job's note. The
+          # two images are cut from one tag and a deployment resolves the console through
+          # PLATFORM_VERSION, so a prerelease that moved one `latest` and not the other would pair
+          # a candidate console with a released platform.
+          {
+            printf 'tags<<TAGS_EOF\n'
+            printf '%s:%s\n' "${CONSOLE_IMAGE}" "${VERSION}"
+            case "${VERSION}" in
+              *-*) ;;
+              *)   printf '%s:latest\n' "${CONSOLE_IMAGE}" ;;
+            esac
+            printf 'TAGS_EOF\n'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -319,9 +346,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ steps.meta.outputs.publish == 'true' }}
           build-args: VERSION=${{ steps.meta.outputs.version }}
-          tags: |
-            ${{ env.CONSOLE_IMAGE }}:${{ steps.meta.outputs.version }}
-            ${{ env.CONSOLE_IMAGE }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=console
           cache-to: type=gha,mode=max,scope=console
 

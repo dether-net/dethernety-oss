@@ -423,8 +423,10 @@ func (s *server) cloudApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Posture just changed (local → cloud): drop every session minted under the old posture so none
-	// survives across the flip. The operator re-signs in against the new posture.
-	s.sess.flush()
+	// survives across the flip — except this caller's, on a short grace deadline, so the instruction
+	// this response carries is still readable and actionable instead of being replaced by a sign-in
+	// card the new posture cannot yet satisfy. Every other client re-signs in against the new posture.
+	s.sess.keepOnly(r.Header.Get(sessionHeader), postureGraceTTL)
 	msg := "cloud configuration written; apply it by recreating the stack: " + stackRestartCommand
 	if len(stripped) > 0 {
 		// The console keeps the deployment's own exposure declaration; it never takes it from the
@@ -437,15 +439,16 @@ func (s *server) cloudApply(w http.ResponseWriter, r *http.Request) {
 // cloudDisable reverts the deployment to pure-OSS. It rewrites the same mode-layer file with the
 // development values — never deletes it — and never contacts the cloud, because this is the recovery
 // path from a mis-scoped allowlist, the one state in which no cloud call can succeed.
-func (s *server) cloudDisable(w http.ResponseWriter, _ *http.Request) {
+func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
 	if err := writeModeLayer(s.cfg.ModeLayerPath, pureOSSModeVars()); err != nil {
 		s.logger.Error("writing mode layer", "err", err)
 		http.Error(w, "reverting to pure-OSS", http.StatusInternalServerError)
 		return
 	}
-	// Posture just changed (cloud → local): drop every session minted under the old posture. This
-	// is the same flush the connect path does; a cloud↔local flip drops the whole set either way.
-	s.sess.flush()
+	// Posture just changed (cloud → local): same drop-all-but-this-caller as the connect path, and for
+	// the same reason — a cloud↔local flip invalidates every other session either way, while the
+	// operator being told to recreate the stack keeps a grace window to do it in.
+	s.sess.keepOnly(r.Header.Get(sessionHeader), postureGraceTTL)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "reverted",
 		"message": "reverted to pure-OSS; apply it by recreating the stack: " + stackRestartCommand,

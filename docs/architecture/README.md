@@ -691,10 +691,17 @@ docs/architecture/
 │   ├── data-model.md                  # Snapshot + coverage data contracts
 │   └── design-principles.md           # Accuracy & honesty contracts
 │
-└── dethernety-coverage-tools/         # Coverage Tools module (MITRE coverage primitive)
-    ├── README.md                      # Module overview + doc index
-    ├── architecture.md                # Graded-bridge design & query mechanics
-    └── coverage-facts.md              # Output contract (gradedCoverage)
+├── dethernety-coverage-tools/         # Coverage Tools module (MITRE coverage primitive)
+│   ├── README.md                      # Module overview + doc index
+│   ├── architecture.md                # Graded-bridge design & query mechanics
+│   └── coverage-facts.md              # Output contract (gradedCoverage)
+│
+└── byodt/                             # The BYODt deployment (self-hosted stack)
+    ├── README.md                      # What it is, its shape, and when it fits
+    ├── ARCHITECTURE.md                # Services, ports, storage, request path
+    ├── CONSOLE.md                     # The operator console (init + daemon)
+    ├── SUPPLY_CHAIN.md                # Signed module channel and release artifacts
+    └── SECURITY_MODEL.md              # Trust boundaries, postures, hardening
 ```
 
 ### Quick Reference Links

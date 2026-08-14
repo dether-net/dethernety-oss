@@ -739,7 +739,7 @@ Authentication works through the existing mechanism:
 2. **OAuth PKCE flow** triggered by `login` MCP tool (opens browser)
 3. **Tokens cached** at `~/.dethernety/tokens.json` (mode 0600)
 4. **Auto-refresh** handled internally by the MCP server
-5. **Auth-disabled mode** supported for demo/development instances
+5. **Auth-disabled mode** supported for no-auth deployments
 
 ### Persistent Plugin Data
 

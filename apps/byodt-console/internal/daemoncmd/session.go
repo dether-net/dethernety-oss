@@ -22,6 +22,16 @@ const sessionHeader = "X-Console-Session"
 // silent re-mint. Local sessions carry no expiry: single-user host trust, nothing to revoke.
 const cloudSessionTTL = time.Hour
 
+// postureGraceTTL bounds the one session that survives a posture change (see keepOnly). A connect or
+// disconnect hands its caller an instruction it must act on — recreate the stack — and dropping that
+// caller's session mid-answer returns the operator to a sign-in card with the instruction gone, in
+// the one window where the NEW posture's sign-in cannot yet succeed: the platform is still running
+// the old configuration, so a cloud sign-in has nothing to validate against. The grace is short and
+// absolute — long enough to read the instruction and run it, and it ends on its own if the operator
+// walks away. The recreate itself ends it sooner: it restarts this daemon, and the in-memory session
+// set with it.
+const postureGraceTTL = 15 * time.Minute
+
 // session is one live session's record. A zero expiresAt means the session never expires (local,
 // long-lived); a non-zero expiresAt is the fixed absolute deadline of a cloud session. ident is the
 // display-only signed-in subject (cloud only; zero for local, which mints with no credential).
@@ -95,12 +105,29 @@ func (s *sessions) valid(id string) bool {
 	return true
 }
 
-// flush drops every live session. It is called on a posture change (cloud connect / disconnect),
-// so no session minted under one posture survives into the other.
-func (s *sessions) flush() {
+// keepOnly drops every live session except keep, whose deadline is tightened to now+ttl. It is what
+// a posture change (cloud connect / disconnect) calls, so no session minted under one posture
+// survives into the other — with one carve-out: the caller that performed the flip keeps its own
+// session for a bounded grace window, because it is the one being told to recreate the stack and
+// cannot be handed that answer and logged out in the same response. That caller is not a third
+// party — it held full console access a moment before the flip and gains nothing it did not already
+// have — and its grace ends at the recreate regardless (see postureGraceTTL).
+//
+// The deadline is only ever tightened, never extended: a cloud session already closer to its own
+// expiry keeps it, so the grace cannot lengthen the cloud revocation window. An empty or unknown
+// keep drops everything, which is what a caller with no live session should get.
+func (s *sessions) keepOnly(keep string, ttl time.Duration) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.live[keep]
 	s.live = make(map[string]session)
-	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	if deadline := s.now().Add(ttl); sess.expiresAt.IsZero() || deadline.Before(sess.expiresAt) {
+		sess.expiresAt = deadline
+	}
+	s.live[keep] = sess
 }
 
 func randomID(nbytes int) (string, error) {

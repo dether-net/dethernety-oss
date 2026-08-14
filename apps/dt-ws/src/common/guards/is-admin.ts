@@ -15,7 +15,7 @@ const adminGuardLogger = new Logger('AdminGuard');
  * `roles` via a pre-token-generation Lambda, others ship the raw
  * `cognito:groups` claim. Two checks; no env-config knob.
  *
- * **Dev/demo path.** When OIDC is unconfigured (NODE_ENV !== 'production'
+ * **No-auth path.** When OIDC is unconfigured (NODE_ENV !== 'production'
  * AND no OIDC_JWKS_URI), JwtAuthGuard short-circuits with a mock user
  * carrying `roles: ['admin']` so unauth'd local installs can exercise
  * admin operations without an IdP. Production paths through actual JWT

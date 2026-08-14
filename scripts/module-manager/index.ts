@@ -3,8 +3,8 @@
  * module-manager CLI — TypeScript core
  *
  * Local module management for Dethernety OSS.
- * Replicates core functionality from the Go management-service
- * for use in development, demos, and self-hosted deployments.
+ * A local-use implementation of the same module-management operations the platform performs server-side
+ * for use in development and self-hosted deployments.
  *
  * Commands:
  *   install <archive> [options]   Extract, validate, copy, ingest

@@ -217,8 +217,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new SessionExpired()
   }
   if (!res.ok) {
-    // The daemon returns actionable reasons as the response body (e.g. tls/upload's
-    // "certificate and key do not match: …"), so surface it — and the status, so callers can branch on
+    // The daemon returns actionable reasons as the response body (e.g. a rejected recipe naming
+    // the variable at fault), so surface it — and the status, so callers can branch on
     // it (a 403 allowlist rejection has its own recovery). Pass the raw detail (possibly empty) so a
     // caller's own `e.detail || '…'` fallback still fires; ApiError synthesizes the .message fallback.
     const detail = (await res.text()).trim()

@@ -259,7 +259,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
   const isLoading = ref(false)
   const error = ref('')
 
-  // When auth is disabled (demo / local dev without OIDC) the store
+  // When auth is disabled (single-user deployment, or local dev without OIDC) the store
   // behaves as if a user is always authenticated.  This flag is set
   // once during initialisation via initializeAuthMode().
   const authDisabled = ref(false)
@@ -435,10 +435,10 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       if (config.authDisabled) {
         authDisabled.value = true
         // Inject a mock user that mirrors the backend's dev-user (jwt-auth.guard.ts)
-        user.value = { id: 'dev-user', email: 'dev@example.com', name: 'Demo User' }
+        user.value = { id: 'dev-user', email: 'dev@example.com', name: 'Local User' }
         roles.value = ['admin']
         permissions.value = []
-        debugLog(authConfig, 'Auth disabled — running in demo / development mode')
+        debugLog(authConfig, 'Auth disabled — running in single-user / development mode')
       }
     } catch {
       // Config fetch failed — leave auth enabled (safe default)

@@ -100,7 +100,7 @@ export class JwtAuthGuard implements CanActivate {
 
         // Add mock user info to request (development only).
         // The dev mock user carries `roles: ['admin']` so admin-gated
-        // GraphQL operations are reachable from local / demo deployments
+        // GraphQL operations are reachable from local / single-user deployments
         // without an IdP. Production paths flow through the JWT validation
         // branch and never touch this mock.
         request['user'] = { sub: 'dev-user', email: 'dev@example.com', roles: ['admin'], permissions: [] };
@@ -150,7 +150,7 @@ export class JwtAuthGuard implements CanActivate {
    * Used by the GraphQL HTTP context factory, which runs outside Nest's guard
    * chain (Apollo handles POST /graphql directly, no @UseGuards available).
    * Mirrors canActivate's branching:
-   *   - dev/demo (no OIDC, non-prod) → mock user with `roles: ['admin']`
+   *   - no-auth (no OIDC, non-prod) → mock user with `roles: ['admin']`
    *   - prod / OIDC configured → validateToken (full JWKS signature check)
    *   - invalid / missing token → undefined (resolver-side gates handle it)
    */
