@@ -24,7 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@apollo/client": "^4.2.10",
+    "@apollo/client": "^4.2.11",
     "@vue-flow/core": "^1.48.2",
     "graphql-tag": "^2.12.7",
     "js-yaml": "^4.3.1"
