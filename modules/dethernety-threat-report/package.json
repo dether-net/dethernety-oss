@@ -16,7 +16,7 @@
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
     "@dethernety/dt-module": "workspace:*",
-    "@nestjs/common": "^11.1.28",
+    "@nestjs/common": "^11.1.29",
     "graphql-tag": "^2.12.7"
   },
   "devDependencies": {

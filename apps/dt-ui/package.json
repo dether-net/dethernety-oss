@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@apollo/client": "^4.2.10",
+    "@apollo/client": "^4.2.11",
     "@dethernety/dt-core": "workspace:*",
     "@jsonforms/core": "3.7.0",
     "@jsonforms/vue": "3.7.0",
@@ -46,7 +46,7 @@
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/test-utils": "^2.4.11",
-    "eslint": "^10.8.0",
+    "eslint": "^10.8.1",
     "eslint-config-standard": "^17.1.0",
     "eslint-config-vuetify": "^4.7.2",
     "eslint-plugin-import": "^2.32.0",
@@ -54,7 +54,7 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^7.3.0",
     "eslint-plugin-vue": "^10.10.0",
-    "happy-dom": "^20.11.1",
+    "happy-dom": "^20.11.2",
     "pinia": "^3.0.4",
     "sass": "1.100.0",
     "typescript": "^5.9.3",
