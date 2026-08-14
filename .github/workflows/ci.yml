@@ -283,7 +283,7 @@ jobs:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     defaults:
       run:
-        working-directory: oss/deploy/compose
+        working-directory: deploy/compose
     steps:
       - uses: actions/checkout@v4
 
