@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Go analysis needs the toolchain in place before autobuild compiles the module.
       - name: Set up Go

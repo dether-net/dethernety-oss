@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # A tag name is caller-supplied and reaches a filename, a JSON document and a
       # certificate SAN. Constrain it once, here, before anything reads it — the same
