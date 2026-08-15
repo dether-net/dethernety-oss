@@ -257,3 +257,167 @@ jobs:
 
       - name: Test
         run: go test ./... -count=1
+
+
+  # The bundle must resolve under BOTH compose providers, because `podman compose` brokers to
+  # whichever is installed and the two do not agree. Two defects shipped in 0.6.0 that no unit
+  # test could have caught and this job catches in seconds:
+  #
+  #   - podman-compose honours only the LAST --env-file, where Docker Compose v2 merges them. The
+  #     bundle passed two, so .env was dropped and every interpolated value came out empty —
+  #     images, the published port, the database user. Only the values without a `:-default` in
+  #     compose.yaml showed as blank, which made a total failure read as an image problem.
+  #   - podman-compose does not expand a nested ${VAR} inside a `:-default`, so a self-referencing
+  #     image default reached the engine as a literal.
+  #
+  # Both are invisible to `docker compose`, and both reached a release because every "podman"
+  # check run beforehand had silently brokered to Docker Compose v2 — see the provider pin below,
+  # which is the load-bearing line in this job.
+  bundle:
+    name: Compose bundle (both compose providers)
+    runs-on: ubuntu-latest
+    env:
+      # Force podman to broker to the PYTHON provider. Left to itself it prefers Docker Compose v2
+      # when installed — which it is on this runner — and the podman leg would then be a second
+      # Docker Compose run wearing a podman label. That is precisely how these defects shipped.
+      PODMAN_COMPOSE_PROVIDER: podman-compose
+    defaults:
+      run:
+        working-directory: deploy/compose
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install both engines' prerequisites rather than assuming the runner image carries them.
+      # This job exists because an unverified assumption about the environment shipped a broken
+      # release; taking one about the runner would be the same mistake in a different place. Each
+      # tool is installed only if absent, and every version is printed so a future failure is
+      # diagnosable from the log rather than by re-deriving what was present.
+      - name: Install the compose providers
+        run: |
+          set -euo pipefail
+          if ! command -v podman >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          command -v pipx >/dev/null 2>&1 || sudo apt-get install -y -qq pipx
+          pipx install podman-compose
+          # Ask pipx where it put the binary rather than assuming ~/.local/bin, and publish that to
+          # later steps — podman resolves its compose provider through PATH, so if this is wrong the
+          # provider pin below cannot take.
+          bindir=$(pipx environment --value PIPX_BIN_DIR 2>/dev/null || echo "$HOME/.local/bin")
+          echo "$bindir" >> "$GITHUB_PATH"
+          export PATH="$bindir:$PATH"
+          echo "  docker:         $(docker --version)"
+          echo "  docker compose: $(docker compose version)"
+          echo "  podman:         $(podman --version)"
+          echo "  podman-compose: $(podman-compose --version 2>&1 | tail -1)"
+
+      # Prove the pin took before trusting anything the podman leg reports. Podman announces its
+      # chosen provider on stderr; if that is not the Python one, this job is testing nothing and
+      # must fail loudly rather than pass quietly.
+      - name: The podman leg really uses podman-compose
+        run: |
+          set -euo pipefail
+          provider=$(podman compose version 2>&1 >/dev/null | head -1)
+          echo "  $provider"
+          case "$provider" in
+            *podman-compose*) ;;
+            *) echo "::error::podman brokered to something other than podman-compose — this job would be a no-op"; exit 1 ;;
+          esac
+
+      # A bundle as an operator receives it: .env seeded from the template, a generated password,
+      # a mode layer.
+      - name: Seed a deployment
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          printf 'NEO4J_PASSWORD=ci-not-a-real-password\n' > .env.secrets
+          chmod 0600 .env.secrets
+          mkdir -p mode
+          printf 'NODE_ENV=development\nENABLE_NOAUTH=true\n' > mode/mode.env
+
+      # Every image must resolve to a real reference under each provider. An empty value, or one
+      # still carrying a `${`, is the exact shape both shipped defects took.
+      - name: Images resolve under each provider
+        run: |
+          set -euo pipefail
+          for engine in docker podman; do
+            echo "── $engine ──"
+            images=$(CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
+                     | sed -n 's/^[[:space:]]*image:[[:space:]]*//p' | tr -d "'\"" | sort -u)
+            if [ -z "$images" ]; then
+              echo "::error::$engine: compose config produced no images at all"
+              exit 1
+            fi
+            printf '%s\n' "$images" | sed 's/^/  /'
+            # Order matters: empty and literal first, then an empty tag, then a real tag. An
+            # official image carries no namespace (nginx:1.27-alpine), so requiring a slash would
+            # reject a correct reference.
+            while IFS= read -r img; do
+              case "$img" in
+                ''|*'${'*) echo "::error::$engine: unresolved image reference '$img'"; exit 1 ;;
+                *:)        echo "::error::$engine: image '$img' has an empty tag"; exit 1 ;;
+                *:*)       ;;
+                *)         echo "::error::$engine: image '$img' carries no tag"; exit 1 ;;
+              esac
+              # And it must name its registry. Docker silently assumes Docker Hub for a short
+              # name; Podman refuses one outright unless the host configured
+              # unqualified-search-registries, which a default install does not. A short name is
+              # therefore a bundle that starts under one engine and fails under the other — the
+              # third defect of exactly that family found in 0.6.0.
+              # No slash at all means no registry component (nginx:1.27-alpine). Test that FIRST:
+              # ${img%%/*} on a slashless string yields the whole reference, whose tag separator
+              # would otherwise read as a registry port and let a short name through.
+              case "$img" in
+                */*) reg="${img%%/*}" ;;
+                *)   echo "::error::$engine: image '$img' is a short name — qualify it (docker.io/...)"; exit 1 ;;
+              esac
+              case "$reg" in
+                *.*|*:*|localhost) ;;
+                *) echo "::error::$engine: image '$img' is a short name — qualify it (docker.io/...)"; exit 1 ;;
+              esac
+            done <<EOF
+          $images
+          EOF
+          done
+
+      # In bind mode the database container must be given a user, because Memgraph refuses a data
+      # directory it does not own and the correct uid differs per engine. An empty value here means
+      # the derivation stopped happening and the database will crash-loop on a fresh deployment,
+      # printing only its banner — a failure with no error message to search for.
+      - name: The database runs as an explicit user on a bind mount
+        run: |
+          set -euo pipefail
+          grep -q '^DB_DATA=\./' .env || { echo "::error::expected .env to default to a bind mount"; exit 1; }
+          for engine in docker podman; do
+            user=$(CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
+                   | sed -n '/^  db:/,/^  [a-z]/p' | sed -n "s/^[[:space:]]*user:[[:space:]]*//p" \
+                   | tr -d "'\"" | head -1)
+            [ -n "$user" ] || { echo "::error::$engine: db has no user in bind mode — it will not start"; exit 1; }
+            echo "  $engine: db user=$user"
+          done
+
+      # The database credentials travel the same interpolation path as the images and were equally
+      # empty — but with no visible error, because nothing validates them until a healthcheck
+      # fails. Assert the user arrives.
+      - name: Database credentials interpolate
+        run: |
+          set -euo pipefail
+          for engine in docker podman; do
+            user=$(CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
+                   | sed -n 's/^[[:space:]]*MEMGRAPH_USER:[[:space:]]*//p' | tr -d "'\"" | head -1)
+            [ -n "$user" ] || { echo "::error::$engine: MEMGRAPH_USER came out empty"; exit 1; }
+            echo "  $engine: MEMGRAPH_USER=$user"
+          done
+
+      # The wrapper must not leave the database password in a file beside the readable config —
+      # merging the two env files would have done exactly that.
+      - name: The password stays confined to .env.secrets
+        run: |
+          set -euo pipefail
+          CONTAINER_ENGINE=docker ./byodt compose config >/dev/null 2>&1 || true
+          if grep -rl 'ci-not-a-real-password' . --exclude=.env.secrets 2>/dev/null | grep -q .; then
+            echo "::error::the password reached a file other than .env.secrets"
+            exit 1
+          fi
+          echo "  confined to .env.secrets"

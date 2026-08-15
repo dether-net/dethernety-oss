@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-08-14
+
+A deployment fix. The bundle shipped in 0.6.0 does not start under Podman when Podman's own
+compose provider is the one installed — `./byodt up` fails on unusable image references. Docker
+deployments are unaffected. Compared against the previous tag, `v0.6.0`.
+
+**Upgrading:** take the new bundle. If you keep your existing `.env`, add the registry to the
+three third-party image keys (`docker.io/…`, as in `.env.example`) — that one edit is what an
+existing file is missing.
+
+### Fixed
+
+- **Only the last `--env-file` was being read.** The control script passed two — the readable
+  configuration and the generated secret — which Docker Compose merges and Podman's compose
+  provider does not: it keeps the last and drops the other. Every value interpolated from the
+  configuration then resolved empty, so the deployment came up with no images, no published port
+  and no database user. What disguised it as an image problem is that the values carrying a
+  default in `compose.yaml` fell back and looked healthy; only those without one appeared blank.
+  The script now passes one file and hands the secret to Compose through the environment, which
+  also keeps it out of any file beside the readable configuration.
+- **The console image reference was built by nesting one variable inside another's default.**
+  Podman's compose provider does not expand that, so the reference reached the engine as a
+  literal `…:${PLATFORM_VERSION}`. The control script now derives the value itself, which keeps
+  `PLATFORM_VERSION` the single version knob without depending on nested expansion. An explicit
+  `CONSOLE_IMAGE` still wins, so a mirror stays repointable.
+- **The third-party images were named without a registry.** Docker quietly assumes Docker Hub;
+  Podman refuses an unqualified name unless the host has configured a search registry, which a
+  default installation has not. They are fully qualified now.
+- **The database would not start on its own data directory.** Memgraph requires the directory to
+  be *owned* by the user it runs as — an ownership check, which no permission bits satisfy — and
+  which host user that corresponds to inside the container depends on the engine. On the default
+  host bind mount it never matched, so the database exited immediately and was restarted forever,
+  logging only its banner. The control script now runs the database as the user that owns the
+  directory, derived from the engine it resolved. The data stays owned by, and readable by, the
+  operator, which is the whole reason to choose a bind mount; chowning the directory to the
+  image's own user would have started the database but left its data unreadable from the host.
+  A named volume is unaffected either way — the engine creates it owned correctly.
+- **A first run could wedge itself on the schema file.** One file is bind-mounted into the
+  platform, and a container engine handed a bind source that does not exist creates a *directory*
+  in its place. The one-shot whose job is to write that file then failed with "is a directory", on
+  every retry, until someone removed it by hand. The ordering that should have prevented it — the
+  platform waiting for the one-shot to finish — is honoured by Docker Compose but not reliably by
+  Podman's provider. The control script now creates the file itself before anything mounts it, and
+  clears the stray directory if a previous run left one. It refuses outright if that path is a
+  symbolic link, and creates the file carrying its mode rather than adjusting the mode afterwards:
+  the directory has to be world-writable for the one-shot to write there, so following a link
+  planted in it would let anything with local access redirect a file the operator creates.
+
+### Added
+
+- **Continuous integration resolves the bundle under both compose providers**, and fails on an
+  image reference that is empty, untagged, unexpanded or unqualified — the four shapes the
+  defects above took. The Podman leg pins the provider explicitly: left to choose, Podman prefers
+  Docker's provider when it is installed, which is precisely why every check run before the
+  release agreed with Docker and none of this surfaced.
+
 ## [0.6.0] - 2026-08-14
 
 The release that makes the platform self-hostable: a signed deployment you download and run,
@@ -487,6 +543,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.6.1]: https://github.com/dether-net/dethernety-oss/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dether-net/dethernety-oss/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dether-net/dethernety-oss/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dether-net/dethernety-oss/compare/v0.3.0...v0.4.0

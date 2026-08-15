@@ -78,6 +78,8 @@ Uncomment it only to repoint the console image at a registry you operate. If you
 
 `DB_IMAGE`, `OLLAMA_IMAGE` and `PROXY_IMAGE` name third-party images that your container engine pulls directly from their publishers. The bundle references them; it does not redistribute them. If you repoint one at a registry you operate, that copy is yours to make under that component's own licence — read `NOTICE` in the bundle first, in particular for the database.
 
+**Always name the registry.** Every image reference in `.env` starts with its registry host (`docker.io/…`, `ghcr.io/…`). Docker will accept a short name and quietly assume Docker Hub, but Podman refuses one unless the host has configured a search registry — which a default installation has not. A short name is therefore a deployment that starts under one engine and fails under the other, so keep the registry on any value you change.
+
 ### Container engine
 
 | Setting | What it does | Default | Change it when |
@@ -176,10 +178,12 @@ The database's own credentials were created from this password when the database
 
 | Value | Store | Good for | Trade-off |
 |---|---|---|---|
-| `./data/memgraph` (default) | A host bind mount inside the bundle directory | Native-Linux Docker. Visible on disk, easy to inspect and copy. | On a VM-backed runtime, the file-sharing layer can corrupt a running database. |
+| `./data/memgraph` (default) | A host bind mount inside the bundle directory | Native Linux, under either engine. Visible on disk, easy to inspect and copy. | On a VM-backed runtime, the file-sharing layer can corrupt a running database. |
 | `memgraph-data` | The named volume declared in `compose.yaml`, in the engine's own storage | Podman machine, and Docker Desktop on macOS or Windows | You cannot browse it from the host, and `./byodt backup` copies out through the container (which it does anyway). |
 
 Any value starting with `.` or `/` is treated as a host path; anything else is treated as a volume name.
+
+On a bind mount, `byodt` runs the database as the user that owns the directory — the database requires that, and which user it is depends on your engine, so the control script works it out rather than asking you to. The practical consequence is that your data stays owned by you and readable from the host, which is the reason to pick a bind mount in the first place. It is also why the bundle expects to be driven through `byodt`: a raw `compose up` skips that step and the database will not start.
 
 > **Switching is a fresh database, not a migration.** The two are separate stores. Change the setting and the deployment starts against an empty database — your existing data is still in the old store, untouched, but the deployment no longer looks there. To carry data across, take a backup first, switch, then restore:
 >

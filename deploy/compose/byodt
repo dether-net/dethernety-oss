@@ -28,7 +28,68 @@ warn() { printf '%swarning:%s %s\n' "$YEL" "$RST" "$*" >&2; }
 die()  { printf '%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
 # --- helpers ------------------------------------------------------------------
-compose() { resolve_engine; "$ENGINE" compose --env-file "$ENV_FILE" --env-file "$SECRETS_FILE" "$@"; }
+
+# compose — the single chokepoint every compose invocation goes through.
+#
+# ONE --env-file, never two. Docker Compose v2 merges repeated --env-file flags; podman-compose
+# honours only the LAST, which silently dropped .env and left every interpolated value empty —
+# images, the published port, the database user, all of it. What made that read as an image
+# problem rather than a total one is that the values carrying a `:-default` in compose.yaml fell
+# back and looked healthy, so only the defaulted-less ones showed as blank.
+#
+# So .env is the one file passed, and the two values compose needs that are not in it are exported
+# into the environment instead — process environment outranks --env-file in both providers:
+#
+#   NEO4J_PASSWORD  lives in .env.secrets (mode 0600). Exporting it keeps it out of any file
+#                   sitting beside the readable config, which merging the two would have created.
+#   CONSOLE_IMAGE   is derived here because compose.yaml cannot derive it: podman-compose does not
+#                   expand a nested ${VAR} inside a `:-default`, so a self-referencing default
+#                   reached the engine as a literal. Deriving it host-side keeps PLATFORM_VERSION
+#                   the single version knob without depending on nested interpolation.
+compose() {
+  resolve_engine
+  local pw img dbu
+  pw="$(secret_value NEO4J_PASSWORD "")"
+  img="$(console_image)"
+  dbu="$(db_user)"
+  NEO4J_PASSWORD="$pw" CONSOLE_IMAGE="$img" DB_USER="$dbu" \
+    "$ENGINE" compose --env-file "$ENV_FILE" "$@"
+}
+
+# db_user — the uid:gid the database container runs as. Memgraph refuses to start unless its data
+# directory is owned by the uid it runs as; that is an ownership check, so no chmod satisfies it and
+# the answer depends on where the directory comes from:
+#
+#   named volume   the engine creates it owned by the image's own user, which already matches.
+#                  Empty here, so the image default stands.
+#   bind + podman  rootless Podman maps the operator to root INSIDE the container, so the host
+#                  directory appears owned by root: run as root, which is the operator, not
+#                  privilege. Chowning the directory to the image's uid would work too, but it
+#                  would leave the data unreadable from the host — losing the only reason to
+#                  choose a bind mount.
+#   bind + docker  the directory appears owned by the operator's own uid, so the container runs as
+#                  that. Either way the data stays owned by, and readable by, the operator.
+db_user() {
+  db_is_bind || { printf ''; return 0; }
+  case "$ENGINE" in
+    podman) printf '0:0' ;;
+    *)      printf '%s:%s' "$(id -u)" "$(id -g)" ;;
+  esac
+}
+
+# console_image — the console image reference compose is given. An operator's own CONSOLE_IMAGE
+# wins (exported, or set in .env) so a mirror stays repointable; otherwise it is the release image
+# at PLATFORM_VERSION. The platform image interpolates ${PLATFORM_VERSION} directly in compose.yaml,
+# so both images follow the one knob and cannot drift apart.
+console_image() {
+  local pin
+  pin="${CONSOLE_IMAGE:-$(env_value CONSOLE_IMAGE "")}"
+  if [ -n "$pin" ]; then
+    printf '%s' "$pin"
+    return 0
+  fi
+  printf 'ghcr.io/dether-net/byodt-console:%s' "$(env_value PLATFORM_VERSION "")"
+}
 
 # The container engine ("docker" or "podman"), settled once by resolve_engine.
 ENGINE=""
@@ -154,6 +215,34 @@ ensure_layout() {
   chmod 0777 modules schema data data/ollama data/content-cache mode
   mkdir -p tls && chmod 0700 tls
   if db_is_bind; then mkdir -p data/memgraph && chmod 0777 data/memgraph; fi
+
+  # compose.yaml bind-mounts this as a FILE. A container engine handed a bind source that does not
+  # exist invents a DIRECTORY there — and then console-init, whose whole job is to write the file,
+  # fails with "is a directory" and the deployment is wedged until someone removes it by hand. The
+  # ordering that should prevent it (the platform waits for console-init to complete) is honoured by
+  # Docker Compose but not reliably by podman-compose, so the file is created here instead of
+  # depending on it. Empty is correct: console-init overwrites it with the real schema.
+  # The symlink test comes FIRST, and refuses rather than repairs. schema/ is world-writable — it
+  # has to be, because the one-shot's uid is not the operator's — so a symlink planted at this path
+  # would otherwise be followed by everything below, and this function would create and widen
+  # whatever it points at (.env.secrets, say) under the operator's identity. Every other test here
+  # dereferences; only -L sees the link. For the same reason the file is created with its mode
+  # rather than chmod'ed afterwards: a chmod on a path in a world-writable directory is a primitive
+  # worth not having at all, and an existing regular file needs no mode change — the one-shot wrote
+  # through it last time.
+  if [ -L schema/schema-noauth.graphql ]; then
+    die "schema/schema-noauth.graphql is a symlink — refusing to write through it. Remove it, then run '$SELF up' again."
+  fi
+  if [ -d schema/schema-noauth.graphql ]; then
+    rmdir schema/schema-noauth.graphql 2>/dev/null ||
+      die "schema/schema-noauth.graphql is a non-empty directory — an engine created it in place of the file. Remove it and run '$SELF up' again."
+  fi
+  if [ ! -e schema/schema-noauth.graphql ]; then
+    # 0666 at creation: the one-shot writes this file and its uid is not the operator's.
+    ( umask 0111; : > schema/schema-noauth.graphql )
+  elif [ ! -f schema/schema-noauth.graphql ]; then
+    die "schema/schema-noauth.graphql is not a regular file — remove it, then run '$SELF up' again."
+  fi
 
   # The console rewrites this file (never deletes it) when the deployment is connected to the cloud.
   if [ ! -f "$MODE_FILE" ]; then

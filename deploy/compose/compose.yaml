@@ -51,6 +51,14 @@ services:
       # below it, and the ingest is deliberately not retried on a memory error.
       - "--memory-limit=4096"
       - "--query-vertex-count-to-expand-existing=10"
+    # Memgraph refuses to start unless its data directory is owned by the uid it runs as —
+    # an ownership check, which no chmod satisfies. On a host bind mount that uid has to be
+    # the one that owns the directory on the host, and which uid that is depends on the
+    # engine: under rootless Podman the operator appears inside the container as root, under
+    # Docker as their own uid. byodt resolves the engine already, so it derives this value
+    # (see db_user) rather than compose.yaml guessing. A named volume needs none of it —
+    # the engine creates it owned correctly — so the value is empty in that mode.
+    user: ${DB_USER}
     environment:
       MEMGRAPH_USER: ${NEO4J_USERNAME}
       MEMGRAPH_PASSWORD: ${NEO4J_PASSWORD}
@@ -102,8 +110,16 @@ services:
   # `up` (a schema that disagrees with the code serving it must not serve); a
   # module-fetch or ingest failure exits zero and records the fault, leaving a
   # running deployment to read the diagnosis on.
+  # CONSOLE_IMAGE carries no `:-default` here on purpose. The obvious default —
+  # the release image at ${PLATFORM_VERSION} — nests one interpolation inside
+  # another, and podman-compose does not expand that: the reference reaches the
+  # engine as a literal `...:${PLATFORM_VERSION}`. So `byodt` derives the value
+  # host-side and exports it (see its compose() helper), which keeps
+  # PLATFORM_VERSION the single version knob for both images. The consequence:
+  # this file expects to be driven through `byodt` — use `./byodt compose …` for
+  # anything the named commands do not cover.
   console-init:
-    image: ${CONSOLE_IMAGE:-ghcr.io/dether-net/byodt-console:${PLATFORM_VERSION}}
+    image: ${CONSOLE_IMAGE}
     depends_on:
       db:
         condition: service_healthy
@@ -250,7 +266,7 @@ services:
   # console:8080 on the stack network. The image is FROM scratch (no shell), so
   # there is no container healthcheck.
   console:
-    image: ${CONSOLE_IMAGE:-ghcr.io/dether-net/byodt-console:${PLATFORM_VERSION}}
+    image: ${CONSOLE_IMAGE}
     command: ["daemon"]
     environment:
       PLATFORM_URL: http://platform:3003
