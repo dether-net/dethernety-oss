@@ -178,7 +178,7 @@ jobs:
 
       - name: Attest build provenance
         if: steps.meta.outputs.publish == 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -363,7 +363,7 @@ jobs:
 
       - name: Attest build provenance
         if: steps.meta.outputs.publish == 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.CONSOLE_IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
