@@ -32,12 +32,12 @@
     "CLAUDE.md"
   ],
   "dependencies": {
-    "@apollo/client": "^4.2.11",
+    "@apollo/client": "^4.2.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "cross-fetch": "^4.1.0",
     "graphql": "^16.14.2",
     "graphql-tag": "^2.12.7",
-    "open": "^11.0.0",
+    "open": "^11.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
