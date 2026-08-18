@@ -30,10 +30,11 @@ export interface EvalResult {
 /** How long an `entitled` outcome is trusted before a live re-check. */
 const ENTITLEMENT_TTL_MS = 60_000;
 
-/** Upper bound on the two caches that grow with usage rather than class count:
- * the eval cache (per distinct stripped-attribute set) and the entitlement memo
- * (per rotated token). A minimal FIFO cap keeps a long-running server bounded;
- * eviction only forces a re-eval / re-check, both of which are safe. */
+/** Upper bound on the caches that grow with usage rather than class count: the
+ * eval cache (per distinct stripped-attribute set), the entitlement memo (per
+ * rotated token) and the knowledge-graph answers (per caller × key set). A
+ * minimal FIFO cap keeps a long-running server bounded; eviction only forces a
+ * re-eval / re-check / re-query, all of which are safe. */
 const MAX_ENTRIES = 1000;
 
 /** Drop the oldest entry (Map preserves insertion order) once over the cap. */
@@ -48,6 +49,8 @@ export class ResponseCache {
   private readonly entitled = new Map<string, number>();
   private readonly schemas = new Map<string, JsonSchema>();
   private readonly evals = new Map<string, EvalResult>();
+  /** Knowledge-graph answers, keyed by caller as well as by content — see {@link getKgQuery}. */
+  private readonly kgAnswers = new Map<string, { results: unknown[]; expiresAt: number }>();
   private readonly salt = crypto.randomBytes(16);
 
   getContent(kind: ContentKind, classId: string, pin: string): string | undefined {
@@ -109,10 +112,101 @@ export class ResponseCache {
     }
   }
 
-  private memoKey(token: string, classId: string, pin: string): string {
-    const hash = crypto.createHash('sha256').update(this.salt).update(token).digest('hex');
-    return `${hash}\0${classId}\0${pin}`;
+  // --- Knowledge-graph answers (caller-scoped) -------------------------------
+
+  /**
+   * A knowledge-graph answer, if this exact caller has one that has not expired.
+   *
+   * **The caller is part of the key, and that is the whole point.** The protocol suggests caching
+   * these by `(queryName, version, hash(parameters))` — the *content* key, which is valid only
+   * inside one caller. Unlike a template, which is account-invariant bytes behind a per-caller
+   * gate, a knowledge-graph answer's **content** varies by caller: the match set is computed over
+   * that caller's entitled slices. A deployment-shared entry is wrong in both directions — it can
+   * hand a caller matches from a slice their account never bought, and it can hand an entitled
+   * caller the thinner answer computed for a less-entitled one. The second is the silent one.
+   *
+   * Entries expire on the same horizon as an entitlement memo, because that is how long any
+   * statement about what a caller may see is trusted here.
+   */
+  getKgQuery(
+    token: string,
+    queryName: string,
+    version: string,
+    parameters: unknown,
+    now: number = Date.now(),
+  ): unknown[] | undefined {
+    const key = this.kgKey(token, queryName, version, parameters);
+    const entry = this.kgAnswers.get(key);
+    if (entry === undefined) return undefined;
+    if (entry.expiresAt <= now) {
+      this.kgAnswers.delete(key);
+      return undefined;
+    }
+    return entry.results;
   }
+
+  putKgQuery(
+    token: string,
+    queryName: string,
+    version: string,
+    parameters: unknown,
+    results: unknown[],
+    now: number = Date.now(),
+  ): void {
+    this.kgAnswers.set(this.kgKey(token, queryName, version, parameters), {
+      results,
+      expiresAt: now + ENTITLEMENT_TTL_MS,
+    });
+    capFifo(this.kgAnswers);
+  }
+
+  /**
+   * Drop everything cached for one caller — used the moment that caller is refused.
+   *
+   * Scoped to the caller rather than global: another caller's entries were computed against their
+   * own entitlements and remain correct. The caller hash is the first key segment, so this is a
+   * prefix test rather than a segment search — a segment search could match a caller whose hash
+   * happened to equal some other segment's value.
+   */
+  evictCaller(token: string): void {
+    const prefix = `${this.callerHash(token)}\0`;
+    for (const key of this.kgAnswers.keys()) {
+      if (key.startsWith(prefix)) this.kgAnswers.delete(key);
+    }
+  }
+
+  private kgKey(token: string, queryName: string, version: string, parameters: unknown): string {
+    const params = crypto.createHash('sha256').update(stableStringify(parameters)).digest('hex');
+    return `${this.callerHash(token)}\0${queryName}\0${version}\0${params}`;
+  }
+
+  /** An opaque per-process value, never the token and never persisted. The salt is per instance,
+   * so the same token yields different hashes in different processes — a stored fingerprint would
+   * be a stable identifier for a credential, which this deliberately is not. */
+  private callerHash(token: string): string {
+    return crypto.createHash('sha256').update(this.salt).update(token).digest('hex');
+  }
+
+  private memoKey(token: string, classId: string, pin: string): string {
+    return `${this.callerHash(token)}\0${classId}\0${pin}`;
+  }
+}
+
+/**
+ * Canonical JSON: object keys sorted at every depth, array order preserved.
+ *
+ * So a hash of equal data is equal regardless of key order. Lives here rather than beside either
+ * caller because both cache keys need it and a second copy would be one edit away from hashing
+ * the same input differently.
+ */
+export function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(record[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 function contentKey(kind: ContentKind, classId: string, pin: string): string {

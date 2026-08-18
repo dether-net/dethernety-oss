@@ -11,8 +11,24 @@ export * from './interfaces/exposure-interface';
 export * from './interfaces/countermeasure-interface';
 export * from './interfaces/lg-analysis-config-interface';
 export * from './interfaces/module-resolver-interface';
+export * from './interfaces/kg-client-interface';
 
 export * from './db-ops';
+export { createKgClient } from './kg/factory';
+export type { KgClientContext, KgClientDeps } from './kg/factory';
+export { KgUnavailableError } from './kg/unavailable-client';
+export { DtRemoteKnowledgeGraphModule } from './kg/remote-kg-module';
+/** The capability fragment, shared so a locally-installed knowledge-graph module declares exactly
+ * the same field — the whole point being that a consumer's selection validates in either mode. */
+export { KG_CAPABILITY_SDL } from './kg/schema';
+/** The whole remote fragment. Exported so a consumer can PROVE its document validates against the
+ * surface a cloud-mode deployment serves, rather than establishing it by reading two files. The
+ * field list is deliberately narrower than the local schema's, and a consumer selecting outside it
+ * fails at query validation — which is only useful if the consumer can check before shipping. */
+export { KG_REMOTE_SDL } from './kg/schema';
+/** Exported for a module that IS the local graph and should say so, rather than going through the
+ * factory and risking a stray service URL turning its own probe into a network call. */
+export { LocalKgClient } from './kg/local-client';
 export * from './embedding-file-cache';
 export * from './embedding-text';
 export * from './dt-file-opa-module';

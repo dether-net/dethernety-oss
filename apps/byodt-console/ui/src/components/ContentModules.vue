@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { api, SessionExpired, type CatalogPackage, type MountedModule } from '@/api'
+import {
+  api,
+  SessionExpired,
+  type CatalogPackage,
+  type KnowledgeGraphConnection,
+  type MountedModule,
+} from '@/api'
 import { CATALOG_URL } from '@/links'
 import Banner from '@/components/Banner.vue'
 
@@ -17,6 +23,10 @@ const packages = ref<CatalogPackage[]>([])
 // is identical across whatever packages list it, so a module mounted from one package reads as mounted
 // everywhere it appears.
 const mountedByKey = ref<Map<string, MountedModule>>(new Map())
+// The knowledge-graph connection, held apart from the mounts above rather than folded in with them. It
+// is not a content module: nothing about it was installed here except a client, and listing it among
+// modules whose content is served per request invites reading it as the graph itself having arrived.
+const knowledgeGraph = ref<KnowledgeGraphConnection | undefined>()
 const catalogError = ref('') // the catalog fetch failed; the mounted inventory can still render
 const note = ref('') // a non-fatal note on the mounted inventory (e.g. currency could not be judged)
 const message = ref('') // the last action's result
@@ -50,6 +60,7 @@ async function load() {
 
   if (mods.status === 'fulfilled') {
     mountedByKey.value = new Map(mods.value.modules.map((m) => [m.moduleKey, m]))
+    knowledgeGraph.value = mods.value.knowledgeGraph
     note.value = mods.value.note ?? ''
   } else {
     message.value = mods.reason instanceof Error ? mods.reason.message : 'could not load mounted modules'
@@ -225,6 +236,19 @@ onMounted(load)
       Mounted and unmounted modules take effect when you recreate the platform:
       <code class="ml-1 rounded bg-white/5 px-1.5 py-0.5 font-mono text-xs text-dt-text">byodt restart platform</code>
     </Banner>
+
+    <!-- The knowledge-graph connection. Deliberately not a row in the list below and deliberately
+         without controls: it is mounted with the cloud connection and removed with it, so there is
+         nothing here for an operator to do — and saying what it is, is the point. It renders above the
+         catalog error, because the local inventory loads whether or not the catalog answered. -->
+    <div v-if="knowledgeGraph" class="mb-4 rounded-md border border-dt-border px-3 py-2" data-kg-connection>
+      <p class="font-medium">Knowledge graph — cloud connection</p>
+      <p class="mt-0.5 text-xs text-dt-text-muted">
+        Answered by the cloud service per request; no graph data was installed on this deployment. Pinned
+        at <span class="font-mono">{{ knowledgeGraph.version }}</span>. It arrives with the cloud
+        connection and is removed when you disconnect.
+      </p>
+    </div>
 
     <p v-if="catalogError" class="text-dt-text-muted">{{ catalogError }}</p>
     <p v-else-if="isEmpty" class="text-dt-text-muted" data-empty="true">The catalog is empty.</p>

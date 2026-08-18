@@ -23,7 +23,7 @@
  * numeric attributes (`input.open_ports[_] > 1024`). Bolt property values are scalars or lists
  * of scalars, so arrays are the only container to descend.
  */
-function coerceNeoInt(v: any): any {
+export function coerceNeoInt(v: any): any {
   if (Array.isArray(v)) return v.map(coerceNeoInt);
   if (
     v !== null &&

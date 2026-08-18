@@ -285,7 +285,8 @@ async runAnalysis(
   analysisClassId: string,
   scope: string,
   pubSub: ExtendedPubSubEngine,
-  additionalParams?: object
+  additionalParams?: object,
+  token?: string
 ): Promise<AnalysisSession>
 ```
 

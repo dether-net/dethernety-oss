@@ -1,8 +1,15 @@
 /**
  * A typed client over the module content service's v1 wire protocol — the only
- * place `DtRemoteModule` speaks HTTP. It covers the three mandatory surfaces a
- * remote module uses (catalog / content / eval); the optional entitlements and
- * knowledge-graph surfaces are other modules' concern, not this one's.
+ * place this package speaks HTTP. It covers the three mandatory surfaces a remote
+ * module uses (catalog / content / eval) plus the optional knowledge-graph one.
+ *
+ * That last one is a deliberate reversal. This file previously scoped itself to
+ * the mandatory three, on the grounds that the knowledge graph was another
+ * module's concern — correct at the time, when nothing here consumed it. The
+ * knowledge-graph client now does, and extending this client is the alternative
+ * to standing up a second one beside it with its own copy of every
+ * cross-cutting rule below. The optional entitlements surface is still out of
+ * scope, and for the original reason.
  *
  * Cross-cutting protocol rules live here, once, so every call inherits them:
  *   - `redirect: 'error'` on every request (a 3xx is a hard failure — it stops a
@@ -73,6 +80,46 @@ export interface EvalResponse {
   version: string;
   exposures: Exposure[];
   countermeasures: Countermeasure[];
+}
+
+/** `GET /v1/kg/queries` — the named-query registry, public because it is an
+ * interface definition rather than data. Fetched rather than compiled in, so a
+ * client tolerates a service that has added a query or tightened a bound. */
+export interface KgRegistryResponse {
+  protocol: string;
+  queries: Array<{
+    name: string;
+    description?: string;
+    /**
+     * Per parameter: its declared type and, for a key array, the bound this client chunks to.
+     *
+     * `enum` is the accepted value set of a scalar filter — the service publishes one on
+     * `rulesByClassId.kind`, because a bound enforced in code but absent from the registry is a
+     * rule the service applies without documenting. Typed here so a caller can read it; leaving it
+     * out did not make it not arrive, it only made reading it a cast.
+     */
+    parameters?: Record<string, { type?: string; items?: string; maxItems?: number; enum?: string[] }>;
+    privacy?: { sends?: string; freeText?: boolean };
+  }>;
+}
+
+/** `GET /v1/kg/versions/{version}/capability` — a bounded answer to "may I ask?",
+ * so a consumer never probes availability with an unfiltered query. */
+export interface KgCapabilityResponse {
+  available: boolean;
+  entitled: boolean;
+  /** The protocol's name for it. The client's own type calls this `sliceCount`. */
+  entitledSliceCount?: number;
+}
+
+/** `POST /v1/kg/versions/{version}/query/{queryName}` — grouped by input key, with
+ * every requested key present. `truncated` is a service fault here, not data. */
+export interface KgQueryResponse {
+  requestId: string;
+  query: string;
+  version: string;
+  results: Array<{ key: string; matches: unknown[] }>;
+  truncated?: boolean;
 }
 
 export interface WireClientOptions {
@@ -154,6 +201,34 @@ export class WireClient {
   ): Promise<EvalResponse> {
     return this.request<EvalResponse>(
       `/v1/eval/classes/${enc(classId)}/versions/${enc(pin)}`,
+      { method: 'POST', token, jsonBody: payload },
+    );
+  }
+
+  // --- Knowledge-graph surface -----------------------------------------------
+  // The registry is public; capability and query are entitled. Only three of the
+  // surface's five routes are here: the version listing and the slice listing are
+  // read by the deployment's operator tooling, not by this client, and adding
+  // them because they exist would widen the credential-free surface for no caller.
+
+  /** The named-query registry. **No credential** — the response is publicly
+   * cacheable, so a bearer on it reaches intermediary logs having bought nothing. */
+  kgQueries(): Promise<KgRegistryResponse> {
+    return this.getJson<KgRegistryResponse>('/v1/kg/queries');
+  }
+
+  kgCapability(version: string, token: string): Promise<KgCapabilityResponse> {
+    return this.getJson<KgCapabilityResponse>(`/v1/kg/versions/${enc(version)}/capability`, { token });
+  }
+
+  kgQuery(
+    version: string,
+    queryName: string,
+    token: string,
+    payload: { requestId: string; parameters: Record<string, unknown> },
+  ): Promise<KgQueryResponse> {
+    return this.request<KgQueryResponse>(
+      `/v1/kg/versions/${enc(version)}/query/${enc(queryName)}`,
       { method: 'POST', token, jsonBody: payload },
     );
   }

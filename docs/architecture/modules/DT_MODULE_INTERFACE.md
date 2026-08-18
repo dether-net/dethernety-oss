@@ -45,7 +45,7 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                   Analysis Methods (Optional)                   │    │
-│  │  • runAnalysis(id, classId, scope, pubSub, params)              │    │
+│  │  • runAnalysis(id, classId, scope, pubSub, params, token)       │    │
 │  │  • startChat(id, classId, scope, question, pubSub, params)      │    │
 │  │  • resumeAnalysis(id, classId, input, pubSub)                   │    │
 │  │  • getAnalysisStatus(id): AnalysisStatus                        │    │
@@ -129,7 +129,8 @@ export interface DTModule {
     analysisClassId: string,
     scope: string,
     pubSub: ExtendedPubSubEngine,
-    additionalParams?: object
+    additionalParams?: object,
+    token?: string
   ): Promise<AnalysisSession>;
 
   startChat?(
@@ -870,7 +871,8 @@ async runAnalysis(
   analysisClassId: string,
   scope: string,
   pubSub: ExtendedPubSubEngine,
-  additionalParams?: object
+  additionalParams?: object,
+  token?: string
 ): Promise<AnalysisSession>
 ```
 
@@ -880,6 +882,7 @@ async runAnalysis(
 - `scope` - Analysis scope (usually model ID)
 - `pubSub` - GraphQL subscription engine for streaming results
 - `additionalParams` - Optional parameters to pass to the graph
+- `token` - The caller's bearer, for a module whose analysis reaches an entitled service. Passed as its own argument rather than inside `additionalParams`, because that object is caller-supplied and is merged into the module's attributed parameters — not somewhere a credential may go. Modules that ignore it are unaffected.
 
 **Returns:** `AnalysisSession` with `sessionId`
 
@@ -1231,6 +1234,63 @@ export default class MyRemoteModule extends DtRemoteModule {
 - Evaluation reads the element's attributes locally, sends only the class-schema-declared keys to the service (payload minimization), and returns the findings. A denied or unavailable evaluation **throws a typed error** — never an empty result, which would masquerade as evaluated-clean and overwrite prior findings. A recalled content version (`410`) surfaces the operator reason and stops serving that pin's cached content.
 
 `DtRemoteModule` implements the catalog, content, and evaluation surfaces of the wire protocol; other surfaces are separate modules.
+
+---
+
+## Remote knowledge-graph modules (DtRemoteKnowledgeGraphModule)
+
+`DtRemoteKnowledgeGraphModule` is a sibling of `DtRemoteModule` that implements the same `DTModule` contract, but answers knowledge-graph queries — rules, the threats they address, and the attributes they read — from a service instead of from nodes ingested into the deployment's own graph. It contributes a schema fragment and resolvers, and nothing else: everything below them is the `KgClient`, where the choice between a local graph and a service already lives. As with a remote content module, every difference from a locally-served knowledge graph is expressed *through* the module contract — a returned payload or a thrown error — never a new platform hook.
+
+**Source file:** `packages/dt-module/src/kg/remote-kg-module.ts`
+
+### Mounting
+
+An operator mounts it with a trivial stub whose default export extends the class from `@dethernety/dt-module` 0.12.0 or later, and which carries no per-module value at all:
+
+```typescript
+import { DtRemoteKnowledgeGraphModule } from '@dethernety/dt-module';
+
+export default class KnowledgeGraphModule extends DtRemoteKnowledgeGraphModule {
+  constructor(driver, logger) {
+    super(driver, logger);
+  }
+}
+```
+
+### Configuration
+
+| Setting | Scope | Meaning |
+|---------|-------|---------|
+| `MODULE_KG_BASE_URL` | Deployment (env) | The knowledge-graph service origin. **No default** — an unset value selects the local mode, so an unconfigured deployment never points itself at a host. |
+| `MODULE_KG_VERSION` | Deployment (env) | The pinned knowledge-graph version: a `sha256:` content digest and nothing else. **No default, and no fallback to "latest"** — see below. |
+| *(none)* | Per module (stub literal) | Nothing. Unlike a content mount, the stub names no module and pins no version; both values are deployment-global. |
+
+Which implementation a deployment gets follows those two variables alone — the module's resolver context carries a driver, a logger and a database name, and has no view of what else is loaded:
+
+| `MODULE_KG_BASE_URL` | `MODULE_KG_VERSION` | Result |
+|---|---|---|
+| set | a valid digest | Remote — queries are answered by the service |
+| set | absent or malformed | Unavailable — queries are refused, and the misconfiguration is logged once at construction |
+| unset | — | Local — answered from the deployment's own graph, and reported unavailable when that graph holds no knowledge-graph nodes |
+
+### Mode selection and the pin
+
+- **This module and a locally-installed knowledge-graph module are mutually exclusive, and keeping them apart is the mounter's job — not this module's.** Both would declare the same types and the same `kgCapability` field, which is a schema conflict rather than a merge. Nothing here detects the other: the module registers under the name `knowledge-graph`, deliberately *not* the name a locally-installed one uses, so a deployment carrying both presents as two modules answering one question rather than as an upgrade of one into the other. That makes the conflict legible; it does not prevent it. Mount one or the other.
+- **Neither variable has a default, and a missing pin never falls back to "latest."** The service publishes a newest version, and taking it would silently advance the knowledge graph under a deployment that pinned deliberately — so a half-configured remote mode is exactly as inert as an unconfigured one. This makes the pin a correctness concern rather than a freshness one: an answer nobody can attribute to a stated version is worse than no answer.
+- **A base URL with no usable pin is logged once, at construction, as a misconfiguration.** That is the only moment an operator can be told, because every later symptom is an absence — the deployment named a service and then never asked it anything. The configured value itself is not logged.
+- **The pin is deployment-global, not per-module.** Where `DtRemoteModule` carries its pin as a stub literal — one module, one content version — a knowledge-graph version describes the whole corpus the deployment answers from, so it belongs to the deployment rather than to a mount. One value, one writer. For how a console-driven deployment chooses and writes that pair, see [the knowledge-graph connection](../byodt/CONSOLE.md#the-knowledge-graph-connection).
+
+### The interface, entitlement, and the answer shape
+
+- **A consumer sits above `KgClient` and is never told which implementation it holds.** The same queries return the same keyed maps, carrying the same payload objects, in either mode — that property is what the whole design exists to provide, and it is why mode selection is configuration rather than something every caller re-implements. `packages/dt-module/src/interfaces/kg-client-interface.ts` is the contract; the implementations sit behind `createKgClient`.
+- **Every requested key is present in the returned map.** A key that matched nothing carries an empty array rather than being absent, so a caller may treat a missing key as a bug instead of as an answer, and "no matches" never has to be inferred from omission.
+- **Being unentitled is never an empty result.** A caller the service refuses gets a typed denial (`EvaluationNotEntitledError`), and a call with no bearer at all gets the session error that same request would have produced — never an empty map, which at the call site is indistinguishable from a knowledge graph that genuinely holds no matches. A deployment with no knowledge graph to reach is likewise explicit: `capability()` reports `available: false` and never throws, and the queries raise `KgUnavailableError` rather than returning empty.
+- **A key inside a slice the caller does not hold comes back present, with no matches.** That is deliberate, and it pulls the opposite way from the bullet above: the caller-level refusal is loud, while the key-level absence is silent and indistinguishable from a key that matches nothing anywhere. The seeded key is a structural guarantee about the map, not a statement about the corpus — `capability()` is the sanctioned way to ask what this caller may reach, and it answers with `entitled` and `sliceCount` before any query is issued.
+- **Rules and their threats are fetched in one pass, not one request per rule.** Left as an ordinary field resolver, `addresses` would turn a single question about a class into one round trip per rule it has. Batching is what keeps the two modes comparable rather than merely correct: a locally-served schema resolves the same selection in a single traversal.
+- **`kgRules` requires `where.classId.eq`.** A call naming no class is refused rather than answered empty — no named query resolves rules by rule id alone, and an empty list would be a silent wrong answer rather than a small one.
+- **The GraphQL surface is deliberately narrower than a locally-generated one.** Fields the access contract does not carry are absent rather than declared-and-null, because a consumer selecting an absent field fails at query validation with the field named, while a declared field with nothing behind it returns a null that reads as missing information. `KG_REMOTE_SDL` is exported for exactly this reason — so a consumer can prove its document validates against the surface a remote-mode deployment serves before shipping it. `KG_CAPABILITY_SDL` is exported separately, and included by both modules, so a `kgCapability` selection validates in either mode.
+
+`DtRemoteKnowledgeGraphModule` implements the knowledge-graph surface of the wire protocol; the catalog, content, and evaluation surfaces are `DtRemoteModule`.
 
 ---
 

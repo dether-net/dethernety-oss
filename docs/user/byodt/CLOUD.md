@@ -168,13 +168,21 @@ Click **Unmount** on a module, or **Unmount all** on a package, then `./byodt re
 
 The console only ever removes directories it created. A module that shipped with the release, or one you wrote yourself, is refused rather than deleted — even if the names collide.
 
+### The knowledge-graph connection
+
+If your subscription includes the knowledge graph, the **Content** tab shows one further entry above the packages: **Knowledge graph — cloud connection**, with the version it is pinned at. It has no buttons, and that is deliberate — it is not something you mount.
+
+It arrives when you connect and is removed when you disconnect. Like a content mount it is a client rather than a copy: no graph data is installed on your deployment, and every answer is served per request against your own sign-in. The pinned version is fixed for as long as the connection lasts, so what your deployment answers does not change under it; reconnecting is what takes a newer one.
+
+If the service cannot be reached at the moment you connect, the console says so and connects you anyway, without it. Nothing else about the connection is affected — disconnect and reconnect when you want to try again.
+
 ---
 
 ## Disconnecting
 
 Disconnecting rewrites the deployment's configuration back to the standalone values. **Your data is untouched.**
 
-> **Unmount first.** Content mounts can only be managed while the deployment is connected. If you disconnect with modules still mounted, their markers stay on disk and the console can no longer remove them — you would have to reconnect to unmount them. Take the Content tab down to nothing you want to keep before you disconnect.
+> **Unmount first.** Content mounts can only be managed while the deployment is connected. If you disconnect with modules still mounted, their markers stay on disk and the console can no longer remove them — you would have to reconnect to unmount them. Take the Content tab down to nothing you want to keep before you disconnect. The knowledge-graph connection is the exception: you never mounted it, and disconnecting removes it for you.
 
 1. In the console, select the **Cloud** tab. Section **2 · Configuration** now reads:
 

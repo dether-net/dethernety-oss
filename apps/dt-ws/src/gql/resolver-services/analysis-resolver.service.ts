@@ -608,6 +608,11 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
         metadata.elementId,
         this.pubSub,
         request.additionalParams || {},
+        // The caller's bearer, so a module whose analysis reaches an entitled service has one.
+        // Deliberately a separate argument rather than a member of additionalParams: that object
+        // is caller-supplied and is merged into the module's attributed parameters, which is not
+        // somewhere a credential may go. Modules that ignore it are unaffected.
+        context?.token,
       );
 
       // A module signals a start failure (assistant not found, graph-config

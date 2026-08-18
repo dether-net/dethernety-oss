@@ -294,4 +294,36 @@ describe('ContentModules', () => {
     expect(modules).toHaveBeenCalledTimes(2)
     w.unmount()
   })
+
+  it('shows the knowledge-graph connection apart from the content modules, with no controls', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({
+      modules: [] as MountedModule[],
+      knowledgeGraph: { version: 'sha256:abc', mountedAt: '2026-08-16T10:00:00Z' },
+    })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    const band = w.find('[data-kg-connection]')
+    expect(band.exists()).toBe(true)
+    expect(band.text()).toContain('sha256:abc')
+    // The sentence that keeps the entry from reading as "the knowledge graph was installed here",
+    // which is the whole reason it is not a row among the content modules.
+    expect(band.text()).toContain('no graph data was installed')
+    // It is mounted and removed with the cloud connection, so there is nothing to act on.
+    expect(band.findAll('button')).toHaveLength(0)
+    // And it is not one of the module rows.
+    expect(w.findAll('[data-module-row]')).toHaveLength(0)
+    w.unmount()
+  })
+
+  it('shows nothing about a knowledge graph when there is no connection', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.find('[data-kg-connection]').exists()).toBe(false)
+    expect(w.text()).not.toContain('Knowledge graph')
+    w.unmount()
+  })
 })

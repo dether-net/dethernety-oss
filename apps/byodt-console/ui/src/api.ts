@@ -134,10 +134,19 @@ export interface PackagesResponse {
   packages: CatalogPackage[]
 }
 
+// The deployment's knowledge-graph connection, when it has one. It is reported apart from the content
+// mounts because it is a different thing — a client for a service, holding no graph data of its own —
+// and `version` is the pin the platform actually reads, not a copy kept beside the mount.
+export interface KnowledgeGraphConnection {
+  version: string
+  mountedAt?: string
+}
+
 // note is a non-fatal reason (e.g. the catalog was unreachable so currency could not be judged); the
-// inventory itself is local and always present.
+// inventory itself is local and always present. knowledgeGraph is absent unless one is connected.
 export interface ModulesResponse {
   modules: MountedModule[]
+  knowledgeGraph?: KnowledgeGraphConnection
   note?: string
 }
 

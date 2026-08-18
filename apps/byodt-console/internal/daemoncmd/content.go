@@ -64,7 +64,8 @@ var (
 // create (a shipped module, an operator's own module, or a code module) — and it is the inventory
 // source for the mounted-modules view. Its name is a dotfile and does not end in Module.js, so the
 // platform's loader (which scans subdirectories for *Module.js) ignores it. The name is deliberately
-// distinct from the code-module stamp so the two kinds never mistake each other's directories.
+// distinct from the code-module stamp and from the knowledge-graph mount marker (kg.go), so the three
+// kinds never mistake each other's directories.
 const (
 	mountMarkerName   = ".dethernety-mount.json"
 	mountMarkerSchema = "dethernety.byodt-mount/1"
@@ -122,11 +123,12 @@ type catalogPackage struct {
 	Entitled *bool `json:"entitled,omitempty"`
 }
 
-// catalogGet performs an UNAUTHENTICATED GET against the content service's public catalog. It sends no
-// Authorization header by design — the catalog needs no credential, and attaching a token would forward
-// the operator's credential to a surface that must not receive it. Non-2xx is an error carrying only the
-// path and status; the body is size-capped like the other probes.
-func catalogGet(ctx context.Context, base, path string, dst any) error {
+// publicGet performs an UNAUTHENTICATED GET against one of the cloud service's public surfaces — the
+// content catalog, and the knowledge-graph version listing. It sends no Authorization header by design:
+// neither surface needs a credential, and attaching a token would forward the operator's credential to a
+// surface that must not receive it. Non-2xx is an error carrying only the path and status; the body is
+// size-capped like the other probes.
+func publicGet(ctx context.Context, base, path string, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+path, nil)
 	if err != nil {
 		return err
@@ -134,8 +136,8 @@ func catalogGet(ctx context.Context, base, path string, dst any) error {
 	req.Header.Set("Accept", "application/json")
 	client := &http.Client{
 		Timeout: contentTimeout,
-		// The catalog host is pinned (it comes from the mode file). Refuse to follow a redirect rather
-		// than let a 3xx repoint the request at another host — the wire protocol serves the catalog
+		// The host is pinned (it comes from the mode file). Refuse to follow a redirect rather than
+		// let a 3xx repoint the request at another host — the wire protocol serves these surfaces
 		// without redirects, so a redirect is unexpected and its target unvalidated.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -161,7 +163,7 @@ func resolveCatalog(ctx context.Context, base string) (packages []catalogPackage
 	defer cancel()
 
 	var list catalogPackageList
-	if err := catalogGet(ctx, base, "/v1/catalog/packages", &list); err != nil {
+	if err := publicGet(ctx, base, "/v1/catalog/packages", &list); err != nil {
 		return nil, false, err
 	}
 	out := make([]catalogPackage, 0, len(list.Packages))
@@ -183,7 +185,7 @@ func resolveCatalog(ctx context.Context, base string) (packages []catalogPackage
 		}
 		var doc packageDocument
 		docPath := "/v1/catalog/packages/" + url.PathEscape(p.Key) + "/versions/" + url.PathEscape(p.Latest)
-		if err := catalogGet(ctx, base, docPath, &doc); err != nil {
+		if err := publicGet(ctx, base, docPath, &doc); err != nil {
 			cp.Error = "could not load this package's modules"
 			out = append(out, cp)
 			continue
@@ -244,20 +246,33 @@ func moduleDir(modulesDir, moduleKey string) (string, error) {
 	return dir, nil
 }
 
-// hasOurMarker reports whether a directory carries the console's mount marker — the test for "the
-// console created this", gating both clobber-on-mount and delete-on-unmount.
-func hasOurMarker(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, mountMarkerName))
+// hasMarkerNamed reports whether a directory carries the named marker file. The console writes more
+// than one kind of mount, each with its own marker name, and the name is what tells them apart — so
+// this takes the name rather than assuming the content mount's.
+func hasMarkerNamed(dir, name string) bool {
+	_, err := os.Stat(filepath.Join(dir, name))
 	return err == nil
 }
 
-// writeMarker writes the mount marker into a module directory (mode 0644, non-secret).
-func writeMarker(dir string, m mountMarker) error {
-	data, err := json.MarshalIndent(m, "", "  ")
+// hasOurMarker reports whether a directory carries the CONTENT mount marker — the test for "the
+// console created this as a content mount", gating both clobber-on-mount and delete-on-unmount. A
+// directory carrying a different kind's marker is not one of these, and answers false.
+func hasOurMarker(dir string) bool {
+	return hasMarkerNamed(dir, mountMarkerName)
+}
+
+// writeMarkerNamed writes a marker file into a module directory (mode 0644, non-secret).
+func writeMarkerNamed(dir, name string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, mountMarkerName), append(data, '\n'), 0o644)
+	return os.WriteFile(filepath.Join(dir, name), append(data, '\n'), 0o644)
+}
+
+// writeMarker writes the content mount marker into a module directory.
+func writeMarker(dir string, m mountMarker) error {
+	return writeMarkerNamed(dir, mountMarkerName, m)
 }
 
 // readMarker reads the mount marker from a module directory.
@@ -271,19 +286,25 @@ func readMarker(dir string) (mountMarker, error) {
 	return m, err
 }
 
-// writeStub writes the module directory (0755), the stub file (0644), and returns whether the written
-// stub ended up world-writable — some bind-mount backends do not preserve modes, and the platform
-// refuses to load a world-writable module file in cloud mode, so the console reports the condition
-// rather than letting the mount fail silently later.
-func writeStub(dir, moduleKey, pin string) (worldWritableWarning bool, err error) {
+// writeStubFile writes the module directory (0755), the named stub file (0644), and returns whether
+// the written stub ended up world-writable — some bind-mount backends do not preserve modes, and the
+// platform refuses to load a world-writable module file in cloud mode, so the console reports the
+// condition rather than letting the mount fail silently later. Every kind of mount the console writes
+// goes through here, so the directory mode and that check have one definition.
+func writeStubFile(dir, fileName, content string) (worldWritableWarning bool, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-	stubPath := filepath.Join(dir, moduleFileName(moduleKey))
-	if err := os.WriteFile(stubPath, []byte(renderStub(moduleKey, pin)), 0o644); err != nil {
+	stubPath := filepath.Join(dir, fileName)
+	if err := os.WriteFile(stubPath, []byte(content), 0o644); err != nil {
 		return false, err
 	}
 	return worldWritable(stubPath), nil
+}
+
+// writeStub writes a content mount: the directory, and the stub naming the module key and its pin.
+func writeStub(dir, moduleKey, pin string) (worldWritableWarning bool, err error) {
+	return writeStubFile(dir, moduleFileName(moduleKey), renderStub(moduleKey, pin))
 }
 
 // worldWritable reports whether the file at path has its world-writable bit set.
