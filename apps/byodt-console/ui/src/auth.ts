@@ -33,8 +33,14 @@ async function challengeFor(verifier: string): Promise<string> {
   return base64Url(digest)
 }
 
+// OIDC_DOMAIN is a BARE HOST by contract — the recipe producer validates that shape, and the console
+// now refuses anything else at the paste. Prepending unconditionally is therefore not a guess, it is
+// the contract. The previous `startsWith('http')` form was wrong in both directions: it honoured a
+// value that carried its own scheme, letting a recipe name the authorization endpoint this browser is
+// sent to outright, and it misread a legitimate bare host that merely begins with those four letters
+// (httpbin.example) as a full URL.
 function oauthBase(domain: string): string {
-  return domain.startsWith('http') ? domain : `https://${domain}`
+  return `https://${domain}`
 }
 
 // The console's own PKCE redirect target — its origin plus the SPA base plus auth/callback (e.g.

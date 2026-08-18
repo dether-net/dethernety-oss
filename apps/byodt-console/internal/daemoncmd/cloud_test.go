@@ -324,3 +324,41 @@ func TestIsCloudModeFileOnMissingIsFalse(t *testing.T) {
 		t.Fatal("a missing mode file must read as not-cloud, so the write guard permits an apply")
 	}
 }
+
+// OIDC_DOMAIN is the hosted-UI host the SPA turns into the authorization endpoint the operator's
+// browser is sent to. It is not a URL, so secureURL does not cover it — but a value carrying its own
+// scheme would name that endpoint outright, so it is held to the bare-host shape the recipe producer
+// already contracts. The last case is the one a scheme check alone would miss: a host that merely
+// begins with those four letters is legitimate and must still be accepted.
+func TestCloudModeVarsHoldsOIDCDomainToABareHost(t *testing.T) {
+	for _, bad := range []string{
+		"http://attacker.example",
+		"https://attacker.example",
+		"auth.example.com/path",
+		"auth.example.com:8443",
+		"auth.example.com?x=1",
+		"auth.example.com#f",
+		"auth example.com",
+		// Userinfo: a browser resolves this to attacker.example while reading plausibly.
+		"auth.example.com@attacker.example",
+		"auth.example.com\\attacker.example",
+	} {
+		recipe := validRecipeVars()
+		recipe["OIDC_DOMAIN"] = bad
+		if _, _, err := cloudModeVars(recipe, "https://d.example/auth/callback", "/cache"); err == nil {
+			t.Fatalf("OIDC_DOMAIN %q must be rejected — the SPA builds an endpoint from it", bad)
+		}
+	}
+
+	for _, good := range []string{
+		"auth.example.com",
+		"pfx.auth.eu-west-1.amazoncognito.com",
+		"httpbin.example.com", // begins with "http" and is a perfectly ordinary host
+	} {
+		recipe := validRecipeVars()
+		recipe["OIDC_DOMAIN"] = good
+		if _, _, err := cloudModeVars(recipe, "https://d.example/auth/callback", "/cache"); err != nil {
+			t.Fatalf("OIDC_DOMAIN %q is a bare host and must be accepted: %v", good, err)
+		}
+	}
+}

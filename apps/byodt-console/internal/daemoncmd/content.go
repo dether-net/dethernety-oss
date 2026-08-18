@@ -136,9 +136,14 @@ func publicGet(ctx context.Context, base, path string, dst any) error {
 	req.Header.Set("Accept", "application/json")
 	client := &http.Client{
 		Timeout: contentTimeout,
-		// The host is pinned (it comes from the mode file). Refuse to follow a redirect rather than
-		// let a 3xx repoint the request at another host — the wire protocol serves these surfaces
-		// without redirects, so a redirect is unexpected and its target unvalidated.
+		// Refuse to follow a redirect rather than let a 3xx repoint the request at another host.
+		// The base has passed secureURL, but that constrains the SCHEME — https, or http only on
+		// loopback — and never the destination: the host is whatever the operator's recipe named.
+		// On the catalog path it is read back from the mode file; on the knowledge-graph path
+		// (kg.go) it comes from the recipe being applied, before that file exists. So the host is
+		// caller-nameable by design, and refusing redirects is what keeps the set of hosts this
+		// dials equal to the set the operator named. The wire protocol serves these surfaces
+		// without redirects anyway, so a 3xx is unexpected and its target unvalidated.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	resp, err := client.Do(req)

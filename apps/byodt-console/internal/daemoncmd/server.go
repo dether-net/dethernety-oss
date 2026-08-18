@@ -527,8 +527,10 @@ func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
 }
 
 // cloudModeFile returns the console-written cloud mode layer, with ok=false when this deployment is not
-// in cloud mode. Every destination the console acts on is read from here — the file the console itself
-// wrote, never from the request — which is what keeps the console from being an exfiltration primitive.
+// in cloud mode. Outside an apply, every destination the console acts on is read from here — the file
+// the console itself wrote, never from the request — which is what keeps the console from being an
+// exfiltration primitive. During an apply the recipe being applied is itself the source (see
+// pinKnowledgeGraph), which is why its values are checked there, before anything is dialled.
 func (s *server) cloudModeFile() (vars map[string]string, ok bool) {
 	vars, err := readModeLayer(s.cfg.ModeLayerPath)
 	if err != nil {
@@ -542,12 +544,26 @@ func (s *server) cloudModeFile() (vars map[string]string, ok bool) {
 
 // cloudContentBase returns the content service base URL from the cloud mode file. One read serves both
 // the cloud-mode gate and the base.
+//
+// The value is re-checked with secureURL on the way out. The write path already checks it, so this looks
+// redundant — but a check only on write makes https-or-loopback a property of "this console wrote this
+// file", and the mode layer is a file on the operator's host, not console-private state. Re-checking on
+// read makes it a property of the value actually being dialled, which is the one that matters. An
+// unusable value reads as no base at all: refusing to call it is the right answer, and the callers
+// already render an absent base as a deployment that cannot reach the catalog.
 func (s *server) cloudContentBase() (base string, ok bool) {
 	vars, ok := s.cloudModeFile()
 	if !ok {
 		return "", false
 	}
-	return vars["MODULE_CONTENT_BASE_URL"], true
+	base = vars["MODULE_CONTENT_BASE_URL"]
+	if base != "" {
+		if err := secureURL(base); err != nil {
+			s.logger.Error("the cloud mode layer holds an unusable content base URL; refusing to call it", "err", err)
+			return "", true
+		}
+	}
+	return base, true
 }
 
 // packagesResponse is the browse view: the public catalog, each package resolved to its latest

@@ -181,6 +181,15 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 			return nil, nil, fmt.Errorf("%s %w", name, err)
 		}
 	}
+	// OIDC_DOMAIN is a BARE HOST, and the console is the last place that can hold it to that. It is
+	// excluded from secureURLVars because it is not a URL — but "not a URL" is not "unchecked": the
+	// SPA turns it into the authorization endpoint the operator's browser is sent to, so a value
+	// carrying its own scheme would name that endpoint outright. The producer already contracts a
+	// bare host (the commerce root validates the same shape before a recipe is ever issued), which
+	// makes a scheme here a sign the recipe did not come from there.
+	if err := bareHost(vars["OIDC_DOMAIN"]); err != nil {
+		return nil, nil, fmt.Errorf("OIDC_DOMAIN %w", err)
+	}
 	// An empty optional URL is dropped rather than written. DEPLOYMENT_PACKAGES is written empty
 	// because empty MEANS something there (entitled to nothing); an empty service base means nothing
 	// at all, and writing it would make the deployment's behaviour depend on how its reader treats an
@@ -190,6 +199,24 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 	}
 	sort.Strings(stripped)
 	return vars, stripped, nil
+}
+
+// bareHost requires a hostname with no scheme, no path, no port and no whitespace — the shape the
+// identity hosted-UI domain is contracted to have. It mirrors the check the recipe producer already
+// applies, deliberately: the two ends of one contract should fail on the same values, and the console
+// cannot assume it is talking to that producer.
+func bareHost(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	// "@" earns its place here: a browser reads everything before it as userinfo, so
+	// "legit.example@attacker.example" prepended with https:// resolves to attacker.example while
+	// still reading plausibly to whoever glances at the address bar. That is the exact substitution
+	// this check exists to refuse, and a scheme-only check would wave it through.
+	if strings.ContainsAny(raw, ":/?#*@\\") || strings.ContainsAny(raw, " \t") {
+		return fmt.Errorf("must be a bare hostname — no scheme, userinfo, port, path or space")
+	}
+	return nil
 }
 
 // hasControlChar reports whether s contains any ASCII control character (below 0x20, or DEL). No
