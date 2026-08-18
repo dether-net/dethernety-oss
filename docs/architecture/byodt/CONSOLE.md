@@ -226,6 +226,10 @@ reports no-auth (a connect not yet applied), or the local file while the platfor
 authenticated (a disconnect not yet applied). It covers both directions with one rule, and it drives
 the banner that names the command to run.
 
+Most of what the layer holds comes from the recipe. Two values do not: those that depend on where the
+deployment answers or how it is laid out, and the knowledge-graph pin, which the console reads from a
+public listing at connect time (see [below](#the-knowledge-graph-connection)).
+
 **Writing the layer** is guarded. A pasted **recipe** — the block of `NAME=value` lines an operator
 copies from their account — is refused outright if a cloud file already exists, so reconfiguring must
 go through a disconnect. The variable names the console will copy out of it are a closed set,
@@ -272,6 +276,41 @@ every mount's currency reported as `unknown` and a note explaining why.
 A mount takes effect when the platform is recreated. If the written stub ends up world-writable — some
 bind-mount backends do not preserve modes — the console says so, because the platform refuses to load a
 world-writable module file when running in production mode.
+
+### The knowledge-graph connection
+
+A deployment whose cloud recipe names a knowledge-graph service gets a third kind of mount, and the
+console writes it with the cloud connection rather than from the catalog — so its presence always means
+"a service is wired", and it never outlives the connection that justified it.
+
+| Artifact | Purpose |
+|---|---|
+| `<modules>/knowledge-graph/KnowledgeGraphModule.js` | The stub. Fixed text with **nothing** substituted into it — there is no per-module value to carry |
+| `<modules>/knowledge-graph/.dethernety-kg-mount.json` | The marker (`dethernety.byodt-kg-mount/1`): schema and timestamp |
+
+It carries less than a content mount because there is less to carry. The class it instantiates already
+ships inside the platform's module package, and the version it answers at belongs to the whole
+deployment rather than to the module — so the version lives in the mode layer, not in the marker. One
+value, one writer, and what the operator is shown is the one the platform reads.
+
+Three properties are worth stating because each is a decision rather than a consequence:
+
+- **The version is chosen by the console, from a public listing, with no credential.** It is not in the
+  recipe — a recipe that could carry it could pin a deployment to a version of the sender's choosing.
+  The console validates it as `sha256:` plus 64 hex before writing, refuses a version the listing marks
+  withdrawn, and refuses to take "whatever is newest" at query time, which would advance the knowledge
+  graph under a deployment that pinned deliberately.
+- **Both variables are written, or neither is.** If the service cannot be reached the console writes no
+  knowledge-graph configuration at all, mounts nothing, and says so — the deployment connects to the
+  cloud without it. A service that is momentarily down must not cost an operator their cloud connection,
+  and a base URL with no version is inert while *looking* configured.
+- **The marker name is the third distinct one.** Content mount, code-module stamp, knowledge-graph
+  mount: three kinds, three names, so unmount can never remove a directory it did not create and the key
+  `knowledge-graph` is refused as a content module key rather than contended for.
+
+The connection is reported apart from the content mounts, and read-only. There is nothing for an
+operator to do with it, and listing it among modules whose content is served per request would invite
+reading it as the knowledge graph itself having been installed — when what was installed is a client.
 
 ### Authentication posture
 

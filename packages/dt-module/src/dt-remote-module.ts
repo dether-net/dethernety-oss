@@ -28,7 +28,7 @@ import {
   EvaluationNotEntitledError,
   RemoteModuleUnavailableError,
 } from './remote/errors';
-import { ResponseCache, ContentKind, EvalResult } from './remote/response-cache';
+import { ResponseCache, ContentKind, EvalResult, stableStringify } from './remote/response-cache';
 import { buildFallbackGuide, buildFallbackTemplate, sanitizeText } from './remote/fallback';
 import { JsonSchema, stripToSchema } from './remote/strip';
 
@@ -344,16 +344,6 @@ export class DtRemoteModule implements DTModule {
  * always hash identically regardless of key order. Never includes the token. */
 function attributesHash(attributes: Record<string, unknown>): string {
   return crypto.createHash('sha256').update(stableStringify(attributes)).digest('hex');
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const keys = Object.keys(record).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(record[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
 }
 
 /** Sanitize the message of a propagated typed error before it surfaces in dt-ui's

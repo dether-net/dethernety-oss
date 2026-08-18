@@ -417,11 +417,16 @@ func (s *server) cloudApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// The knowledge-graph pin is resolved HERE and not inside cloudModeVars, and the order is the
+	// point: the recipe has now passed every name and value check, so a recipe that was going to be
+	// rejected wholesale never causes the console to make a request to a host it named.
+	kgNote := s.pinKnowledgeGraph(r.Context(), vars)
 	if err := writeModeLayer(s.cfg.ModeLayerPath, vars); err != nil {
 		s.logger.Error("writing mode layer", "err", err)
 		http.Error(w, "writing cloud configuration", http.StatusInternalServerError)
 		return
 	}
+	kgNote += s.applyKgMount(vars)
 	// Posture just changed (local → cloud): drop every session minted under the old posture so none
 	// survives across the flip — except this caller's, on a short grace deadline, so the instruction
 	// this response carries is still readable and actionable instead of being replaced by a sign-in
@@ -433,13 +438,79 @@ func (s *server) cloudApply(w http.ResponseWriter, r *http.Request) {
 		// recipe. Say so, so the operator knows the recipe's value was not applied.
 		msg += ". Kept this deployment's own " + strings.Join(stripped, ", ") + " (not taken from the recipe)"
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "applied", "message": msg})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "applied", "message": msg + kgNote})
+}
+
+// pinKnowledgeGraph resolves the version to pin from the service the recipe named, and writes it into
+// vars beside the base URL. It returns a note for the operator, empty when there is nothing to say.
+//
+// Both variables are written or neither is. A base URL with no pin is inert anyway — the client
+// refuses to fall back to whatever is newest, because that would advance the knowledge graph under a
+// deployment that pinned deliberately — but it is inert while *looking* configured, and it makes the
+// platform log a misconfiguration on every boot about a decision the console made on purpose. So when
+// the version cannot be resolved the base URL is dropped too, and the deployment simply has no
+// knowledge-graph service.
+//
+// A failure here never fails the apply. The recipe's job is identity and content; letting an
+// unreachable knowledge-graph service cost the operator cloud mode entirely would be far out of
+// proportion to what is lost.
+func (s *server) pinKnowledgeGraph(ctx context.Context, vars map[string]string) string {
+	base := vars["MODULE_KG_BASE_URL"]
+	if base == "" {
+		return ""
+	}
+	version, err := resolveKgVersion(ctx, base)
+	if err != nil {
+		s.logger.Warn("resolving the knowledge-graph version", "err", err)
+		delete(vars, "MODULE_KG_BASE_URL")
+		return ". The knowledge-graph service could not be reached, so this deployment is connected without it — disconnect and reconnect to try again"
+	}
+	vars["MODULE_KG_VERSION"] = version
+	return ""
+}
+
+// applyKgMount brings the knowledge-graph mount into agreement with what was just written: mounted
+// when the deployment is pinned to a service, absent when it is not. The unmount branch is reachable
+// only after a disconnect that failed to remove one, but it costs nothing and it makes "mounted
+// exactly when both variables are written" true after every apply rather than almost always.
+//
+// A mount failure does not fail the apply. By this point the cloud configuration is written and the
+// sessions have already been flipped; answering 500 would tell the operator that writing the
+// configuration failed when it succeeded. It is reported in the success message instead, and what it
+// leaves behind is inert — two variables no mounted module reads.
+func (s *server) applyKgMount(vars map[string]string) string {
+	if vars["MODULE_KG_VERSION"] == "" {
+		if err := unmountKg(s.cfg.ModulesDir); err != nil {
+			s.logger.Warn("removing a stale knowledge-graph mount", "err", err)
+		}
+		return ""
+	}
+	warn, err := mountKg(s.cfg.ModulesDir, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		s.logger.Error("writing the knowledge-graph mount", "err", err)
+		return ". The knowledge-graph connection could not be written, so this deployment is connected without it"
+	}
+	note := ". A knowledge-graph connection was mounted"
+	if warn {
+		note += " (warning: its file is world-writable, which the platform refuses to load in cloud mode — check how the host mount preserves file permissions)"
+	}
+	return note
 }
 
 // cloudDisable reverts the deployment to pure-OSS. It rewrites the same mode-layer file with the
 // development values — never deletes it — and never contacts the cloud, because this is the recovery
 // path from a mis-scoped allowlist, the one state in which no cloud call can succeed.
 func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
+	// The knowledge-graph mount goes first, while the deployment is still cloud-configured: a failure
+	// here leaves a state the operator can simply retry from. And if it fails anyway the revert still
+	// proceeds, naming the directory — mount and unmount are cloud-mode operations, so a stale
+	// directory that could block the disconnect would be unremovable afterwards, and a recovery path
+	// that something can block is not a recovery path.
+	kgNote := ""
+	if err := unmountKg(s.cfg.ModulesDir); err != nil {
+		s.logger.Error("removing the knowledge-graph mount", "err", err)
+		kgNote = ". The knowledge-graph connection could not be removed — delete the " + kgModuleKey + " directory from the modules mount by hand"
+	}
 	if err := writeModeLayer(s.cfg.ModeLayerPath, pureOSSModeVars()); err != nil {
 		s.logger.Error("writing mode layer", "err", err)
 		http.Error(w, "reverting to pure-OSS", http.StatusInternalServerError)
@@ -451,20 +522,29 @@ func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
 	s.sess.keepOnly(r.Header.Get(sessionHeader), postureGraceTTL)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "reverted",
-		"message": "reverted to pure-OSS; apply it by recreating the stack: " + stackRestartCommand,
+		"message": "reverted to pure-OSS; apply it by recreating the stack: " + stackRestartCommand + kgNote,
 	})
 }
 
-// cloudContentBase returns the content service base URL from the console-written cloud mode file, with
-// ok=false when this deployment is not in cloud mode. The destination is configuration read from the
-// file the console itself wrote — never taken from the request — which is what keeps the console from
-// being an exfiltration primitive. One read serves both the cloud-mode gate and the base.
-func (s *server) cloudContentBase() (base string, ok bool) {
+// cloudModeFile returns the console-written cloud mode layer, with ok=false when this deployment is not
+// in cloud mode. Every destination the console acts on is read from here — the file the console itself
+// wrote, never from the request — which is what keeps the console from being an exfiltration primitive.
+func (s *server) cloudModeFile() (vars map[string]string, ok bool) {
 	vars, err := readModeLayer(s.cfg.ModeLayerPath)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	if _, cloud := vars["OIDC_SHARED_POOL"]; !cloud {
+		return nil, false
+	}
+	return vars, true
+}
+
+// cloudContentBase returns the content service base URL from the cloud mode file. One read serves both
+// the cloud-mode gate and the base.
+func (s *server) cloudContentBase() (base string, ok bool) {
+	vars, ok := s.cloudModeFile()
+	if !ok {
 		return "", false
 	}
 	return vars["MODULE_CONTENT_BASE_URL"], true
@@ -526,11 +606,26 @@ type mountedModuleView struct {
 	LatestVersion string `json:"latestVersion,omitempty"`
 }
 
+// knowledgeGraphView is the mounted knowledge-graph connection. It is reported SEPARATELY from the
+// content mounts, not as a row among them, because it is a different thing: a content mount installs a
+// module whose content is served per request, while this installs a client for a service and no graph
+// data of any kind. A row in a list of content modules invites exactly the reading that the knowledge
+// graph itself was installed here.
+//
+// Version comes from the mode layer — the value the platform actually reads — rather than from the
+// mount's own marker, so what the operator sees is what is in force.
+type knowledgeGraphView struct {
+	Version   string `json:"version"`
+	MountedAt string `json:"mountedAt,omitempty"`
+}
+
 // modulesResponse is the mounted-modules inventory. Note carries a non-fatal reason (e.g. the catalog
 // was unreachable so currency could not be judged); the inventory itself is local and always renders.
+// KnowledgeGraph is present only when this deployment has a knowledge-graph connection mounted.
 type modulesResponse struct {
-	Modules []mountedModuleView `json:"modules"`
-	Note    string              `json:"note,omitempty"`
+	Modules        []mountedModuleView `json:"modules"`
+	KnowledgeGraph *knowledgeGraphView `json:"knowledgeGraph,omitempty"`
+	Note           string              `json:"note,omitempty"`
 }
 
 // modulesList reports the mounted stubs, their pins, and whether a newer content version is available.
@@ -576,7 +671,44 @@ func (s *server) modulesList(w http.ResponseWriter, r *http.Request) {
 		}
 		views = append(views, v)
 	}
-	writeJSON(w, http.StatusOK, modulesResponse{Modules: views, Note: note})
+
+	kg, kgNote := s.knowledgeGraph()
+	if kgNote != "" && note != "" {
+		note += "; " + kgNote
+	} else if kgNote != "" {
+		note = kgNote
+	}
+	writeJSON(w, http.StatusOK, modulesResponse{Modules: views, KnowledgeGraph: kg, Note: note})
+}
+
+// knowledgeGraph reports the mounted knowledge-graph connection, if there is one.
+//
+// It reports a connection only when the pin AND the mount are both there, because either one alone is
+// not a connection: the pin without a module is configuration nothing reads, and a module without a
+// pin answers nothing. The half state is reachable — a mount write that failed during an apply, or a
+// directory removed by hand — and it is surfaced as a note rather than left to look like a deployment
+// that simply has no knowledge graph. Nothing at all is the ordinary case and says nothing.
+func (s *server) knowledgeGraph() (*knowledgeGraphView, string) {
+	vars, ok := s.cloudModeFile()
+	if !ok {
+		return nil, ""
+	}
+	version := vars["MODULE_KG_VERSION"]
+	dir, err := kgMountDir(s.cfg.ModulesDir)
+	if err != nil {
+		return nil, ""
+	}
+	// readKgMarker is the ownership test as well as the read — a directory carrying someone else's
+	// marker is not a connection this console made, and is not reported as one.
+	marker, markerErr := readKgMarker(dir)
+	switch {
+	case version != "" && markerErr == nil:
+		return &knowledgeGraphView{Version: version, MountedAt: marker.MountedAt}, ""
+	case version != "":
+		return nil, "this deployment is configured for a knowledge-graph service but its module is not mounted — disconnect and reconnect to restore it"
+	default:
+		return nil, ""
+	}
 }
 
 // mountModule writes the stub and marker for one module at one pin. Re-posting the same key over the
@@ -603,6 +735,13 @@ func (s *server) mountModule(w http.ResponseWriter, r *http.Request) {
 	}
 	if !moduleKeyPattern.MatchString(body.ModuleKey) {
 		http.Error(w, "invalid module key", http.StatusBadRequest)
+		return
+	}
+	if body.ModuleKey == kgModuleKey {
+		// The key charset permits it, and the marker check below would refuse it anyway — but with a
+		// message saying the console did not create that directory, about a directory the console
+		// created. Reserving the name says the true thing instead.
+		http.Error(w, "this name is reserved for the knowledge-graph connection, which is mounted with the cloud connection rather than from the catalog", http.StatusConflict)
 		return
 	}
 	if !pinPattern.MatchString(body.Pin) {
@@ -650,6 +789,12 @@ func (s *server) unmountModule(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if !moduleKeyPattern.MatchString(key) {
 		http.Error(w, "invalid module key", http.StatusBadRequest)
+		return
+	}
+	if key == kgModuleKey {
+		// Reserved, and removed by disconnecting rather than from here — so the refusal names the way
+		// to remove it instead of claiming the console did not create it.
+		http.Error(w, "this name is reserved for the knowledge-graph connection, which is removed by disconnecting from the cloud", http.StatusConflict)
 		return
 	}
 	dir, err := moduleDir(s.cfg.ModulesDir, key)

@@ -11,3 +11,9 @@ export type { FailureMode, CapturedRequest } from './mock-content-server';
 export * from './fixtures';
 export { runContractSuite } from './contract/suite';
 export type { ContractHarness } from './contract/suite';
+export { runKgContractSuite } from './contract/kg.contract';
+export type { KgContractHarness } from './contract/kg.contract';
+/** The client-level knowledge-graph suite. Exported so it can be run against an implementation
+ * this package cannot construct — one backed by a real graph, in a host that has one. */
+export { runKgClientSuite } from './contract/kg-client.contract';
+export type { KgClientHarness } from './contract/kg-client.contract';

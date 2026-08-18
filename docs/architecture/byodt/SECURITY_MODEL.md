@@ -201,8 +201,10 @@ entire apply** if any name outside it appears.
 |---|---|
 | `OIDC_ISSUER`, `OIDC_JWKS_URI`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, `OIDC_SCOPE`, `OIDC_DOMAIN`, `OIDC_SHARED_POOL`, `PORTAL_ORIGIN`, `MODULE_CONTENT_BASE_URL`, `DEPLOYMENT_ALLOWLIST` | Accepted. Each must be **present and non-empty** |
 | `DEPLOYMENT_PACKAGES` | Accepted, copied verbatim; may legitimately be empty or absent |
+| `MODULE_KG_BASE_URL` | Accepted; may legitimately be empty or absent. Present and non-empty it is held to the URL rule below, which is also what stands between a pasted recipe and the console's own outbound request to that host |
 | `DEPLOYMENT_EXPOSURE` | Recognised and **dropped**. It is the operator's own exposure declaration and must not be taken from a recipe. One further retired name is likewise tolerated-and-dropped, so an older saved recipe still applies rather than failing as a foreign variable |
 | `NODE_ENV`, `OIDC_REDIRECT_URI`, `MODULE_CONTENT_CACHE_DIR`, `ALLOWED_ORIGINS` | Supplied by the console, never taken from the paste |
+| `MODULE_KG_VERSION` | Supplied by the console, never taken from the paste — a recipe that could carry it could pin a deployment to a version of the sender's choosing. Read from a public listing with no credential, and validated as `sha256:` plus 64 hex before it is written |
 | Anything else | The apply is refused, naming every offending variable at once |
 
 **The check is on the name set, not the name shape.** That distinction is the control. The mode layer
@@ -213,14 +215,17 @@ names is in the accepted set — and no plausible shape check would have caught 
 
 Four further constraints apply to the values:
 
-- **Every accepted name must be non-empty.** A blank identity value produces the same broken boot a
-  missing one does, so a presence check alone would be hollow.
+- **Every required name must be non-empty.** A blank identity value produces the same broken boot a
+  missing one does, so a presence check alone would be hollow. The two names marked above as
+  legitimately empty or absent are exactly the exceptions, and each is one because the empty case is
+  reachable in normal use rather than a sign of a half recipe.
 - **No value may contain a control character.** A newline would split into a second `NAME=value` line
   in the written file — the exact class the fixed name set exists to prevent. It is rejected where the
   values are assembled *and* again in the serializer, which every write passes through.
 - **URL-shaped values must be `https`** (or `http` only on a loopback host). A plaintext or off-box
-  value would point the platform's identity checks, or a module's content fetches, at another party's
-  host.
+  value would point the platform's identity checks, or a module's own fetches, at another party's
+  host. A value that is legitimately absent is not checked — there is nothing to check — but an empty
+  service URL is dropped rather than written, so no reader has to decide what an empty one means.
 - **`ALLOWED_ORIGINS` is derived, not pasted.** It is the origin of the deployment's own front-door
   callback, so it stays in step with the redirect URI by construction.
 

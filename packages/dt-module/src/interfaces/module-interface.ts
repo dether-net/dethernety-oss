@@ -75,7 +75,14 @@ export interface DTModule {
    */
   isContentCallerVariant?(): boolean;
 
-  runAnalysis?(id: string, analysisClassId: string, scope: string, pubSub: ExtendedPubSubEngine, additionalParams?: object): Promise<AnalysisSession>;
+  /**
+   * @param token The caller's raw bearer, forwarded by the platform. Optional and last, so a
+   *   module that never needed one is unaffected. It exists because an analysis runs outside a
+   *   resolver, and a module whose analysis reaches an entitled service has no other channel to a
+   *   credential — `additionalParams` is caller-supplied and merged into the module's attributed
+   *   parameters, so a credential must never travel in it.
+   */
+  runAnalysis?(id: string, analysisClassId: string, scope: string, pubSub: ExtendedPubSubEngine, additionalParams?: object, token?: string): Promise<AnalysisSession>;
   startChat?(id: string, analysisClassId: string, scope: string, userQuestion: string, pubSub: ExtendedPubSubEngine, additionalParams?: object): Promise<AnalysisSession>;
   resumeAnalysis?(id: string, analysisClassId: string, input: any, pubSub: ExtendedPubSubEngine): Promise<AnalysisSession>;
   getAnalysisStatus?(id: string): Promise<AnalysisStatus>;

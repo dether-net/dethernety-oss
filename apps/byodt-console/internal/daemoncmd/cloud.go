@@ -36,14 +36,23 @@ var acceptedRecipeVars = map[string]bool{
 }
 
 // optionalRecipeVars are accepted recipe names that MAY be empty or absent — unlike acceptedRecipeVars,
-// they are not required present-and-non-empty. DEPLOYMENT_PACKAGES is the deployment's entitled package
-// keys (comma-separated), which is legitimately EMPTY when the subscription entitles nothing (e.g. it
-// lapsed), and ABSENT from recipes generated before the variable existed. It is copied verbatim so the
-// console can gate the catalog by subscription; a present value (even empty) is authoritative, while its
-// absence means "undetermined" and the console does not gate. Putting it in acceptedRecipeVars instead
-// would reject the whole apply on the reachable empty case.
+// they are not required present-and-non-empty. Putting either of these in acceptedRecipeVars instead
+// would reject the whole apply on a case that legitimately occurs.
+//
+// DEPLOYMENT_PACKAGES is the deployment's entitled package keys (comma-separated), which is
+// legitimately EMPTY when the subscription entitles nothing (e.g. it lapsed), and ABSENT from recipes
+// generated before the variable existed. It is copied verbatim so the console can gate the catalog by
+// subscription; a present value (even empty) is authoritative, while its absence means "undetermined"
+// and the console does not gate.
+//
+// MODULE_KG_BASE_URL is the knowledge-graph service, present only for a deployment entitled to one —
+// so it is absent from every recipe issued before it existed and from every recipe without that
+// entitlement. Required, it would break both. Present and non-empty it is held to secureURL like the
+// content base, and it is what makes the console mount a knowledge-graph connection; absent, the
+// deployment simply has no knowledge-graph service and nothing is written or mounted.
 var optionalRecipeVars = map[string]bool{
 	"DEPLOYMENT_PACKAGES": true,
+	"MODULE_KG_BASE_URL":  true,
 }
 
 // strippedRecipeVars are recognised recipe names the console deliberately DROPS rather than writes.
@@ -94,6 +103,12 @@ func parseRecipe(body string) (map[string]string, error) {
 // accepted name to be present — a half recipe is a deployment that boots into a broken cloud state
 // — and adds NODE_ENV plus the two values the recipe cannot produce: OIDC_REDIRECT_URI, which depends
 // on where the deployment answers, and MODULE_CONTENT_CACHE_DIR, which depends on its volume layout.
+//
+// One console-supplied value is deliberately NOT added here. MODULE_KG_VERSION has to be read from the
+// knowledge-graph service, and this function is pure on purpose — every name it writes is decided from
+// its arguments alone, which is what makes the allowlist argument checkable. The caller resolves that
+// one and adds it AFTER this returns, so no request is ever made on behalf of a recipe this function
+// would have rejected.
 func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string) (vars map[string]string, stripped []string, err error) {
 	vars = map[string]string{}
 	var foreign []string
@@ -155,9 +170,23 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 	// recipe would point the platform's identity checks, or a module's content fetches, at an
 	// attacker's host, so the shape is enforced where the values are assembled.
 	for _, name := range secureURLVars {
+		// An OPTIONAL URL variable that is absent or empty has nothing to check, and secureURL("")
+		// fails with "must be an absolute URL with a host" — so checking it unconditionally would
+		// reject every recipe that legitimately omits one. A required name cannot reach this branch:
+		// the present-and-non-empty check above has already rejected it.
+		if vars[name] == "" && optionalRecipeVars[name] {
+			continue
+		}
 		if err := secureURL(vars[name]); err != nil {
 			return nil, nil, fmt.Errorf("%s %w", name, err)
 		}
+	}
+	// An empty optional URL is dropped rather than written. DEPLOYMENT_PACKAGES is written empty
+	// because empty MEANS something there (entitled to nothing); an empty service base means nothing
+	// at all, and writing it would make the deployment's behaviour depend on how its reader treats an
+	// empty string. Absent is the state that already means "no service configured".
+	if v, present := vars["MODULE_KG_BASE_URL"]; present && v == "" {
+		delete(vars, "MODULE_KG_BASE_URL")
 	}
 	sort.Strings(stripped)
 	return vars, stripped, nil
@@ -201,14 +230,19 @@ func secureURL(raw string) error {
 }
 
 // secureURLVars are the recipe variables whose values are URLs the deployment acts on: the identity
-// endpoints and the content service base. cloudModeVars holds each to secureURL so a pasted recipe
-// cannot point the platform's identity checks, or a module's content fetches, at a plaintext or
-// off-box host. OIDC_DOMAIN is excluded — it is a bare hosted-UI hostname, not a URL — and
-// OIDC_REDIRECT_URI is validated separately at the paste, where the operator confirms it.
+// endpoints, the content service base, and the knowledge-graph service base. cloudModeVars holds each
+// to secureURL so a pasted recipe cannot point the platform's identity checks, or a module's fetches,
+// at a plaintext or off-box host. OIDC_DOMAIN is excluded — it is a bare hosted-UI hostname, not a URL
+// — and OIDC_REDIRECT_URI is validated separately at the paste, where the operator confirms it.
+//
+// MODULE_KG_BASE_URL is checked here for a second reason as well: the console itself fetches the
+// version listing from that host during an apply, so this is the check that stands between a pasted
+// recipe and the console's own outbound request.
 var secureURLVars = []string{
 	"OIDC_ISSUER",
 	"OIDC_JWKS_URI",
 	"MODULE_CONTENT_BASE_URL",
+	"MODULE_KG_BASE_URL",
 	"PORTAL_ORIGIN",
 }
 

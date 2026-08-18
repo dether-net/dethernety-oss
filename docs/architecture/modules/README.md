@@ -148,6 +148,28 @@ Configuration is deployment-global: `MODULE_CONTENT_BASE_URL` (the content servi
 - Consuming hosted module content without shipping the content locally
 - Content that is updated centrally rather than per-deployment
 
+### 4. Remote Knowledge-Graph Modules
+
+**Base Class:** `DtRemoteKnowledgeGraphModule`
+
+Answers knowledge-graph queries — rules, the threats they address, and the attributes they read — from a service instead of from nodes ingested into the deployment's own graph. It is a sibling of `DtRemoteModule` implementing the same `DTModule` contract, so the platform cannot tell it apart from a locally-served knowledge graph, and neither can a consumer: both modes sit behind one `KgClient` interface and return the same keyed answers to the same queries. The stub carries no per-module value at all — unlike a content mount, which names a module and a pinned version.
+
+```typescript
+import { DtRemoteKnowledgeGraphModule } from '@dethernety/dt-module';
+
+class KnowledgeGraphModule extends DtRemoteKnowledgeGraphModule {
+  constructor(driver: any, logger: Logger) {
+    super(driver, logger);
+  }
+}
+```
+
+Configuration is deployment-global: `MODULE_KG_BASE_URL` (the knowledge-graph service; no default, so an unset value selects the local mode) and `MODULE_KG_VERSION` (the pinned `sha256:` version digest). Neither has a default and **a missing pin never falls back to "latest"** — a base URL with no usable pin leaves the module exactly as inert as an unconfigured one, logged once as a misconfiguration. See the [DtRemoteKnowledgeGraphModule reference](./DT_MODULE_INTERFACE.md#remote-knowledge-graph-modules-dtremoteknowledgegraphmodule).
+
+**Use Cases:**
+- Querying a centrally-maintained knowledge graph without ingesting it into the deployment's own database
+- Keeping one consumer-side query surface across deployments that hold the graph locally and deployments that do not
+
 ---
 
 ## Documentation Structure

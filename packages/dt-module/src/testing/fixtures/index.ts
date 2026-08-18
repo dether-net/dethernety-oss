@@ -9,6 +9,11 @@
 import { ModuleDocument, EmbeddingsResponse, TemplateResponse, GuideResponse, EvalResponse, MetaResponse } from '../../remote/wire-client';
 import { DenialInfo, RecallInfo } from '../../remote/errors';
 
+// Knowledge-graph fixtures. Kept in their own file — they are a whole surface's worth, and they
+// grow again when the client implementations land. Every export there is `kg*`/`KG_*` prefixed,
+// because a name collision under `export *` resolves to nothing rather than to an error.
+export * from './kg';
+
 export const PORTAL_ORIGIN = 'https://portal.acme.example';
 export const MODULE_KEY = 'acme-compute';
 /** The content-hash pin every request addresses. Opaque and immutable. */
@@ -26,7 +31,10 @@ export const EXPIRED_TOKEN = 'fixture-token-expired';
 export const metaResponse: MetaResponse = {
   service: 'acme-module-content',
   protocolVersions: ['1'],
-  // Only the mandatory surfaces — entitlements and knowledge-graph are other modules' surfaces.
+  // The mandatory surfaces only. This descriptor is a minimal conforming example and is reused
+  // beyond the mock, so it must never claim an optional surface: a service MUST NOT declare one
+  // it does not fully implement. The mock overrides this list with its own (it does implement
+  // `kg`); anything else serving this fixture is declaring exactly what it serves.
   surfaces: ['catalog', 'content', 'eval'],
   portalOrigin: PORTAL_ORIGIN,
 };
