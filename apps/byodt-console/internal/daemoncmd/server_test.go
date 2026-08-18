@@ -625,3 +625,51 @@ func TestPostureFlipDropsOtherSessionsAndKeepsTheCaller(t *testing.T) {
 		t.Fatalf("disconnect must drop every other session (401), got %d", code)
 	}
 }
+
+// A mode layer holding a base the write path would have refused must not be dialled. The write already
+// checks it, so this can only arise from a file edited outside the console — and the mode layer is a
+// bind-mounted file on the operator's host, not console-private state. The read is where it matters,
+// because the read is what decides the destination of an outbound request.
+func TestCloudContentBaseRefusesAnOffSpecBase(t *testing.T) {
+	plat := fakePlatform(t, true, nil)
+	defer plat.Close()
+	s := newTestServer(t, plat.URL, filepath.Join(t.TempDir(), "state.json"))
+
+	write := func(t *testing.T, base string) {
+		t.Helper()
+		if err := writeModeLayer(s.cfg.ModeLayerPath, map[string]string{
+			"OIDC_SHARED_POOL":        "1",
+			"MODULE_CONTENT_BASE_URL": base,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, tc := range []struct{ name, base string }{
+		{"plaintext off-box", "http://evil.example"},
+		{"a scheme the client must never dial", "file:///etc/passwd"},
+		{"host-relative, so the scheme check has nothing to bite on", "/v1"},
+		{"not a URL at all", "://"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write(t, tc.base)
+			base, ok := s.cloudContentBase()
+			// ok stays true: the deployment IS in cloud mode. It simply has no base to call.
+			if !ok {
+				t.Fatal("an unusable base must not read as 'not in cloud mode'")
+			}
+			if base != "" {
+				t.Fatalf("returned an off-spec base to be dialled: %q", base)
+			}
+		})
+	}
+
+	// The control. Without it every assertion above would still pass if the method learned to
+	// return nothing at all.
+	t.Run("a conforming base survives", func(t *testing.T) {
+		write(t, "https://content.example")
+		if base, ok := s.cloudContentBase(); !ok || base != "https://content.example" {
+			t.Fatalf("got %q ok=%v", base, ok)
+		}
+	})
+}

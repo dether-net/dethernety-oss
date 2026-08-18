@@ -516,3 +516,38 @@ func TestContentRoutesRequireSession(t *testing.T) {
 		t.Fatalf("unmount without a session must be 401, got %d", code)
 	}
 }
+
+// The redirect refusal in publicGet is documented as a security property — a 3xx must not be able to
+// repoint a request at a host the operator never named — and it had no test. This asserts the property
+// rather than the mechanism: the redirect target is a real server that records whether it was ever
+// contacted, so a regression that starts following redirects fails here even if the error stays.
+func TestPublicGetRefusesRedirects(t *testing.T) {
+	var reached bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"packages":[]}`))
+	}))
+	defer target.Close()
+
+	for _, code := range []int{
+		http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect,
+	} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			reached = false
+			redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL+"/v1/catalog/packages", code)
+			}))
+			defer redirector.Close()
+
+			var got catalogPackageList
+			if err := publicGet(t.Context(), redirector.URL, "/v1/catalog/packages", &got); err == nil {
+				t.Fatalf("a %d must be an error, not a decoded body", code)
+			}
+			if reached {
+				t.Fatalf("the redirect target was contacted on a %d — the host moved", code)
+			}
+		})
+	}
+}
