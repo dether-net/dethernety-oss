@@ -146,7 +146,7 @@ func isKgMount(dir string) bool {
 	return err == nil
 }
 
-// mountKg writes the knowledge-graph mount: the directory, the stub, and the marker. Re-mounting over
+// mountKg writes the knowledge-graph mount: the directory, the marker, then the stub. Re-mounting over
 // the console's own knowledge-graph mount is allowed; anything else occupying that directory — a
 // content mount, a shipped module, an operator's own — is refused rather than overwritten.
 //
@@ -160,11 +160,8 @@ func mountKg(modulesDir, mountedAt string) (worldWritableWarning bool, err error
 	if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() && !isKgMount(dir) {
 		return false, fmt.Errorf("a module directory named %s already exists and was not created as a knowledge-graph connection", kgModuleKey)
 	}
-	warn, err := writeStubFile(dir, moduleFileName(kgModuleKey), kgStub)
-	if err != nil {
-		return false, err
-	}
-	return warn, writeMarkerNamed(dir, kgMarkerName, kgMarker{Schema: kgMarkerSchema, MountedAt: mountedAt})
+	return writeMount(dir, kgMarkerName, kgMarker{Schema: kgMarkerSchema, MountedAt: mountedAt},
+		moduleFileName(kgModuleKey), kgStub)
 }
 
 // unmountKg removes the knowledge-graph mount. Nothing mounted is a success, not an error: it runs on

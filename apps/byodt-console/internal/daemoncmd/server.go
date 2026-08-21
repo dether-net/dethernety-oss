@@ -15,17 +15,22 @@ import (
 
 	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/assets"
 	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/initcmd"
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/moduleinstall"
 )
 
 // server holds the daemon's collaborators. It is constructed by Run and never mutated after,
 // so its handlers are safe to serve concurrently (the only shared mutable state, the live
 // sessions, is guarded inside sessions).
 type server struct {
-	cfg         Config
-	sess        *sessions
-	plat        *platformClient
-	ui          fs.FS
-	logger      *slog.Logger
+	cfg    Config
+	sess   *sessions
+	plat   *platformClient
+	ui     fs.FS
+	logger *slog.Logger
+	// verify authenticates a signed artifact against the identity the install path derives per request.
+	// It is the same seam the boot path holds — an interface, so a test can drive the install flow
+	// without producing real signed bundles, and production wires the real verifier in main.
+	verify      moduleinstall.Verifier
 	mintLimiter semaphore // caps concurrent cloud-mint probes against the platform's auth path
 }
 
@@ -53,7 +58,7 @@ func (s semaphore) release() { <-s }
 
 // Run starts the daemon and blocks until ctx is cancelled, then shuts the server down
 // gracefully.
-func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
+func Run(ctx context.Context, cfg Config, v moduleinstall.Verifier, logger *slog.Logger) error {
 	ui, err := assets.ConsoleUI()
 	if err != nil {
 		return fmt.Errorf("loading console UI: %w", err)
@@ -64,6 +69,7 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		plat:        newPlatformClient(cfg.PlatformURL, cfg.ProbeTimeout),
 		ui:          ui,
 		logger:      logger,
+		verify:      v,
 		mintLimiter: newSemaphore(mintConcurrency),
 	}
 
@@ -120,6 +126,10 @@ func (s *server) routes() http.Handler {
 	// The cloud phase. Every route is session-gated like the rest of /api. POST (paste)
 	// and DELETE (disconnect) carry no cloud identity — the paste path has no authenticated subject,
 	// and disconnect is the recovery path that must never require the cloud.
+	// Entitled artifacts. Installing one fetches signed bytes with the OPERATOR's own credential, which
+	// is why this route reads a second header the others do not; everything it places is local.
+	mux.HandleFunc("POST /api/artifacts", s.sess.requireSession(s.installArtifact))
+	mux.HandleFunc("DELETE /api/artifacts/{key}", s.sess.requireSession(s.removeArtifact))
 	mux.HandleFunc("POST /api/cloud", s.sess.requireSession(s.cloudApply))
 	mux.HandleFunc("DELETE /api/cloud", s.sess.requireSession(s.cloudDisable))
 	// GET /auth/callback is the PKCE landing page: it serves the same SPA shell, which reads the code
@@ -566,6 +576,41 @@ func (s *server) cloudContentBase() (base string, ok bool) {
 	return base, true
 }
 
+// cloudArtifactSigner returns the certificate-subject PREFIX the entitled publishing workflow signs
+// under, from the cloud mode file. The install path composes the rest per install — the ref naming the
+// key and version the operator asked for — so the subject it pins is specific to that request and to
+// nothing else, and no ref is ever configurable.
+//
+// ONE return, and deliberately not the (value, ok) shape of cloudContentBase above. There, ok means
+// "this deployment is in cloud mode" and an unusable value reads as ("", true). Here all three failure
+// modes — not cloud mode, absent, unusable — have one remedy (reconnect) and one consequence (refuse
+// the install), so a bool would be exactly prefix != "": redundant, and carrying the opposite meaning
+// to its neighbour for the same input. Empty means refuse.
+//
+// ABSENT MEANS REFUSE, not "do not gate". A deployment configured before this variable existed cannot
+// install artifacts until it reconnects. That is the right default for a verification anchor and the
+// opposite of DEPLOYMENT_PACKAGES, where absent means undetermined because it is a display concern.
+//
+// The shape is re-checked on read for cloudContentBase's stated reason: a check only on write makes
+// validity a property of "this console wrote this file", and the mode layer is a file on the operator's
+// host. The unusable case is logged because it and the absent case produce the identical refusal, and
+// the log is the only thing that tells an operator which one they have.
+func (s *server) cloudArtifactSigner() string {
+	vars, ok := s.cloudModeFile()
+	if !ok {
+		return ""
+	}
+	prefix := vars["DEPLOYMENT_ARTIFACT_SIGNER"]
+	if prefix == "" {
+		return ""
+	}
+	if err := artifactSignerPrefix(prefix); err != nil {
+		s.logger.Error("the cloud mode layer holds an unusable artifact signer; artifact installs will be refused", "err", err)
+		return ""
+	}
+	return prefix
+}
+
 // packagesResponse is the browse view: the public catalog, each package resolved to its latest
 // version's mountable modules.
 type packagesResponse struct {
@@ -612,12 +657,15 @@ func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 
 // mountedModuleView is one mounted stub plus its update state relative to the catalog.
 type mountedModuleView struct {
-	PackageKey    string `json:"packageKey"`
-	ModuleKey     string `json:"moduleKey"`
-	Name          string `json:"name,omitempty"`
-	Pin           string `json:"pin"`
-	MountedAt     string `json:"mountedAt,omitempty"`
-	Currency      string `json:"currency"` // current | outdated | unknown
+	PackageKey string `json:"packageKey"`
+	ModuleKey  string `json:"moduleKey"`
+	Name       string `json:"name,omitempty"`
+	Pin        string `json:"pin"`
+	MountedAt  string `json:"mountedAt,omitempty"`
+	// current | outdated | unknown | incomplete. The fourth is this list's own and is not a currency at
+	// all: the console owns the directory but the platform has nothing loadable in it, which the marker
+	// alone cannot tell you now that it is written before the stub.
+	Currency      string `json:"currency"`
 	LatestPin     string `json:"latestPin,omitempty"`
 	LatestVersion string `json:"latestVersion,omitempty"`
 }
@@ -635,13 +683,36 @@ type knowledgeGraphView struct {
 	MountedAt string `json:"mountedAt,omitempty"`
 }
 
-// modulesResponse is the mounted-modules inventory. Note carries a non-fatal reason (e.g. the catalog
-// was unreachable so currency could not be judged); the inventory itself is local and always renders.
-// KnowledgeGraph is present only when this deployment has a knowledge-graph connection mounted.
+// installedArtifactView is one installed artifact and its update state relative to the catalog. It is a
+// third list rather than a row among the mounts, for the same reason the knowledge-graph connection is:
+// they are three different things that happen to occupy one directory.
+//
+// Kind and Name come only from the catalog, so BOTH are empty when it is unreachable — nothing on disk
+// records them. A reader deciding what an artifact is may not treat an empty Kind as a default.
+type installedArtifactView struct {
+	ArtifactKey string `json:"artifactKey"`
+	Version     string `json:"version"`
+	Kind        string `json:"kind,omitempty"`
+	Name        string `json:"name,omitempty"`
+	InstalledAt string `json:"installedAt,omitempty"`
+	// current | outdated | unknown | unavailable. The fourth value is this list's own: an artifact whose
+	// every published version has been recalled has nothing to offer, which is not the same as being up to
+	// date and not the same as not knowing.
+	Currency      string `json:"currency"`
+	LatestVersion string `json:"latestVersion,omitempty"`
+}
+
+// modulesResponse is the inventory of everything in the modules directory. Note carries a non-fatal reason
+// (e.g. the catalog was unreachable so currency could not be judged); the inventory itself is local and
+// always renders. KnowledgeGraph is present only when this deployment has a knowledge-graph connection
+// mounted, and ArtifactRemovalNotice only when there is an artifact it could apply to — it is here rather
+// than only on the removal's own answer because the operator is owed it BEFORE they confirm.
 type modulesResponse struct {
-	Modules        []mountedModuleView `json:"modules"`
-	KnowledgeGraph *knowledgeGraphView `json:"knowledgeGraph,omitempty"`
-	Note           string              `json:"note,omitempty"`
+	Modules               []mountedModuleView     `json:"modules"`
+	KnowledgeGraph        *knowledgeGraphView     `json:"knowledgeGraph,omitempty"`
+	Artifacts             []installedArtifactView `json:"artifacts"`
+	ArtifactRemovalNotice string                  `json:"artifactRemovalNotice,omitempty"`
+	Note                  string                  `json:"note,omitempty"`
 }
 
 // modulesList reports the mounted stubs, their pins, and whether a newer content version is available.
@@ -670,10 +741,15 @@ func (s *server) modulesList(w http.ResponseWriter, r *http.Request) {
 		} else {
 			note = "the content catalog is unavailable, so update availability could not be checked"
 		}
+	} else {
+		// A configured-but-unusable content URL reads back as an empty base, and skipping the resolution
+		// silently would leave every currency "unknown" with nothing saying why.
+		note = "this deployment has no usable content service configured, so update availability could not be checked"
 	}
 
 	views := make([]mountedModuleView, 0, len(mounts))
-	for _, m := range mounts {
+	for _, md := range mounts {
+		m := md.marker
 		v := mountedModuleView{PackageKey: m.PackageKey, ModuleKey: m.ModuleKey, Pin: m.Pin, MountedAt: m.MountedAt, Currency: "unknown"}
 		if latest, ok := latestModule(catalog, m.PackageKey, m.ModuleKey); ok {
 			v.Name = latest.Name
@@ -685,16 +761,67 @@ func (s *server) modulesList(w http.ResponseWriter, r *http.Request) {
 				v.LatestVersion = latest.Version
 			}
 		}
+		// The marker says the console owns the directory; only the stub says the platform has something to
+		// load. Since the marker is written FIRST those stopped being the same question, and this view is
+		// one that claims a module is mounted — the knowledge-graph view already asks it, and asking it
+		// here is what stops a mount whose stub write failed from rendering a green "up to date" chip.
+		//
+		// The row STAYS. It carries the only Unmount control the panel has: a module the catalog no longer
+		// lists, an unreachable catalog, and an unsubscribed package all render their controls from this
+		// list, so dropping the row would leave the operator a note and nothing to act with. It is the
+		// CURRENCY that must stop lying, and no update is offered for a mount that is not there.
+		if !stubPresent(md.dir, moduleFileName(m.ModuleKey)) {
+			v.Currency = "incomplete"
+			v.LatestPin, v.LatestVersion = "", ""
+			note = joinNote(note, m.ModuleKey+" is recorded as mounted but its module file is not loadable — unmounting it is what clears this, and mounting it again restores it where the catalog still offers it")
+		}
 		views = append(views, v)
 	}
 
-	kg, kgNote := s.knowledgeGraph()
-	if kgNote != "" && note != "" {
-		note += "; " + kgNote
-	} else if kgNote != "" {
-		note = kgNote
+	// The artifacts, from the same directory and the second ownership question. A scan failure is not fatal
+	// to the whole inventory: the mounts still render, with a note.
+	artifacts := make([]installedArtifactView, 0)
+	installed, err := listArtifacts(s.cfg.ModulesDir)
+	if err != nil {
+		s.logger.Error("listing installed artifacts", "err", err)
+		note = joinNote(note, "the installed artifacts could not be read")
 	}
-	writeJSON(w, http.StatusOK, modulesResponse{Modules: views, KnowledgeGraph: kg, Note: note})
+	for _, a := range installed {
+		entry, found := latestArtifact(catalog, a.key)
+		currency, latest, curNote := artifactCurrency(a.key, a.version, entry, found)
+		artifacts = append(artifacts, installedArtifactView{
+			ArtifactKey: a.key, Version: a.version, Kind: entry.Kind, Name: entry.Name,
+			InstalledAt: a.installedAt, Currency: currency, LatestVersion: latest,
+		})
+		note = joinNote(note, curNote)
+	}
+
+	kg, kgNote := s.knowledgeGraph()
+	note = joinNote(note, kgNote)
+
+	removalNotice := ""
+	if len(artifacts) > 0 {
+		removalNotice = artifactRemovalConsequence
+	}
+	writeJSON(w, http.StatusOK, modulesResponse{
+		Modules: views, KnowledgeGraph: kg, Artifacts: artifacts,
+		ArtifactRemovalNotice: removalNotice, Note: note,
+	})
+}
+
+// joinNote appends one non-fatal reason to the response note. There is one note field and several things
+// that can degrade in one request — an unreachable catalog, an unreadable artifact directory, a comparison
+// that could not be made, a knowledge-graph mount in its half state — so they are joined rather than
+// allowed to overwrite each other.
+func joinNote(note, add string) string {
+	switch {
+	case add == "":
+		return note
+	case note == "":
+		return add
+	default:
+		return note + "; " + add
+	}
 }
 
 // knowledgeGraph reports the mounted knowledge-graph connection, if there is one.
@@ -717,8 +844,12 @@ func (s *server) knowledgeGraph() (*knowledgeGraphView, string) {
 	// readKgMarker is the ownership test as well as the read — a directory carrying someone else's
 	// marker is not a connection this console made, and is not reported as one.
 	marker, markerErr := readKgMarker(dir)
+	// The marker alone is no longer proof of a mount: it is written BEFORE the stub, so a mount whose
+	// stub write failed carries the marker without the module the platform loads. Both, or this is the
+	// half state the note below is for.
+	mounted := markerErr == nil && stubPresent(dir, moduleFileName(kgModuleKey))
 	switch {
-	case version != "" && markerErr == nil:
+	case version != "" && mounted:
 		return &knowledgeGraphView{Version: version, MountedAt: marker.MountedAt}, ""
 	case version != "":
 		return nil, "this deployment is configured for a knowledge-graph service but its module is not mounted — disconnect and reconnect to restore it"
@@ -769,21 +900,43 @@ func (s *server) mountModule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid module key", http.StatusBadRequest)
 		return
 	}
+	// After the decode, so a malformed body is answered as one rather than as a busy console — the rule
+	// installArtifact states where it takes the same lock. A mount writes into the same custom_modules/<key>
+	// namespace an install swaps into, and the stat below and the write after it are not adjacent.
+	if !modulesOps.TryLock() {
+		http.Error(w, modulesBusy, http.StatusConflict)
+		return
+	}
+	defer modulesOps.Unlock()
 	// Never write over a directory the console did not create. Re-mounting the console's own stub (a
 	// pin advance) is allowed; anything else with this name is refused.
 	if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() && !hasOurMarker(dir) {
+		// Symmetric with unmountModule: an installed artifact IS a directory the console created, so the
+		// sentence below would be false about it, and the operator's move is on the artifacts panel.
+		//
+		// Lstat rather than the Stat above, deliberately. With a symlink at this name Stat follows it and
+		// isArtifactMount would read a marker through the link — but listArtifacts skips symlinks and
+		// removeArtifact refuses them, so the operator would be sent to a panel that never shows it. The
+		// outer guard keeps its Stat: switching THAT to Lstat would stop it firing for a symlink at all,
+		// which is a refusal this console must keep.
+		if li, lerr := os.Lstat(dir); lerr == nil && li.Mode().IsDir() && isArtifactMount(dir) {
+			http.Error(w, "an installed artifact is using this name — remove it from the artifacts panel before mounting a module here", http.StatusConflict)
+			return
+		}
 		http.Error(w, "a module directory with this name already exists and was not created by the console", http.StatusConflict)
 		return
 	}
-	warn, err := writeStub(dir, body.ModuleKey, body.Pin)
-	if err != nil {
-		s.logger.Error("writing module stub", "err", err)
-		http.Error(w, "writing the module mount", http.StatusInternalServerError)
-		return
-	}
 	marker := mountMarker{Schema: mountMarkerSchema, PackageKey: body.PackageKey, ModuleKey: body.ModuleKey, Pin: body.Pin, MountedAt: time.Now().UTC().Format(time.RFC3339)}
-	if err := writeMarker(dir, marker); err != nil {
-		s.logger.Error("writing mount marker", "err", err)
+	warn, err := writeContentMount(dir, marker)
+	if err != nil {
+		s.logger.Error("writing the module mount", "err", err)
+		// The one failure the operator can act on differently: the directory is owned, so a retry
+		// completes it and an unmount removes it — and until then the recorded pin is ahead of the
+		// stub. Saying so is cheaper than leaving it to be discovered as a module serving old content.
+		if errors.Is(err, errStubNotWritten) {
+			http.Error(w, "the mount was recorded but its module file could not be written — mount it again to complete it, or unmount it", http.StatusInternalServerError)
+			return
+		}
 		http.Error(w, "writing the module mount", http.StatusInternalServerError)
 		return
 	}
@@ -818,12 +971,26 @@ func (s *server) unmountModule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid module key", http.StatusBadRequest)
 		return
 	}
+	// At entry: this handler has no body to answer as malformed, and its ownership read and its
+	// os.RemoveAll are not adjacent — the same gap the install path takes this lock for.
+	if !modulesOps.TryLock() {
+		http.Error(w, modulesBusy, http.StatusConflict)
+		return
+	}
+	defer modulesOps.Unlock()
 	info, statErr := os.Stat(dir)
 	if statErr != nil || !info.IsDir() {
 		http.Error(w, "no module is mounted under this key", http.StatusNotFound)
 		return
 	}
 	if !hasOurMarker(dir) {
+		// An installed artifact IS a directory the console created, so the sentence below would be false
+		// about it — and it is removed from the artifact surface, which is a thing the operator can be
+		// told rather than left to discover.
+		if isArtifactMount(dir) {
+			http.Error(w, "this is an installed artifact, not a content mount — remove it from the artifacts panel instead", http.StatusConflict)
+			return
+		}
 		http.Error(w, "this module directory was not created by the console and will not be removed", http.StatusConflict)
 		return
 	}

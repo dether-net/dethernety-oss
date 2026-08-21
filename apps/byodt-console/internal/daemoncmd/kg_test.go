@@ -186,7 +186,7 @@ func TestKgMountAndContentMountNeverTouchEachOther(t *testing.T) {
 	}
 	cases := map[string]func(dir string){
 		"a content mount": func(dir string) {
-			if err := writeMarker(dir, mountMarker{Schema: mountMarkerSchema, ModuleKey: kgModuleKey, Pin: pinA}); err != nil {
+			if err := writeMarkerNamed(dir, mountMarkerName, mountMarker{Schema: mountMarkerSchema, ModuleKey: kgModuleKey, Pin: pinA}); err != nil {
 				panic(err)
 			}
 		},
@@ -465,5 +465,100 @@ func TestContentMountHandlersReserveTheKnowledgeGraphKey(t *testing.T) {
 	code, body = send(t, http.MethodDelete, base+"/api/modules/"+kgModuleKey, sid, "")
 	if code != http.StatusConflict || !strings.Contains(body, "reserved") {
 		t.Fatalf("unmounting the reserved key must be refused as reserved, got %d %s", code, body)
+	}
+}
+
+// ── The mount write's order, on this side ────────────────────────────────────────────────────────
+
+// seedKgMountWithoutItsStub writes a complete knowledge-graph mount and then removes the stub, leaving a
+// directory the console owns and the platform cannot load from. Both cases below start here: the mount
+// must be RE-mountable for the write to be reached at all, so a foreign or absent directory would be
+// refused at the ownership gate instead.
+func seedKgMountWithoutItsStub(t *testing.T) (modules, dir string) {
+	t.Helper()
+	modules = t.TempDir()
+	if _, err := mountKg(modules, "2026-08-20T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	dir = filepath.Join(modules, kgModuleKey)
+	if err := os.Remove(filepath.Join(dir, moduleFileName(kgModuleKey))); err != nil {
+		t.Fatal(err)
+	}
+	return modules, dir
+}
+
+func TestMountKgLeavesNoStubWhenTheMarkerFails(t *testing.T) {
+	skipIfRoot(t)
+	// The content side forces this by putting a DIRECTORY at the marker path. That does not work here:
+	// isKgMount parses the marker, so a directory in its place makes the read fail and mountKg refuses
+	// at the ownership gate before writing anything. A read-only marker file fails the write instead,
+	// with the ownership check still passing.
+	modules, dir := seedKgMountWithoutItsStub(t)
+	marker := filepath.Join(dir, kgMarkerName)
+	if err := os.Chmod(marker, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(marker, 0o644) })
+
+	if _, err := mountKg(modules, "2026-08-20T11:00:00Z"); err == nil {
+		t.Fatal("a failed marker write must fail the mount")
+	}
+	if _, err := os.Stat(filepath.Join(dir, moduleFileName(kgModuleKey))); !os.IsNotExist(err) {
+		t.Fatalf("the platform must never see a loadable module the console did not mark, got %v", err)
+	}
+}
+
+func TestMountKgStubFailureIsUnmountable(t *testing.T) {
+	skipIfRoot(t)
+	modules, dir := seedKgMountWithoutItsStub(t)
+	// 0555 refuses the creation of the stub while leaving the marker — already there — writable.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	if _, err := mountKg(modules, "2026-08-20T11:00:00Z"); err == nil {
+		t.Fatal("a failed stub write must fail the mount")
+	}
+	if !isKgMount(dir) {
+		t.Fatal("a stub failure must leave the directory marked — that is what makes it removable")
+	}
+	// The point of the ordering on this side: a stub failure no longer strands a directory that
+	// disconnect can neither recognise nor remove.
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := unmountKg(modules); err != nil {
+		t.Fatalf("disconnect must be able to remove a half-written mount, got %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the directory must be gone, got %v", err)
+	}
+}
+
+func TestModulesListNotesAMarkedMountWithNoModule(t *testing.T) {
+	// The marker is written BEFORE the stub, so marker presence alone is no longer proof of a mount:
+	// a stub write that failed during an apply leaves one without the other. A connection is the pin
+	// AND something the platform can load, or it is the half state and says so.
+	kg := fakeKg(t, kgListing(kgVersionA), nil)
+	defer kg.Close()
+	base, sid, s := newKgServer(t)
+	if code, body := send(t, http.MethodPost, base+"/api/cloud", sid, applyBodyWithKg(kg.URL, "https://front.example/auth/callback")); code != http.StatusOK {
+		t.Fatalf("apply must be 200, got %d %s", code, body)
+	}
+	if err := os.Remove(filepath.Join(s.cfg.ModulesDir, kgModuleKey, moduleFileName(kgModuleKey))); err != nil {
+		t.Fatal(err)
+	}
+
+	_, invBody := get(t, base, "/api/modules", sid)
+	var inv modulesResponse
+	if err := json.Unmarshal(invBody, &inv); err != nil {
+		t.Fatal(err)
+	}
+	if inv.KnowledgeGraph != nil {
+		t.Fatalf("a marker with no loadable module is not a connection, got %s", invBody)
+	}
+	if !strings.Contains(inv.Note, "not mounted") {
+		t.Fatalf("the half state must be surfaced, got %q", inv.Note)
 	}
 }

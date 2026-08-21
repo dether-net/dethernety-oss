@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, clearIdToken, clearSession, mintCloud, mintLocal, setIdToken } from '@/api'
+import { api, cloudAccessToken, clearCloudTokens, clearSession, mintCloud, mintLocal, setCloudTokens } from '@/api'
 
 // The content methods are thin wrappers over the request helper; these lock the URL, verb, and body so
 // the wire contract with the daemon cannot drift silently.
@@ -31,7 +31,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Pr
 
 beforeEach(() => {
   clearSession()
-  clearIdToken()
+  clearCloudTokens()
   sessionStatus = 200
   lastUrl = ''
   lastInit = undefined
@@ -70,6 +70,36 @@ describe('api content methods', () => {
     expect(lastUrl).toBe('/api/modules/acme-compute')
     expect(lastInit?.method).toBe('DELETE')
   })
+
+  // postEntitled is the ONE call that forwards the operator's access token, and until these two cases it
+  // was the only wire contract in this file with no test at all: every component test mocks
+  // api.installArtifact wholesale, so nothing anywhere reached the header. Deleting the line that attaches
+  // it left both suites green while every install answered "a cloud sign-in is required" in production.
+  it('POSTs an install carrying the operator access token as well as the session and the ID token', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    await api.installArtifact({ artifactKey: 'acme-risk', version: '1.3.0' })
+    expect(lastUrl).toBe('/api/artifacts')
+    expect(lastInit?.method).toBe('POST')
+    expect(JSON.parse(String(lastInit?.body))).toEqual({ artifactKey: 'acme-risk', version: '1.3.0' })
+    const headers = new Headers(lastInit?.headers)
+    expect(headers.get('X-Console-Cloud-Token')).toBe('the-access-token')
+    // Both, on their own headers: two tokens for two audiences cannot share one.
+    expect(authOf(lastInit)).toBe('Bearer the-id-token')
+  })
+
+  it('omits the cloud-token header when there is no access token, rather than sending it empty', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: '' })
+    await api.installArtifact({ artifactKey: 'acme-risk', version: '1.3.0' })
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
+  })
+
+  it('DELETEs an artifact without the access token — removal is a local file operation', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    await api.removeArtifact('acme-risk')
+    expect(lastUrl).toBe('/api/artifacts/acme-risk')
+    expect(lastInit?.method).toBe('DELETE')
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
+  })
 })
 
 describe('api sign-in (posture-driven)', () => {
@@ -89,7 +119,7 @@ describe('api sign-in (posture-driven)', () => {
   })
 
   it('mints a cloud session by presenting the ID token as a bearer', async () => {
-    const sess = await mintCloud('id-tok')
+    const sess = await mintCloud({ idToken: 'id-tok', accessToken: 'acc-tok' })
     expect(lastUrl).toBe('/api/session')
     expect(lastInit?.method).toBe('POST')
     expect(authOf(lastInit)).toBe('Bearer id-tok')
@@ -98,15 +128,34 @@ describe('api sign-in (posture-driven)', () => {
 
   it('treats a 503 cloud mint as a retry, not a failure', async () => {
     sessionStatus = 503
-    await expect(mintCloud('id-tok')).rejects.toThrow(/retry/i)
+    await expect(mintCloud({ idToken: 'id-tok', accessToken: 'acc-tok' })).rejects.toThrow(/retry/i)
   })
 
   it('attaches the ID token as a bearer on gated requests once it is set, and drops it when cleared', async () => {
-    setIdToken('the-id-token')
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
     await api.state()
     expect(authOf(lastInit)).toBe('Bearer the-id-token')
-    clearIdToken()
+    clearCloudTokens()
     await api.state()
     expect(authOf(lastInit)).toBe('')
+  })
+
+  it('never attaches the access token to a gated request', async () => {
+    // Two tokens for two audiences. The access token belongs to the content service and is carried
+    // only by the routes that forward it — nothing may attach it automatically, on any header.
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    await api.state()
+    const headers = new Headers(lastInit?.headers)
+    expect(headers.get('X-Console-Cloud-Token')).toBeNull()
+    expect(authOf(lastInit)).toBe('Bearer the-id-token')
+  })
+
+  it('stores the access token on a cloud mint and clears it with the session', async () => {
+    await mintCloud({ idToken: 'id-tok', accessToken: 'acc-tok' })
+    expect(cloudAccessToken()).toBe('acc-tok')
+    // The session and the tokens are one lifetime: request()'s 401 path calls clearSession() alone,
+    // and a token that outlived it could only be re-sent on a request that would be rejected again.
+    clearSession()
+    expect(cloudAccessToken()).toBe('')
   })
 })

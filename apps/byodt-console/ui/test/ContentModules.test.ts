@@ -1,12 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ContentModules from '@/components/ContentModules.vue'
-import type { CatalogPackage, MountedModule } from '@/api'
+import { clearCloudTokens, setCloudTokens, type CatalogPackage, type MountedModule } from '@/api'
 
 const packages = vi.fn()
 const modules = vi.fn()
 const mountModule = vi.fn()
 const unmountModule = vi.fn()
+const installArtifact = vi.fn()
 
 vi.mock('@/api', async () => {
   const actual = await vi.importActual<typeof import('@/api')>('@/api')
@@ -17,6 +18,7 @@ vi.mock('@/api', async () => {
       modules: () => modules(),
       mountModule: (req: unknown) => mountModule(req),
       unmountModule: (key: string) => unmountModule(key),
+      installArtifact: (req: unknown) => installArtifact(req),
     },
   }
 })
@@ -26,6 +28,10 @@ afterEach(() => {
   modules.mockReset()
   mountModule.mockReset()
   unmountModule.mockReset()
+  installArtifact.mockReset()
+  // The tokens are module-level state in the real api module, which the mock spreads through — so a test
+  // that sets them would otherwise leak them into every test that runs after it.
+  clearCloudTokens()
 })
 
 const catalog: CatalogPackage[] = [
@@ -33,6 +39,7 @@ const catalog: CatalogPackage[] = [
     key: 'acme-cloud',
     name: 'Acme Cloud',
     version: '1.4.0',
+    artifacts: [],
     modules: [
       { key: 'acme-compute', name: 'Acme Compute', version: '1.4.0', contentHash: 'sha256:aaa' },
       { key: 'acme-net', name: 'Acme Net', version: '1.4.0', contentHash: 'sha256:ccc' },
@@ -247,6 +254,41 @@ describe('ContentModules', () => {
     w.unmount()
   })
 
+  it('renders a stub-less mount as incomplete, never as up to date, and keeps its Unmount', async () => {
+    // The operator-facing half of the daemon's 'incomplete' currency. Without the chip arm it falls through
+    // to "update unknown", which is a differently misleading thing to say beside an Unmount button about a
+    // module that will not be there at the next restart.
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({
+      modules: [
+        {
+          packageKey: 'acme-cloud',
+          moduleKey: 'acme-compute',
+          name: 'Acme Compute',
+          pin: 'sha256:aaa',
+          currency: 'incomplete',
+        },
+      ] as MountedModule[],
+      note: 'acme-compute is recorded as mounted but its module file is not loadable — unmounting it is what clears this',
+    })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await expand(w)
+
+    expect(w.text()).toContain('module file missing')
+    expect(w.text()).not.toContain('up to date')
+    expect(w.text()).not.toContain('update unknown')
+    // The row keeps the only control that clears the state, and offers no update for a mount that is
+    // not there.
+    const unmount = w.findAll('button').filter((b) => b.text() === 'Unmount')
+    expect(unmount.length).toBe(1)
+    expect(unmount[0].attributes('disabled')).toBeUndefined()
+    expect(w.findAll('button').filter((b) => b.text() === 'Update')).toHaveLength(0)
+    // And the daemon's note carries the remedy.
+    expect(w.text()).toContain('unmounting it is what clears this')
+    w.unmount()
+  })
+
   it('gates an unsubscribed package: Not subscribed, disabled Mount, Subscribe link', async () => {
     packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: false }] })
     modules.mockResolvedValue({ modules: [] as MountedModule[] })
@@ -325,5 +367,66 @@ describe('ContentModules', () => {
     expect(w.find('[data-kg-connection]').exists()).toBe(false)
     expect(w.text()).not.toContain('Knowledge graph')
     w.unmount()
+  })
+})
+
+describe('ContentModules and the artifact panel', () => {
+  it('raises the mount path\'s own restart banner for an artifact install, not a second one', async () => {
+    // The whole reason the artifact panel is a child rather than a sibling: an install and a mount are two
+    // writes into one directory that apply at one restart, so they share one reminder.
+    setCloudTokens({ idToken: 'id', accessToken: 'acc' })
+    packages.mockResolvedValue({
+      packages: [
+        {
+          key: 'acme-cloud',
+          name: 'Acme Cloud',
+          version: '1.0.0',
+          modules: [],
+          artifacts: [{ key: 'acme-risk', name: 'Acme Risk', kind: 'code-module', latest: '1.3.0' }],
+        },
+      ],
+    })
+    modules.mockResolvedValue({
+      modules: [],
+      artifacts: [{ artifactKey: 'acme-risk', version: '1.2.0', kind: 'code-module', currency: 'outdated', latestVersion: '1.3.0' }],
+      artifactRemovalNotice: 'Removing this deletes the classes this module provides.',
+    })
+    installArtifact.mockResolvedValue({ status: 'installed', artifactKey: 'acme-risk', version: '1.3.0', message: 'artifact installed' })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    expect(w.find('[data-restart-required]').exists()).toBe(false)
+    expect(w.find('[data-artifacts]').exists()).toBe(true)
+
+    await w.get('[data-artifact-install]').trigger('click')
+    await flushPromises()
+
+    expect(installArtifact).toHaveBeenCalledWith({ artifactKey: 'acme-risk', version: '1.3.0' })
+    expect(w.findAll('[data-restart-required]')).toHaveLength(1)
+    expect(w.find('[data-restart-required]').text()).toContain('byodt restart platform')
+  })
+})
+
+describe('ContentModules empty state with an artifact', () => {
+  it('does not call the tab empty when an artifact is installed', async () => {
+    // A deployment with an installed artifact and no catalog packages has content, not none — and the
+    // empty line would render directly above the panel that proves it.
+    packages.mockResolvedValue({ packages: [] })
+    modules.mockResolvedValue({
+      modules: [],
+      artifacts: [{ artifactKey: 'acme-risk', version: '1.2.0', kind: 'code-module', currency: 'unknown' }],
+    })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.find('[data-empty]').exists()).toBe(false)
+    expect(w.find('[data-artifact-row]').exists()).toBe(true)
+  })
+
+  it('still calls the tab empty when there is genuinely nothing', async () => {
+    packages.mockResolvedValue({ packages: [] })
+    modules.mockResolvedValue({ modules: [], artifacts: [] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.find('[data-empty]').exists()).toBe(true)
   })
 })

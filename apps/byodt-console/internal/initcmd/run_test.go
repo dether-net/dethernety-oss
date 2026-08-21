@@ -8,19 +8,21 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/moduleinstall/moduleinstalltest"
 )
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 func TestRunVersionMismatchAborts(t *testing.T) {
 	cfg := Config{Version: "1.0.0", PlatformVersion: "2.0.0"}
-	if res := Run(context.Background(), cfg, fakeVerifier{}, discardLogger()); !res.AbortDeployment {
+	if res := Run(context.Background(), cfg, moduleinstalltest.FakeVerifier{}, discardLogger()); !res.AbortDeployment {
 		t.Fatal("a version mismatch must abort the deployment")
 	}
 }
 
 func TestRunEmptyPlatformVersionAborts(t *testing.T) {
-	if res := Run(context.Background(), Config{}, fakeVerifier{}, discardLogger()); !res.AbortDeployment {
+	if res := Run(context.Background(), Config{}, moduleinstalltest.FakeVerifier{}, discardLogger()); !res.AbortDeployment {
 		t.Fatal("a missing PLATFORM_VERSION must abort")
 	}
 }
@@ -37,7 +39,7 @@ func TestRunSchemaFailureAborts(t *testing.T) {
 		EnableNoauth:     true,
 		SchemaNoauthPath: filepath.Join(file, "schema-noauth.graphql"),
 	}
-	if res := Run(context.Background(), cfg, fakeVerifier{}, discardLogger()); !res.AbortDeployment {
+	if res := Run(context.Background(), cfg, moduleinstalltest.FakeVerifier{}, discardLogger()); !res.AbortDeployment {
 		t.Fatal("a schema placement failure must abort")
 	}
 }
@@ -57,7 +59,7 @@ func TestRunModuleAndIngestFailuresDoNotAbort(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	res := Run(ctx, cfg, fakeVerifier{}, discardLogger())
+	res := Run(ctx, cfg, moduleinstalltest.FakeVerifier{}, discardLogger())
 	if res.AbortDeployment {
 		t.Fatalf("module/ingest failures must not abort the deployment: %v", res.Err)
 	}

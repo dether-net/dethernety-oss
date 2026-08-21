@@ -71,7 +71,13 @@ func runDaemon(logger *slog.Logger) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := daemoncmd.Run(ctx, cfg, logger); err != nil {
+	v, err := moduleverify.New()
+	if err != nil {
+		logger.Error("initialising signature verifier", "err", err)
+		os.Exit(1)
+	}
+
+	if err := daemoncmd.Run(ctx, cfg, v, logger); err != nil {
 		logger.Error("byodt-console daemon", "err", err)
 		os.Exit(1)
 	}

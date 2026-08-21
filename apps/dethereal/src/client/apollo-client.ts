@@ -6,12 +6,30 @@
  * Uses idToken from Cognito as the Bearer token.
  */
 
-import { createRequire } from 'module'
+import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
 import type { ApolloClient as ApolloClientTypeImport } from '@apollo/client'
 
-// Use createRequire for CommonJS module in ESM context
-const require = createRequire(import.meta.url)
-const { ApolloClient, InMemoryCache, HttpLink } = require('@apollo/client')
+// Apollo 4 requires application-wide default options to be DECLARED before they
+// can be set, so call sites downstream are typed against the same default.
+// Without this block, `errorPolicy: 'none'` below is a type error whose message
+// is the instruction to add it.
+//
+// This became visible only when the client stopped being loaded through
+// `createRequire`, which returned `any` and type-checked nothing: the
+// `errorPolicy: 'none'` intent was asserted at runtime and unverified at
+// compile time. Keep the declaration and the explicit setting in step.
+declare module '@apollo/client' {
+  namespace ApolloClient {
+    namespace DeclareDefaultOptions {
+      interface Query {
+        errorPolicy: 'none'
+      }
+      interface Mutate {
+        errorPolicy: 'none'
+      }
+    }
+  }
+}
 
 type ApolloClientType = ApolloClientTypeImport
 import fetch from 'cross-fetch'

@@ -42,14 +42,28 @@ describe('auth (PKCE)', () => {
   it('exchanges the code for the ID token and validates state', async () => {
     sessionStorage.setItem('console_pkce_state', 'st-1')
     sessionStorage.setItem('console_pkce_verifier', 'ver-1')
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ id_token: 'idtok' }), { status: 200 }))
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ id_token: 'idtok', access_token: 'acctok' }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const idToken = await completeSignIn(cfg, redirect, 'the-code', 'st-1')
-    expect(idToken).toBe('idtok')
+    const tokens = await completeSignIn(cfg, redirect, 'the-code', 'st-1')
+    expect(tokens.idToken).toBe('idtok')
+    expect(tokens.accessToken).toBe('acctok')
     // The token endpoint was hit; the PKCE material is cleared.
     expect(String(fetchMock.mock.calls[0][0])).toBe(`https://${cfg.domain}/oauth2/token`)
     expect(sessionStorage.getItem('console_pkce_verifier')).toBeNull()
+  })
+
+  it('signs in even when the token response carries no access token', async () => {
+    // Only artifact installs need it. Refusing to sign in would break every other operator function
+    // on a deployment whose OIDC_SCOPE is missing the content.access scope — the remedy for which is
+    // to regenerate the recipe, not to sign in again.
+    sessionStorage.setItem('console_pkce_state', 'st-1')
+    sessionStorage.setItem('console_pkce_verifier', 'ver-1')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id_token: 'idtok' }), { status: 200 })))
+
+    const tokens = await completeSignIn(cfg, redirect, 'the-code', 'st-1')
+    expect(tokens.idToken).toBe('idtok')
+    expect(tokens.accessToken).toBe('')
   })
 
   it('rejects a state mismatch', async () => {
