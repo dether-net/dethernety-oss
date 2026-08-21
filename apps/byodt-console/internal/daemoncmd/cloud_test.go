@@ -362,3 +362,74 @@ func TestCloudModeVarsHoldsOIDCDomainToABareHost(t *testing.T) {
 		}
 	}
 }
+
+// ── The artifact signer, as configuration ────────────────────────────────────────────────────────
+
+// signerOK is a well-formed signer prefix: an https workflow path carrying no ref.
+const signerOK = "https://github.example/acme/acme-artifacts/.github/workflows/publish-artifact.yml"
+
+func TestArtifactSignerShape(t *testing.T) {
+	if err := artifactSignerPrefix(signerOK); err != nil {
+		t.Fatalf("a canonical prefix must be accepted, got %v", err)
+	}
+	if err := artifactSignerPrefix("https://github.example/acme/a/.github/workflows/p.yaml"); err != nil {
+		t.Fatalf(".yaml must be accepted, got %v", err)
+	}
+	// Every row is either a value a PARSED-url check would have accepted — url.Parse lifts userinfo
+	// into u.User, strips query and fragment out of u.Path, and lowercases the scheme — or a typo that
+	// can never string-equal a real certificate subject. The table is the argument for checking raw.
+	bad := map[string]string{
+		"a configured ref":      signerOK + "@refs/tags/artifact/x/1.0.0",
+		"userinfo":              "https://github.example@evil.example/a/b/.github/workflows/p.yml",
+		"plaintext":             "http://github.example/a/b/.github/workflows/p.yml",
+		"an uppercase scheme":   "HTTPS://github.example/a/b/.github/workflows/p.yml",
+		"a query":               signerOK + "?x=1",
+		"a fragment":            signerOK + "#x",
+		"a trailing slash":      signerOK + "/",
+		"a relative segment":    "https://github.example/a/b/../../.github/workflows/p.yml",
+		"an embedded space":     "https://github.example/a/b/.github/workflows/p q.yml",
+		"no workflows path":     "https://github.example/a/b/publish.yml",
+		"no owner and repo":     "https://github.example/.github/workflows/p.yml",
+		"a non-yaml suffix":     "https://github.example/a/b/.github/workflows/p.txt",
+		"a second file segment": "https://github.example/a/b/.github/workflows/nested/p.yml",
+		"empty":                 "",
+	}
+	for name, raw := range bad {
+		if err := artifactSignerPrefix(raw); err == nil {
+			t.Errorf("%s must be refused: %q", name, raw)
+		}
+	}
+}
+
+func TestRecipeWithoutTheArtifactSignerApplies(t *testing.T) {
+	// Every recipe issued before the variable existed. This is the case that fails if it lands in
+	// acceptedRecipeVars, which requires present-and-non-empty.
+	vars, _, err := cloudModeVars(validRecipeVars(), "https://front.example/auth/callback", "/cache")
+	if err != nil {
+		t.Fatalf("a recipe carrying no artifact signer must apply, got %v", err)
+	}
+	if v, present := vars["DEPLOYMENT_ARTIFACT_SIGNER"]; present && v != "" {
+		t.Fatalf("no signer must be invented, got %q", v)
+	}
+}
+
+func TestRecipeCopiesAGoodArtifactSignerVerbatim(t *testing.T) {
+	recipe := validRecipeVars()
+	recipe["DEPLOYMENT_ARTIFACT_SIGNER"] = signerOK
+	vars, _, err := cloudModeVars(recipe, "https://front.example/auth/callback", "/cache")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vars["DEPLOYMENT_ARTIFACT_SIGNER"] != signerOK {
+		t.Fatalf("the signer must survive verbatim, got %q", vars["DEPLOYMENT_ARTIFACT_SIGNER"])
+	}
+}
+
+func TestRecipeRejectsABadArtifactSignerByName(t *testing.T) {
+	recipe := validRecipeVars()
+	recipe["DEPLOYMENT_ARTIFACT_SIGNER"] = signerOK + "@refs/tags/artifact/x/1.0.0"
+	_, _, err := cloudModeVars(recipe, "https://front.example/auth/callback", "/cache")
+	if err == nil || !strings.Contains(err.Error(), "DEPLOYMENT_ARTIFACT_SIGNER") {
+		t.Fatalf("the refusal must name the variable at fault, got %v", err)
+	}
+}

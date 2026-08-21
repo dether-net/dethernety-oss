@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/assets"
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/moduleinstall/moduleinstalltest"
 )
 
 // fakePlatform serves the three endpoints the daemon probes. registered drives the GraphQL
@@ -74,8 +75,12 @@ func newTestServer(t *testing.T, platformURL, statePath string) *server {
 		t.Fatal(err)
 	}
 	return &server{
-		cfg:         Config{StatePath: statePath, PlatformURL: platformURL, ModeLayerPath: filepath.Join(t.TempDir(), "mode.env"), ContentCacheDir: "/graph/module-content-cache", ProbeTimeout: 5 * time.Second},
-		sess:        newSessions(),
+		cfg:  Config{StatePath: statePath, PlatformURL: platformURL, ModeLayerPath: filepath.Join(t.TempDir(), "mode.env"), ContentCacheDir: "/graph/module-content-cache", ProbeTimeout: 5 * time.Second},
+		sess: newSessions(),
+		// Set deliberately: the composite literal is keyed, so a forgotten verifier would compile and
+		// only surface as a nil-pointer panic inside an install test. Tests that care about what the
+		// seam was called with replace it.
+		verify:      moduleinstalltest.FakeVerifier{},
 		plat:        newPlatformClient(platformURL, 5*time.Second),
 		ui:          ui,
 		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -672,4 +677,46 @@ func TestCloudContentBaseRefusesAnOffSpecBase(t *testing.T) {
 			t.Fatalf("got %q ok=%v", base, ok)
 		}
 	})
+}
+
+func TestCloudArtifactSignerReadsAndRefuses(t *testing.T) {
+	// A server in cloud mode whose mode layer carries whatever the case under test writes. Writing the
+	// file directly is the point of the third case: the mode layer is a file on the operator's host, so
+	// "the write path checked it" is not the same claim as "the value being used is usable".
+	newSigned := func(t *testing.T, signer string) *server {
+		t.Helper()
+		s := newTestServer(t, "http://platform.invalid", filepath.Join(t.TempDir(), "state.json"))
+		seedCloudContentFile(t, s.cfg.ModeLayerPath, "https://content.example")
+		if signer != "" {
+			vars, err := readModeLayer(s.cfg.ModeLayerPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			vars["DEPLOYMENT_ARTIFACT_SIGNER"] = signer
+			if err := writeModeLayer(s.cfg.ModeLayerPath, vars); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return s
+	}
+
+	if got := newSigned(t, signerOK).cloudArtifactSigner(); got != signerOK {
+		t.Fatalf("a usable signer must read back verbatim, got %q", got)
+	}
+	if got := newSigned(t, "").cloudArtifactSigner(); got != "" {
+		t.Fatalf("absent must refuse, got %q", got)
+	}
+	// The on-read re-check earning its place: a value that never passed the write path, because it was
+	// not written by this console.
+	if got := newSigned(t, signerOK+"@refs/tags/artifact/x/1.0.0").cloudArtifactSigner(); got != "" {
+		t.Fatalf("an unusable signer must refuse rather than be composed onto, got %q", got)
+	}
+	// Outside cloud mode there is no configuration at all, and the same refusal is the right answer.
+	local := newTestServer(t, "http://platform.invalid", filepath.Join(t.TempDir(), "state.json"))
+	if err := writeModeLayer(local.cfg.ModeLayerPath, pureOSSModeVars()); err != nil {
+		t.Fatal(err)
+	}
+	if got := local.cloudArtifactSigner(); got != "" {
+		t.Fatalf("pure-OSS must refuse, got %q", got)
+	}
 }

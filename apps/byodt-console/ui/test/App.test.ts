@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
-import { clearIdToken, clearSession, setSession, type ModeView, type PostureView, type StateView } from '@/api'
+import { clearCloudTokens, clearSession, setSession, type ModeView, type PostureView, type StateView } from '@/api'
 
 // The PKCE module is mocked: the callback tests drive App's exchange paths without real crypto or a
 // redirect, and the SSO-button test asserts beginSignIn is invoked.
@@ -41,6 +41,8 @@ let stateStatus = 200
 let lastSessionAuth = '' // the Authorization the mint (POST /api/session) carried — '' in local posture
 // The catalog body the content panels fetch; overridden per test to drive a mount.
 let packagesBody: unknown = { packages: [] }
+// The local inventory the content panels fetch; overridden per test to render an artifact row.
+let modulesBody: unknown = { modules: [], artifacts: [] }
 // Recovery-path controls: simulate a posture FLIP between mount and the 401-recovery re-fetch. postureCall
 // counts /api/posture hits; the 2nd+ hit returns postureBodyAfter (if set), or fails if postureFailOnRefetch.
 // mode401Once makes just the first /api/mode call 401 (a transient session drop that then recovers).
@@ -79,7 +81,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Pr
   }
   // Content routes the post-cloud content panels poll. Empty is enough to prove the section renders.
   if (url === '/api/packages') return new Response(JSON.stringify(packagesBody), { status: 200 })
-  if (url === '/api/modules' && method === 'GET') return new Response(JSON.stringify({ modules: [] }), { status: 200 })
+  if (url === '/api/modules' && method === 'GET') return new Response(JSON.stringify(modulesBody), { status: 200 })
   if (url === '/api/modules' && method === 'POST') return new Response(JSON.stringify({ status: 'mounted', message: 'module mounted' }), { status: 200 })
   if (url === '/api/cloud') return new Response(JSON.stringify({ status: 'applied', message: 'cloud configuration written' }), { status: 200 })
   return new Response('not found', { status: 404 })
@@ -91,6 +93,7 @@ beforeEach(() => {
   modeStatus = 200
   stateStatus = 200
   modeBody = { ...defaultMode }
+  modulesBody = { modules: [], artifacts: [] }
   postureBody = { posture: 'local', authDisabled: true }
   lastSessionAuth = ''
   packagesBody = { packages: [] }
@@ -99,7 +102,7 @@ beforeEach(() => {
   postureFailOnRefetch = false
   mode401Once = false
   clearSession()
-  clearIdToken()
+  clearCloudTokens()
   completeSignIn.mockReset()
   beginSignIn.mockReset()
   window.history.replaceState({}, '', '/')
@@ -233,7 +236,7 @@ describe('App', () => {
   it('completes an initial cloud sign-in callback (no prior session) and signs in', async () => {
     postureBody = cloudPosture
     window.history.replaceState({}, '', '/auth/callback?code=the-code&state=the-state')
-    completeSignIn.mockResolvedValue('id-token')
+    completeSignIn.mockResolvedValue({ idToken: 'id-token', accessToken: 'access-token' })
     modeBody = { phase: 'post-cloud', authDisabled: false, cloudFileWritten: true, restartPending: false }
 
     const w = mount(App)
@@ -323,6 +326,42 @@ describe('App', () => {
     expect(posts).toBe(1)
     // onContentChanged bumps the shared reload token, so the sibling inventory panel refetches.
     expect(modulesGets()).toBeGreaterThan(before)
+    w.unmount()
+  })
+
+  it('starts a sign-in when an artifact action finds no access token', async () => {
+    // The state this exists for: a reloaded tab is signed in — the session id survives in sessionStorage —
+    // while both tokens are memory-only and set only in the sign-in callback. Nothing in the signed-in
+    // chrome offers a sign-in, so without this the operator's only route back is to know to reload.
+    setSession('sess-1')
+    clearCloudTokens()
+    modeBody = { phase: 'post-cloud', authDisabled: false, cloudFileWritten: true, restartPending: false }
+    packagesBody = {
+      packages: [
+        {
+          key: 'p',
+          name: 'P',
+          version: '1',
+          modules: [],
+          artifacts: [{ key: 'acme-risk', name: 'Acme Risk', kind: 'code-module', latest: '1.3.0' }],
+        },
+      ],
+    }
+    beginSignIn.mockResolvedValue('https://team.auth/oauth2/authorize?x=2')
+    const assign = vi.fn()
+    Object.defineProperty(window, 'location', { value: { ...window.location, assign }, configurable: true })
+    const w = mount(App)
+    await flushPromises()
+    await flushPromises()
+
+    await w.get('[data-artifact-install]').trigger('click')
+    await flushPromises()
+
+    // The emit reaches App and turns into the same redirect the sign-in card performs.
+    expect(beginSignIn).toHaveBeenCalledTimes(1)
+    expect(assign).toHaveBeenCalledWith('https://team.auth/oauth2/authorize?x=2')
+    // And nothing was sent: a request with no token could only have been refused.
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]) === '/api/artifacts')).toHaveLength(0)
     w.unmount()
   })
 

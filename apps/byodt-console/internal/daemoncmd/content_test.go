@@ -1,7 +1,10 @@
 package daemoncmd
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,11 +22,12 @@ const (
 // endpoint 404 for this package while it still appears in the package list — the per-package
 // resolution-failure case.
 type fakePkg struct {
-	key     string
-	name    string
-	latest  string
-	modules []catalogModuleEntry
-	noDoc   bool
+	key       string
+	name      string
+	latest    string
+	modules   []catalogModuleEntry
+	artifacts []catalogArtifactEntry
+	noDoc     bool
 }
 
 // fakeContent serves the two public catalog endpoints. If gotAuth is non-nil, every request's
@@ -51,7 +55,7 @@ func fakeContent(t *testing.T, pkgs []fakePkg, gotAuth *[]string) *httptest.Serv
 					http.Error(w, "not found", http.StatusNotFound)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"version": p.latest, "modules": p.modules})
+				_ = json.NewEncoder(w).Encode(map[string]any{"version": p.latest, "modules": p.modules, "artifacts": p.artifacts})
 				return
 			}
 		}
@@ -386,6 +390,77 @@ func TestModulesInventoryAndCurrency(t *testing.T) {
 	}
 }
 
+func TestModulesInventoryReportsAStublessMountAsIncomplete(t *testing.T) {
+	// The marker is written BEFORE the stub, so marker presence alone stopped being proof of a mount: a
+	// stub write that failed leaves one without the other. The knowledge-graph view already asks the second
+	// question; this one did not, so the half state rendered a green "up to date" chip beside an Unmount
+	// button for a module that will not be there at the next restart, and mountAll skipped it.
+	content := fakeContent(t, []fakePkg{{
+		key: "acme-cloud", name: "Acme Cloud", latest: "1.0.0",
+		modules: []catalogModuleEntry{{Key: "acme-compute", Name: "Acme Compute", Version: "1.0.0", ContentHash: pinA}},
+	}}, nil)
+	defer content.Close()
+	base, sid, modulesDir := newContentServer(t, content.URL)
+
+	send(t, http.MethodPost, base+"/api/modules", sid, `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pinA+`"}`)
+	if _, raw := get(t, base, "/api/modules", sid); !strings.Contains(string(raw), `"currency":"current"`) {
+		t.Fatalf("a complete mount at the latest pin must read current, got %s", raw)
+	}
+
+	// Two shapes of the same failure, and the second is the one a full disk actually produces: os.WriteFile
+	// opens with O_CREATE|O_TRUNC and writes afterwards, so a write that fails part-way leaves a regular
+	// file of zero bytes — which a presence-only check reports as a complete mount.
+	stub := filepath.Join(modulesDir, "acme-compute", moduleFileName("acme-compute"))
+	for _, shape := range []struct {
+		name string
+		make func(t *testing.T)
+	}{
+		{"the stub is gone", func(t *testing.T) {
+			if err := os.Remove(stub); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"the stub write failed part-way", func(t *testing.T) {
+			if err := os.WriteFile(stub, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			shape.make(t)
+			assertIncompleteMount(t, base, sid)
+			// Restore a loadable stub so the next shape starts from a complete mount.
+			send(t, http.MethodPost, base+"/api/modules", sid, `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pinA+`"}`)
+		})
+	}
+}
+
+func assertIncompleteMount(t *testing.T, base, sid string) {
+	t.Helper()
+	code, raw := get(t, base, "/api/modules", sid)
+	if code != http.StatusOK {
+		t.Fatalf("modules must be 200, got %d %s", code, raw)
+	}
+	var inv modulesResponse
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		t.Fatal(err)
+	}
+	// The row STAYS: it carries the only Unmount control the panel has, and a module the catalog no longer
+	// lists, an unreachable catalog and an unsubscribed package all render their controls from this list.
+	if len(inv.Modules) != 1 || inv.Modules[0].ModuleKey != "acme-compute" {
+		t.Fatalf("the row must survive so it can still be unmounted, got %#v", inv.Modules)
+	}
+	if inv.Modules[0].Currency != "incomplete" {
+		t.Fatalf("a mount with no module file is not up to date, got %q", inv.Modules[0].Currency)
+	}
+	if inv.Modules[0].LatestPin != "" || inv.Modules[0].LatestVersion != "" {
+		t.Fatalf("nothing is offered to update a mount that is not there, got %#v", inv.Modules[0])
+	}
+	if !strings.Contains(inv.Note, "acme-compute") || !strings.Contains(inv.Note, "not loadable") {
+		t.Fatalf("the half state must name itself and its remedy, got %q", inv.Note)
+	}
+}
+
 func TestModulesInventoryCatalogUnreachable(t *testing.T) {
 	dead := fakeContent(t, nil, nil)
 	deadURL := dead.URL
@@ -515,6 +590,11 @@ func TestContentRoutesRequireSession(t *testing.T) {
 	if code, _ := send(t, http.MethodDelete, base+"/api/modules/acme-compute", "", ""); code != http.StatusUnauthorized {
 		t.Fatalf("unmount without a session must be 401, got %d", code)
 	}
+	// The artifact removal route joins this table rather than growing a fourth copy of the assertion in
+	// its own file: what is being held is that no /api route answers without a session.
+	if code, _ := send(t, http.MethodDelete, base+"/api/artifacts/acme-compute", "", ""); code != http.StatusUnauthorized {
+		t.Fatalf("artifact removal without a session must be 401, got %d", code)
+	}
 }
 
 // The redirect refusal in publicGet is documented as a security property — a 3xx must not be able to
@@ -549,5 +629,322 @@ func TestPublicGetRefusesRedirects(t *testing.T) {
 				t.Fatalf("the redirect target was contacted on a %d — the host moved", code)
 			}
 		})
+	}
+}
+
+// ── The mount write: its order, and what a failure leaves behind ─────────────────────────────────
+
+// skipIfRoot skips a test that forces a write failure with permission bits. Root ignores them, so the
+// failure never happens and the test would assert nothing while still reporting a pass. Named rather
+// than inlined so a CI image that runs as root produces a visible skip instead of a silent hole.
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root, which ignores the permission bits this case forces a failure with")
+	}
+}
+
+func TestEnsureMountDirReportsWhoCreatedIt(t *testing.T) {
+	modules := filepath.Join(t.TempDir(), "not-created-yet")
+	dir := filepath.Join(modules, "acme-compute")
+
+	// The modules directory is a host mount a fresh deployment may not have yet, so the parent is
+	// created too — the reason ensureMountDir uses MkdirAll on the parent rather than Mkdir alone.
+	created, err := ensureMountDir(dir)
+	if err != nil || !created {
+		t.Fatalf("a fresh mount directory must be created and reported as ours, got created=%v err=%v", created, err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("the directory must exist: %v", err)
+	}
+	// Not an exact 0755: Mkdir applies the process umask, so an exact assertion would encode this
+	// host's. What matters is that the console can write into what it just made.
+	if perm := info.Mode().Perm(); perm&0o700 != 0o700 {
+		t.Fatalf("the mount directory must be usable by its owner, got %04o", perm)
+	}
+
+	created, err = ensureMountDir(dir)
+	if err != nil || created {
+		t.Fatalf("an existing directory must not be reported as this call's, got created=%v err=%v", created, err)
+	}
+}
+
+func TestUndoMountDirNeverTakesATree(t *testing.T) {
+	root := t.TempDir()
+
+	mine := filepath.Join(root, "mine")
+	if _, err := ensureMountDir(mine); err != nil {
+		t.Fatal(err)
+	}
+	undoMountDir(mine, true)
+	if _, err := os.Stat(mine); !os.IsNotExist(err) {
+		t.Fatalf("an empty directory this mount created must be removed, got %v", err)
+	}
+
+	// The whole reason it is os.Remove and not os.RemoveAll: an operator's tree is never at risk,
+	// because a non-empty directory simply refuses.
+	theirs := filepath.Join(root, "theirs")
+	if err := os.MkdirAll(theirs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	kept := filepath.Join(theirs, "TheirModule.js")
+	if err := os.WriteFile(kept, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	undoMountDir(theirs, true)
+	if _, err := os.Stat(kept); err != nil {
+		t.Fatalf("a non-empty directory must survive the undo: %v", err)
+	}
+
+	notOurs := filepath.Join(root, "not-ours")
+	if err := os.MkdirAll(notOurs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	undoMountDir(notOurs, false)
+	if _, err := os.Stat(notOurs); err != nil {
+		t.Fatalf("a directory this mount did not create must survive even when empty: %v", err)
+	}
+}
+
+func TestWriteMountUndoesOnlyTheDirectoryItCreated(t *testing.T) {
+	// A value encoding/json refuses: MarshalIndent fails inside writeMarkerNamed BEFORE it touches the
+	// filesystem, which is exactly "the directory was created and the marker was not written". The
+	// marker parameter is already `any` in shipped code, so this needs no seam.
+	unmarshalable := make(chan int)
+
+	root := t.TempDir()
+	fresh := filepath.Join(root, "fresh")
+	if _, err := writeMount(fresh, mountMarkerName, unmarshalable, "FreshModule.js", "x"); err == nil {
+		t.Fatal("an unmarshalable marker must fail the mount")
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Fatalf("a marker failure must leave no directory behind where the mount created it, got %v", err)
+	}
+
+	existing := filepath.Join(root, "existing")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	theirs := filepath.Join(existing, "TheirModule.js")
+	if err := os.WriteFile(theirs, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeMount(existing, mountMarkerName, unmarshalable, "ExistingModule.js", "x"); err == nil {
+		t.Fatal("an unmarshalable marker must fail the mount")
+	}
+	if _, err := os.Stat(theirs); err != nil {
+		t.Fatalf("a marker failure must leave a directory it did not create intact: %v", err)
+	}
+}
+
+func TestWriteMountWritesTheMarkerBeforeTheStub(t *testing.T) {
+	// The defect this slice fixes, stated directly: if the marker cannot be written, no loadable
+	// *Module.js may exist. os.WriteFile onto a path that is a directory returns EISDIR, which fails
+	// the marker write while leaving the stub's own path untouched.
+	dir := filepath.Join(t.TempDir(), "acme-compute")
+	if err := os.MkdirAll(filepath.Join(dir, mountMarkerName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeMount(dir, mountMarkerName, mountMarker{Schema: mountMarkerSchema}, "AcmeComputeModule.js", "x"); err == nil {
+		t.Fatal("a marker write onto a directory must fail the mount")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "AcmeComputeModule.js")); !os.IsNotExist(err) {
+		t.Fatalf("no loadable module file may exist when the marker was not written, got %v", err)
+	}
+}
+
+func TestMountLeavesNoStubWhenTheMarkerFails(t *testing.T) {
+	base, sid, modulesDir := newContentServer(t, "https://content.example")
+	// hasOurMarker stats the marker NAME, and a directory stats fine — so the clobber check passes and
+	// the handler reaches the marker write, which then returns EISDIR.
+	dir := filepath.Join(modulesDir, "acme-compute")
+	if err := os.MkdirAll(filepath.Join(dir, mountMarkerName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"` + pinA + `"}`
+	if code, got := send(t, http.MethodPost, base+"/api/modules", sid, body); code != http.StatusInternalServerError {
+		t.Fatalf("a failed marker write must be 500, got %d %s", code, got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "AcmeComputeModule.js")); !os.IsNotExist(err) {
+		t.Fatalf("the platform must never see a loadable module the console did not mark, got %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("a directory the mount did not create must survive: %v", err)
+	}
+}
+
+func TestMountStubFailureLeavesAMarkedDirectory(t *testing.T) {
+	skipIfRoot(t)
+	base, sid, modulesDir := newContentServer(t, "https://content.example")
+	body := `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"` + pinA + `"}`
+	if code, got := send(t, http.MethodPost, base+"/api/modules", sid, body); code != http.StatusOK {
+		t.Fatalf("first mount must be 200, got %d %s", code, got)
+	}
+
+	dir := filepath.Join(modulesDir, "acme-compute")
+	if err := os.Remove(filepath.Join(dir, "AcmeComputeModule.js")); err != nil {
+		t.Fatal(err)
+	}
+	// 0555 refuses the CREATION of a new file but not a write to the marker already in there, so the
+	// marker write succeeds and the stub write returns EACCES — the ordering under test.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	// Restore before t.TempDir's own RemoveAll runs (cleanups are LIFO), or the teardown fails and is
+	// reported against an unrelated test.
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	code, got := send(t, http.MethodPost, base+"/api/modules", sid, body)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("a failed stub write must be 500, got %d %s", code, got)
+	}
+	if !strings.Contains(got, "recorded") {
+		t.Fatalf("the operator must be told the mount is recorded but incomplete, got %s", got)
+	}
+	if !hasOurMarker(dir) {
+		t.Fatal("a stub failure must leave the directory marked — that is what makes it recoverable")
+	}
+
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, got := send(t, http.MethodPost, base+"/api/modules", sid, body); code != http.StatusOK {
+		t.Fatalf("mount must accept the marked directory on a retry, got %d %s", code, got)
+	}
+	if code, got := send(t, http.MethodDelete, base+"/api/modules/acme-compute", sid, ""); code != http.StatusOK {
+		t.Fatalf("unmount must accept the marked directory, got %d %s", code, got)
+	}
+}
+
+// ── The entitled transport ───────────────────────────────────────────────────────────────────────
+
+// entitledUpstream serves one canned response and records every request's headers, so a test can assert
+// both what was attached and what was not.
+func entitledUpstream(t *testing.T, status int, body []byte, hdr http.Header) (url string, seen *[]http.Header) {
+	t.Helper()
+	got := make([]http.Header, 0, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Clone())
+		for k, vs := range hdr {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &got
+}
+
+func TestEntitledGetAttachesExactlyOneBearer(t *testing.T) {
+	base, seen := entitledUpstream(t, http.StatusOK, []byte(`{"ok":true}`), nil)
+	body, status, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "the-access-token", 1<<20)
+	if err != nil || status != http.StatusOK || string(body) != `{"ok":true}` {
+		t.Fatalf("unexpected result: %q %d %v", body, status, err)
+	}
+	if len(*seen) != 1 {
+		t.Fatalf("expected exactly one request, got %d", len(*seen))
+	}
+	h := (*seen)[0]
+	if got := h.Values("Authorization"); len(got) != 1 || got[0] != "Bearer the-access-token" {
+		t.Fatalf("exactly one bearer must be attached, got %#v", got)
+	}
+	// The console's INBOUND header name must never travel outbound: the token is relayed on the
+	// standard header, and leaking the console's own name would tell the upstream how it arrived.
+	if v := h.Get(cloudTokenHeader); v != "" {
+		t.Fatalf("%s must not be forwarded upstream, got %q", cloudTokenHeader, v)
+	}
+}
+
+func TestPublicGetStillSendsNoAuthorization(t *testing.T) {
+	// Asserted beside the entitled case on purpose: "two functions, never a flag" is only a guarantee
+	// while both halves are read together.
+	base, seen := entitledUpstream(t, http.StatusOK, []byte(`{"packages":[]}`), nil)
+	var dst struct{}
+	if err := publicGet(context.Background(), base, "/v1/catalog/packages", &dst); err != nil {
+		t.Fatal(err)
+	}
+	if v := (*seen)[0].Get("Authorization"); v != "" {
+		t.Fatalf("the catalog path must carry no credential, got %q", v)
+	}
+}
+
+func TestEntitledGetRefusesARedirect(t *testing.T) {
+	second, secondSeen := entitledUpstream(t, http.StatusOK, []byte("secret"), nil)
+	base, _ := entitledUpstream(t, http.StatusFound, nil, http.Header{"Location": []string{second + "/v1/elsewhere"}})
+
+	body, status, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "tok", 1<<20)
+	if err == nil {
+		t.Fatal("a redirect must be an error, not a status a caller can render")
+	}
+	if status != http.StatusFound {
+		t.Fatalf("the status must still be reported, got %d", status)
+	}
+	// net/http's own 302 body is an <a href> carrying an UPSTREAM-CHOSEN URL. Returning it would put
+	// that string in front of the operator via any caller that renders "the body".
+	if body != nil {
+		t.Fatalf("a redirect body must never reach a caller, got %q", body)
+	}
+	if len(*secondSeen) != 0 {
+		t.Fatalf("the redirect target must never be dialled, got %d requests", len(*secondSeen))
+	}
+}
+
+func TestEntitledGetReturnsEveryStatusWithItsBody(t *testing.T) {
+	// A refusal's body IS the answer — the service's denial explanation, or an operator-authored
+	// withdrawal reason — so it must survive the transport intact. This is the one place entitledGet
+	// diverges from both publicGet (which discards it behind an error) and the boot path's fetcher
+	// (which drains it), and it is what lets the handler above map these to operator sentences.
+	for _, status := range []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone} {
+		want := fmt.Sprintf(`{"status":%d}`, status)
+		base, _ := entitledUpstream(t, status, []byte(want), nil)
+		body, got, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "tok", 1<<20)
+		if err != nil {
+			t.Fatalf("%d must not be a transport error, got %v", status, err)
+		}
+		if got != status || string(body) != want {
+			t.Fatalf("%d must come back verbatim, got %d %q", status, got, body)
+		}
+	}
+}
+
+func TestEntitledGetRefusesAnOversizeBody(t *testing.T) {
+	// Two cases, because one cannot tell them apart: io.LimitReader(body, max) returns byte-identical
+	// results for "exactly max" and "truncated at max", so the cap is only assertable by reading one
+	// byte past it.
+	const max = 64
+	atCap, _ := entitledUpstream(t, http.StatusOK, bytes.Repeat([]byte("a"), max), nil)
+	if body, _, err := entitledGet(context.Background(), atCap, "/x", "tok", max); err != nil || len(body) != max {
+		t.Fatalf("a body exactly at the cap must be allowed, got %d %v", len(body), err)
+	}
+	over, _ := entitledUpstream(t, http.StatusOK, bytes.Repeat([]byte("a"), max+1), nil)
+	if _, _, err := entitledGet(context.Background(), over, "/x", "tok", max); err == nil {
+		t.Fatal("a body one byte over the cap must be refused, not silently truncated")
+	}
+}
+
+func TestEntitledGetCapsARefusalBody(t *testing.T) {
+	base, _ := entitledUpstream(t, http.StatusForbidden, bytes.Repeat([]byte("a"), maxDenialBytes*2), nil)
+	body, status, err := entitledGet(context.Background(), base, "/x", "tok", 1<<20)
+	if err != nil || status != http.StatusForbidden {
+		t.Fatalf("a refusal is not a transport error, got %d %v", status, err)
+	}
+	if len(body) > maxDenialBytes {
+		t.Fatalf("a refusal body is shown to the operator and must be bounded, got %d bytes", len(body))
+	}
+}
+
+func TestEntitledGetSurfacesATransportFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	dead := srv.URL
+	srv.Close()
+	body, status, err := entitledGet(context.Background(), dead, "/x", "tok", 1<<20)
+	if err == nil {
+		t.Fatal("an unreachable host must be an error")
+	}
+	if status != 0 || body != nil {
+		t.Fatalf("a transport failure has no status and no body, got %d %q", status, body)
 	}
 }

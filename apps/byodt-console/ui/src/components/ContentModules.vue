@@ -7,8 +7,10 @@ import {
   type KnowledgeGraphConnection,
   type MountedModule,
 } from '@/api'
+import type { InstalledArtifact } from '@/api'
 import { CATALOG_URL } from '@/links'
 import Banner from '@/components/Banner.vue'
+import Artifacts from '@/components/Artifacts.vue'
 
 // The content-module manager: one list, grouped by package, where every module shows its own state —
 // a Mount button when it is not mounted, or its currency plus Update (when outdated) and Unmount when it
@@ -16,7 +18,10 @@ import Banner from '@/components/Banner.vue'
 // reloadToken so it stays in step with the rest of the dashboard; it emits 'changed' after any action so
 // the dashboard refreshes the pending-restart banner (a mount change needs a stack recreate).
 const props = defineProps<{ reloadToken: number }>()
-const emit = defineEmits<{ (e: 'changed'): void }>()
+// 'sign-in-required' is re-emitted from the artifact panel: App owns sign-in — it builds the OIDC config
+// and completes the callback — so the request travels up to it rather than the config travelling down
+// through a component with no use for it.
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void }>()
 
 const packages = ref<CatalogPackage[]>([])
 // Keyed by moduleKey alone: only one directory per module key can exist on disk, and a module's content
@@ -27,6 +32,11 @@ const mountedByKey = ref<Map<string, MountedModule>>(new Map())
 // is not a content module: nothing about it was installed here except a client, and listing it among
 // modules whose content is served per request invites reading it as the graph itself having arrived.
 const knowledgeGraph = ref<KnowledgeGraphConnection | undefined>()
+// Installed artifacts and the sentence a removal has to be preceded by, from the same inventory response
+// as the mounts above. One directory, one round trip, and the artifact panel below is a child rather than
+// a sibling so that stays true on this side of the wire too.
+const artifacts = ref<InstalledArtifact[]>([])
+const artifactRemovalNotice = ref('')
 const catalogError = ref('') // the catalog fetch failed; the mounted inventory can still render
 const note = ref('') // a non-fatal note on the mounted inventory (e.g. currency could not be judged)
 const message = ref('') // the last action's result
@@ -61,6 +71,8 @@ async function load() {
   if (mods.status === 'fulfilled') {
     mountedByKey.value = new Map(mods.value.modules.map((m) => [m.moduleKey, m]))
     knowledgeGraph.value = mods.value.knowledgeGraph
+    artifacts.value = mods.value.artifacts ?? []
+    artifactRemovalNotice.value = mods.value.artifactRemovalNotice ?? ''
     note.value = mods.value.note ?? ''
   } else {
     message.value = mods.reason instanceof Error ? mods.reason.message : 'could not load mounted modules'
@@ -99,19 +111,29 @@ const orphans = computed(() => {
   return [...mountedByKey.value.values()].filter((m) => !inCatalog.has(m.moduleKey))
 })
 
+// "The catalog is empty" must not render above a populated artifact panel: an installed artifact with no
+// catalog packages is a deployment that has content, not one that has none.
 const isEmpty = computed(
-  () => loaded.value && !catalogError.value && packages.value.length === 0 && orphans.value.length === 0,
+  () =>
+    loaded.value &&
+    !catalogError.value &&
+    packages.value.length === 0 &&
+    orphans.value.length === 0 &&
+    artifacts.value.length === 0,
 )
 
 function chipClass(currency: MountedModule['currency']): string {
   if (currency === 'current') return 'bg-dt-secondary/15 text-dt-accent'
-  if (currency === 'outdated') return 'bg-dt-tertiary/15 text-dt-tertiary'
+  if (currency === 'outdated' || currency === 'incomplete') return 'bg-dt-tertiary/15 text-dt-tertiary'
   return 'bg-white/5 text-dt-text-muted'
 }
 
 function chipLabel(m: MountedModule): string {
   if (m.currency === 'current') return 'up to date'
   if (m.currency === 'outdated') return `newer available${m.latestVersion ? ` (${m.latestVersion})` : ''}`
+  // The half state, not a currency at all: the console owns the directory and the platform has nothing to
+  // load in it. The inventory note carries the remedy; this stops the row reading as up to date.
+  if (m.currency === 'incomplete') return 'module file missing'
   return 'update unknown'
 }
 
@@ -152,9 +174,13 @@ function unmountOne(moduleKey: string) {
   return run(() => api.unmountModule(moduleKey), 'could not unmount the module')
 }
 
-function summary(verb: string, ok: number, failed: string[]): string {
+// The first failure's own sentence rides along with the names. Without it "3 failed: a, b, c" reads as a
+// write failure, when the likeliest cause is the daemon refusing because another module operation holds
+// the lock — which is a wait, not a fault, and the daemon says so in a sentence this loop was throwing away.
+function summary(verb: string, ok: number, failed: string[], reason = ''): string {
   let s = `${verb} ${ok} module${ok === 1 ? '' : 's'}`
   if (failed.length) s += `; ${failed.length} failed: ${failed.join(', ')}`
+  if (reason) s += ` — ${reason}`
   return s
 }
 
@@ -168,6 +194,7 @@ async function mountAll(pkg: CatalogPackage) {
   message.value = ''
   let ok = 0
   const failed: string[] = []
+  let reason = ''
   try {
     for (const m of targets) {
       try {
@@ -176,9 +203,10 @@ async function mountAll(pkg: CatalogPackage) {
       } catch (e) {
         if (e instanceof SessionExpired) return
         failed.push(m.name || m.key)
+        if (!reason && e instanceof Error) reason = e.message
       }
     }
-    message.value = summary('Mounted', ok, failed)
+    message.value = summary('Mounted', ok, failed, reason)
     if (ok) {
       restartNeeded.value = true
       emit('changed')
@@ -195,6 +223,7 @@ async function unmountAll(pkg: CatalogPackage) {
   message.value = ''
   let ok = 0
   const failed: string[] = []
+  let reason = ''
   try {
     for (const m of targets) {
       try {
@@ -203,9 +232,10 @@ async function unmountAll(pkg: CatalogPackage) {
       } catch (e) {
         if (e instanceof SessionExpired) return
         failed.push(m.name || m.key)
+        if (!reason && e instanceof Error) reason = e.message
       }
     }
-    message.value = summary('Unmounted', ok, failed)
+    message.value = summary('Unmounted', ok, failed, reason)
     if (ok) {
       restartNeeded.value = true
       emit('changed')
@@ -213,6 +243,13 @@ async function unmountAll(pkg: CatalogPackage) {
   } finally {
     busyKey.value = ''
   }
+}
+
+// An artifact action is written into the same modules directory a mount writes into, so it raises the SAME
+// reminder rather than a second one, and reloads the same inventory.
+function onArtifactChanged() {
+  restartNeeded.value = true
+  emit('changed')
 }
 
 watch(
@@ -249,6 +286,17 @@ onMounted(load)
         connection and is removed when you disconnect.
       </p>
     </div>
+
+    <!-- Artifacts, above the catalog bands: signed components installed here, as opposed to mounts whose
+         content is served per request. It raises no banner of its own — an install and a mount both apply
+         at the next recreate, and two reminders would imply two restarts. -->
+    <Artifacts
+      :packages="packages"
+      :installed="artifacts"
+      :removal-notice="artifactRemovalNotice"
+      @changed="onArtifactChanged"
+      @sign-in-required="emit('sign-in-required')"
+    />
 
     <p v-if="catalogError" class="text-dt-text-muted">{{ catalogError }}</p>
     <p v-else-if="isEmpty" class="text-dt-text-muted" data-empty="true">The catalog is empty.</p>

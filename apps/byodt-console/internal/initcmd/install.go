@@ -3,15 +3,14 @@ package initcmd
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/moduleinstall"
 	"github.com/dether-net/dethernety-oss/pkg/extract"
 	"github.com/dether-net/dethernety-oss/pkg/moduleverify"
 	"github.com/dether-net/dethernety-oss/pkg/payloaddigest"
@@ -20,17 +19,14 @@ import (
 // indexSchema is the schema string the signed modules.json declares.
 const indexSchema = "dethernety.modules/1"
 
-// tmpDirName is the transient extraction area under the modules directory. It is a
-// dot-directory so the loader (which looks for *Module.js inside each subdirectory) finds
-// nothing to load in it, and it is removed after every run.
-const tmpDirName = ".byodt-console-tmp"
+// tmpDirName is the transient extraction area under the modules directory, owned by
+// moduleinstall because both of its callers stage into the same place.
+const tmpDirName = moduleinstall.TmpDirName
 
-// Verifier authenticates a signed blob against a pinned identity. moduleverify.Verifier
-// satisfies it; tests supply a stub so the install flow can be exercised without producing
-// real signed bundles.
-type Verifier interface {
-	VerifyBlob(artifact io.Reader, bundleJSON []byte, certIdentity, certIssuer string) error
-}
+// Verifier authenticates a signed blob against a pinned identity. It is an alias rather than
+// a second declaration so the seam is one type: tests stub it, production wires
+// moduleverify.New(), and Run's signature is unchanged.
+type Verifier = moduleinstall.Verifier
 
 type moduleIndex struct {
 	Schema  string       `json:"schema"`
@@ -176,79 +172,37 @@ func installOne(ctx context.Context, cfg Config, f *fetcher, v Verifier, identit
 		return oc, false
 	}
 
-	if err := v.VerifyBlob(bytes.NewReader(tarball), bundle, identity, issuer); err != nil {
-		oc.Detail = fmt.Sprintf("did not verify: %v", err)
-		return oc, true
-	}
-
-	sum := sha256.Sum256(tarball)
-	if got := "sha256:" + hex.EncodeToString(sum[:]); got != e.AssetDigest {
-		oc.Detail = fmt.Sprintf("asset digest mismatch: index %s, downloaded %s", e.AssetDigest, got)
-		return oc, false
-	}
-
-	dest := filepath.Join(cfg.ModulesDir, tmpDirName, e.Name)
-	if err := os.RemoveAll(dest); err != nil {
-		oc.Detail = fmt.Sprintf("clearing temp: %v", err)
-		return oc, false
-	}
-	if err := extract.TarGz(bytes.NewReader(tarball), dest, extract.Limits{}); err != nil {
-		oc.Detail = fmt.Sprintf("extract: %v", err)
-		return oc, false
-	}
-
-	payloadRoot := filepath.Join(dest, "dethernety", e.Name)
-	if info, err := os.Stat(payloadRoot); err != nil || !info.IsDir() {
-		oc.Detail = fmt.Sprintf("unexpected layout: no dethernety/%s in archive", e.Name)
-		return oc, false
-	}
-
-	// Recompute over the extracted tree and require the incoming stamp to agree — the
-	// stamp is signed with the asset, so this catches a stamp that does not describe its
-	// own payload.
-	computed, err := payloaddigest.Compute(payloadRoot)
+	// Verify, digest, extract, assert layout and reconcile the stamp — the shared sequence,
+	// so this path and the artifact path cannot drift. Detail is the error verbatim: every
+	// message the operator sees on these failures is moduleinstall's, and adding context here
+	// would silently reword all of them.
+	payloadRoot, stamp, err := moduleinstall.Stage(
+		tarball, bundle, v, identity, issuer, e.AssetDigest, e.Name,
+		filepath.Join(cfg.ModulesDir, tmpDirName, e.Name),
+	)
 	if err != nil {
-		oc.Detail = fmt.Sprintf("computing payload digest: %v", err)
-		return oc, false
+		oc.Detail = err.Error()
+		// A signature failure is a security event; every other staging failure is not.
+		return oc, errors.Is(err, moduleinstall.ErrNotVerified)
 	}
-	stamp, err := payloaddigest.ReadStamp(filepath.Join(payloadRoot, payloaddigest.StampFilename))
-	if err != nil {
-		oc.Detail = fmt.Sprintf("reading stamp: %v", err)
-		return oc, false
-	}
-	if stamp.PayloadDigest != computed {
-		oc.Detail = fmt.Sprintf("stamp integrity: stamp %s, recomputed %s", stamp.PayloadDigest, computed)
-		return oc, false
-	}
-	oc.PayloadDigest = computed
+	oc.PayloadDigest = stamp.PayloadDigest
 
 	// Replace only if the on-disk digest differs. A missing or unreadable on-disk stamp
 	// means replace — err toward an extra reinstall, never a silent skip.
 	target := filepath.Join(cfg.ModulesDir, e.Name)
-	if onDisk, err := payloaddigest.ReadStamp(filepath.Join(target, payloaddigest.StampFilename)); err == nil && onDisk.PayloadDigest == computed {
+	if onDisk, err := payloaddigest.ReadStamp(filepath.Join(target, payloaddigest.StampFilename)); err == nil && onDisk.PayloadDigest == stamp.PayloadDigest {
 		oc.Outcome = outcomeSkipped
 		return oc, false
 	}
 
-	// Replace without a window where the module is missing: move any existing copy into the
-	// temp area (removed with it at the end of the run), put the new copy in place, then —
-	// only on success — the old copy is discarded with the temp tree. On a failed swap,
-	// restore the old copy so a failed install never leaves the module absent.
+	// mayReplace is nil: these targets are named by this run's own signed index, so ownership
+	// is already established. The backup lands inside the temp tree; Swap clears it on success
+	// and keeps it on the one failure where it is the last copy, and either way the sweep at the
+	// end of the run takes whatever is left. The kept-copy report is for a caller that can tell
+	// an operator about it — this one reports per-module outcomes and has nowhere to put it.
 	backup := filepath.Join(cfg.ModulesDir, tmpDirName, e.Name+".old")
-	_ = os.RemoveAll(backup) // clear any stale backup from a previous crash
-	movedAside := false
-	if _, err := os.Lstat(target); err == nil {
-		if err := os.Rename(target, backup); err != nil {
-			oc.Detail = fmt.Sprintf("moving existing module aside: %v", err)
-			return oc, false
-		}
-		movedAside = true
-	}
-	if err := os.Rename(payloadRoot, target); err != nil {
-		if movedAside {
-			_ = os.Rename(backup, target) // restore the prior good copy
-		}
-		oc.Detail = fmt.Sprintf("installing module: %v", err)
+	if _, err := moduleinstall.Swap(target, payloadRoot, backup, nil); err != nil {
+		oc.Detail = err.Error()
 		return oc, false
 	}
 	oc.Outcome = outcomePlaced

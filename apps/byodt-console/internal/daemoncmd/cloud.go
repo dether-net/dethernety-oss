@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -50,9 +51,17 @@ var acceptedRecipeVars = map[string]bool{
 // entitlement. Required, it would break both. Present and non-empty it is held to secureURL like the
 // content base, and it is what makes the console mount a knowledge-graph connection; absent, the
 // deployment simply has no knowledge-graph service and nothing is written or mounted.
+//
+// DEPLOYMENT_ARTIFACT_SIGNER is the certificate-subject PREFIX the entitled publishing workflow signs
+// under — configuration, never a destination: the console composes a per-version ref onto it and
+// compares the result to a signature's subject, and nothing ever dials it. It is absent from every
+// recipe issued before it existed, so requiring it would reject all of them; absent it simply means
+// this deployment cannot install artifacts until it reconnects, which is the fail-closed side and the
+// opposite of DEPLOYMENT_PACKAGES, where absent means undetermined because that is a display concern.
 var optionalRecipeVars = map[string]bool{
-	"DEPLOYMENT_PACKAGES": true,
-	"MODULE_KG_BASE_URL":  true,
+	"DEPLOYMENT_PACKAGES":        true,
+	"MODULE_KG_BASE_URL":         true,
+	"DEPLOYMENT_ARTIFACT_SIGNER": true,
 }
 
 // strippedRecipeVars are recognised recipe names the console deliberately DROPS rather than writes.
@@ -190,6 +199,13 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 	if err := bareHost(vars["OIDC_DOMAIN"]); err != nil {
 		return nil, nil, fmt.Errorf("OIDC_DOMAIN %w", err)
 	}
+	// Optional, so an absent or empty value has nothing to check — and absent is refused later, by the
+	// reader, rather than here, because a recipe that predates the variable must still apply.
+	if v := vars["DEPLOYMENT_ARTIFACT_SIGNER"]; v != "" {
+		if err := artifactSignerPrefix(v); err != nil {
+			return nil, nil, fmt.Errorf("DEPLOYMENT_ARTIFACT_SIGNER %w", err)
+		}
+	}
 	// An empty optional URL is dropped rather than written. DEPLOYMENT_PACKAGES is written empty
 	// because empty MEANS something there (entitled to nothing); an empty service base means nothing
 	// at all, and writing it would make the deployment's behaviour depend on how its reader treats an
@@ -215,6 +231,42 @@ func bareHost(raw string) error {
 	// this check exists to refuse, and a scheme-only check would wave it through.
 	if strings.ContainsAny(raw, ":/?#*@\\") || strings.ContainsAny(raw, " \t") {
 		return fmt.Errorf("must be a bare hostname — no scheme, userinfo, port, path or space")
+	}
+	return nil
+}
+
+// artifactSignerPattern is the exact shape of a GitHub Actions workflow's certificate subject with no
+// ref: scheme, host, owner, repo, the workflows path, one file. One expression, because it is one shape.
+//
+// No "@". A subject's ref is "…yml@refs/tags/…", so refusing "@" refuses a configured ref and a userinfo
+// substitution with the same clause — and a recipe able to pin one ref could pin one version's ref for
+// every version, which is exactly the property the per-version subject exists to provide.
+//
+// The "\s" class earns its place for ONE character: a plain space. hasControlChar (below) is
+// r < 0x20 || r == 0x7f and does not catch 0x20, and url.Parse rejects tab, newline and carriage return
+// outright — so a space is the only whitespace that reaches here.
+var artifactSignerPattern = regexp.MustCompile(
+	`^https://[A-Za-z0-9.-]+/[^/@\s]+/[^/@\s]+/\.github/workflows/[^/@\s]+\.ya?ml$`)
+
+// artifactSignerPrefix holds the signer subject prefix to the shape above. It is a TYPO GUARD, not a
+// security control, and the difference matters: a hostile recipe already names the identity provider,
+// the JWKS URI, the allowlist and the content host — it owns this deployment's whole trust
+// configuration, so a hostile signer adds nothing to what it can already do. What protects this value
+// is where it comes from: the portal, over the operator's authenticated session, pasted into a file the
+// apply path refuses to rewrite on an already-configured deployment.
+//
+// It checks the RAW string rather than a parsed URL, and that is the whole design. url.Parse hides
+// every substitution this guard exists to catch: it lifts "user@" into u.User leaving u.Host and u.Path
+// clean, it strips "?query" and "#fragment" out of u.Path, and it lowercases "HTTPS://" into u.Scheme —
+// so a parsed-field check accepts all four, including the one value that can never string-equal a real
+// certificate subject.
+func artifactSignerPrefix(raw string) error {
+	// url.Parse does not clean "..", and the pattern cannot refuse it: ".." is a legal path segment.
+	if strings.Contains(raw, "/../") {
+		return fmt.Errorf("must not contain a relative path segment")
+	}
+	if !artifactSignerPattern.MatchString(raw) {
+		return fmt.Errorf("must be an https workflow path with no ref — https://<host>/<owner>/<repo>/.github/workflows/<file>.yml")
 	}
 	return nil
 }

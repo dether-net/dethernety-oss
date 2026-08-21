@@ -70,14 +70,19 @@ export async function beginSignIn(cfg: OidcConfig, redirectUri: string): Promise
   return `${oauthBase(cfg.domain)}/oauth2/authorize?${params.toString()}`
 }
 
-// completeSignIn validates the returned state, exchanges the code for tokens, and returns the ID
-// token. The stashed PKCE material is cleared regardless of outcome.
+// CloudTokens is one token exchange's output: the ID token the session is minted with, and the access
+// token entitled calls are made with. They arrive together, expire on the same clock, and are held and
+// dropped together — declared here, where they are produced.
+export type CloudTokens = { idToken: string; accessToken: string }
+
+// completeSignIn validates the returned state, exchanges the code for tokens, and returns both. The
+// stashed PKCE material is cleared regardless of outcome.
 export async function completeSignIn(
   cfg: OidcConfig,
   redirectUri: string,
   code: string,
   state: string,
-): Promise<string> {
+): Promise<CloudTokens> {
   const expectedState = sessionStorage.getItem(STATE_KEY)
   const verifier = sessionStorage.getItem(VERIFIER_KEY)
   sessionStorage.removeItem(STATE_KEY)
@@ -97,7 +102,11 @@ export async function completeSignIn(
     body: body.toString(),
   })
   if (!res.ok) throw new Error(`token exchange failed: ${res.status}`)
-  const tokens = (await res.json()) as { id_token?: string }
+  const tokens = (await res.json()) as { id_token?: string; access_token?: string }
   if (!tokens.id_token) throw new Error('no id token in the token response')
-  return tokens.id_token
+  // A missing access_token does NOT fail sign-in. Only artifact installs need it, and refusing to sign
+  // in over it would break every other operator function on a deployment whose OIDC_SCOPE is missing
+  // the content.access scope. It resolves to '' instead — see api.ts, which records what each of the
+  // two empty-token states means, because they have opposite remedies.
+  return { idToken: tokens.id_token, accessToken: tokens.access_token ?? '' }
 }

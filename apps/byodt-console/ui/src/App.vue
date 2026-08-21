@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   api,
   clearSession,
-  clearIdToken,
   hasSession,
   mintCloud,
   mintLocal,
@@ -12,7 +11,7 @@ import {
   type PostureView,
   type StateView,
 } from '@/api'
-import { completeSignIn, consoleRedirectUri, type OidcConfig } from '@/auth'
+import { beginSignIn, completeSignIn, consoleRedirectUri, type OidcConfig } from '@/auth'
 import { PORTAL_URL, GUIDE_URL, PLATFORM_URL } from '@/links'
 import LoginCard from '@/components/LoginCard.vue'
 import PhaseBadge from '@/components/PhaseBadge.vue'
@@ -99,8 +98,7 @@ async function refresh() {
 function toLogin() {
   if (timer) clearInterval(timer)
   timer = undefined
-  clearSession()
-  clearIdToken()
+  clearSession() // ends the session and the tokens with it
   signedIn.value = false
   mode.value = null
   state.value = null
@@ -158,6 +156,25 @@ async function ensureSignedIn() {
   }
 }
 
+// An artifact action found no access token in memory. A reloaded tab is signed in with a live session and
+// zero tokens — both are memory-only and set only in the sign-in callback — so the operator is not signed
+// out, they simply have nothing to act with, and the signed-in chrome carries no sign-in control. This is
+// the way back in, and it is the same redirect the sign-in card performs.
+//
+// beginSignIn can throw before any redirect (it needs crypto.subtle, so an insecure context fails), and
+// this path runs while signed in, where the sign-in card's own error line is not rendered — so the failure
+// goes to the alert the signed-in view does show.
+async function onSignInRequired() {
+  try {
+    window.location.assign(await beginSignIn(oidcFromPosture(), consoleRedirectUri()))
+  } catch (e) {
+    cloudNotice.value = {
+      title: 'Could not start the sign-in',
+      message: e instanceof Error ? e.message : 'The console could not begin a cloud sign-in.',
+    }
+  }
+}
+
 function onContentChanged() {
   contentReload.value++ // reload both content panels
   void refresh() // a mount change needs a stack recreate — update the pending banner
@@ -206,8 +223,8 @@ async function handleCallback() {
   // Complete the exchange against the posture's discovery values (mode() is gated and unavailable
   // pre-session) and mint the cloud session by presenting the ID token.
   try {
-    const idToken = await completeSignIn(oidcFromPosture(), consoleRedirectUri(), code, stateParam)
-    await mintCloud(idToken) // sets the session and retains the ID token for gated requests
+    const tokens = await completeSignIn(oidcFromPosture(), consoleRedirectUri(), code, stateParam)
+    await mintCloud(tokens) // sets the session and retains both tokens for the calls that carry them
     onSignedIn()
   } catch (e) {
     signInError.value = e instanceof Error ? e.message : 'Cloud sign-in failed.'
@@ -356,7 +373,11 @@ onUnmounted(() => {
         <!-- Content — exists only once the platform is running in cloud mode. -->
         <template v-if="mode && mode.phase === 'post-cloud'">
           <section v-show="activeTab === 'content'" class="space-y-4">
-            <ContentModules :reload-token="contentReload" @changed="onContentChanged" />
+            <ContentModules
+              :reload-token="contentReload"
+              @changed="onContentChanged"
+              @sign-in-required="onSignInRequired"
+            />
           </section>
         </template>
       </div>

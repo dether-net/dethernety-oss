@@ -3,8 +3,10 @@ package daemoncmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,7 +21,13 @@ import (
 // download: it is writing a tiny stub into the modules directory that names a module key and a content
 // pin. The module's classes, schemas, guides and evaluation are then served per request from the
 // content service against the caller's own token — the console never fetches or holds that content, and
-// never sends a token of its own to the content service.
+// sends no token of its own on the catalog path. On the artifact path it forwards THE OPERATOR'S OWN
+// access token, for one request, to the one host the mode layer names.
+//
+// The distinction that made the original sentence true is the one preserved: the console has no
+// credential of its own, then or now. It relays the operator's, for one call, to one configured host,
+// and holds it nowhere. Every other property this file claims is unchanged — no deployment identifier,
+// no request-supplied destination, no redirect followed.
 //
 // The console reads the public catalog (no credential) to show the operator what exists and at which
 // pin, writes and removes stubs, and reports whether a newer content version is available. The catalog
@@ -29,6 +37,19 @@ import (
 // contentTimeout bounds each catalog call. Catalog reads are operator-initiated and interactive, so a
 // short timeout keeps a stalled upstream from hanging the console.
 const contentTimeout = 15 * time.Second
+
+// entitledTimeout bounds an entitled fetch, and is deliberately not contentTimeout. http.Client.Timeout
+// covers the body read as well as the exchange, and it is a hard floor no caller's context can raise —
+// so the catalog's 15 s would fail an artifact download on any link slower than about 1.7 Mbit/s. At 60 s
+// the floor is roughly 420 kbit/s for a 3 MiB payload, and a caller that wants less can still shorten it
+// with its own context deadline.
+const entitledTimeout = 60 * time.Second
+
+// maxDenialBytes caps the body read back from a NON-2xx entitled response. Those bodies exist to be
+// shown to the operator verbatim, which is exactly why they need their own bound: a refusal carrying
+// megabytes of text would otherwise arrive whole in front of whoever asked for the install. The wire
+// protocol's refusal bodies are short JSON, so this is generous rather than tight.
+const maxDenialBytes = 8 << 10
 
 // maxCatalogPackages caps the per-request fan-out when resolving each package's modules. The catalog is
 // small in practice; this is a safety valve against a pathological or hostile response, not a real
@@ -57,6 +78,14 @@ var (
 	moduleKeyPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,38}$`)
 	pinPattern        = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	packageKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	// An artifact version: a bare semver core, and stricter than MAJOR.MINOR.PATCH looks. Both extra
+	// bounds earn their place. No leading zeros, because the version composes into a certificate subject
+	// and a URL path — "01.2.0" is a different string from "1.2.0" that no publisher emits, and accepting
+	// it would produce a request that can only ever fail verification. And at most nine digits a
+	// component, which keeps every one below MaxInt32 on any target, so a later comparison over
+	// strconv.Atoi cannot overflow: "unparseable" then describes only a version read off disk, never one
+	// a request can supply.
+	artifactVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$`)
 )
 
 // The marker file the console writes beside every stub it creates. It is the proof that the console
@@ -72,7 +101,14 @@ const (
 )
 
 type mountMarker struct {
-	Schema     string `json:"schema"`
+	Schema string `json:"schema"`
+	// The package the operator mounted from, and deliberately ONE key rather than a list. A module can
+	// belong to several packages, so a component mounted from one is attributed to that one, and
+	// re-mounting from another re-attributes it. That is a known limitation rather than an oversight,
+	// and neither candidate fix is right: a list would record a fiction, because the operator chose one
+	// package; and dropping the field breaks latestModule, which judges pin currency against the
+	// package the operator chose — a module's content is identical across packages, but the pin each
+	// package document names need not be. It stays as it is until the display it affects is redesigned.
 	PackageKey string `json:"packageKey"`
 	ModuleKey  string `json:"moduleKey"`
 	Pin        string `json:"pin"`
@@ -93,8 +129,26 @@ type catalogPackageSummary struct {
 }
 
 type packageDocument struct {
-	Version string               `json:"version"`
-	Modules []catalogModuleEntry `json:"modules"`
+	Version   string                 `json:"version"`
+	Modules   []catalogModuleEntry   `json:"modules"`
+	Artifacts []catalogArtifactEntry `json:"artifacts"`
+}
+
+// catalogArtifactEntry is one artifact a package grants, as the package document lists it. There is no
+// version list and therefore no version type: latest is the only version this document names, so there is
+// nothing here for a version picker to consume.
+type catalogArtifactEntry struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	// Public protocol vocabulary — code-module installs here, application does not — and the field the
+	// console branches on to decide whether installing is even a thing this artifact does.
+	Kind        string `json:"kind"`
+	Target      string `json:"target,omitempty"`
+	Description string `json:"description,omitempty"`
+	// The highest version that has not been recalled, computed by the publisher with a numeric sort when
+	// the package was cut. ABSENT when every published version has been recalled, which the console shows
+	// as unavailable rather than as an update it could offer.
+	Latest string `json:"latest,omitempty"`
 }
 
 type catalogModuleEntry struct {
@@ -111,12 +165,13 @@ type catalogModuleEntry struct {
 // latest version, the modules an operator can mount (the catalogModuleEntry wire shape, returned as-is).
 // Error carries a per-package resolution failure so one bad package never blanks the whole catalog.
 type catalogPackage struct {
-	Key         string               `json:"key"`
-	Name        string               `json:"name"`
-	Description string               `json:"description,omitempty"`
-	Version     string               `json:"version"`
-	Modules     []catalogModuleEntry `json:"modules"`
-	Error       string               `json:"error,omitempty"`
+	Key         string                 `json:"key"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Version     string                 `json:"version"`
+	Modules     []catalogModuleEntry   `json:"modules"`
+	Artifacts   []catalogArtifactEntry `json:"artifacts"`
+	Error       string                 `json:"error,omitempty"`
 	// Entitled reports whether this deployment is subscribed to the package, from the recipe's
 	// DEPLOYMENT_PACKAGES set. nil means undetermined — the recipe predates the variable (the key is
 	// absent from the mode file), so the UI must not gate on it.
@@ -157,6 +212,73 @@ func publicGet(ctx context.Context, base, path string, dst any) error {
 	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(dst)
 }
 
+// errEntitledTooLarge marks an over-cap response specifically. A caller needs it because that failure is
+// the only one on this transport an operator can be told something useful about — the object is larger
+// than this console will install — while a dial failure or a refused redirect are the same "could not be
+// reached" from where they stand. Wrapped rather than returned bare, so the message is unchanged.
+var errEntitledTooLarge = errors.New("response exceeds the size this console will read")
+
+// entitledGet performs an AUTHENTICATED GET against the content service's entitled surface, carrying the
+// operator's access token. It is a second function beside publicGet and never a flag on it: a flag would
+// be one edit away from attaching this token to a catalog call, which is the exact thing publicGet's
+// comment above exists to prevent.
+//
+// It differs from publicGet in what it does with a refusal, and that difference is the point. publicGet
+// collapses every non-2xx into an error and discards the body; here a refusal's body IS the answer — the
+// service's denial explanation, or an operator-authored withdrawal reason — so status and body come back
+// intact and the caller decides what they mean. Only a transport failure is an error.
+//
+// It does NOT classify those statuses. Every outcome they map to is a sentence shown to an operator, and
+// the code that chooses those sentences is the handler's, not the transport's.
+//
+// Three bounds, because "the body survives" cannot mean "unbounded": max+1 on a success so a body exactly
+// at the cap is allowed and one over is refused rather than silently truncated; maxDenialBytes on a
+// refusal; and any 3xx is an error rather than a status, because CheckRedirect hands back a body that is
+// net/http's own <a href="…"> text — an UPSTREAM-CHOSEN URL — and a caller rendering "the body" for an
+// unmapped status would put it in front of the operator.
+//
+// base is the caller's, and callers take it from the console-written mode layer, re-checked on read.
+// Never a request-supplied host.
+func entitledGet(ctx context.Context, base, path, token string, max int64) (body []byte, status int, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+path, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{
+		Timeout: entitledTimeout,
+		// The same refusal publicGet makes, for the same reason: refusing redirects is what keeps the
+		// set of hosts this dials equal to the set the operator named.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, resp.StatusCode, fmt.Errorf("entitled GET %s: the content service redirected, which the console does not follow", path)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, err := io.ReadAll(io.LimitReader(resp.Body, maxDenialBytes))
+		if err != nil {
+			return nil, resp.StatusCode, fmt.Errorf("entitled GET %s: reading the refusal: %w", path, err)
+		}
+		return b, resp.StatusCode, nil
+	}
+	// One byte past the cap, so a body exactly at the cap is allowed and one over is refused.
+	b, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("entitled GET %s: %w", path, err)
+	}
+	if int64(len(b)) > max {
+		return nil, resp.StatusCode, fmt.Errorf("%w: entitled GET %s: body exceeds max size %d bytes", errEntitledTooLarge, path, max)
+	}
+	return b, resp.StatusCode, nil
+}
+
 // resolveCatalog lists the packages and, for each, resolves its latest version's modules — the shape the
 // browse view and the pin-currency check both need. A failure to resolve a single package's modules
 // yields that package with an error note rather than failing the whole catalog; only a failure of the
@@ -182,7 +304,13 @@ func resolveCatalog(ctx context.Context, base string) (packages []catalogPackage
 			// per-call error.
 			break
 		}
-		cp := catalogPackage{Key: p.Key, Name: p.Name, Description: p.Description, Version: p.Latest, Modules: []catalogModuleEntry{}}
+		// Both lists are initialised here and not at the append below, because the two degraded branches
+		// that follow return this value without reaching it — and a package that renders "modules":[] while
+		// rendering "artifacts":null would be describing the same absence two different ways.
+		cp := catalogPackage{
+			Key: p.Key, Name: p.Name, Description: p.Description, Version: p.Latest,
+			Modules: []catalogModuleEntry{}, Artifacts: []catalogArtifactEntry{},
+		}
 		if p.Latest == "" {
 			cp.Error = "this package has no published version"
 			out = append(out, cp)
@@ -196,6 +324,7 @@ func resolveCatalog(ctx context.Context, base string) (packages []catalogPackage
 			continue
 		}
 		cp.Modules = append(cp.Modules, doc.Modules...)
+		cp.Artifacts = append(cp.Artifacts, doc.Artifacts...)
 		out = append(out, cp)
 	}
 	return out, truncated, nil
@@ -216,6 +345,56 @@ func latestModule(packages []catalogPackage, packageKey, moduleKey string) (cata
 		}
 	}
 	return catalogModuleEntry{}, false
+}
+
+// latestArtifact finds one artifact across ALL package documents, unlike latestModule which scopes to the
+// package the operator mounted from. An artifact's bytes are one thing at one version and no package can
+// offer a different one, so package scoping would be a distinction without a difference.
+//
+// Where the packages disagree it takes the HIGHEST readable latest, and the trade cuts both ways because
+// one artifact version is several package cuts. Between them a freshly cut package advertises a newly
+// published version the others do not, so taking the highest surfaces an update at the first cut rather
+// than the last. A RECALL runs the other way: the lagging package still advertises the withdrawn version,
+// so this keeps prompting it until the last cut lands — and the install then answers 410 carrying the
+// reason its publisher wrote. That outcome is a known limitation of the protocol rather than a surprise
+// here, and it explains itself, where a missed update would be silent.
+//
+// The direction is a deliberate call, not an accident of implementation: taking the lowest would stop
+// prompting a recalled version at the first cut instead of the last, at the price of hiding a newly
+// published one until the last cut instead of the first. Do not change one half without the other.
+//
+// The ordering is total, so the absent and the unreadable cases cannot come out differently depending on
+// which package the catalog listed first: a readable latest beats a non-empty unreadable one, which beats
+// an absent one.
+func latestArtifact(packages []catalogPackage, key string) (catalogArtifactEntry, bool) {
+	var out catalogArtifactEntry
+	found := false
+	for _, p := range packages {
+		for _, a := range p.Artifacts {
+			if a.Key != key {
+				continue
+			}
+			if !found {
+				out, found = a, true
+				continue
+			}
+			_, aReadable := versionComponents(a.Latest)
+			_, outReadable := versionComponents(out.Latest)
+			switch {
+			case aReadable && !outReadable:
+				out = a
+			case aReadable && outReadable:
+				if cmp, _ := compareVersion(a.Latest, out.Latest); cmp > 0 {
+					out = a
+				}
+			case !aReadable && !outReadable && out.Latest == "" && a.Latest != "":
+				// Neither can be compared, but one of them at least says a version exists. "Unreadable"
+				// and "every version recalled" are different answers to the operator.
+				out = a
+			}
+		}
+	}
+	return out, found
 }
 
 // renderStub fills the fixed template with the validated key and pin. Callers MUST validate both before
@@ -275,11 +454,6 @@ func writeMarkerNamed(dir, name string, v any) error {
 	return os.WriteFile(filepath.Join(dir, name), append(data, '\n'), 0o644)
 }
 
-// writeMarker writes the content mount marker into a module directory.
-func writeMarker(dir string, m mountMarker) error {
-	return writeMarkerNamed(dir, mountMarkerName, m)
-}
-
 // readMarker reads the mount marker from a module directory.
 func readMarker(dir string) (mountMarker, error) {
 	var m mountMarker
@@ -291,25 +465,106 @@ func readMarker(dir string) (mountMarker, error) {
 	return m, err
 }
 
-// writeStubFile writes the module directory (0755), the named stub file (0644), and returns whether
-// the written stub ended up world-writable — some bind-mount backends do not preserve modes, and the
-// platform refuses to load a world-writable module file in cloud mode, so the console reports the
-// condition rather than letting the mount fail silently later. Every kind of mount the console writes
-// goes through here, so the directory mode and that check have one definition.
-func writeStubFile(dir, fileName, content string) (worldWritableWarning bool, err error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// errStubNotWritten marks the one failure that leaves a mount RECORDED but incomplete: the marker is on
+// disk and the module file is not. It is worth distinguishing because it is the only failure the operator
+// can act on differently — the directory is owned, so a retry completes it and an unmount removes it.
+var errStubNotWritten = errors.New("the mount is recorded but its module file was not written")
+
+// ensureMountDir creates a module directory if it is not already there, and reports whether THIS call
+// created it — which is what tells a mount that fails later whether it may remove the directory again.
+//
+// It is the ONE definition of the mount directory's mode, which is why nothing else in this package
+// creates one. The parent is created too, because the modules directory is a host mount that a fresh
+// deployment may not have yet: today's stub writer used MkdirAll and therefore tolerated its absence,
+// and listMounts tolerates it deliberately, so a mount that started failing on an empty volume would be
+// a regression.
+//
+// Mkdir rather than stat-then-create: "did I create it" then comes from the syscall that did the work
+// rather than from an observation taken before it.
+func ensureMountDir(dir string) (created bool, err error) {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return false, err
 	}
-	stubPath := filepath.Join(dir, fileName)
-	if err := os.WriteFile(stubPath, []byte(content), 0o644); err != nil {
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return false, nil
+		}
 		return false, err
 	}
+	return true, nil
+}
+
+// undoMountDir removes a directory a mount created and then failed to finish, so a failed mount leaves
+// nothing behind where it had nothing to begin with.
+//
+// os.Remove, NEVER os.RemoveAll: the removal succeeds only while the directory is still empty, so it can
+// never take an operator's tree with it. Best effort by design — a mount that has already failed does
+// not fail differently because the cleanup did too. Do not be tempted to inspect the error either: Go
+// maps ENOTEMPTY to fs.ErrExist, so errors.Is(err, fs.ErrExist) is TRUE for the ordinary
+// directory-is-not-empty case and reads as the opposite of what it means.
+func undoMountDir(dir string, created bool) {
+	if created {
+		_ = os.Remove(dir)
+	}
+}
+
+// writeMount writes one mount into dir: the directory, then the MARKER, then the stub. Every kind of
+// mount the console writes goes through here, so the directory mode, the world-writable check and — the
+// reason this function exists — the ORDER all have one definition.
+//
+// The order is the whole point. A stub is a loadable *Module.js; a marker is what tells mount and
+// unmount that the console owns the directory. Writing the stub first leaves a window in which a
+// loadable module sits in a directory both operations then refuse forever, and the operator's only
+// remedy is a shell in the volume. Marker first, so the failure that remains possible is an owned
+// directory: a retry completes it, and an unmount removes it.
+//
+// A marker failure undoes the directory when this call created it. A stub failure deliberately does
+// NOT undo anything — the marker is exactly what makes that state recoverable, and removing it would
+// take the recovery away. One consequence is worth naming: on a re-mount that advances a pin, a stub
+// failure leaves the marker recording the NEW pin while the stub still carries the old one, so the
+// inventory reports the mount as current when the platform will serve the old pin. That is why the
+// failure is distinguishable (errStubNotWritten) and why its caller tells the operator rather than
+// reporting a generic write failure.
+func writeMount(dir, markerName string, marker any, stubFileName, stubContent string) (worldWritableWarning bool, err error) {
+	created, err := ensureMountDir(dir)
+	if err != nil {
+		return false, fmt.Errorf("creating the mount directory: %w", err)
+	}
+	if err := writeMarkerNamed(dir, markerName, marker); err != nil {
+		undoMountDir(dir, created)
+		return false, fmt.Errorf("writing the mount marker: %w", err)
+	}
+	stubPath := filepath.Join(dir, stubFileName)
+	if err := os.WriteFile(stubPath, []byte(stubContent), 0o644); err != nil {
+		return false, fmt.Errorf("%w: %v", errStubNotWritten, err)
+	}
+	// Some bind-mount backends do not preserve modes, and the platform refuses to load a world-writable
+	// module file in cloud mode — so the console reports the condition rather than letting the mount
+	// fail silently later.
 	return worldWritable(stubPath), nil
 }
 
-// writeStub writes a content mount: the directory, and the stub naming the module key and its pin.
-func writeStub(dir, moduleKey, pin string) (worldWritableWarning bool, err error) {
-	return writeStubFile(dir, moduleFileName(moduleKey), renderStub(moduleKey, pin))
+// writeContentMount writes a content mount from its marker, so the stub's key and pin and the marker's
+// cannot disagree. Callers MUST validate ModuleKey and Pin before calling this — renderStub's template
+// safety argument depends on it, and a struct now sits between the request fields and the template.
+func writeContentMount(dir string, m mountMarker) (worldWritableWarning bool, err error) {
+	return writeMount(dir, mountMarkerName, m, moduleFileName(m.ModuleKey), renderStub(m.ModuleKey, m.Pin))
+}
+
+// stubPresent reports whether the loadable module file is in place. The marker says the console owns
+// the directory; only the stub says the platform has something to load. Since the marker is written
+// first, those are no longer the same question, and a view that claims a module is mounted must ask
+// this one.
+//
+// NON-EMPTY, not merely present. os.WriteFile opens with O_CREATE|O_TRUNC and writes afterwards, so a
+// write that fails part-way — ENOSPC being the case that produces it, where the directory entry is
+// obtainable and the data blocks are not — leaves a regular file of zero bytes. The platform's loader
+// takes any *Module.js it finds, so that file is picked up and exports nothing; presence alone would
+// report the mount as complete on exactly the failure this question exists to catch. renderStub never
+// produces an empty stub, so size is a safe discriminator.
+func stubPresent(dir, fileName string) bool {
+	info, err := os.Stat(filepath.Join(dir, fileName))
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }
 
 // worldWritable reports whether the file at path has its world-writable bit set.
@@ -321,10 +576,24 @@ func worldWritable(path string) bool {
 	return info.Mode().Perm()&0o002 != 0
 }
 
+// mountedDir is one mount as the scan found it: the marker, and the DIRECTORY it was read from. The two
+// are carried together because a caller asking anything else about the mount — whether its stub is there,
+// what its files are — must ask it of the directory that exists rather than of the key the marker claims.
+// A hand-edited marker can name a different key, and a check aimed at that key would report on a directory
+// that is not the one it read.
+type mountedDir struct {
+	dir    string
+	marker mountMarker
+}
+
 // listMounts scans the modules directory for subdirectories the console created (those carrying the
-// mount marker) and returns their markers — the inventory. A missing modules directory is not an error:
-// it simply means nothing is mounted yet.
-func listMounts(modulesDir string) ([]mountMarker, error) {
+// mount marker) and returns them with their markers — the inventory. A missing modules directory is not
+// an error: it simply means nothing is mounted yet.
+//
+// It answers ONE question: which directories does the console own as content mounts. Whether the platform
+// has anything to load in them is a second question, asked by the views that claim a module is mounted —
+// see stubPresent. Keeping them apart is what lets unmountModule keep gating on ownership alone.
+func listMounts(modulesDir string) ([]mountedDir, error) {
 	entries, err := os.ReadDir(modulesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -332,16 +601,17 @@ func listMounts(modulesDir string) ([]mountMarker, error) {
 		}
 		return nil, err
 	}
-	var out []mountMarker
+	var out []mountedDir
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		m, err := readMarker(filepath.Join(modulesDir, e.Name()))
+		dir := filepath.Join(modulesDir, e.Name())
+		m, err := readMarker(dir)
 		if err != nil {
 			continue // not one of ours (no marker, or unreadable) — skip
 		}
-		out = append(out, m)
+		out = append(out, mountedDir{dir: dir, marker: m})
 	}
 	return out, nil
 }
