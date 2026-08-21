@@ -26,8 +26,8 @@ guide](../../user/byodt/README.md).
 | Document | What it covers |
 |---|---|
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Deployment topology — every service, startup ordering and its conditions, ports and what is published, storage and volumes, and the request path through the front door. Start here. |
-| [`CONSOLE.md`](./CONSOLE.md) | The operator console — one binary with an `init` one-shot and a `daemon`, the state file, the mode layer, content mounts, its authentication posture, and why it has no process control. |
-| [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) | How modules reach a deployment — the signed release channel, the signed index, signature verification and identity pinning, extraction limits, the replacement rule, and how one tag produces a coherent artifact set. |
+| [`CONSOLE.md`](./CONSOLE.md) | The operator console — one binary with an `init` one-shot and a `daemon`, the state file, the mode layer, content mounts, entitled-artifact installs, its authentication posture, and why it has no process control. |
+| [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) | How modules reach a deployment — the signed release channel, the signed index, signature verification and identity pinning on both the release and entitled-artifact paths, extraction limits, the replacement rule, and how one tag produces a coherent artifact set. |
 | [`SECURITY_MODEL.md`](./SECURITY_MODEL.md) | Trust boundaries and posture — the authentication postures, what the front door exposes, secret handling, the mode-layer variable allowlist, and the hardening rules that follow from them. |
 
 ---
