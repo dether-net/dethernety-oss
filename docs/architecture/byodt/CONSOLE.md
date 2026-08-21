@@ -161,15 +161,16 @@ reports `init-not-run`, which is the honest reading of an absent record.
 
 ## `daemon` — the operator console
 
-A small HTTP server with three responsibilities: report the deployment's state, own the mode layer,
-and manage content mounts. It holds no database connection, and its only dependency is an HTTP probe
-of the platform — so it keeps answering while the rest of the stack is down.
+A small HTTP server with four responsibilities: report the deployment's state, own the mode layer,
+manage content mounts, and install, report and remove entitled artifacts. It holds no database
+connection, and its only dependency is an HTTP probe of the platform — so it keeps answering while the
+rest of the stack is down.
 
 | | |
 |---|---|
 | Listen | `0.0.0.0:8080` inside the container (`CONSOLE_BIND` / `CONSOLE_PORT`) |
-| Transport | Plain HTTP — the front door terminates TLS for the whole stack |
-| Timeouts | 10 s read-header, 30 s read, 30 s write, 120 s idle |
+| Transport | Plain HTTP — the front door terminates TLS for the whole stack, and is the only way in: the console publishes no port of its own |
+| Timeouts | 10 s read-header, 30 s read, 30 s write, 120 s idle — except `POST /api/artifacts`, which raises its own response write deadline to twice the entitled-fetch bound plus 60 s (180 s today), because an install spends that budget on two entitled fetches, a signature verification and an extraction ([below](#entitled-artifacts)) |
 | Shutdown | `SIGINT`/`SIGTERM` trigger a graceful shutdown with a 10 s budget |
 | Session store | In memory — a daemon restart invalidates every live session, which is intended |
 
@@ -267,6 +268,16 @@ The marker is the proof of ownership, and it is what makes mount and unmount saf
   a directory name and a JavaScript string literal), the pin must be `sha256:` plus 64 hex characters,
   and the resolved directory is asserted to sit directly under the modules root.
 
+A mount is written in a fixed order — the directory, then the marker, then the stub — and the
+knowledge-graph mount below goes through the same writer, so the order has one definition. Marker first
+is what makes the rest safe: writing the stub first would leave a loadable module in a directory that
+mount and unmount then both refuse forever, and the operator's only remedy is a shell in the volume. A
+marker failure undoes a directory the call created; a stub failure deliberately undoes nothing, because
+the marker is exactly what makes that state recoverable. The half-mount it leaves is reported rather than
+hidden — the mount's currency reads `incomplete`, rendered as "module file missing" — and mounting again
+completes it while unmounting removes it. On a re-mount that advances a pin, which half is which
+matters: the marker records the new pin while the stub still carries the old one.
+
 The catalog itself is read **unauthenticated** — it is public, and attaching the operator's credential
 would forward it to a surface that must not receive it. The catalog host is read from the mode file the
 console itself wrote, never from the request, which is what keeps the console from being usable as a
@@ -304,13 +315,114 @@ Three properties are worth stating because each is a decision rather than a cons
   knowledge-graph configuration at all, mounts nothing, and says so — the deployment connects to the
   cloud without it. A service that is momentarily down must not cost an operator their cloud connection,
   and a base URL with no version is inert while *looking* configured.
-- **The marker name is the third distinct one.** Content mount, code-module stamp, knowledge-graph
-  mount: three kinds, three names, so unmount can never remove a directory it did not create and the key
-  `knowledge-graph` is refused as a content module key rather than contended for.
+- **The marker name is distinct from the other three.** Content mount, code-module stamp,
+  knowledge-graph mount, artifact install: four kinds, four names, so unmount and remove can never take a
+  directory they did not create, and the key `knowledge-graph` is refused — as a content module key and
+  as an artifact key — rather than contended for. Like the artifact marker and unlike the content
+  mount's, this one is parsed and its schema checked rather than stat'd: a file carrying the marker's
+  name and another schema is not the console's.
 
 The connection is reported apart from the content mounts, and read-only. There is nothing for an
 operator to do with it, and listing it among modules whose content is served per request would invite
 reading it as the knowledge graph itself having been installed — when what was installed is a client.
+
+### Entitled artifacts
+
+A deployment connected to the cloud can also **install** an artifact, which is not a mount. A content
+mount needs no credential — the catalog is public and a mount is a local file write — but installing an
+entitled artifact means asking the content service for bytes it will only hand to a subscriber. What
+lands is not a stub naming content to fetch later: it is the module's own verified payload tree, in the
+modules mount, and from then on the deployment holds the code.
+
+Only one kind of artifact is installed onto a deployment, a code module. The other kind the content
+service publishes is an application, which is not something a deployment hosts — it runs wherever
+its operator runs it. Asking to install one is refused — `409` rather than `400`, because the request
+is well formed and it is the destination that is wrong — and refused before the archive is fetched, so a request that
+was never going to install does not pull megabytes first. That is the only check anywhere that reads an
+artifact's kind: the staging sequence asserts a module *layout*, which an application's archive could
+satisfy by accident, and the platform would load what it found there as a module.
+
+**The install runs on the operator's own credential, not the console's.** The console holds none of its
+own and gains none here. The operator's OIDC *access* token — minted in the same sign-in as the ID token
+their session was established with — rides its own header, `X-Console-Cloud-Token`, for the duration of
+one request: never logged, never written to disk, nothing kept between requests. A header of its own,
+because `Authorization` already carries the ID token the daemon forwards to the platform's own module
+query — why the two cannot be collapsed is in [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#sessions). An
+install attempted without it is `400` and "a cloud sign-in is required" — deliberately not `401`, which
+the SPA reads as an expired session and would answer by returning the operator to the sign-in card
+mid-install.
+
+**Nothing is placed until the signature verifies.** The archive is checked against a Sigstore bundle
+pinned to a certificate subject derived from the request — the signer the cloud connection names, plus a
+ref naming this artifact key and this version — so a signature that verifies means "these are the bytes
+I asked for" and not merely "someone we trust signed something". Verify, digest, extract, assert the
+layout, recompute the payload digest: the same sequence the boot path runs
+([`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md)), in a staging directory under the modules mount, and only then
+is the tree marked and swapped into place. A signature that does not verify is refused with "nothing was
+installed", takes the staged tree with it, and is logged as a security event rather than an ordinary
+install failure. A deployment whose cloud connection names no signer refuses every install rather than
+falling back to a weaker check — reconnecting is what obtains one.
+
+**The inventory rides on the modules read.** `GET /api/modules` returns the installed artifacts
+alongside the mounted stubs and the knowledge-graph connection, each with its version, when it was
+installed, and its currency against the catalog:
+
+| Currency | Meaning |
+|---|---|
+| `current` | The installed version is the newest the catalog offers |
+| `outdated` | A newer version is offered, and the response names it |
+| `unknown` | No comparison could be made, and the causes do not all explain themselves. A version on one side the console cannot parse, and an installed version newer than anything on offer, each add a note naming the artifact. A catalog that could not be read at all — unreachable, or no usable content service configured — adds one note for the whole response instead. Silence is the fourth case: an artifact that no package in the catalog offers is reported `unknown` with nothing further said, which is what an operator sees both for a version the catalog no longer lists and for one whose package the catalog could not serve |
+| `unavailable` | Every published version has been recalled, so there is nothing to offer. Not the same as being up to date, and not the same as not knowing |
+
+`outdated` is never answered on a comparison that could not be made. It is an invitation to install, and
+the cases that cannot be compared would be inviting either a downgrade the install refuses or a version
+that no longer exists. The mounts' own fourth value, `incomplete`, is not one of these: it belongs to a
+stub mount whose module file is not there, and mounting it again is what completes it
+([above](#content-mounts)).
+
+**Removal takes only what the console installed as an artifact.** `DELETE /api/artifacts/{key}` renames
+the tree away and then deletes it — the rename is the atomic point, so the module is gone from where the
+platform looks whatever happens to the copy afterwards. A directory carrying the code-module stamp and
+no artifact marker is read as one of the release's own modules — placed by
+[job 2](#job-2--install-the-code-modules) before the platform started — and the refusal says it was
+installed *with* the platform rather than claiming the console did not create it; a content mount using
+the same name is answered "unmount it instead"; and `knowledge-graph` is removed by disconnecting from
+the cloud.
+
+Removal has a consequence in the graph, and the console states it **before** the operator confirms as
+well as on the answer: at the next platform restart the classes the module provides — and any it once
+provided — are deleted, together with every link to them, including existing analyses' links.
+Re-installing brings the classes back but not those links. Anything authored outside those classes is
+kept, but nothing can read, edit or export it until the module is installed again. It is carried on the
+modules read for exactly that reason, so the confirmation an operator is asked for can state it, and
+repeated on the removal's own answer for the operator who arrived from a reload.
+
+**The refusals an operator actually meets.** Each is a sentence rather than a code, and the sentence is
+what is shown.
+
+| Refusal | What it means |
+|---|---|
+| `409` another module operation is already running | Installing, removing, mounting and unmounting all write into the same modules directory, and one runs at a time. The second caller is told rather than left holding a connection open through another request's multi-megabyte download — retry once the first finishes |
+| `409` this version is older than the installed one and has to be asked for explicitly | The request is a downgrade. Confirm it — the confirmation names both versions, and it is the only thing that turns the guard off — or install the newer version instead. Without the guard, a service that withdrew a fixed version could walk a deployment backwards onto a known-bad one. Re-installing the *same* version is not a downgrade: it is how a damaged tree is repaired |
+| `410` this version has been withdrawn | Recalled by its publisher. The reason the publisher wrote is surfaced with the refusal, and the version that supersedes it when there is one. Expect it in the window after a recall: a package cut beforehand still advertises the withdrawn version, so the console keeps offering it until the last cut lands |
+| `403` this deployment's subscription does not include this artifact | The content service's own denial, passed through verbatim |
+| `502` the content service could not be reached | A dial failure, or a redirect the console refuses to follow because following it would dial a host the operator never named. It takes up to a minute to arrive — an entitled fetch is bounded at 60 s |
+| `409` no content service, or no artifact signer, is configured | The cloud connection carries neither the host to ask nor the identity to verify against. Reconnect |
+
+**An install can run for minutes, which is why two timeouts are set the way they are.** Two entitled
+fetches bounded at 60 s each, plus a verification, an extraction and a digest recompute, do not fit the
+server-wide 30 s write deadline — past it the install still completed on disk while the `200` could no
+longer be written, so a success reached the browser as a dropped connection with no restart reminder.
+That one route raises its own deadline rather than weakening every other handler's. The front door is
+the other half: `/console/` carries `proxy_read_timeout 240s`, deliberately longer than the daemon's own
+budget so the daemon is always the one that gives up first and the operator reads its refusal instead of
+a proxy `504`. The front door's own 60 s default would otherwise cut off the case that matters most — an
+unreachable content service, whose refusal is composed at t≈60 s by construction.
+
+Like a mount, an install takes effect when the platform is recreated, and the answer names the command.
+A removed module stays loaded until that same recreate, which is when its graph consequences fire. And
+as with a mount's stub, if a module file in the installed tree ends up world-writable the console says
+so.
 
 ### Authentication posture
 
@@ -366,9 +478,11 @@ authentication round trip.
 | `POST /api/cloud` | yes | Write the cloud mode layer from a pasted recipe |
 | `DELETE /api/cloud` | yes | Revert the mode layer to the local values |
 | `GET /api/packages` | yes | The public content catalog (cloud posture only) |
-| `GET /api/modules` | yes | The mounted-stub inventory (cloud posture only) |
+| `GET /api/modules` | yes | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
 | `POST /api/modules` | yes | Mount one module at one pin (cloud posture only) |
 | `DELETE /api/modules/{key}` | yes | Unmount (cloud posture only) |
+| `POST /api/artifacts` | yes | Install one entitled artifact at one version (cloud posture only) — the only route that carries a second credential, the operator's access token on `X-Console-Cloud-Token` |
+| `DELETE /api/artifacts/{key}` | yes | Remove one installed artifact (cloud posture only) |
 
 Everything that carries deployment data is gated. The SPA shell is not, because it holds no data and
 the sign-in page has to load; `GET /api/posture` is not, because the sign-in page needs to know which
@@ -391,15 +505,16 @@ host. It would mean that a flaw in a small status server, or possession of a con
 to arbitrary control of the machine. The console's whole value is that its blast radius is the handful
 of files it owns; a socket mount would erase that in exchange for saving one typed command.
 
-So the console names the command instead, and names the *right* one, because the two kinds of change it
-writes apply at different scopes:
+So the console names the command instead, and names the *right* one, because the changes it writes do
+not all apply at the same scope:
 
 | Change | Command the console names | Why that scope |
 |---|---|---|
 | Connect to or disconnect from the cloud | `byodt restart` | The mode layer is read by more than one service, so all of them must come up in the new mode |
 | Mount or unmount a content module | `byodt restart platform` | The stub lands in the modules mount, which only the platform reads at startup |
+| Install or remove an entitled artifact | `byodt restart platform` | A whole verified payload tree is swapped into that same mount. A removed module stays loaded until that boot, which is also when its graph consequences fire |
 
-Both are recreates rather than restarts, because a container's environment is fixed at creation.
+All three are recreates rather than restarts, because a container's environment is fixed at creation.
 
 ---
 

@@ -3,17 +3,24 @@
 > How executable modules reach a deployment, what is checked before they are placed where the platform
 > will load them, and how one release tag produces an artifact set that cannot drift apart.
 
-At deploy time the console fetches code over the network and installs it where the platform loads it
-with `require()`. That is the deployment's sharpest trust boundary, and everything in this document
-exists because of it: the channel is constructible rather than API-driven, every artifact is signed,
-the signer identity is pinned to one exact release, the archive is unpacked under confinement, and the
-installed tree's identity is re-derived rather than believed.
+The console fetches code over the network and installs it where the platform loads it with `require()`.
+That is the deployment's sharpest trust boundary, and everything in this document exists because of it:
+every archive is signed, the signer identity is matched exactly rather than by pattern, the archive is
+unpacked under confinement, and the installed tree's identity is re-derived rather than believed.
+
+The boundary is crossed two ways. At deploy time the console installs the release's module set from a
+constructible download URL, and `PLATFORM_VERSION` alone decides what that set is. On a cloud-connected
+deployment an operator can also ask for one entitled artifact at one version, which the console fetches
+from the content service with that operator's own credential. The two differ in where the bytes come
+from, which credential fetches them, and what the certificate subject is pinned to; from the bytes
+onward they run the same staging sequence and the same verification policy, which is why that sequence
+lives in one package and not two.
 
 The install step's place in the boot sequence is in [`CONSOLE.md`](./CONSOLE.md#job-2--install-the-code-modules).
 
 ---
 
-## The channel
+## The release channel
 
 The console fetches release assets over plain HTTPS from constructible download URLs:
 
@@ -82,9 +89,76 @@ signed for an older release could be served at a newer release's URL and would v
 
 ---
 
+## The entitled artifact channel
+
+A deployment connected to the cloud has a second way modules arrive, and it is not part of boot. An
+operator asks for one artifact at one version — `POST /api/artifacts`, and `DELETE /api/artifacts/{key}`
+to take it away again — and the console fetches that artifact's descriptor and its archive from the
+content service, verifies them, and places the result in the same modules directory the release install
+writes to.
+
+**The credential is the operator's, not the console's.** The catalog is public, but entitled bytes are
+handed only to a subscriber, and the subscriber is the operator. The console relays their own OIDC
+access token on `X-Console-Cloud-Token` — its own header, because `Authorization` already carries the
+session's ID token and two tokens for two audiences cannot share one header, which
+[`SECURITY_MODEL.md`](./SECURITY_MODEL.md#sessions) argues. It is held for the duration of one request,
+never logged and never written to disk. The console gains no credential of its own here and holds
+nothing between requests.
+
+**The host is the one the operator named.** The base URL is read from the cloud mode layer the console
+itself wrote, never from the request, and a redirect is refused outright rather than followed — which
+is what keeps the set of hosts this can dial equal to the set the recipe named. That is the opposite of
+the release fetch's bounded-redirect rule, and deliberately so: a release download legitimately
+redirects to a content-delivery host, and this protocol's surfaces do not redirect at all. The
+descriptor is capped at 64 KiB and the archive at 3 MiB — that second number being the one the
+publisher enforces on the same bytes, deliberately not that number plus slack, since slack could only
+admit what publishing already refuses. Both are read one byte past the cap, so a body exactly at the cap
+is accepted and one over is refused.
+
+Five checks run before anything is dialled, and their order is load-bearing even though none of them
+touches the network: it decides which refusal the operator is told about first.
+
+1. **Cloud mode.** Outside it there is no content service to ask and no entitlement to hold.
+2. **The key and the version.** The key becomes a directory name, so it takes the module-key charset;
+   the version composes into both a URL path and a certificate subject, so it takes `MAJOR.MINOR.PATCH`
+   and nothing else.
+3. **The target directory** must be absent or already an artifact install. A content mount, a module
+   the release install placed, or an operator's own directory of that name stops the install here — and
+   refusing at this point is what keeps a request that was always going to be rejected from causing this
+   console to call the content service at all.
+4. **A configured content service and signer**, checked in that order. With no content service there is
+   nowhere to fetch from; with no signer there is no identity to check a signature against. Either one
+   missing refuses the install before any request is made, each with its own sentence — see
+   [Identity pinning](#identity-pinning-is-exact--per-release-or-per-artifact-version) below.
+5. **The operator's token** must be present.
+
+Then the descriptor, and two checks on what it declares before the archive is worth fetching: `kind`
+must be `code-module`, and the signature format must be `sigstore-bundle/v0.3`. The `kind` check is the
+only thing anywhere that says a deployment installs modules and not applications — the staging sequence
+asserts a module *layout*, which another kind of archive could satisfy by accident. The format check
+exists because a second accepted format would be a downgrade surface.
+
+From the archive bytes onward it is the shared sequence: verify, digest, extract under confinement,
+assert layout, recompute the payload digest and reconcile it with the stamp. Three refusals are this
+path's own, and each guards something the release path cannot encounter.
+
+| Refused when | Why it exists here |
+|---|---|
+| The stamp does not name the key and version that were **asked for** | Staging proves the bytes are signed, whole and self-describing — not that they are the artifact this request named |
+| The version asked for is older than the installed one, and the request did not say to downgrade | A service that withdrew a fixed version could otherwise walk a deployment backwards onto a known-bad one |
+| The payload carries another mount kind's ownership marker | Nothing filters the extracted tree, so an archive could ship a content mount's marker and produce a directory two owners both read as theirs |
+
+The install writes its own marker (`.dethernety-artifact-mount.json`) into the payload root *before*
+the swap, so it is already there at the instant the rename makes the tree loadable — there is never a
+moment when a loadable tree carries no marker. That marker is also what makes removal decidable: a
+module the release install placed carries a stamp and no artifact marker, which is exactly why a
+request to remove one is refused.
+
+---
+
 ## Verification
 
-Every signed asset is checked with the same policy, implemented in
+Every signed asset, on either path, is checked with the same policy, implemented in
 [`pkg/moduleverify`](../../../pkg/moduleverify/) over a maintained Sigstore implementation.
 
 **What is checked:**
@@ -110,28 +184,74 @@ exists for, because a certificate that does not chain to the trusted authority i
 whatever it claims. Requiring the log inclusion proof and pinning the identity is what makes the
 signature load-bearing.
 
-### Identity pinning is per release, exactly
+### Identity pinning is exact — per release, or per artifact version
 
-The pinned identity is the full workflow reference for **this tag**:
+Both paths match the certificate's subject **exactly** — never a pattern — against the same issuer,
+`https://token.actions.githubusercontent.com`. What differs is the subject.
+
+A release asset is pinned to the full workflow reference for **this tag**:
 
 ```
 https://github.com/dether-net/dethernety-oss/.github/workflows/release.yml@refs/tags/v<PLATFORM_VERSION>
 ```
 
-with issuer `https://token.actions.githubusercontent.com`. It is matched exactly — it is not a pattern.
+An entitled artifact is pinned to a reference naming **this key at this version**:
 
-That is the whole point. Asset filenames are stable across releases, so a pattern over a family of tags
-would happily accept one release's asset served at another release's URL: a downgrade delivered without
-forging anything. Pinning the exact tag makes the identity itself carry the release, so an older
-release's asset fails verification rather than being installed.
+```
+${DEPLOYMENT_ARTIFACT_SIGNER}@refs/tags/artifact/<key>/<version>
+```
 
-The pin is derived from `PLATFORM_VERSION`, which the operator sets and the console never overrides —
-so what the operator pinned is what the signature must have been issued for.
+`DEPLOYMENT_ARTIFACT_SIGNER` is the subject prefix the publishing workflow signs under, and it is a
+workflow path with no ref — `https://<host>/<owner>/<repo>/.github/workflows/<file>.yml`, or `.yaml`.
+Nothing ever
+dials it; it is compared, never fetched.
+
+Exactness is the whole point on both. Asset filenames are stable across releases, so a pattern over a
+family of tags would happily accept one release's asset served at another release's URL: a downgrade
+delivered without forging anything. An identity spanning a family of artifact versions is no better —
+it separates 1.3.0 from 1.2.0 no better than it separates one artifact from another, so a service could
+answer a request for one version with another version's genuine archive-and-bundle pair while both the
+signature and the digest check passed. Pinning the exact ref makes the identity itself carry the
+release, or the version, so the wrong bytes fail verification rather than being installed.
+
+The release pin is derived from `PLATFORM_VERSION`, which the operator sets and the console never
+overrides — so what the operator pinned is what the signature must have been issued for.
+
+The entitled pin is derived per request, and only its fixed half is configuration: the signer comes
+from the cloud mode layer the console itself wrote, and the key and version come from the install
+request, so no ref is ever configurable and the subject is specific to that request and to nothing
+else. Two properties make that pin load-bearing:
+
+- **Absent or unusable means refuse.** A deployment whose recipe predates the variable cannot install
+  artifacts until it reconnects. An installer with no configured identity has to refuse rather than
+  fall back to a weaker check, which is why the refusal comes before any request reaches the content
+  service rather than after.
+- **The configured value cannot carry a ref.** The workflow-path shape forbids `@`, which refuses a
+  configured ref and a userinfo substitution in the same clause — a recipe able to pin one ref could
+  pin one version's subject for every version, which is the property the per-version subject exists to
+  provide. A `/../` segment is refused by a clause of its own, because `..` is a legal path segment the
+  shape cannot exclude. The whole check runs on the raw string rather than on a parsed URL, because
+  parsing hides the substitutions it is looking for: `url.Parse` lifts `user@` into a userinfo field,
+  strips `?query` and `#fragment` out of the path, and lowercases `HTTPS://` into the scheme — a
+  field-by-field check would accept every one of those, including a value that can never string-equal a
+  real certificate subject.
+
+**That shape check is a typo guard, not a security control**, and the difference is worth stating rather
+than leaving implied. A recipe able to supply a hostile signer already names this deployment's identity
+provider, its JWKS URI, its access list and its content host — it holds the whole trust configuration,
+so a false signer adds nothing to what it could already do. What protects the value is its provenance
+and its position: it arrives in the recipe an operator copies from their own account, over their own
+authenticated session, and lands in a file the console refuses to rewrite while the deployment is still
+cloud-configured — reconfiguring means disconnecting first. Its shape is then re-checked every time it
+is read rather than only when it is written, so an unusable value refuses the install instead of being
+trusted because this console once wrote the file. The mode layer's own rules for that file are in
+[`SECURITY_MODEL.md`](./SECURITY_MODEL.md#the-mode-layer-is-a-closed-variable-allowlist).
 
 ### Transport hardening
 
-Trust rests on the signature and the digests, not on the transport. The transport rules exist to narrow
-what a deploy-time fetch can be pointed at.
+Trust rests on the signature and the digests, not on the transport. The rules below are the release
+fetch's, and they exist to narrow what a deploy-time fetch can be pointed at; the entitled fetch's are
+in [The entitled artifact channel](#the-entitled-artifact-channel).
 
 | Rule | Value |
 |---|---|
@@ -205,9 +325,11 @@ payload root, or the module is failed rather than partially installed.
 
 ## The replacement rule
 
-**Replace only when the payload differs.** If the installed copy's stamp already records the digest just
-computed, the module is `skipped`. A missing or unreadable on-disk stamp means replace — the failure
-direction is an extra reinstall, never a silent skip.
+**On the release path, replace only when the payload differs.** If the installed copy's stamp already
+records the digest just computed, the module is `skipped`. A missing or unreadable on-disk stamp means
+replace — the failure direction is an extra reinstall, never a silent skip. An entitled install has no
+skip, because it is an explicit request: re-installing the same version over the console's own copy is
+how a damaged tree is repaired.
 
 **Replacement leaves no window where the module is absent:**
 
@@ -219,8 +341,18 @@ new payload   ──rename──▶ <modules>/<name>
 ```
 
 Both steps are renames within the same mount, so neither is a copy that can be interrupted half-written.
-A stale backup left by an earlier crash is cleared before the swap, so a previous run's remnant cannot
-be restored over a good copy.
+Two things happen before either of them, in this order.
+
+**First, on the entitled path, the ownership question is asked once more** — before the stale-backup
+clear, not merely before the move-aside, so a refusal leaves the filesystem exactly as it was. The
+earlier position is the stronger one: a backup left by an earlier crash can hold the last surviving copy
+of what the deployment had before, so a refusal that cleared it would have destroyed something while
+reporting that nothing had been touched. It is not a duplicate of the pre-flight ownership check either
+— that one refuses early and without dialling anything, while this one is the only check adjacent to the
+rename it protects, which is what makes it the guarantee. The release path asks nothing here: the
+targets it writes are the ones its own signed index names.
+
+**Then any stale backup is cleared**, so a previous run's remnant cannot be restored over a good copy.
 
 Per-module failures are independent: one module failing does not stop the others, and the run's overall
 status distinguishes "some failed" from "all failed" from "a signature did not verify". Those classes
@@ -329,8 +461,8 @@ repointed the console at a mirror or a version by hand.
 
 ## Verifying by hand
 
-Every published asset can be checked independently of the console, with the same identity the console
-pins. Substitute the release version and the module's own version:
+Every published release asset can be checked independently of the console, with the same identity the
+console pins. Substitute the release version and the module's own version:
 
 ```sh
 cosign verify-blob dethernety-general-<module-version>.tar.gz \
@@ -342,6 +474,10 @@ cosign verify-blob dethernety-general-<module-version>.tar.gz \
 The same command with `modules.json` / `modules.json.bundle` checks the index, and with
 `byodt-<X.Y.Z>.tar.gz` checks the deployment bundle before extracting it. Images are verified with
 `cosign verify` against the same issuer.
+
+An entitled artifact's bundle is not published beside its archive — it is inlined, base64-encoded, in
+the artifact's descriptor — so checking one by hand means decoding it out of that document first, and
+passing the per-version subject above to `--certificate-identity` rather than the release workflow's.
 
 ---
 

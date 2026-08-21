@@ -36,6 +36,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 
         B4  release channel  ──▶  console-init      signature + digest verified
         B5  content service  ──▶  platform          cloud only, per request, caller's token
+        B6  console          ──▶  content service   cloud only, per install, the operator's token
 ```
 
 | Boundary | Enforced by | Notes |
@@ -45,6 +46,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 | **B3** — caller to platform | The platform's own authentication | Disabled, own identity provider, or cloud — decided by the mode layer |
 | **B4** — release channel to deployment | Sigstore signature against a pinned identity, plus digests | Detailed in [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) |
 | **B5** — content service to platform | The caller's own token, per request | Only exists on a cloud-connected deployment; the console never holds that content |
+| **B6** — console to content service | The operator's own OIDC access token, relayed for the duration of one install | Only exists on a cloud-connected deployment. The catalog is read over the same hop with no credential at all; installing an entitled artifact is the one call that carries one. The host comes from the mode layer this console wrote, never from the request |
 
 Inside the stack network, hops are plain HTTP and Bolt is unencrypted. The isolation is the network,
 not encryption of each hop: no service but the proxy publishes a port, and the database and embedding
@@ -91,8 +93,13 @@ and the platform re-checks its access list. A local session has no expiry, becau
 credential behind it to revoke.
 
 In the browser, the session identifier is kept in `sessionStorage` (same-origin, tab-scoped) so it
-survives the full-page redirect a sign-in performs. The OIDC ID token is held in memory only and is
-never persisted.
+survives the full-page redirect a sign-in performs. A cloud sign-in returns two OIDC tokens from one
+exchange, and both are held in memory only and never persisted: the ID token, which rides on
+`Authorization` on every gated request so the daemon can forward it to the platform's authenticated
+module query, and an access token, which nothing attaches automatically and which travels on
+`X-Console-Cloud-Token` on the one route that relays it onward. Two tokens for two audiences cannot
+share one header — collapsing them would send whichever arrived last to whichever service was called
+next. They are set and cleared together, because they come from one exchange and expire on one clock.
 
 ---
 
@@ -169,11 +176,17 @@ the documentation of what that decision costs.
 | Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only |
 | TLS private key | `tls/key.pem`, mode `0600`, in a `0700` directory | Mounted read-only into the proxy. The control script never widens that directory |
 | Operator ID token (cloud) | Browser memory only | Never persisted, never written to disk by the console, never logged |
+| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from the artifact-install route alone, and is relayed upstream as an ordinary bearer — the console's own header name never travels outbound |
 | Console session id | Daemon memory; browser `sessionStorage` | Random 256-bit value, sent as a header |
 | Mode layer | `mode/mode.env`, mode `0644` | Non-secret configuration by design — identity endpoints and the deployment's access list, no credentials |
 
-Three consequences are worth stating plainly:
+Four consequences are worth stating plainly:
 
+- **The console holds no credential of its own.** The authenticated calls it makes on the operator's
+  behalf — the platform's module query, and the content service's entitled surface — carry the
+  operator's own tokens, taken from the request that asked for the work and gone when that request
+  ends. There is no service identity behind the console to steal, and nothing it could replay once the
+  operator's session is over.
 - **The console is never given the database password.** Its service definition passes neither the
   variable nor the secrets file, so a flaw in the console cannot yield database credentials.
 - **A backup is not a secret-bearing file, but it is your whole graph.** Database authentication is
@@ -202,6 +215,7 @@ entire apply** if any name outside it appears.
 | `OIDC_ISSUER`, `OIDC_JWKS_URI`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, `OIDC_SCOPE`, `OIDC_DOMAIN`, `OIDC_SHARED_POOL`, `PORTAL_ORIGIN`, `MODULE_CONTENT_BASE_URL`, `DEPLOYMENT_ALLOWLIST` | Accepted. Each must be **present and non-empty** |
 | `DEPLOYMENT_PACKAGES` | Accepted, copied verbatim; may legitimately be empty or absent |
 | `MODULE_KG_BASE_URL` | Accepted; may legitimately be empty or absent. Present and non-empty it is held to the URL rule below, which is also what stands between a pasted recipe and the console's own outbound request to that host |
+| `DEPLOYMENT_ARTIFACT_SIGNER` | Accepted; may legitimately be empty or absent. It is the certificate-subject prefix an entitled artifact must be signed under — configuration the console composes a per-version ref onto, never a destination it dials — so it is held to its own shape rule below rather than the URL rule. Absent, the deployment cannot install artifacts until it reconnects |
 | `DEPLOYMENT_EXPOSURE` | Recognised and **dropped**. It is the operator's own exposure declaration and must not be taken from a recipe. One further retired name is likewise tolerated-and-dropped, so an older saved recipe still applies rather than failing as a foreign variable |
 | `NODE_ENV`, `OIDC_REDIRECT_URI`, `MODULE_CONTENT_CACHE_DIR`, `ALLOWED_ORIGINS` | Supplied by the console, never taken from the paste |
 | `MODULE_KG_VERSION` | Supplied by the console, never taken from the paste — a recipe that could carry it could pin a deployment to a version of the sender's choosing. Read from a public listing with no credential, and validated as `sha256:` plus 64 hex before it is written |
@@ -213,12 +227,14 @@ is applied *after* the base layer and therefore overrides it, so a recipe smuggl
 a Node option that preloads a module is arbitrary code in the platform process at boot. None of those
 names is in the accepted set — and no plausible shape check would have caught them.
 
-Four further constraints apply to the values:
+Five further constraints apply to the values:
 
 - **Every required name must be non-empty.** A blank identity value produces the same broken boot a
-  missing one does, so a presence check alone would be hollow. The two names marked above as
-  legitimately empty or absent are exactly the exceptions, and each is one because the empty case is
-  reachable in normal use rather than a sign of a half recipe.
+  missing one does, so a presence check alone would be hollow. The three names marked above as
+  legitimately empty or absent are exactly the exceptions, and each is one for its own reason. For the
+  first two the empty case is reachable in normal use rather than a sign of a half recipe; the signer is
+  an exception because requiring it would reject every recipe issued before the name existed — and
+  where it is absent the deployment loses its artifact installs rather than running them ungated.
 - **No value may contain a control character.** A newline would split into a second `NAME=value` line
   in the written file — the exact class the fixed name set exists to prevent. It is rejected where the
   values are assembled *and* again in the serializer, which every write passes through.
@@ -226,6 +242,20 @@ Four further constraints apply to the values:
   value would point the platform's identity checks, or a module's own fetches, at another party's
   host. A value that is legitimately absent is not checked — there is nothing to check — but an empty
   service URL is dropped rather than written, so no reader has to decide what an empty one means.
+- **The artifact signer prefix is checked for shape, not reachability.** It is URL-shaped and
+  deliberately not held to the rule above, because nothing ever dials it: it is composed into a
+  certificate subject and compared, never fetched. It must be `https` with no loopback carve-out, must
+  match `https://<host>/<owner>/<repo>/.github/workflows/<file>.yml` (or `.yaml`), and must contain
+  neither `@` nor
+  `/../`. The check runs on the raw string rather than a parsed URL, because a parser hides exactly what
+  it is looking for — it lifts a `user@` prefix out of the host and strips a query or fragment out of the
+  path. The host is not pinned, because this is a typo guard rather than a control: a recipe hostile
+  enough to name a false signer already names the identity provider, the JWKS URI, the deployment's
+  access list and the content host, and owns its whole trust configuration anyway. What protects the
+  value is where it came from — the operator's own account, over their own authenticated session — and
+  that its shape is re-checked when it is read, so validity is a property of the value rather than of
+  which console wrote the file. What the composed subject pins is in
+  [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md#verification).
 - **`ALLOWED_ORIGINS` is derived, not pasted.** It is the origin of the deployment's own front-door
   callback, so it stays in step with the redirect URI by construction.
 
@@ -244,13 +274,16 @@ first-order concern.
 
 | Control | Effect |
 |---|---|
-| Signature verification against a pinned identity | An asset that is not this exact release's, signed by this exact workflow, is refused. See [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md#verification) |
+| Signature verification against a pinned identity | Two anchors, one shape: a fixed workflow path plus a ref naming exactly what was asked for, matched against the certificate's subject exactly and never as a pattern. For a release asset the workflow path is compiled into the console and the ref is the tag, from `PLATFORM_VERSION` — which the operator sets and the console never overrides. For an entitled artifact the workflow path is configuration instead — the signer prefix this deployment was given when it connected, because the workflow that signs artifacts is not one this binary's source names — and the ref names the key and version asked for, both shape-checked before they are composed in. A deployment with no usable signer refuses the install rather than falling back to a weaker check. See [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md#verification) |
 | Digest checks | The downloaded archive must match the signed index's digest; the unpacked tree's identity is recomputed and must match its own signed stamp |
 | Confined extraction | Path escapes, symlinks, hardlinks, other entry types, and oversized archives are refused outright |
 | Read-only mount | The platform mounts the modules directory read-only; only the console writes it |
 | No hot reload | `ENABLE_MODULE_HOT_RELOAD=false` — module changes take effect on a recreate, never mid-flight |
 | World-writable refusal | When running in production mode the platform refuses to load a world-writable module file. The console warns when a mount lands world-writable rather than letting it fail silently later |
 | Mount ownership marker | The console will not overwrite or delete a module directory it did not create |
+| Artifact kind | An artifact that declares itself an application is refused before its archive is fetched. A module layout is something an application's tree could satisfy by accident, and this is the only check anywhere that says only a module may be installed onto a deployment |
+| No silent downgrade | Installing a version older than the installed one has to be asked for explicitly, so a service that withdrew a fixed version cannot walk a deployment backwards onto a known-bad one |
+| No cross-kind ownership marker | A payload carrying another mount kind's marker is refused and nothing is placed. Otherwise the installed tree would carry two markers, and the unmount route — which gates on its own marker alone — could delete an artifact install as though it had written it |
 
 `ALLOWED_MODULES` is `*` in this deployment, and that is not a weakening: name matching is not the
 control here. What may be installed is decided at install time by signature and digest, and by the fact
