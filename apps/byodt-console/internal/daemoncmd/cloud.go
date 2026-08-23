@@ -266,7 +266,11 @@ func artifactSignerPrefix(raw string) error {
 		return fmt.Errorf("must not contain a relative path segment")
 	}
 	if !artifactSignerPattern.MatchString(raw) {
-		return fmt.Errorf("must be an https workflow path with no ref — https://<host>/<owner>/<repo>/.github/workflows/<file>.yml")
+		// BOTH spellings, because the pattern accepts both (`\.ya?ml$`). A refusal naming only .yml tells
+		// an operator whose publishing workflow is a .yaml that their value was rejected when it in fact
+		// passes — and the value they would then "correct" it to is one that can never string-equal their
+		// certificate's subject. The message is the only place this rule is stated to them.
+		return fmt.Errorf("must be an https workflow path with no ref — https://<host>/<owner>/<repo>/.github/workflows/<file>.yml, or .yaml")
 	}
 	return nil
 }

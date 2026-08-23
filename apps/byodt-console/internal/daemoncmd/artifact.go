@@ -915,9 +915,12 @@ func (s *server) removeArtifact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a content mount from the catalog is using this name — unmount it instead", http.StatusConflict)
 		return
 	case hasMarkerNamed(dir, payloaddigest.StampFilename):
-		// A stamp and no artifact marker is a module the platform installed at boot. A stat is enough to
-		// choose this wording: the parse-don't-stat rule exists because REMOVING is irreversible, and this
-		// removal has already been refused by the time the question is asked.
+		// A stamp and no artifact marker is a module console-init installed before the platform started —
+		// installModules, from initcmd/run.go, in the one-shot that exits before the stack comes up. The
+		// platform installs nothing; the operator-facing wording below says "installed WITH the platform",
+		// meaning shipped alongside it, which is the true relationship. A stat is enough to choose that
+		// wording: the parse-don't-stat rule exists because REMOVING is irreversible, and this removal has
+		// already been refused by the time the question is asked.
 		http.Error(w, "this module was installed with the platform and is not an artifact this console can remove", http.StatusConflict)
 		return
 	default:
