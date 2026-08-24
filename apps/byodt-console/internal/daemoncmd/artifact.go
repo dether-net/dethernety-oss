@@ -928,41 +928,28 @@ func (s *server) removeArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Partial failure is handled by renaming, not by ordering the deletes: os.RemoveAll gives no ordering
-	// guarantee, so "remove the marker last" is not implementable. THE RENAME IS THE ATOMIC POINT — after
-	// it, the module is gone from where the platform looks, whatever happens to the copy.
-	// A FRESH destination every time, and NEW every time rather than cleared. renaming onto a non-empty
-	// directory fails, and the one failure this handler is designed to survive — a staged copy it could not
-	// delete — leaves exactly such a directory behind. Nothing else in the daemon clears it: discardStaging
-	// takes only <key>, Swap owns <key>.old and takes it only on a successful swap, and the boot sweep is
-	// registered after an early return that an offline start takes. With a fixed name that single failure made every later removal of the same key fail at
-	// the rename, with a 500 naming nothing. modulesOps admits one removal at a time, so the suffix cannot
-	// collide, and the key charset forbids dots so it cannot collide with another key's staging directory.
-	staged := filepath.Join(s.cfg.ModulesDir, moduleinstall.TmpDirName,
-		key+".removing."+strconv.FormatInt(time.Now().UnixNano(), 36))
-	if err := os.MkdirAll(filepath.Dir(staged), 0o755); err != nil {
-		s.logger.Error("preparing to remove an artifact", "artifact", key, "err", err)
-		http.Error(w, "removing the artifact", http.StatusInternalServerError)
-		return
-	}
-	if err := os.Rename(dir, staged); err != nil {
+	// Rename-then-delete, in removeModuleTree (cloudteardown.go): partial failure is handled by renaming
+	// rather than by ordering the deletes, because os.RemoveAll gives no ordering guarantee and "remove the
+	// marker last" is not implementable. THE RENAME IS THE ATOMIC POINT. It lives there rather than here
+	// because the disconnect sweep removes the same kind of directory the same way, and two copies of this
+	// sequence would be two chances to stop matching.
+	leftover, err := removeModuleTree(s.cfg.ModulesDir, key)
+	if err != nil {
 		s.logger.Error("removing an artifact", "artifact", key, "err", err)
 		http.Error(w, "removing the artifact", http.StatusInternalServerError)
 		return
 	}
 
 	msg := "artifact removed; apply it by recreating the stack: " + platformRestartCommand
-	if err := os.RemoveAll(staged); err != nil {
+	if leftover != "" {
 		// The module IS gone — the rename already saw to that — so this is a warning and not a failure.
 		// It names the path, because nothing in the daemon clears this one: the install path clears only
 		// its own staging directory, Swap's backup is a different name it owns, and the boot sweep is
-		// registered after an early return that an offline start takes. On the very failure that leaves this behind, that sweep would fail
-		// too. What it can no longer do is block anything: the destination above is new on every removal,
-		// so this leftover is inert until an operator deletes it.
-		s.logger.Error("removing the staged copy of an artifact", "artifact", key, "path", staged, "err", err)
-		msg += ". Warning: the module is gone, but its files could not be deleted and remain at " + staged
-	} else {
-		_ = os.Remove(filepath.Dir(staged)) // only while empty, as everything else here leaves it
+		// registered after an early return that an offline start takes. What it can no longer do is block
+		// anything: the destination is new on every removal, so this leftover is inert until an operator
+		// deletes it.
+		s.logger.Error("removing the staged copy of an artifact", "artifact", key, "path", leftover)
+		msg += ". Warning: the module is gone, but its files could not be deleted and remain at " + leftover
 	}
 	writeJSON(w, http.StatusOK, removeArtifactResponse{
 		Status: "removed", ArtifactKey: key, Message: msg, Consequence: artifactRemovalConsequence,

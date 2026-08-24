@@ -91,11 +91,58 @@ describe('CloudPanel', () => {
 
     expect(recipeBox(w).exists()).toBe(false) // no paste form when connected
     await button(w, 'Disconnect from cloud')!.trigger('click')
+    await w.find('[data-cloud-disconnect-accept]').trigger('click')
     await flushPromises()
 
     expect(cloudDisable).toHaveBeenCalledTimes(1)
     expect(w.text()).toContain('reverted to pure-OSS')
     expect(w.emitted('changed')).toHaveLength(1)
+    w.unmount()
+  })
+
+  // The disconnect button opens a confirmation and does nothing else. This is the whole point of the
+  // gate: a stack-recreating revert was one click from anywhere in the panel.
+  it('asks before disconnecting — the button alone reverts nothing', async () => {
+    const w = mount(CloudPanel, { props: { mode: cloudWritten } })
+
+    await button(w, 'Disconnect from cloud')!.trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-cloud-disconnect-confirm]').exists()).toBe(true)
+    expect(cloudDisable).not.toHaveBeenCalled()
+    expect(w.emitted('changed')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('cancelling closes the confirmation and reverts nothing', async () => {
+    const w = mount(CloudPanel, { props: { mode: cloudWritten } })
+
+    await button(w, 'Disconnect from cloud')!.trigger('click')
+    await w.find('[data-cloud-disconnect-cancel]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-cloud-disconnect-confirm]').exists()).toBe(false)
+    expect(cloudDisable).not.toHaveBeenCalled()
+    // The button comes back, so a cancel is not a dead end.
+    expect(button(w, 'Disconnect from cloud')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  // The confirmation has to carry the CONSEQUENCE, not just the action. A card that said only "the modules
+  // are removed" would read as tidying up, when what follows at the next restart is the platform dropping
+  // those modules' classes and every link to them — and reconnecting does not bring the links back.
+  it('the confirmation names the removal and what it costs at the next restart', async () => {
+    const w = mount(CloudPanel, { props: { mode: cloudWritten } })
+
+    await button(w, 'Disconnect from cloud')!.trigger('click')
+
+    const card = w.find('[data-cloud-disconnect-confirm]')
+    expect(card.text()).toContain('Every cloud-provided module is removed')
+    const consequence = w.find('[data-cloud-disconnect-graph]').text()
+    expect(consequence).toContain('deletes the classes those modules provide')
+    expect(consequence).toContain('every link to them')
+    // The half that is NOT reversible has to be said, or "reconnect to undo it" is what an operator hears.
+    expect(consequence).toContain('brings the classes back but not those links')
     w.unmount()
   })
 

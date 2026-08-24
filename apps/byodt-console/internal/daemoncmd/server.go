@@ -511,15 +511,31 @@ func (s *server) applyKgMount(vars map[string]string) string {
 // development values — never deletes it — and never contacts the cloud, because this is the recovery
 // path from a mis-scoped allowlist, the one state in which no cloud call can succeed.
 func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
-	// The knowledge-graph mount goes first, while the deployment is still cloud-configured: a failure
-	// here leaves a state the operator can simply retry from. And if it fails anyway the revert still
-	// proceeds, naming the directory — mount and unmount are cloud-mode operations, so a stale
-	// directory that could block the disconnect would be unremovable afterwards, and a recovery path
-	// that something can block is not a recovery path.
-	kgNote := ""
-	if err := unmountKg(s.cfg.ModulesDir); err != nil {
-		s.logger.Error("removing the knowledge-graph mount", "err", err)
-		kgNote = ". The knowledge-graph connection could not be removed — delete the " + kgModuleKey + " directory from the modules mount by hand"
+	// Every cloud-provided module goes with the connection that justified it — the content mounts, the
+	// installed artifacts and the knowledge-graph connection alike, all three told apart by the marker the
+	// console wrote beside them. See cloudteardown.go: the console deletes files here and issues no
+	// database command, and what the platform makes of a module it no longer finds is named in the
+	// confirmation the operator accepted before this ran.
+	//
+	// It runs BEFORE the mode-layer write, while the deployment is still cloud-configured, so a failure
+	// leaves a state the operator can simply retry a disconnect from. And it cannot stop the revert: the
+	// lock is taken with TryLock and a busy modules directory is reported rather than waited on, because a
+	// recovery path something else can block is not a recovery path.
+	teardownNote := ""
+	if modulesOps.TryLock() {
+		removed, failed, leftovers := s.removeCloudMounts()
+		modulesOps.Unlock()
+		if len(removed) > 0 {
+			teardownNote += ". Removed the cloud-provided modules: " + mountKeys(removed)
+		}
+		if len(failed) > 0 {
+			teardownNote += ". These could not be removed and are still in the modules mount: " + mountKeys(failed) + " — disconnect again, or delete them by hand"
+		}
+		for _, path := range leftovers {
+			teardownNote += ". Warning: a module is gone but its files could not be deleted and remain at " + path
+		}
+	} else {
+		teardownNote = ". The cloud modules were left in place because another modules operation was running — disconnect again to remove them"
 	}
 	if err := writeModeLayer(s.cfg.ModeLayerPath, pureOSSModeVars()); err != nil {
 		s.logger.Error("writing mode layer", "err", err)
@@ -532,7 +548,7 @@ func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
 	s.sess.keepOnly(r.Header.Get(sessionHeader), postureGraceTTL)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "reverted",
-		"message": "reverted to pure-OSS; apply it by recreating the stack: " + stackRestartCommand + kgNote,
+		"message": "reverted to pure-OSS; apply it by recreating the stack: " + stackRestartCommand + teardownNote,
 	})
 }
 

@@ -202,6 +202,32 @@ values, which `platform` and `console-init` both read as an `env_file`. It is **
 deleted** — both Podman's `--env-file` and systemd's `EnvironmentFile` fail on a missing file, which
 would break the very recovery path a disconnect is.
 
+**Disconnect asks first, and it takes the cloud's modules with it.** The control opens a confirmation
+before anything happens, because a revert that recreates the stack should not be one click from anywhere
+in the panel — and because what it costs has to be a decision rather than a discovery.
+
+A cloud connection puts three kinds of module into the modules mount, each told apart by the marker the
+console wrote beside it: a content mount from the catalog, an installed artifact, and the knowledge-graph
+connection. **All three exist only because the deployment was connected, so a disconnect removes all
+three.** A deployment the console reports as pure-OSS while it still serves cloud-provided modules is not
+one. Ownership is decided by marker and nothing else: a module the platform shipped, or a directory the
+console never wrote, is never touched — and neither is one carrying two ownership markers at once, which
+is claimed by two kinds and therefore by neither.
+
+**The console deletes files here and issues no database command.** What follows is the platform's own
+startup reconciliation: a `Module` it no longer finds on disk is dropped from the graph *together with
+every class that module declared*, detaching those classes from everything they are linked to, existing
+analyses included. Reconnecting and mounting again restores the classes but **not** those links. That
+sentence is in the confirmation, in the same words the artifact panel already uses before a single
+removal — one event should not be described more gently in one place than the other. Anything authored
+outside those classes is kept.
+
+The sweep runs while the deployment is still cloud-configured, before the mode layer is rewritten, so a
+failure leaves a state a second disconnect can retry from. It can never block the revert: the modules
+lock is taken with `TryLock` and a busy modules directory is reported rather than waited on, and a
+directory that cannot be removed is named and stepped over. A recovery path something else can block is
+not a recovery path.
+
 The file lives under `/var/lib/dethernety` in the console's container (`MODE_LAYER_PATH`), surfaced on
 the host as the bundle's `mode/` directory. The daemon's write access is scoped to that directory
 alone — it can reach nothing else in the bundle.
