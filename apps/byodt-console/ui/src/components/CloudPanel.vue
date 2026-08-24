@@ -108,12 +108,29 @@ async function confirmDisconnect() {
       >Get your deployment recipe ↗</a>
     </p>
 
+    <!--
+         THE STEP BADGES. Both steps carry an ACCENT ring, and the ring is the point rather than the styling:
+         each of these steps has a TWIN on the subscription portal's deployment page, which the operator has
+         open beside this screen while they work. The badge is what lets them see the pairing at a glance
+         instead of reading two headings and inferring it.
+
+         AGREED BY CONVENTION, NOT SHARED CODE. The portal is a separate application; nothing here imports
+         anything from it. What makes the badges match is that both palettes define the same `--color-dt-*`
+         values, so an identical class list renders identically. If this changes, the portal's page has to
+         change with it — the correspondence has no other enforcement.
+
+         NO HUE PER NUMBER. The palette's warm tones (tertiary/quaternary/quinary) are the warning ladder
+         here — see their own comments in `styles/main.css` — so colouring step 2 amber would render a
+         routine step as a fault. The numeral separates the steps; the accent says "this one is mirrored".
+
+         `aria-hidden`: the heading already names the step, and announcing a bare "1" first is noise.
+    -->
     <!-- 1 · Access and callbacks — the two callbacks the account needs registered. Read-only + Copy:
          the operator copies these and pastes them into the account's Callback URLs field. Kept first,
          and always shown, because it is a prerequisite for cloud sign-in independent of connect state. -->
     <section aria-label="Access and callbacks" data-section="callbacks">
       <h3 class="mb-2 font-heading text-sm text-dt-text">
-        <span class="text-dt-text-muted">1 ·</span> Access and callbacks
+        <span class="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-dt-accent text-xs text-dt-accent" aria-hidden="true" data-step="1">1</span> Access and callbacks
       </h3>
       <p class="mb-2 text-dt-text-muted">
         Register these two callback URLs with your account — copy them and paste into the portal's
@@ -139,9 +156,18 @@ async function confirmDisconnect() {
         </button>
         <span v-if="copied" class="text-xs text-dt-text-muted" aria-live="polite">{{ copyHint }}</span>
       </div>
+      <!--
+           THIS SENTENCE USED TO SAY "Local development addresses are always accepted and are not listed
+           here", printed directly beneath a box containing two local development addresses. It was wrong
+           twice over: the reader is looking at exactly the thing it says is not shown, and "always
+           accepted" is not true of local addresses in general — only of the specific host, port and path
+           combinations that are registered for you. Registering a URL that is already registered costs seconds;
+           trusting this sentence and skipping it costs an evening, because the failure lands at the
+           identity provider where the operator's own logs say nothing.
+      -->
       <p class="mt-2 text-xs text-dt-text-muted">
-        First line is the platform's sign-in, second is this console's own. Local development addresses
-        are always accepted and are not listed here.
+        First line is the platform's sign-in, second is this console's own. Paste both into the portal and
+        save — if they are already registered, saving them again changes nothing.
       </p>
     </section>
 
@@ -151,7 +177,7 @@ async function confirmDisconnect() {
          states. Numbered and titled so the two steps read as an obvious sequence. -->
     <section aria-label="Configuration" data-section="configuration">
       <h3 class="mb-2 font-heading text-sm text-dt-text">
-        <span class="text-dt-text-muted">2 ·</span> Configuration
+        <span class="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-dt-accent text-xs text-dt-accent" aria-hidden="true" data-step="2">2</span> Configuration
       </h3>
 
       <!-- A cloud file exists: offer disconnect. -->
