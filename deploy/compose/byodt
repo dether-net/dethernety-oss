@@ -51,29 +51,65 @@ compose() {
   local pw img dbu
   pw="$(secret_value NEO4J_PASSWORD "")"
   img="$(console_image)"
-  dbu="$(db_user)"
+  # The verb is passed to db_user because it decides whether the probe may PULL, not whether it runs.
+  # Deriving only for `up` was tried and was wrong: `compose config` is the verb an operator reaches for
+  # to see what will actually run, and reporting an empty user there — while `up` quietly used a real
+  # one — makes the introspection command lie about the thing it exists to show. CI asserts a non-empty
+  # user precisely to catch the derivation silently stopping.
+  dbu="$(db_user "${1:-}")"
   NEO4J_PASSWORD="$pw" CONSOLE_IMAGE="$img" DB_USER="$dbu" \
     "$ENGINE" compose --env-file "$ENV_FILE" "$@"
 }
 
 # db_user — the uid:gid the database container runs as. Memgraph refuses to start unless its data
-# directory is owned by the uid it runs as; that is an ownership check, so no chmod satisfies it and
-# the answer depends on where the directory comes from:
+# directory is owned by the uid it runs as; that is an OWNERSHIP check, so no chmod satisfies it, and
+# the owner it compares against is whoever the directory appears to belong to INSIDE the container.
 #
 #   named volume   the engine creates it owned by the image's own user, which already matches.
 #                  Empty here, so the image default stands.
-#   bind + podman  rootless Podman maps the operator to root INSIDE the container, so the host
-#                  directory appears owned by root: run as root, which is the operator, not
-#                  privilege. Chowning the directory to the image's uid would work too, but it
-#                  would leave the data unreadable from the host — losing the only reason to
-#                  choose a bind mount.
-#   bind + docker  the directory appears owned by the operator's own uid, so the container runs as
-#                  that. Either way the data stays owned by, and readable by, the operator.
+#   bind mount     depends on the engine, and it cannot be inferred from the engine's NAME. So this
+#                  asks the engine directly, with a throwaway container that stats the directory.
+#
+# WHY IT IS A PROBE RATHER THAN A RULE. This function used to answer from the engine name: root under
+# Podman (rootless maps the operator to root inside), the operator's own uid under Docker. The second
+# half is true of Docker Engine on Linux, where uids pass through — and FALSE on Docker Desktop, whose
+# VM file-sharing layer presents every bind mount as root-owned no matter who owns it on the host. So
+# on macOS and Windows the database was handed a uid that could not match, and refused to start on a
+# default deployment. Running as root there is also harmless, because the same sharing layer maps new
+# files back to the host user; on native Linux it would litter the host with root-owned data, which is
+# why "just use root" is not the fix and the answer has to be per-environment.
+#
+# THE FAILURE IT PRODUCED IS WORTH KNOWING, because it names the wrong file. As a non-root uid the
+# container also cannot write /var/log/memgraph (mode 0750, owned by the image's own user), so the
+# database died reporting a log-file permission error — while the actual fault was the data directory's
+# ownership, which it could not tell anyone about. Fixing the uid fixes both; a log-directory mount
+# fixes neither.
+#
+# COST, AND THE ONE THING THE VERB DECIDES. The probe is a short-lived container, so it needs the image
+# — and on a deployment that has not pulled anything yet, a bare `status` must not become an image
+# download. So the verb is consulted for exactly one purpose: `up` is about to pull that image anyway
+# and may block on it; every other verb probes only if the image is ALREADY local, and otherwise falls
+# back. The value is therefore always derived and never empty, which is what `compose config` shows and
+# what CI asserts.
 db_user() {
   db_is_bind || { printf ''; return 0; }
-  case "$ENGINE" in
-    podman) printf '0:0' ;;
-    *)      printf '%s:%s' "$(id -u)" "$(id -g)" ;;
+  local verb="${1:-}" dir image owner
+  dir="$(env_value DB_DATA ./data/memgraph)"
+  image="$(env_value DB_IMAGE '')"
+  owner=""
+  if [ -n "$image" ] && { [ "$verb" = "up" ] || "$ENGINE" image inspect "$image" >/dev/null 2>&1; }; then
+    owner="$("$ENGINE" run --rm -v "$dir:/probe" --entrypoint sh "$image" \
+               -c 'stat -c "%u:%g" /probe' 2>/dev/null | tr -d '\r\n')"
+  fi
+  case "$owner" in
+    # Anything else — no image pulled yet, an engine that refuses the mount, a stat that printed
+    # nothing — falls back to the old rule rather than failing the command. It is right on Linux and
+    # right under Podman, which is where a probe is least likely to be the thing that broke.
+    [0-9]*:[0-9]*) printf '%s' "$owner" ;;
+    *) case "$ENGINE" in
+         podman) printf '0:0' ;;
+         *)      printf '%s:%s' "$(id -u)" "$(id -g)" ;;
+       esac ;;
   esac
 }
 
