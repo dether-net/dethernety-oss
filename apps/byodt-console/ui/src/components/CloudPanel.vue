@@ -55,7 +55,30 @@ async function apply() {
   }
 }
 
-async function disconnect() {
+// Disconnect asks first. Inline rather than a native dialog, matching Artifacts.vue: there is not one
+// anywhere in this SPA, and what a disconnect does takes more than a sentence to say.
+//
+// The card names the CONSEQUENCE, not just the action, because the consequence is the decision. A
+// disconnect removes every cloud-provided module — the console deletes files and issues no database
+// command — and the platform then drops from the graph any module it no longer finds on disk, together
+// with the classes that module declared and every link to them. Reconnecting restores the classes but not
+// the links, so this is not an undo, and saying so afterwards would be saying it too late.
+//
+// The wording tracks artifactRemovalConsequence, which the artifact panel already shows before a single
+// removal. Same event, same sentence: one confirmation should not describe it more gently than the other.
+const confirming = ref(false)
+
+function askDisconnect() {
+  message.value = ''
+  confirming.value = true
+}
+
+function cancelDisconnect() {
+  confirming.value = false
+}
+
+async function confirmDisconnect() {
+  confirming.value = false
   busy.value = true
   message.value = 'Reverting…'
   try {
@@ -135,18 +158,64 @@ async function disconnect() {
       <template v-if="props.mode.cloudFileWritten">
         <p class="text-dt-text-muted">
           This deployment is configured for the cloud. Disconnect rewrites the configuration back to the
-          pure open-source values; your data is untouched, and the change is applied by recreating the
-          stack.
+          pure open-source values and removes the modules the cloud provided; the change is applied by
+          recreating the stack.
         </p>
         <div class="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            :disabled="busy"
+            :disabled="busy || confirming"
             class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
-            @click="disconnect"
+            @click="askDisconnect"
           >
             Disconnect from cloud
           </button>
+        </div>
+
+        <!-- The confirmation. What a disconnect costs is said HERE, before the operator accepts — not
+             afterwards, when it is no longer a decision. The same position, and the same sentence, the
+             artifact panel's own removal confirmation uses. -->
+        <div
+          v-if="confirming"
+          class="mt-3 rounded-md border border-dt-tertiary/40 bg-dt-tertiary/5 px-3 py-2"
+          data-cloud-disconnect-confirm
+        >
+          <p class="text-sm font-medium">Disconnect this deployment from the cloud?</p>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-xs text-dt-text-muted">
+            <li>
+              The configuration reverts to the pure open-source values, and takes effect when you recreate
+              the stack.
+            </li>
+            <li>
+              Every cloud-provided module is removed — mounted modules, installed artifacts and the
+              knowledge-graph connection.
+            </li>
+            <li data-cloud-disconnect-graph>
+              At the next platform restart this deletes the classes those modules provide, together with
+              every link to them, including existing analyses' links. Reconnecting and mounting them again
+              brings the classes back but not those links.
+            </li>
+            <li>Anything you authored outside those classes is kept.</li>
+          </ul>
+          <div class="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              :disabled="busy"
+              class="rounded-lg border border-dt-quinary/60 px-3 py-1.5 text-sm text-dt-quinary hover:bg-white/5 disabled:opacity-50"
+              data-cloud-disconnect-accept
+              @click="confirmDisconnect()"
+            >
+              Disconnect
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted"
+              data-cloud-disconnect-cancel
+              @click="cancelDisconnect()"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </template>
 
