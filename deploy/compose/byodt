@@ -51,14 +51,12 @@ compose() {
   local pw img dbu
   pw="$(secret_value NEO4J_PASSWORD "")"
   img="$(console_image)"
-  # DB_USER IS DERIVED ONLY FOR `up`, and the reason is cost rather than tidiness: db_user runs a
-  # throwaway container to ask the engine who owns the data directory, and `up` is the only verb that
-  # creates containers — `restart` and `update` both route through it. Deriving it for every verb would
-  # put a container start in front of `status` and `logs`, and on a deployment whose images are not
-  # pulled yet it would turn a status check into an image download. Compose interpolates the empty value
-  # harmlessly everywhere else, because nothing else acts on it.
-  dbu=""
-  case "${1:-}" in up) dbu="$(db_user)" ;; esac
+  # The verb is passed to db_user because it decides whether the probe may PULL, not whether it runs.
+  # Deriving only for `up` was tried and was wrong: `compose config` is the verb an operator reaches for
+  # to see what will actually run, and reporting an empty user there — while `up` quietly used a real
+  # one — makes the introspection command lie about the thing it exists to show. CI asserts a non-empty
+  # user precisely to catch the derivation silently stopping.
+  dbu="$(db_user "${1:-}")"
   NEO4J_PASSWORD="$pw" CONSOLE_IMAGE="$img" DB_USER="$dbu" \
     "$ENGINE" compose --env-file "$ENV_FILE" "$@"
 }
@@ -87,14 +85,19 @@ compose() {
 # ownership, which it could not tell anyone about. Fixing the uid fixes both; a log-directory mount
 # fixes neither.
 #
-# Cost is one short-lived container. It runs only where the value is used — see compose().
+# COST, AND THE ONE THING THE VERB DECIDES. The probe is a short-lived container, so it needs the image
+# — and on a deployment that has not pulled anything yet, a bare `status` must not become an image
+# download. So the verb is consulted for exactly one purpose: `up` is about to pull that image anyway
+# and may block on it; every other verb probes only if the image is ALREADY local, and otherwise falls
+# back. The value is therefore always derived and never empty, which is what `compose config` shows and
+# what CI asserts.
 db_user() {
   db_is_bind || { printf ''; return 0; }
-  local dir image owner
+  local verb="${1:-}" dir image owner
   dir="$(env_value DB_DATA ./data/memgraph)"
   image="$(env_value DB_IMAGE '')"
   owner=""
-  if [ -n "$image" ]; then
+  if [ -n "$image" ] && { [ "$verb" = "up" ] || "$ENGINE" image inspect "$image" >/dev/null 2>&1; }; then
     owner="$("$ENGINE" run --rm -v "$dir:/probe" --entrypoint sh "$image" \
                -c 'stat -c "%u:%g" /probe' 2>/dev/null | tr -d '\r\n')"
   fi
