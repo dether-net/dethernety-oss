@@ -61,7 +61,9 @@ The two callbacks the console shows you are derived from the address in your bro
 
 > **They must match exactly.** A callback that is not registered is rejected by the identity provider before it ever reaches your deployment — which means nothing in your own logs explains it. The console names the exact value to register if this happens.
 
-> Local development addresses are always accepted and are not listed in the box.
+> The loopback addresses for the default ports are registered for you, both `localhost` and `127.0.0.1`.
+> Paste the two lines anyway — saving a URL that is already registered changes nothing, and the cost of
+> skipping it is a rejection you cannot diagnose from your own logs.
 
 ## Step 2 — Paste the recipe and apply
 
