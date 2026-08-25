@@ -506,6 +506,19 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
 
         case 'delete': {
           const deleted = await dtControl.deleteControl({ controlId: input.control_id! })
+          if (!deleted) {
+            // dt-core's deleteControl is truthful here — it returns true only on
+            // `nodesDeleted > 0 || relationshipsDeleted > 0`. Reporting
+            // success:true with `deleted:false` made a delete that matched
+            // nothing indistinguishable from one that worked. Wording stays
+            // non-committal because dt-core collapses "not found" and "threw"
+            // into the same `false`.
+            return {
+              success: false,
+              error: `Control ${input.control_id} was not deleted — it was not found, or the platform rejected the delete`,
+              data: { control_id: input.control_id, deleted: false },
+            }
+          }
           return { success: true, data: { deleted, control_id: input.control_id } }
         }
 
@@ -517,7 +530,46 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!control) {
             return { success: false, error: `Failed to assign control ${input.control_id} to elements` }
           }
-          return { success: true, data: { control, assigned_elements: input.element_ids!.length } }
+
+          // Report what actually attached, not what was asked for.
+          //
+          // dt-core broadcasts every id to all three typed connect paths and each
+          // path's WHERE filter is type-scoped, so an id that names nothing — or
+          // that is the wrong node type for all three — is SILENTLY SKIPPED and
+          // the mutation still succeeds. Reporting `input.element_ids.length`
+          // therefore claimed success for ids the platform never connected.
+          //
+          // `control.elements` is the control's FULL element set after the
+          // mutation, not just this call's additions, so intersect with the
+          // request rather than taking its length.
+          const requested = input.element_ids!
+          const attachedIds = new Set(
+            ((control as { elements?: Array<{ id?: string }> }).elements ?? [])
+              .map((e) => e.id)
+              .filter((id): id is string => typeof id === 'string'),
+          )
+          const skipped = requested.filter((id) => !attachedIds.has(id))
+
+          return {
+            success: true,
+            data: {
+              control,
+              requested_elements: requested.length,
+              assigned_elements: requested.length - skipped.length,
+              ...(skipped.length > 0 ? { skipped_elements: skipped } : {}),
+            },
+            ...(skipped.length > 0
+              ? {
+                  warnings: [
+                    `${skipped.length} of ${requested.length} element id(s) were not attached and were ` +
+                    `silently skipped by the platform: ${skipped.join(', ')}. A control connects only to ` +
+                    `Component, SecurityBoundary and DataFlow — a data-item id can never attach (Data has ` +
+                    `no supporting-control relationship), and an unknown id matches nothing. The full ` +
+                    `post-update element set is in \`control\` above.`,
+                  ],
+                }
+              : {}),
+          }
         }
 
         case 'rank': {

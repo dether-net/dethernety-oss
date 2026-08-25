@@ -17,7 +17,7 @@ Use built-in tools and the Dethereal MCP tools — do NOT shell out to inspect o
 |-----------|-------------|
 | Inspect a single attribute file | `Read` (one call per file; multiple Reads in parallel) |
 | Search for a field across attribute files | `Grep` with the field name and `attributes/` path |
-| Aggregate enrichment progress (per-element template coverage) | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality', directory_path)` |
+| Aggregate model-readiness score (NOT a per-field breakdown) | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality', directory_path)` |
 | Aggregate control coverage / gaps | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'coverage', directory_path)` |
 | Schema validation | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'validate', directory_path)` |
 | Discover the template schema for a class | `mcp__plugin_dethereal_dethereal__get_classes(class_id, fields: ['attributes', 'guide'])` (or `.dethereal/class-cache/<class-id>.json` if present) |
@@ -25,7 +25,7 @@ Use built-in tools and the Dethereal MCP tools — do NOT shell out to inspect o
 | Match elements to classes | `mcp__plugin_dethereal_dethereal__match_classes` |
 
 **Do not:**
-- Run `for f in attributes/...; do head -N "$f"; done` to "check progress" — call `validate_model_json(action: 'quality')` instead. It returns per-element coverage and unenriched-field lists.
+- Run `for f in attributes/...; do head -N "$f"; done` to "check progress" — `head -N` truncates JSON arbitrarily, so a field below the cutoff is indistinguishable from an absent one. Use `Read` on the whole file, or `Grep` across `attributes/`. Note that `validate_model_json(action: 'quality')` will NOT answer this: it returns an aggregate score and weighted factors, never a per-element or per-field list. The unresolved-field checklist is the null fields in the attribute file itself (Step 4.1).
 - Sample attribute files via `cat`/`head`/`tail` to assess what's filled in — `Read` returns the entire file, and `Grep` answers presence questions across the tree without truncation.
 - Write Python or shell scripts to walk `attributes/` — the validator already does this and returns a structured result.
 
@@ -95,7 +95,7 @@ Processing: all tiers in order. Confirm? (yes / tier1 only / pick)
 
 For each classified component **and classified data item** in scope (batched by tier — a data item inherits the highest tier of the elements that handle it):
 
-1. **Read existing attribute file** — the stub created by `generate_attribute_stubs` during classification contains template field names with null values (or schema defaults). These null fields ARE the enrichment checklist — every null field must be resolved to a concrete value
+1. **Read existing attribute file** — the stub created by `generate_attribute_stubs` during classification contains every template field name with a `null` value — schema `default`s are deliberately NOT seeded, because a default is authoring metadata rather than an observation about this element. These null fields ARE the enrichment checklist — every null field must be resolved to a concrete value
 2. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
 3. **Discover attribute values using the guide** — the guide's `how_to_obtain` entries tell you where to find each value:
    - Search code, IaC, and config files for attribute values (e.g., `postgresql.conf` for `ssl = on`, Terraform for `tls_enabled`)
@@ -105,7 +105,7 @@ For each classified component **and classified data item** in scope (batched by 
    - Group questions by component to minimize round-trips
    - Use the guide's suggested values where available
 5. **Set all template attributes** — every field defined by the class template must have a value. No template field left as `null` after enrichment
-6. **Merge** discovered values into the existing attribute file — preserve plugin-enrichment fields (`crown_jewel`, `credential_scope`, `monitoring_tools`)
+6. **Merge** discovered values into the existing attribute file — preserve plugin-enrichment fields (`credential_scope`, `monitoring_tools`, and `crown_jewel` on **non-component** elements only: data items, boundaries and data flows have no first-class `crownJewel` in `structure.json`, so the attribute-file key is their real home. On components it is a derived copy — `structure.json` `crownJewel` is authoritative there.)
 
 Present as a batch confirmation table per tier:
 ```
@@ -129,7 +129,19 @@ Write confirmed attributes to `attributes/components/<id>.json` (or `attributes/
 
 **Offline fallback:** if both the class-cache read and the `get_classes` fallback fail (platform down, no cache), skip template-driven enrichment for that class and note it in the summary: "platform-unreachable — template unavailable" (same disposition as unclassified).
 
-**Six-attribute floor:** after template-driven enrichment, verify the Six Key Attributes (authentication, encryption in transit, encryption at rest, logging, access control, log telemetry — OPERATIONAL_REQUIREMENTS.md §2) are set on every in-scope component regardless of what its class template covers. For any the template did not cover, prompt using the per-component batch table from THREAT_MODELING_WORKFLOW.md §"Six Key Attributes Per Component". Surface reports (encryption/auth coverage) assume these are universally captured — a template that omits one must not silently produce a blind spot.
+**Six-attribute floor:** after template-driven enrichment, verify the Six Key Attributes are set on every in-scope component regardless of what its class template covers. For any the template did not cover, prompt for it. Surface reports (encryption/auth coverage) assume these are universally captured — a template that omits one must not silently produce a blind spot.
+
+| # | Concept | Attribute key | Written on | Value the scorer accepts |
+|---|---------|---------------|------------|--------------------------|
+| 1 | Authentication | `authentication_type` | component | **string** — e.g. `oauth2`, `mtls`, `sso`. `"none"` does not count. `basic`/`digest` count only when `encryption_in_transit` is a non-deprecated string |
+| 2 | Encryption in transit | `encryption_in_transit` | **data flow** (and component where meaningful) | **string** — e.g. `TLS 1.3`. Rejected: `none`, `sslv3`, `ssl v3`, `tls 1.0`, `tls1.0` |
+| 3 | Encryption at rest | `encryption_at_rest` | component | **string** — e.g. `AES-256`. Rejected: `none`, `des`, `3des`, `triple-des`, `rc4` |
+| 4 | Logging | *(no scored key)* | — | Capture per the class template; nothing reads a floor-level key for this one |
+| 5 | Access control | `implicit_deny_enabled` | component (boundaries too, but only the component value is scored) | **boolean `true`** |
+| 6 | Log telemetry | `monitoring_tools` | component | **`string[]`**, non-empty after discarding `none`/`n/a`. Never `["None"]` — use `[]` |
+
+Write the exact key names above. `control_coverage_rate` (20% of the quality score) and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent name a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does NOT satisfy the floor. Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete algorithm/version string.
+
 
 **For unclassified components and data items:** If an element has no assigned class (classification was skipped or no suitable class exists), skip template-driven enrichment for that element (the six-attribute floor above still applies to unclassified components). Note it in the summary: "N elements skipped — unclassified (no class template available)."
 
@@ -273,7 +285,10 @@ V1: monitoring_tools captured for human review only. No engine integration.
 
 ### 10. Crown Jewel Full Enrichment (D21, D41)
 
-For components with `crown_jewel: true` (tagged during classification):
+For components with `crownJewel: true` in **`structure.json`** (tagged during classification):
+
+> Spelled `crownJewel` deliberately: `/dethereal:classify` writes it to `structure.json` and declares that the single source of truth. The snake_case `crown_jewel` that may sit in an attribute file is a derived/legacy copy classification does not write — on a correctly-classified model it is absent, so selecting on it would match nothing. This is the same set Step 3 computes as Tier 1.
+
 1. Prompt for `asset_criticality: "high" | "medium" | "low"`
 2. Confirm: "Component 'payment-db' tagged as crown jewel. Confirming asset_criticality: high. Adjust?"
 3. Write `asset_criticality` to component attribute file
@@ -405,7 +420,7 @@ Surface one status line: `Pulled N controls into controls/`.
 
 For each `controls/<id>.json`, iterate `classes[]`. For every class entry:
 
-1. Fetch the ControlClass template via `mcp__plugin_dethereal_dethereal__get_classes(class_ids: [<classId>], fields: ['attributes', 'guide'])` (reuse `.dethereal/class-cache/<classId>.json` when present — the template rarely changes).
+1. Fetch the ControlClass template via `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<classId>', fields: ['attributes', 'guide'])` (reuse `.dethereal/class-cache/<classId>.json` when present — the template rarely changes).
 2. Compute `sparse_keys = template.properties.keys() - Object.keys(entry.attributes)`.
 3. Record the per-Control summary.
 

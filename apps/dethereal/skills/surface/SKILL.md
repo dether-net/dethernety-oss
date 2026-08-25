@@ -59,7 +59,7 @@ Highlight any unencrypted, unauthenticated, or fail-open cross-boundary flows �
 
 Check `manifest.model.id` to determine if the model has been synced to the platform.
 
-**If synced:** Call `mcp__plugin_dethereal_dethereal__manage_exposures(action: 'list')` with the model ID. Group exposures by component. Display:
+**If synced:** Call `mcp__plugin_dethereal_dethereal__get_control_gaps(model_id: '<id>')` — that is the only model-wide exposure route. `manage_exposures(action: 'list')` **requires** an `element_id` and rejects a call without one (it has no model-id parameter at all), so it can only be used for per-element drill-down after this call identifies which elements to inspect. Group the returned exposures by component. Display:
 ```
 ### Exposures
   N exposures across M components.
@@ -207,15 +207,19 @@ Derive tactic names from technique IDs (e.g., T1566 → Initial Access). If a ma
 ```
 ### MITRE ATT&CK Coverage
   No exposures — analysis has not produced technique mappings yet.
-  Run /dethereal:analyse to generate exposures (or install a module with policies
+  Run an analysis to generate exposures (or install a module with policies
   that cover this model's components).
+```
+To run one: `manage_analyses` follows a create → run → status (poll) → results contract.
+```
 ```
 
 **If not synced:**
 ```
 ### MITRE ATT&CK Coverage
   Model not synced — push to platform and run an analysis for MITRE tactic coverage.
-  Run /dethereal:sync push, then /dethereal:analyse.
+  Run /dethereal:sync push, then an analysis via `manage_analyses`
+  (create → run → status → results).
 ```
 
 ### 6. Credential Topology

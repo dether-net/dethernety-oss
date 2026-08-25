@@ -20,6 +20,10 @@ import {
   computeContainerSummary,
 } from '@dethernety/dt-core'
 import type { Zone, ZoneTierResult, EffectiveZone, ZoningFinding, ContainerSummary } from '@dethernety/dt-core'
+import type { ConsolidatedAttributesFile, ElementAttributes, StructureBoundary } from '@dethernety/dt-core'
+import type { AttributeReadIssue } from '../utils/directory-utils.js'
+import { promises as fs } from 'fs'
+import path from 'path'
 import { ClientFreeTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
@@ -152,6 +156,10 @@ interface ValidateOutput {
   files_validated?: string[]
 }
 
+/** Caps that keep the residual worklist usable on a several-hundred-element model. */
+const MAX_RESIDUAL_ELEMENTS = 25
+const MAX_RESIDUAL_FIELDS_PER_ELEMENT = 12
+
 interface QualityFactor {
   value: number
   weight: number
@@ -167,6 +175,32 @@ interface QualityOutput {
     components: number
     data_flows: number
     data_items: number
+  }
+  /**
+   * Which class template fields are still unresolved, and where. This is the
+   * enrichment worklist: `attribute_completion_rate` compresses it to one
+   * number, and a number cannot tell an operator what to go and answer.
+   * `top_unresolved` is capped so the payload stays usable on a large model.
+   */
+  attribute_residual: {
+    declared: number
+    resolved: number
+    unresolved: number
+    /** Classified elements with a known template — the ones the ratio is computed over. */
+    elements_scored: number
+    /** Elements with no class binding — excluded from the ratio, not scored either way. */
+    elements_unclassified: number
+    /** Classified, but no cached template — excluded from the ratio. */
+    elements_without_template: number
+    /** Set when the ratio fell back to file-presence because no class cache exists. */
+    basis: 'template' | 'file-presence'
+    /**
+     * Classified elements the ratio could NOT measure, by name. A bare count is
+     * unactionable; the names point straight at the fix (usually: run
+     * generate_attribute_stubs so the class template is cached).
+     */
+    blocked: Array<{ element: string; class_id: string }>
+    top_unresolved: Array<{ element: string; class: string; unresolved: number; declared: number; fields: string[] }>
   }
   model_name: string
   warnings?: string[]
@@ -403,6 +437,158 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     return `unclassified — defaults to ${resolved.zone}`
   }
 
+  /**
+   * Load the class templates cached under `.dethereal/class-cache/`, keyed by
+   * class id.
+   *
+   * The cache is the right basis for measuring enrichment and the
+   * `.dethereal/template-fields/` manifests are not: the cache is keyed by
+   * CLASS id, which survives the local-id → platform-id remap on first push,
+   * whereas the manifests are keyed by ELEMENT id and are re-keyed only
+   * alongside it. It is also the same artefact the enricher itself reads, so
+   * the metric measures the enricher against its own checklist.
+   *
+   * Returns an empty map when the model has no cache (never enriched, or built
+   * before caching existed) — the caller falls back and says so.
+   */
+  private async readClassTemplates(
+    dirPath: string,
+  ): Promise<Map<string, { name: string; fields: string[]; componentType?: string }>> {
+    const out = new Map<string, { name: string; fields: string[]; componentType?: string }>()
+    const cacheDir = path.join(dirPath, '.dethereal', 'class-cache')
+
+    let entries: string[]
+    try {
+      entries = await fs.readdir(cacheDir)
+    } catch {
+      return out
+    }
+
+    for (const entry of entries) {
+      if (!entry.endsWith('.json')) continue
+      try {
+        const raw = JSON.parse(await fs.readFile(path.join(cacheDir, entry), 'utf-8'))
+        const props = raw?.template?.schema?.properties
+        if (!props || typeof props !== 'object') continue
+        out.set(raw.classId ?? entry.slice(0, -'.json'.length), {
+          name: raw.className ?? 'unknown',
+          fields: Object.keys(props),
+          componentType: typeof raw.componentType === 'string' ? raw.componentType : undefined,
+        })
+      } catch {
+        // A corrupt cache entry costs precision on one class, never the score.
+      }
+    }
+    return out
+  }
+
+  /**
+   * Measure how many class template fields actually carry a value.
+   *
+   * This replaces a file-presence count. `Object.keys(attributes.components)`
+   * counts one entry per ELEMENT, so a stub whose every field is null — or an
+   * `attributes: {}` — scored identically to a fully enriched element, and the
+   * factor named "attribute completion" could read 1.0 with nothing enriched.
+   * It also looked only at components and data items, ignoring boundary and
+   * data-flow templates entirely.
+   *
+   * Elements with no class, or whose class is not in the cache, are counted in
+   * `elements_without_template` and left OUT of the ratio: counting them as
+   * complete overstates readiness, and counting them as incomplete punishes a
+   * model for a cache miss. Excluding them keeps the ratio honest about what it
+   * measured, and the count says how much it could not see.
+   */
+  private computeAttributeResidual(
+    population: Array<{ id: string; name?: string; group: string; classData?: { id?: string } | null }>,
+    attributes: ConsolidatedAttributesFile,
+    templates: Map<string, { name: string; fields: string[]; componentType?: string }>,
+  ): QualityOutput['attribute_residual'] {
+    let declared = 0
+    let resolved = 0
+    let withoutTemplate = 0
+    let unclassified = 0
+    let scored = 0
+    const blocked: Array<{ element: string; class_id: string }> = []
+    const per: Array<{ element: string; class: string; unresolved: number; declared: number; fields: string[] }> = []
+
+    for (const el of population) {
+      // The class binding comes from the STRUCTURE, never from the attribute
+      // file's embedded `classData` — that is a copy written at stub time and is
+      // the stale one after a reclassification.
+      const classId = el.classData?.id
+      if (!classId) { unclassified++; continue }
+
+      const template = templates.get(classId)
+      if (!template) {
+        withoutTemplate++
+        if (blocked.length < MAX_RESIDUAL_ELEMENTS) blocked.push({ element: el.name || el.id, class_id: classId })
+        continue
+      }
+
+      // An element with no attribute entry at all is fully unresolved, not
+      // absent from the denominator. This is the case that must not be skipped:
+      // an export omits the attribute entry for every classified-but-unenriched
+      // element, so iterating the attribute tree instead of the structure would
+      // drop exactly the elements carrying the largest residual and report a
+      // completion rate that climbs as enrichment gets worse.
+      const bag = (attributes as Record<string, Record<string, ElementAttributes> | undefined>)[el.group]
+      const entry = bag?.[el.id]
+      const values = (entry?.attributes ?? {}) as Record<string, unknown>
+      // hasOwnProperty, not `in`: `in` walks the prototype chain, so a template
+      // field named `toString` / `constructor` / `valueOf` would score as
+      // resolved on every element and inflate the completion rate — the exact
+      // "reports better than reality" failure this factor was rewritten to stop.
+      const has = (k: string): boolean => Object.prototype.hasOwnProperty.call(values, k)
+      const missing = template.fields.filter((f) => !has(f) || values[f] === null || values[f] === undefined)
+
+      scored++
+      declared += template.fields.length
+      resolved += template.fields.length - missing.length
+
+      if (missing.length > 0) {
+        per.push({
+          element: el.name || entry?.elementName || el.id,
+          class: template.name,
+          unresolved: missing.length,
+          declared: template.fields.length,
+          fields: missing.slice(0, MAX_RESIDUAL_FIELDS_PER_ELEMENT),
+        })
+      }
+    }
+
+    per.sort((a, b) => b.unresolved - a.unresolved)
+
+    return {
+      declared,
+      resolved,
+      unresolved: declared - resolved,
+      elements_scored: scored,
+      elements_unclassified: unclassified,
+      elements_without_template: withoutTemplate,
+      basis: 'template',
+      blocked,
+      top_unresolved: per.slice(0, MAX_RESIDUAL_ELEMENTS),
+    }
+  }
+
+  /**
+   * True when any single boundary directly contains BOTH an EXTERNAL_ENTITY and
+   * a non-external component.
+   *
+   * An external entity is by definition outside the trust boundary; placing it
+   * in the same zone as the internal components it talks to erases the crossing
+   * the whole model exists to describe. Only DIRECT children are compared — a
+   * nested boundary is its own zone, which is exactly the shape
+   * guidelines-core.md recommends.
+   */
+  private hasMixedTrustBoundary(boundary: StructureBoundary): boolean {
+    const direct = boundary.components ?? []
+    const hasExternal = direct.some((c) => c.type === 'EXTERNAL_ENTITY')
+    const hasInternal = direct.some((c) => c.type && c.type !== 'EXTERNAL_ENTITY')
+    if (hasExternal && hasInternal) return true
+    return (boundary.boundaries ?? []).some((b) => this.hasMixedTrustBoundary(b))
+  }
+
   private async computeQuality(dirPath: string): Promise<ToolResult<QualityOutput>> {
     if (!await pathExists(dirPath)) {
       return { success: false, error: `Directory not found: ${dirPath}` }
@@ -415,7 +601,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const structure = await readStructure(dirPath)
     const dataFlows = await readDataFlows(dirPath)
     const dataItems = await readDataItems(dirPath)
-    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+    const attributeIssues: AttributeReadIssue[] = []
+    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems }, attributeIssues)
 
     const allComponentIds = this.collectComponentIds(structure.defaultBoundary)
     const allBoundaryIds = this.collectBoundaryIds(structure.defaultBoundary)
@@ -440,15 +627,53 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       ? Math.min(classifiedComponents / totalComponents, 1.0) : 0
 
     // Factor 2: attribute_completion_rate (weight 20)
-    // Data items are first-class enrichable elements (DATA class templates →
-    // attributes/dataItems/<id>.json), so they count in the same factor —
-    // otherwise a model with fully unenriched data items still scores 100%
-    // here. Component-only models are unaffected (dataItems.length adds 0).
-    const componentAttrCount = Object.keys(attributes.components || {}).length
-    const dataItemAttrCount = Object.keys(attributes.dataItems || {}).length
-    const attributeDenominator = totalComponents + dataItems.length
-    const attributeCompletionRate = attributeDenominator > 0
-      ? Math.min((componentAttrCount + dataItemAttrCount) / attributeDenominator, 1.0) : 0
+    // Measures template fields that carry a VALUE, across all four element
+    // groups — see computeAttributeResidual for why file presence was wrong.
+    const classTemplates = await this.readClassTemplates(dirPath)
+
+    // Population = every element in the model, from the structural files. Not
+    // the attribute tree — see computeAttributeResidual.
+    const flat = flattenStructure(structure)
+    const residualPopulation = [
+      ...flat.boundaries.map((b) => ({ id: b.id, name: b.name, group: 'boundaries', classData: b.classData })),
+      ...flat.components.map((c) => ({ id: c.id, name: c.name, group: 'components', classData: c.classData })),
+      ...dataFlows.map((f) => ({ id: f.id, name: f.name, group: 'dataFlows', classData: f.classData })),
+      ...dataItems.map((d) => ({ id: d.id, name: d.name, group: 'dataItems', classData: d.classData })),
+    ]
+    const attributeResidual = this.computeAttributeResidual(residualPopulation, attributes, classTemplates)
+
+    let attributeCompletionRate: number
+    let attributeCompletionNote: string | undefined
+    if (attributeResidual.declared > 0) {
+      attributeCompletionRate = attributeResidual.resolved / attributeResidual.declared
+      const excluded: string[] = []
+      if (attributeResidual.elements_unclassified > 0) {
+        excluded.push(`${attributeResidual.elements_unclassified} unclassified`)
+      }
+      if (attributeResidual.elements_without_template > 0) {
+        excluded.push(`${attributeResidual.elements_without_template} classified but with no cached template`)
+      }
+      if (excluded.length > 0) {
+        attributeCompletionNote =
+          `Measured over ${attributeResidual.elements_scored} element(s); excluded ${excluded.join(' and ')}`
+      }
+    } else {
+      // No cached template for anything: fall back to the old file-presence
+      // heuristic rather than scoring a legitimately enriched model at zero,
+      // and label the basis so the number is not mistaken for a field measure.
+      const componentAttrCount = Object.keys(attributes.components || {}).length
+      const dataItemAttrCount = Object.keys(attributes.dataItems || {}).length
+      const attributeDenominator = totalComponents + dataItems.length
+      attributeCompletionRate = attributeDenominator > 0
+        ? Math.min((componentAttrCount + dataItemAttrCount) / attributeDenominator, 1.0) : 0
+      attributeResidual.basis = 'file-presence'
+      // The per-element counters describe a template-basis pass that did not
+      // happen; zero them rather than leave a partial tally that reads as fact.
+      attributeResidual.elements_scored = 0
+      attributeResidual.blocked = []
+      attributeCompletionNote =
+        'No cached class templates — measuring attribute-file presence, not resolved fields. Run generate_attribute_stubs.'
+    }
 
     // Factor 3: boundary_hierarchy_quality (weight 15)
     // Three conditions, each +0.33:
@@ -459,9 +684,15 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const maxDepth = this.getBoundaryDepth(structure.defaultBoundary)
     if (maxDepth >= 2) bhq += 0.33
     if (totalBoundaries === 0 || !this.hasSingleChildBoundary(structure.defaultBoundary)) bhq += 0.33
-    // Condition (c): simplified — check if all components share boundary type correctly
-    // For V1, award this point by default since we can't distinguish external entities
-    bhq += 0.34 // round to 1.0 when all conditions met
+    // Condition (c): no boundary mixes an EXTERNAL_ENTITY with internal components.
+    //
+    // This was awarded unconditionally, justified as "we can't distinguish
+    // external entities" — but the same file does exactly that in
+    // computeCoverage's collectExternals walk, and guidelines-core.md teaches
+    // the rule this checks (the GOOD example puts the external actor in its own
+    // Internet Zone; the BAD one flattens it in beside the web server). A free
+    // 0.34 made the factor unable to report the modelling error it names.
+    if (!this.hasMixedTrustBoundary(structure.defaultBoundary)) bhq += 0.34
     const boundaryHierarchyQuality = Math.min(bhq, 1.0)
 
     // Factor 4: data_flow_coverage (weight 15)
@@ -510,7 +741,15 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     } else if (coveredCount > 0 && !anyFormalControls) {
       controlCoverageNote = 'Inferred from attributes; no formal controls assigned'
     } else if (coveredCount === 0) {
-      controlCoverageNote = 'No security attributes or controls found on classified elements'
+      // Deliberately hedged. The attribute-inferred tier recognises only a
+      // small fixed set of legacy key names (see getAttributeCategories), which
+      // modern class templates do not use — so a zero here routinely means "the
+      // heuristic did not recognise anything", not "nothing is protected". Do
+      // not let it read as a finding about the model.
+      controlCoverageNote =
+        'No formal controls assigned, and no attribute matched the inferred-coverage heuristic ' +
+        '(it recognises only a small fixed set of legacy attribute names — a zero here is not ' +
+        'evidence that the elements are unprotected)'
     }
 
     // Factor 7: credential_coverage_rate (weight 5)
@@ -536,6 +775,15 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
     // Scan for expired compensating controls
     const warnings: string[] = []
+
+    // An unreadable attribute file silently lowers every factor that reads it.
+    // Say so, or the score drop looks like unfinished enrichment.
+    for (const issue of attributeIssues) {
+      warnings.push(
+        `${issue.file} could not be read (${issue.reason}) — it is counted as unenriched, ` +
+        `which lowers the score. Fix or restore the file; the next push may overwrite it.`,
+      )
+    }
     const today = new Date().toISOString().slice(0, 10)
 
     const scanControls = (controls: any[] | undefined): void => {
@@ -586,7 +834,10 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         label,
         factors: {
           component_classification_rate: { value: componentClassificationRate, weight: 25 },
-          attribute_completion_rate: { value: attributeCompletionRate, weight: 20 },
+          attribute_completion_rate: {
+            value: attributeCompletionRate, weight: 20,
+            ...(attributeCompletionNote ? { note: attributeCompletionNote } : {}),
+          },
           boundary_hierarchy_quality: { value: boundaryHierarchyQuality, weight: 15 },
           data_flow_coverage: { value: dataFlowCoverage, weight: 15 },
           data_classification_rate: { value: dataClassificationRate, weight: 10 },
@@ -599,6 +850,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           data_flows: dataFlows.length,
           data_items: totalDataItems
         },
+        attribute_residual: attributeResidual,
         model_name: manifest.model.name,
         ...(warnings.length > 0 ? { warnings } : {})
       }
@@ -1341,7 +1593,16 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       const normCtx = validatedStructure && validatedDataFlows && validatedDataItems
         ? { structure: validatedStructure, dataFlows: validatedDataFlows, dataItems: validatedDataItems }
         : undefined
-      const attributes = await readAttributes(dirPath, normCtx)
+      // An unparseable attribute file must fail validation. readAttributes
+      // swallows per-file parse errors so it never throws, which meant the
+      // catch below could not fire and `valid: true` was returned for a model
+      // with a truncated file — the exact failure a full-file overwrite by the
+      // enricher produces, and the one this validator exists to catch.
+      const attributeIssues: AttributeReadIssue[] = []
+      const attributes = await readAttributes(dirPath, normCtx, attributeIssues)
+      for (const issue of attributeIssues) {
+        errors.push({ file: issue.file, message: `Attribute file could not be read: ${issue.reason}` })
+      }
       const result = AttributesSchema.safeParse(attributes)
       if (!result.success) {
         for (const issue of result.error.issues) {
@@ -1371,6 +1632,41 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
             message: `Attribute file references unknown component: ${elementId}`
           })
         }
+      }
+
+      // Component type vs the assigned class's declared type.
+      //
+      // A component declares PROCESS | STORE | EXTERNAL_ENTITY, and so does each
+      // ComponentClass. Nothing enforced that the two agree: `match_classes`
+      // exposes a hard `componentType` filter but classification never passes
+      // it, so type only nudges the ranking and never constrains the result. A
+      // STORE bound to a PROCESS class evaluates that class's policy against a
+      // thing it does not describe, and the mismatch is invisible.
+      //
+      // A warning, not an error: the cache can be stale or predate this field,
+      // and only the platform is authoritative about the binding.
+      if (validatedStructure) {
+        const classTypes = await this.readClassTemplates(dirPath)
+        const checkTypes = (b: StructureBoundary): void => {
+          for (const c of b.components ?? []) {
+            const classId = c.classData?.id
+            if (!classId || !c.type) continue
+            const known = classTypes.get(classId)
+            if (!known?.componentType) continue
+            if (known.componentType !== c.type) {
+              warnings.push({
+                file: 'structure.json',
+                message:
+                  `Component "${c.name || c.id}" is type ${c.type}, but its class ` +
+                  `"${known.name}" describes a ${known.componentType}. Either the component type ` +
+                  `or the class assignment is wrong — the class's policy is written for a ` +
+                  `${known.componentType}.`,
+              })
+            }
+          }
+          for (const nested of b.boundaries ?? []) checkTypes(nested)
+        }
+        checkTypes(validatedStructure.defaultBoundary)
       }
       for (const [elementId] of Object.entries(attributes.dataFlows || {})) {
         if (!allDataFlowIds.has(elementId)) {

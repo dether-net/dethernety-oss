@@ -101,7 +101,7 @@ describe('Quality Score', () => {
     }
   })
 
-  it('counts data items in attribute_completion_rate', async () => {
+  it('falls back to file presence — and says so — when no class templates are cached', async () => {
     const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'DI', defaultBoundaryId: 'b-1' } }
     const structure = {
       defaultBoundary: {
@@ -122,6 +122,11 @@ describe('Quality Score', () => {
     expect(result.success).toBe(true)
     let data = result.data as any
     expect(data.factors.attribute_completion_rate.value).toBeCloseTo(0.5)
+    // With no .dethereal/class-cache the tool cannot measure resolved FIELDS, so
+    // it degrades to the old file-presence count — but must label the basis, or
+    // the number reads as a field measure it is not.
+    expect(data.attribute_residual.basis).toBe('file-presence')
+    expect(data.factors.attribute_completion_rate.note).toMatch(/No cached class templates/)
 
     // After the data item is enriched too, the factor reaches 1.0
     await fs.writeFile(
@@ -133,6 +138,227 @@ describe('Quality Score', () => {
     expect(result.success).toBe(true)
     data = result.data as any
     expect(data.factors.attribute_completion_rate.value).toBeCloseTo(1.0)
+  })
+
+  it('measures resolved template FIELDS, not attribute-file presence', async () => {
+    // The regression this pins: the factor used to count Object.keys() on the
+    // per-element map, so an element whose every value was null — or whose
+    // attributes object was empty — scored identically to a fully enriched one.
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'F', defaultBoundaryId: 'b-1' } }
+    const structure = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [{ id: 'c-1', name: 'DB', classData: { id: 'cls-db', name: 'Database' } }],
+      },
+    }
+    await writeModel(manifest, structure, [], [])
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'class-cache', 'cls-db.json'), JSON.stringify({
+      classId: 'cls-db', className: 'Database',
+      template: { schema: { properties: { ssl_enabled: {}, backups_enabled: {}, audit_log: {}, tls_min: {} } } },
+    }))
+
+    // Every field null — the file exists, nothing is answered.
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'components', 'c-1.json'), JSON.stringify({
+      elementId: 'c-1', elementType: 'component', elementName: 'DB',
+      classData: { id: 'cls-db', name: 'Database' },
+      attributes: { ssl_enabled: null, backups_enabled: null, audit_log: null, tls_min: null },
+    }))
+
+    let data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(data.factors.attribute_completion_rate.value).toBe(0)   // was 1.0 before the fix
+    expect(data.attribute_residual).toMatchObject({ declared: 4, resolved: 0, unresolved: 4, basis: 'template' })
+    expect(data.attribute_residual.top_unresolved[0]).toMatchObject({ element: 'DB', class: 'Database', unresolved: 4 })
+    expect(data.attribute_residual.top_unresolved[0].fields.sort())
+      .toEqual(['audit_log', 'backups_enabled', 'ssl_enabled', 'tls_min'])
+
+    // An explicit `false` is an answer and must count as resolved.
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'components', 'c-1.json'), JSON.stringify({
+      elementId: 'c-1', elementType: 'component', elementName: 'DB',
+      classData: { id: 'cls-db', name: 'Database' },
+      attributes: { ssl_enabled: true, backups_enabled: false, audit_log: null, tls_min: null },
+    }))
+    data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(data.factors.attribute_completion_rate.value).toBeCloseTo(0.5)
+    expect(data.attribute_residual.resolved).toBe(2)
+  })
+
+  it('does not score an inherited Object.prototype key as a resolved field', async () => {
+    // `f in values` walks the prototype chain, so a template field named
+    // `toString` would read as present on every element and inflate the rate.
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'P', defaultBoundaryId: 'b-1' } }
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [{ id: 'c-1', name: 'X', classData: { id: 'cls-x', name: 'X' } }],
+      },
+    }, [], [])
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'class-cache', 'cls-x.json'), JSON.stringify({
+      classId: 'cls-x', className: 'X',
+      template: { schema: { properties: { toString: {}, constructor: {}, real_field: {} } } },
+    }))
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'components', 'c-1.json'), JSON.stringify({
+      elementId: 'c-1', elementType: 'component', elementName: 'X',
+      classData: { id: 'cls-x', name: 'X' },
+      attributes: { real_field: true },   // the other two are genuinely unanswered
+    }))
+
+    const data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(data.attribute_residual).toMatchObject({ declared: 3, resolved: 1, unresolved: 2 })
+    expect(data.attribute_residual.top_unresolved[0].fields.sort()).toEqual(['constructor', 'toString'])
+  })
+
+  it('counts boundary and data-flow templates, which the old factor ignored entirely', async () => {
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'B', defaultBoundaryId: 'b-1' } }
+    const structure = { defaultBoundary: { id: 'b-1', name: 'Perimeter', components: [], classData: { id: 'cls-b', name: 'Perimeter' } } }
+    await writeModel(manifest, structure, [], [])
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'class-cache', 'cls-b.json'), JSON.stringify({
+      classId: 'cls-b', className: 'Perimeter',
+      template: { schema: { properties: { ingress_default_deny: {}, egress_default_deny: {} } } },
+    }))
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'boundaries', 'b-1.json'), JSON.stringify({
+      elementId: 'b-1', elementType: 'boundary', elementName: 'Perimeter',
+      classData: { id: 'cls-b', name: 'Perimeter' },
+      attributes: { ingress_default_deny: true, egress_default_deny: null },
+    }))
+
+    const data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(data.attribute_residual).toMatchObject({ declared: 2, resolved: 1, unresolved: 1 })
+  })
+
+  it('excludes elements whose template is unknown rather than scoring them either way', async () => {
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'U', defaultBoundaryId: 'b-1' } }
+    const structure = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-known', name: 'Known', classData: { id: 'cls-db', name: 'Database' } },
+          { id: 'c-unknown', name: 'Unknown', classData: { id: 'cls-absent', name: 'Absent' } },
+        ],
+      },
+    }
+    await writeModel(manifest, structure, [], [])
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'class-cache', 'cls-db.json'), JSON.stringify({
+      classId: 'cls-db', className: 'Database',
+      template: { schema: { properties: { ssl_enabled: {}, backups_enabled: {} } } },
+    }))
+    for (const [id, name, cls] of [['c-known', 'Known', 'cls-db'], ['c-unknown', 'Unknown', 'cls-absent']] as const) {
+      await fs.writeFile(path.join(tmpDir, 'attributes', 'components', `${id}.json`), JSON.stringify({
+        elementId: id, elementType: 'component', elementName: name,
+        classData: { id: cls, name: 'x' }, attributes: { ssl_enabled: true, backups_enabled: true },
+      }))
+    }
+
+    const data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    // Only the cached class contributes to the ratio; the other is reported, not scored.
+    expect(data.attribute_residual).toMatchObject({ declared: 2, resolved: 2, elements_without_template: 1 })
+    expect(data.factors.attribute_completion_rate.value).toBe(1)
+    expect(data.factors.attribute_completion_rate.note).toMatch(/no cached template/)
+  })
+
+  it('counts a classified element with NO attribute file as fully unresolved', async () => {
+    // The population must come from the structure, not the attribute tree. An
+    // export omits the attribute entry for every classified-but-unenriched
+    // element, so iterating attribute files would drop exactly the elements
+    // carrying the largest residual — the completion rate would climb as
+    // enrichment got worse.
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'M', defaultBoundaryId: 'b-1' } }
+    const structure = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-has', name: 'Enriched', classData: { id: 'cls-db', name: 'Database' } },
+          { id: 'c-none', name: 'NoFile', classData: { id: 'cls-db', name: 'Database' } },
+        ],
+      },
+    }
+    await writeModel(manifest, structure, [], [])
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'class-cache', 'cls-db.json'), JSON.stringify({
+      classId: 'cls-db', className: 'Database',
+      template: { schema: { properties: { ssl_enabled: {}, backups_enabled: {} } } },
+    }))
+    // Only ONE of the two elements has an attribute file.
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'components', 'c-has.json'), JSON.stringify({
+      elementId: 'c-has', elementType: 'component', elementName: 'Enriched',
+      classData: { id: 'cls-db', name: 'Database' },
+      attributes: { ssl_enabled: true, backups_enabled: true },
+    }))
+
+    const data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    // 4 declared (2 elements x 2 fields), 2 resolved — NOT 2/2 = 1.0
+    expect(data.attribute_residual).toMatchObject({ declared: 4, resolved: 2, unresolved: 2, elements_scored: 2 })
+    expect(data.factors.attribute_completion_rate.value).toBeCloseTo(0.5)
+    expect(data.attribute_residual.top_unresolved.map((r: any) => r.element)).toContain('NoFile')
+  })
+
+  it('penalises a boundary that mixes an EXTERNAL_ENTITY with internal components', async () => {
+    // guidelines-core.md's BAD example: the external actor flattened in beside
+    // the internal components, erasing the trust crossing. This condition used
+    // to be awarded unconditionally, so the factor could never report it.
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'M', defaultBoundaryId: 'b-1' } }
+
+    const mixed = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [
+          { id: 'b-2', name: 'Zone', components: [
+            { id: 'u', name: 'User', type: 'EXTERNAL_ENTITY' },
+            { id: 'w', name: 'Web', type: 'PROCESS' },
+          ] },
+          { id: 'b-3', name: 'Other', components: [{ id: 'x', name: 'X', type: 'PROCESS' }] },
+        ], components: [],
+      },
+    }
+    await writeModel(manifest, mixed, [], [])
+    const bad = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+
+    // Same shape, but the external actor gets its own zone (the GOOD example).
+    const separated = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [
+          { id: 'b-0', name: 'Internet', components: [{ id: 'u', name: 'User', type: 'EXTERNAL_ENTITY' }] },
+          { id: 'b-2', name: 'Zone', components: [{ id: 'w', name: 'Web', type: 'PROCESS' }] },
+          { id: 'b-3', name: 'Other', components: [{ id: 'x', name: 'X', type: 'PROCESS' }] },
+        ], components: [],
+      },
+    }
+    await writeModel(manifest, separated, [], [])
+    const good = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+
+    // Isolate condition (c): the two fixtures differ only in whether the
+    // external entity shares a zone, so the gap must be exactly its 0.34.
+    expect(
+      good.factors.boundary_hierarchy_quality.value - bad.factors.boundary_hierarchy_quality.value,
+    ).toBeCloseTo(0.34)
+    expect(bad.factors.boundary_hierarchy_quality.value)
+      .toBeLessThan(good.factors.boundary_hierarchy_quality.value)
+  })
+
+  it('reports an unparseable attribute file instead of counting it as unenriched', async () => {
+    // readAttributes swallows per-file parse errors so it never throws. Before
+    // the fix that made the file invisible: `quality` counted the element as
+    // never enriched and the score dropped with no explanation.
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'C', defaultBoundaryId: 'b-1' } }
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [{ id: 'c-1', name: 'DB', classData: { id: 'cls-db', name: 'Database' } }],
+      },
+    }, [], [])
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'class-cache', 'cls-db.json'), JSON.stringify({
+      classId: 'cls-db', className: 'Database',
+      template: { schema: { properties: { ssl_enabled: {} } } },
+    }))
+    // Truncated JSON — exactly what a partial full-file overwrite produces.
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'components', 'c-1.json'),
+      '{"elementId":"c-1","elementType":"component","attributes":{"ssl_enabled":tr')
+
+    const data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(data.warnings?.some((w: string) => w.includes('attributes/components/c-1.json') && w.includes('could not be read'))).toBe(true)
   })
 
   it('should compute boundary hierarchy quality with three conditions', async () => {
@@ -245,6 +471,41 @@ describe('Control Coverage', () => {
     const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
     const data = result.data as any
     expect(data.factors.control_coverage_rate.value).toBe(1.0)
+  })
+
+  it('pins the exact six-attribute-floor vocabulary the scorer accepts', async () => {
+    // The floor is specified to the enricher as CONCEPTS ("authentication",
+    // "encryption at rest", …) while the scorer keys on these literal names and
+    // strict value shapes. Nothing else connects the two, so this test is the
+    // guard: if the accepted vocabulary changes, the skill/agent tables that
+    // now spell it out must change with it.
+    const cases: Array<[string, Record<string, unknown>, boolean]> = [
+      ['authentication_type string',      { authentication_type: 'oauth2' }, true],
+      ['authentication_type "none"',      { authentication_type: 'none' }, false],
+      ['encryption_at_rest string',       { encryption_at_rest: 'AES-256' }, true],
+      ['encryption_at_rest boolean true', { encryption_at_rest: true }, false],
+      ['encryption_in_transit string',    { encryption_in_transit: 'TLS 1.3' }, true],
+      ['monitoring_tools non-empty',      { monitoring_tools: ['SIEM'] }, true],
+      ['monitoring_tools ["None"]',       { monitoring_tools: ['None'] }, false],
+      ['monitoring_tools []',             { monitoring_tools: [] }, false],
+      ['implicit_deny_enabled true',      { implicit_deny_enabled: true }, true],
+      ['implicit_deny_enabled false',     { implicit_deny_enabled: false }, false],
+      // A semantically equivalent template field name does NOT satisfy the floor.
+      ['transit_encryption_enforced',     { transit_encryption_enforced: true }, false],
+      ['tls_enabled boolean',             { tls_enabled: true }, false],
+    ]
+
+    for (const [label, attrs, shouldCount] of cases) {
+      await writeModel(manifest, {
+        defaultBoundary: {
+          id: 'b-1', name: 'System',
+          components: [{ id: 'c-1', name: 'X', classData: { id: 'cls-1', name: 'C' } }],
+        },
+      })
+      await writeComponentAttrs('c-1', attrs)
+      const data = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+      expect(data.factors.control_coverage_rate.value, label).toBe(shouldCount ? 1.0 : 0)
+    }
   })
 
   it('should inherit control coverage from parent boundary', async () => {

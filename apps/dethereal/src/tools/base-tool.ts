@@ -13,6 +13,14 @@ import type { ApolloClient } from '@apollo/client'
 export interface ToolContext {
   /** Apollo Client for GraphQL operations (only available for client-dependent tools) */
   apolloClient?: ApolloClient
+  /**
+   * Why `apolloClient` is absent, when it is. Without this the MCP entry point
+   * can only say "Authentication required", which is wrong whenever the cause
+   * was not authentication — a valid unexpired token whose `/config` fetch
+   * failed, a malformed config payload, or auth-disabled mode (where the advice
+   * is impossible to follow, since `login` answers "No login needed").
+   */
+  clientUnavailableReason?: string
   /** JWT token for authentication (for client-dependent tools) */
   token?: string
   /**

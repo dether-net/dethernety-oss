@@ -170,9 +170,12 @@ describe('GenerateAttributeStubsTool', () => {
     expect(attrs.elementType).toBe('component')
     expect(attrs.elementName).toBe('Redis')
     expect(attrs.classData.id).toBe(classId)
-    expect(attrs.attributes.requirepass_present).toBe(false) // default from schema
+    // Every template field seeds null regardless of the schema `default` — a
+    // default is authoring metadata, not an observation about this element,
+    // and a pre-filled field drops off the enricher's null-based checklist.
+    expect(attrs.attributes.requirepass_present).toBeNull() // schema default false NOT written
     expect(attrs.attributes.tls_enabled).toBeNull() // no default → null
-    expect(attrs.attributes.bind_addresses).toBe('127.0.0.1') // default from schema
+    expect(attrs.attributes.bind_addresses).toBeNull() // schema default '127.0.0.1' NOT written
 
     // Verify class cache
     const cachePath = path.join(tmpDir, '.dethereal', 'class-cache', `${classId}.json`)
@@ -246,9 +249,9 @@ describe('GenerateAttributeStubsTool', () => {
     // Plugin fields preserved
     expect(attrs.attributes.asset_criticality).toBe('high')
 
-    // New template fields added
+    // New template fields added — always null, never the schema default
     expect(attrs.attributes.log_connections).toBeNull()
-    expect(attrs.attributes.password_encryption).toBe('scram-sha-256')
+    expect(attrs.attributes.password_encryption).toBeNull()
   })
 
   // -------------------------------------------------------------------------
@@ -308,9 +311,9 @@ describe('GenerateAttributeStubsTool', () => {
     expect(attrs.attributes.name).toBeUndefined()
     expect(attrs.attributes.type).toBeUndefined()
 
-    // Template fields added
+    // Template fields added — always null, never the schema default
     expect(attrs.attributes.allowed_tls_protocols).toBeNull()
-    expect(attrs.attributes.enable_hsts).toBe(false)
+    expect(attrs.attributes.enable_hsts).toBeNull()
   })
 
   // -------------------------------------------------------------------------
@@ -489,7 +492,7 @@ describe('GenerateAttributeStubsTool', () => {
   // Default extraction
   // -------------------------------------------------------------------------
 
-  it('should use schema defaults and null for properties without defaults', async () => {
+  it('should seed every template field null, ignoring schema defaults', async () => {
     const classId = 'class-db'
     await writeModel(tmpDir, makeStructure([
       { id: 'c-db', name: 'DB', type: 'STORE', classData: { id: classId, name: 'Database' } },
@@ -517,10 +520,25 @@ describe('GenerateAttributeStubsTool', () => {
       path.join(tmpDir, 'attributes', 'components', 'c-db.json'), 'utf-8',
     ))
 
-    expect(attrs.attributes.ssl_enabled).toBe(true)
-    expect(attrs.attributes.max_connections).toBe(100)
-    expect(attrs.attributes.log_format).toBeNull()
-    expect(attrs.attributes.backup_enabled).toBe(false)
+    // `default: true` is the dangerous case — seeding it asserts a control is
+    // PRESENT with no evidence, which suppresses a finding rather than raising
+    // a spurious one. Every default shape must seed null.
+    expect(attrs.attributes.ssl_enabled).toBeNull() // default: true NOT written
+    expect(attrs.attributes.max_connections).toBeNull() // default: 100 NOT written
+    expect(attrs.attributes.log_format).toBeNull() // no default
+    expect(attrs.attributes.backup_enabled).toBeNull() // default: false NOT written
+
+    // The template field is still declared — seeding null must not drop it
+    // from the stub, or it leaves the enrichment checklist entirely.
+    expect(Object.keys(attrs.attributes).sort()).toEqual(
+      ['backup_enabled', 'log_format', 'max_connections', 'ssl_enabled'],
+    )
+
+    // The defaults remain available to the enricher via the class cache.
+    const cached = JSON.parse(await fs.readFile(
+      path.join(tmpDir, '.dethereal', 'class-cache', `${classId}.json`), 'utf-8',
+    ))
+    expect(cached.template.schema.properties.ssl_enabled.default).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -566,7 +584,7 @@ describe('GenerateAttributeStubsTool', () => {
       const attrs = JSON.parse(await fs.readFile(
         path.join(tmpDir, 'attributes', 'components', 'c-redis.json'), 'utf-8',
       ))
-      expect(attrs.attributes.requirepass_present).toBe(false)
+      expect(attrs.attributes.requirepass_present).toBeNull()
       expect(attrs.attributes.tls_enabled).toBeNull()
     })
 
@@ -625,7 +643,7 @@ describe('GenerateAttributeStubsTool', () => {
       const attrs = JSON.parse(await fs.readFile(
         path.join(tmpDir, 'attributes', 'components', 'c-old.json'), 'utf-8',
       ))
-      expect(attrs.attributes.health_check).toBe(true)
+      expect(attrs.attributes.health_check).toBeNull()
     })
 
     it('should use cache fallback when getClassById returns null', async () => {
@@ -722,9 +740,9 @@ describe('GenerateAttributeStubsTool', () => {
       expect(attrs.attributes.innodb_buffer_pool_size).toBeUndefined()
       // Enriched shared field preserved (not overwritten by default false)
       expect(attrs.attributes.ssl_enabled).toBe(true)
-      // New fields added
+      // New fields added — always null, never the new class's schema default
       expect(attrs.attributes.log_connections).toBeNull()
-      expect(attrs.attributes.password_encryption).toBe('scram-sha-256')
+      expect(attrs.attributes.password_encryption).toBeNull()
       // Plugin field untouched
       expect(attrs.attributes.asset_criticality).toBe('high')
 
@@ -836,9 +854,9 @@ describe('GenerateAttributeStubsTool', () => {
       expect(attrs.attributes.asset_criticality).toBe('high')
       expect(attrs.attributes.credential_scope).toEqual(['db-creds'])
       expect(attrs.attributes.monitoring_tools).toEqual(['SIEM'])
-      // Old template field removed, new added
+      // Old template field removed, new added (null, not its default)
       expect(attrs.attributes.old_template_field).toBeUndefined()
-      expect(attrs.attributes.new_field).toBe(false)
+      expect(attrs.attributes.new_field).toBeNull()
     })
 
     it('should not count as reclassification when class has not changed', async () => {
@@ -956,8 +974,73 @@ describe('GenerateAttributeStubsTool', () => {
       expect(attrs.attributes.max_connections).toBe(200)
       // MySQL-only unenriched field removed
       expect(attrs.attributes.innodb_setting).toBeUndefined()
-      // PostgreSQL-only new field added
-      expect(attrs.attributes.wal_level).toBe('replica')
+      // PostgreSQL-only new field added — null, not its default
+      expect(attrs.attributes.wal_level).toBeNull()
+    })
+
+    it('should not launder an old class default into the new class on reclassification', async () => {
+      // End-to-end regression for the default-seeding defect. The sibling
+      // reclassification tests hand-write the prior attribute file with an
+      // explicit `null`, so they only ever exercise the no-default path. This
+      // one lets the tool CREATE the prior file, so a field is unenriched
+      // exactly as a real run would leave it.
+      //
+      // With defaults seeded, `mysql_only_tuning` would be written as `false`,
+      // the `=== null` prune would not match it, and it would survive into the
+      // PostgreSQL file — reported as an "enriched value preserved" despite
+      // being an assumption about a class the element no longer has.
+      const oldClassId = 'class-mysql'
+      const newClassId = 'class-pg'
+
+      await writeModel(tmpDir, makeStructure([
+        { id: 'c-db', name: 'Database', type: 'STORE', classData: { id: oldClassId, name: 'MySQL' } },
+      ]))
+
+      mockGetClassById.mockResolvedValue({
+        id: oldClassId, name: 'MySQL',
+        template: makeClassTemplate({
+          mysql_only_tuning: { type: 'boolean', default: false }, // MySQL-only, HAS a default
+          ssl_enabled: { type: 'boolean', default: false },       // shared
+        }),
+        guide: [],
+      })
+
+      // Pass 1 — the tool writes the stub and the manifest itself.
+      const first = await generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient)
+      expect(first.success).toBe(true)
+
+      const attrPath = path.join(tmpDir, 'attributes', 'components', 'c-db.json')
+      const seeded = JSON.parse(await fs.readFile(attrPath, 'utf-8'))
+      expect(seeded.attributes.mysql_only_tuning).toBeNull()
+
+      // Operator enriches the shared field only; the MySQL-only field stays unenriched.
+      seeded.attributes.ssl_enabled = true
+      await fs.writeFile(attrPath, JSON.stringify(seeded, null, 2))
+
+      // Reclassify to PostgreSQL.
+      await writeModel(tmpDir, makeStructure([
+        { id: 'c-db', name: 'Database', type: 'STORE', classData: { id: newClassId, name: 'PostgreSQL' } },
+      ]))
+      mockGetClassById.mockResolvedValue({
+        id: newClassId, name: 'PostgreSQL',
+        template: makeClassTemplate({
+          ssl_enabled: { type: 'boolean', default: false },
+          wal_level: { type: 'string', default: 'replica' },
+        }),
+        guide: [],
+      })
+
+      const second = await generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient)
+      expect(second.success).toBe(true)
+      expect(second.data!.reclassified).toBe(1)
+
+      const after = JSON.parse(await fs.readFile(attrPath, 'utf-8'))
+      // The MySQL-only field must be gone, not carried over as `false`.
+      expect(after.attributes.mysql_only_tuning).toBeUndefined()
+      // A genuinely enriched value still survives the class change.
+      expect(after.attributes.ssl_enabled).toBe(true)
+      // The new class's own field arrives unenriched.
+      expect(after.attributes.wal_level).toBeNull()
     })
   })
 

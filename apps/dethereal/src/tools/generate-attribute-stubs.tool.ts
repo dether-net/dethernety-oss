@@ -9,7 +9,7 @@
  * Key behaviors:
  * - Auto-scans structure.json for classified elements (or filters by element_ids)
  * - Deduplicates class IDs — N elements with K unique classes = K GraphQL fetches
- * - Merges template defaults into existing attribute files (existing values always win)
+ * - Seeds template fields as null in existing attribute files (existing values always win)
  * - Writes class cache to .dethereal/class-cache/ for offline resilience
  * - Writes template field manifests to .dethereal/template-fields/ for reclassification
  * - Idempotent: running twice produces identical output
@@ -231,10 +231,27 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
           continue
         }
 
-        // Compute defaults
-        const templateDefaults: Record<string, unknown> = {}
-        for (const [key, schemaProp] of Object.entries(templateProps)) {
-          templateDefaults[key] = (schemaProp as Record<string, unknown>)?.default ?? null
+        // Seed every template field as null — never with the schema's `default`.
+        //
+        // A schema `default` is authoring-time metadata ("what this attribute
+        // usually is"), not an observation about this element. Writing it into
+        // the attribute file makes an assumption indistinguishable from a
+        // discovered fact: downstream (attribute file → sync → graph edge →
+        // policy input) there is no field that records where a value came from.
+        //
+        // It also silently shrinks the enrichment checklist. The enricher's
+        // contract is that null fields are the work list; a field pre-filled
+        // from its default is not null, so it is skipped by construction and
+        // ships as an assertion nobody made. Most template properties in a
+        // typical class catalog carry a default, so the majority of every stub
+        // was arriving pre-answered.
+        //
+        // The default is not lost — the full class template (defaults included)
+        // is written to the class cache by writeClassCache() below, so the
+        // enricher can still consult it as a suggestion.
+        const templateFieldSeeds: Record<string, unknown> = {}
+        for (const key of Object.keys(templateProps)) {
+          templateFieldSeeds[key] = null
         }
 
         // Read existing attribute file
@@ -278,7 +295,15 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
         let isReclassified = false
         const existingManifest = await this.readManifest(templateFieldsDir, el.id)
         if (existingManifest && existingManifest.classId !== el.classData.id) {
-          // Class has changed — remove unenriched old template fields
+          // Class has changed — remove unenriched old template fields.
+          //
+          // "Unenriched" is identified as `=== null`, which is sound only
+          // because stubs are seeded null (see the seeding loop above). If a
+          // field were ever pre-filled from its class schema `default`, it
+          // would not be null here, so a default belonging to the OLD class
+          // would survive the reclassification and be reported below as an
+          // "enriched value preserved" — an assumption about a class the
+          // element no longer has. Keep the two behaviours in step.
           const oldTemplateFields = new Set(existingManifest.templateFields)
           for (const oldField of oldTemplateFields) {
             if (oldField in existingAttributes && existingAttributes[oldField] === null) {
@@ -296,9 +321,9 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
         // Merge: existing values always win
         const mergedAttributes = { ...existingAttributes }
         let newFieldsAdded = false
-        for (const [key, defaultValue] of Object.entries(templateDefaults)) {
+        for (const [key, seedValue] of Object.entries(templateFieldSeeds)) {
           if (!(key in mergedAttributes)) {
-            mergedAttributes[key] = defaultValue
+            mergedAttributes[key] = seedValue
             newFieldsAdded = true
           }
         }
@@ -327,7 +352,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
         const manifest = {
           classId: el.classData.id,
           className: el.classData.name,
-          templateFields: Object.keys(templateDefaults),
+          templateFields: Object.keys(templateFieldSeeds),
           generatedAt: new Date().toISOString(),
         }
         const manifestPath = path.join(templateFieldsDir, `${el.id}.json`)
@@ -420,6 +445,12 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
       classId,
       className: cls.name,
       classType,
+      // The class's COMPONENT type (PROCESS | STORE | EXTERNAL_ENTITY), distinct
+      // from `classType` above ('component' | 'boundary' | …). Persisted so an
+      // offline check can compare it against the element's own declared type —
+      // nothing else on disk carries it, and a STORE bound to a PROCESS class
+      // was previously undetectable without the platform.
+      ...(cls.type ? { componentType: cls.type } : {}),
       cachedAt: new Date().toISOString(),
       template: cls.template,
       guide: cls.guide,

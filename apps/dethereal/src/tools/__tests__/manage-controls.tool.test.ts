@@ -13,6 +13,7 @@ const {
   mockInspectPendingRewrite,
   mockReadControlFile,
   mockListControlFiles,
+  mockAssignControlToElements,
 } = vi.hoisted(() => ({
   mockGetControl: vi.fn(),
   mockUpdateControl: vi.fn(),
@@ -25,6 +26,7 @@ const {
   mockInspectPendingRewrite: vi.fn(),
   mockReadControlFile: vi.fn(),
   mockListControlFiles: vi.fn(),
+  mockAssignControlToElements: vi.fn(),
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
@@ -45,6 +47,7 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       getControl = mockGetControl
       updateControl = mockUpdateControl
       createControl = mockCreateControl
+      assignControlToElements = mockAssignControlToElements
     },
     DtClass: class MockDtClass {
       constructor(_apolloClient: unknown) {}
@@ -515,5 +518,44 @@ describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toContain('Control file not found: greenfield-xyz')
+  })
+})
+
+describe('manage_controls assign — reports actual attachments, not the request', () => {
+  beforeEach(() => { mockAssignControlToElements.mockReset() })
+
+  const run = async (elementIds: string[], attached: string[]) => {
+    // dt-core broadcasts every id to three type-scoped connect paths; ids that
+    // match no path are silently skipped and the mutation still succeeds.
+    mockAssignControlToElements.mockResolvedValue({
+      id: 'ctrl-1', name: 'WAF',
+      elements: attached.map((id) => ({ id })),
+    })
+    const { manageControlsTool } = await import('../manage-controls.tool.js')
+    return manageControlsTool.run(
+      { action: 'assign', control_id: 'ctrl-1', element_ids: elementIds },
+      { debug: false, apolloClient: {} as never } as ToolContext,
+    )
+  }
+
+  it('counts only the requested ids the platform actually attached', async () => {
+    const res = await run(['c-1', 'c-2', 'c-bogus'], ['c-1', 'c-2'])
+    expect(res.success).toBe(true)
+    const data = res.data as Record<string, unknown>
+    expect(data.requested_elements).toBe(3)
+    expect(data.assigned_elements).toBe(2)          // was 3 before the fix
+    expect(data.skipped_elements).toEqual(['c-bogus'])
+    expect(res.warnings?.[0]).toContain('c-bogus')
+  })
+
+  it('does not count pre-existing attachments from other calls as this call\'s work', async () => {
+    // `control.elements` is the control's FULL set after the mutation, so a
+    // naive length would report 3 for a 1-element request.
+    const res = await run(['c-3'], ['c-1', 'c-2', 'c-3'])
+    const data = (res.data as Record<string, unknown>)
+    expect(data.requested_elements).toBe(1)
+    expect(data.assigned_elements).toBe(1)
+    expect(data.skipped_elements).toBeUndefined()
+    expect(res.warnings).toBeUndefined()
   })
 })
