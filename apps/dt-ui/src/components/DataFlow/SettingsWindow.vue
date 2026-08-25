@@ -728,11 +728,15 @@
   }
 
   const onNodeDelete = () => {
+    // Close before emitting: the parent owns the actual delete, so nothing else
+    // resets this flag and a stuck 'true' would stop the dialog reopening.
+    showNodeDeleteDialog.value = false
     if (!selectedItem.value) return
     emit('delete:node')
   }
 
   const onEdgeDelete = () => {
+    showEdgeDeleteDialog.value = false
     if (!selectedItem.value) return
     emit('delete:edge')
   }
