@@ -25,6 +25,8 @@ import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
   readAttributes,
+  protectedAttributeFiles,
+  remapLocalSidecars,
   writeModelDirectory,
   readScope,
   writeScope,
@@ -122,7 +124,16 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
 
       // Read the split model from directory
       debugLog(config, `Reading model from directory: ${input.directory_path}`)
-      const splitModel = await readModelDirectory(input.directory_path)
+      // Collect read failures: a file that cannot be read is simply absent
+      // from the bag that gets pushed, so without this the push reports success
+      // having silently left that element's attributes behind.
+      const readIssues: AttributeReadIssue[] = []
+      const splitModel = await readModelDirectory(input.directory_path, readIssues)
+      for (const issue of readIssues) {
+        preWarnings.push(
+          `${issue.file} could not be read (${issue.reason}) — its attributes were NOT pushed.`,
+        )
+      }
 
       // Attach the local scope (.dethereal/scope.json is not read by readModelDirectory)
       // so it publishes with the model. scope.json is the authoritative on-disk home.
@@ -194,7 +205,39 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           const scope = exportedModel.manifest.model.scope
           if (scope) delete exportedModel.manifest.model.scope
 
-          await writeModelDirectory(input.directory_path, exportedModel)
+          // Hand the read failures to the write so its stale-file cleanup does
+          // not unlink them. Reporting the warning above is not enough on its
+          // own: the very next statement is the write that would delete the
+          // file the warning tells the operator to go and restore.
+          await writeModelDirectory(input.directory_path, exportedModel, {
+            protectedAttributeFiles: protectedAttributeFiles(attributeIssues),
+          })
+          // The write above just rewrote the model files with the platform's
+          // ids, including the ids minted for elements created by this push.
+          // The id-keyed sidecars under .dethereal/ still hold the local
+          // reference ids and must follow. Only the create/import path used to
+          // do this, so on an existing model every newly added element orphaned
+          // its template-field manifest and its re-enrichment queue entry.
+          //
+          // Three things about the placement, each load-bearing:
+          //  - inside `!disable_source_file_update`, because with the re-export
+          //    off the files keep their local ids and remapping the sidecars
+          //    would be the thing that broke them;
+          //  - before writeScope, which throws on a malformed
+          //    .dethereal/scope.json — after it, the re-key would be skipped
+          //    for exactly the directories most likely to need it;
+          //  - in its own try, because the model files are already written and
+          //    a sidecar failure must not report that they were not.
+          try {
+            await remapLocalSidecars(input.directory_path, result.idMapping)
+          } catch (sidecarError) {
+            result.warnings.push(
+              `Local .dethereal/ sidecars could not be re-keyed to the new element ids ` +
+              `(${sidecarError instanceof Error ? sidecarError.message : String(sidecarError)}). ` +
+              `Re-run generate_attribute_stubs for the elements added by this push.`,
+            )
+          }
+
           await writeScope(input.directory_path, scope ?? {})
           sourceFilesUpdated = true
           debugLog(config, `Updated source directory with current state`)

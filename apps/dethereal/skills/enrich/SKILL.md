@@ -25,7 +25,7 @@ Use built-in tools and the Dethereal MCP tools — do NOT shell out to inspect o
 | Match elements to classes | `mcp__plugin_dethereal_dethereal__match_classes` |
 
 **Do not:**
-- Run `for f in attributes/...; do head -N "$f"; done` to "check progress" — `head -N` truncates JSON arbitrarily, so a field below the cutoff is indistinguishable from an absent one. Use `Read` on the whole file, or `Grep` across `attributes/`. Note that `validate_model_json(action: 'quality')` will NOT answer this: it returns an aggregate score and weighted factors, never a per-element or per-field list. The unresolved-field checklist is the null fields in the attribute file itself (Step 4.1).
+- Run `for f in attributes/...; do head -N "$f"; done` to "check progress" — `head -N` truncates JSON arbitrarily, so a field below the cutoff is indistinguishable from an absent one. Use `Read` on the whole file, or `Grep` across `attributes/`. For a worklist, use `validate_model_json(action: 'quality')`: alongside the aggregate score it returns `attribute_residual`, which names the elements carrying the most unresolved template fields (`top_unresolved[]`, each with the field names), the elements it could not measure and why (`blocked[]`, usually missing a cached class template), and the declared/resolved counts the rate is computed from. Both lists are capped, and so is each entry's `fields` array, so treat them as the top of the queue rather than the whole of it — the complete checklist is still the null fields in the attribute files themselves (Step 4.1).
 - Sample attribute files via `cat`/`head`/`tail` to assess what's filled in — `Read` returns the entire file, and `Grep` answers presence questions across the tree without truncation.
 - Write Python or shell scripts to walk `attributes/` — the validator already does this and returns a structured result.
 
@@ -140,7 +140,7 @@ Write confirmed attributes to `attributes/components/<id>.json` (or `attributes/
 | 5 | Access control | `implicit_deny_enabled` | component (boundaries too, but only the component value is scored) | **boolean `true`** |
 | 6 | Log telemetry | `monitoring_tools` | component | **`string[]`**, non-empty after discarding `none`/`n/a`. Never `["None"]` — use `[]` |
 
-Write the exact key names above. `control_coverage_rate` (20% of the quality score) and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent name a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does NOT satisfy the floor. Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete algorithm/version string.
+Write the exact key names above. `control_coverage_rate` (10% of the quality score) and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent name a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does NOT satisfy the floor. Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete algorithm/version string.
 
 
 **For unclassified components and data items:** If an element has no assigned class (classification was skipped or no suitable class exists), skip template-driven enrichment for that element (the six-attribute floor above still applies to unclassified components). Note it in the summary: "N elements skipped — unclassified (no class template available)."

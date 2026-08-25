@@ -73,7 +73,7 @@ For each classified component **and classified data item**, populate the attribu
 | 5 | Access control | `implicit_deny_enabled` | component (boundaries too, but only the component value is scored) | **boolean `true`** |
 | 6 | Log telemetry | `monitoring_tools` | component | **`string[]`**, non-empty after discarding `none`/`n/a`. Never `["None"]` — use `[]` |
 
-Write the exact key names above. `control_coverage_rate` (20% of the quality score) and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent name a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does NOT satisfy the floor. Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete algorithm/version string.
+Write the exact key names above. `control_coverage_rate` (10% of the quality score) and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent name a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does NOT satisfy the floor. Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete algorithm/version string.
 
 
 For unclassified components and data items (no assigned class), skip template-driven enrichment (the six-attribute floor still applies to unclassified components). Note in the summary: "N elements skipped — unclassified."

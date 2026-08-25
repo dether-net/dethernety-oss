@@ -186,3 +186,145 @@ describe('UpdateModelTool', () => {
     expect(sync!.baseline_element_ids.flows).toEqual(['f-1'])
   })
 })
+
+describe('UpdateModelTool — the re-export path fixes up what it invalidates', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-update-remap-'))
+    mockUpdateFromSplitModel.mockReset()
+    mockExportModelToSplit.mockReset()
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  /** Seed the two id-keyed sidecars under .dethereal/ for element `id`. */
+  const seedSidecars = async (id: string) => {
+    const deth = path.join(tmpDir, '.dethereal')
+    await fs.mkdir(path.join(deth, 'template-fields'), { recursive: true })
+    await fs.writeFile(path.join(deth, 'template-fields', `${id}.json`),
+      JSON.stringify({ classId: 'class-mysql', templateFields: ['ssl_enabled'] }), 'utf-8')
+    await fs.writeFile(path.join(deth, 'state.json'),
+      JSON.stringify({ currentState: 'ENRICHING', staleElements: [id] }), 'utf-8')
+    return deth
+  }
+
+  it('re-keys the .dethereal/ sidecars when a push mints new element ids', async () => {
+    // update_model is an id-remap site too: an element added since the last push
+    // gets its platform id here, and the re-export rewrites the model files with
+    // it. Only create/import used to fix the sidecars, so on an existing model
+    // every newly added element orphaned its template-field manifest (silently
+    // disabling reclassification cleanup) and its re-enrichment queue entry.
+    const local = makeStructure([{ id: 'c-new', name: 'New' }])
+    await writeModelDir(tmpDir, local, [], [])
+    const deth = await seedSidecars('c-new')
+
+    mockUpdateFromSplitModel.mockResolvedValue({
+      ...okResult, idMapping: new Map([['c-new', 'CNEW-uuid']]),
+    })
+    mockExportModelToSplit.mockResolvedValue(
+      makeExportedModel(makeStructure([{ id: 'CNEW-uuid', name: 'New' }]), [], []))
+
+    const res = await updateModelTool.run(
+      { model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    expect(res.data!.source_files_updated).toBe(true)
+    expect((await fs.readdir(path.join(deth, 'template-fields'))).sort()).toEqual(['CNEW-uuid.json'])
+    const state = JSON.parse(await fs.readFile(path.join(deth, 'state.json'), 'utf-8'))
+    expect(state.staleElements).toEqual(['CNEW-uuid'])
+    expect(state.currentState).toBe('ENRICHING')
+  })
+
+  it('re-keys the sidecars even when writeScope refuses a malformed scope.json', async () => {
+    // writeScope throws rather than overwrite a present-but-unparseable
+    // scope.json. Sequenced after it, the sidecar re-key would be skipped for
+    // exactly the directories most likely to need it — the model files are
+    // rewritten with platform ids either way.
+    const local = makeStructure([{ id: 'c-new', name: 'New' }])
+    await writeModelDir(tmpDir, local, [], [])
+    const deth = await seedSidecars('c-new')
+    await fs.writeFile(path.join(deth, 'scope.json'), '{ not json', 'utf-8')
+
+    mockUpdateFromSplitModel.mockResolvedValue({
+      ...okResult, idMapping: new Map([['c-new', 'CNEW-uuid']]),
+    })
+    mockExportModelToSplit.mockResolvedValue(
+      makeExportedModel(makeStructure([{ id: 'CNEW-uuid', name: 'New' }]), [], []))
+
+    const res = await updateModelTool.run(
+      { model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    expect((await fs.readdir(path.join(deth, 'template-fields'))).sort()).toEqual(['CNEW-uuid.json'])
+    // The scope failure is still reported — it is not swallowed by the reorder.
+    expect(res.data!.warnings.join(' ')).toMatch(/scope\.json/i)
+  })
+
+  it('leaves the sidecars alone when source-file update is disabled', async () => {
+    // With the re-export off, the model files keep their local ids — remapping
+    // the sidecars would be the thing that broke them.
+    const local = makeStructure([{ id: 'c-new', name: 'New' }])
+    await writeModelDir(tmpDir, local, [], [])
+    const deth = await seedSidecars('c-new')
+
+    mockUpdateFromSplitModel.mockResolvedValue({
+      ...okResult, idMapping: new Map([['c-new', 'CNEW-uuid']]),
+    })
+
+    const res = await updateModelTool.run(
+      { model_id: 'model-1', directory_path: tmpDir, create_backup: false,
+        disable_source_file_update: true }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    expect(mockExportModelToSplit).not.toHaveBeenCalled()
+    expect(await fs.readdir(path.join(deth, 'template-fields'))).toEqual(['c-new.json'])
+    const state = JSON.parse(await fs.readFile(path.join(deth, 'state.json'), 'utf-8'))
+    expect(state.staleElements).toEqual(['c-new'])
+  })
+
+  it('does not delete an unreadable attribute file during the merge-back', async () => {
+    // The warning about the unreadable file already existed; the very next
+    // statement was the write whose stale-file cleanup deleted the file the
+    // warning told the operator to go and restore.
+    const local = makeStructure([{ id: 'c-db', name: 'DB' }])
+    await writeModelDir(tmpDir, local, [], [])
+    const attrDir = path.join(tmpDir, 'attributes', 'components')
+    await fs.mkdir(attrDir, { recursive: true })
+    await fs.writeFile(path.join(attrDir, 'c-db.json'), '{ "elementId": "c-db", "attrib', 'utf-8')
+
+    mockUpdateFromSplitModel.mockResolvedValue({ ...okResult, idMapping: new Map() })
+    mockExportModelToSplit.mockResolvedValue(makeExportedModel(local, [], []))
+
+    const res = await updateModelTool.run(
+      { model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    expect(await fs.readFile(path.join(attrDir, 'c-db.json'), 'utf-8'))
+      .toBe('{ "elementId": "c-db", "attrib')
+    expect(res.data!.warnings.join(' ')).toContain('attributes/components/c-db.json')
+  })
+
+  it('warns that an unreadable attribute file was not pushed', async () => {
+    // Distinct from the merge-back warning: this one is about the PUSH. The file
+    // is absent from the bag dt-core receives, so the element's attributes never
+    // reach the platform and every count reports success.
+    const local = makeStructure([{ id: 'c-db', name: 'DB' }])
+    await writeModelDir(tmpDir, local, [], [])
+    const attrDir = path.join(tmpDir, 'attributes', 'components')
+    await fs.mkdir(attrDir, { recursive: true })
+    await fs.writeFile(path.join(attrDir, 'c-db.json'), '}{', 'utf-8')
+
+    mockUpdateFromSplitModel.mockResolvedValue({ ...okResult, idMapping: new Map() })
+    mockExportModelToSplit.mockResolvedValue(makeExportedModel(local, [], []))
+
+    const res = await updateModelTool.run(
+      { model_id: 'model-1', directory_path: tmpDir, create_backup: false,
+        disable_source_file_update: true }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    expect(res.data!.warnings.some(w => w.includes('NOT pushed'))).toBe(true)
+  })
+})

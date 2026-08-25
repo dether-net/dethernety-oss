@@ -317,6 +317,7 @@ describe('ValidateModelTool — offline coverage is assignment, not mitigation',
         covered_count: 11,
         inferred_coverage: {},
         formal_coverage: {},
+        attribute_issues: [],
       })
 
     const result = await validateModelTool.run(

@@ -26,7 +26,12 @@ import {
   writeModelDirectory,
   readModelDirectory,
   applyIdMapping,
+  readAttributes,
+  attributeFileKey,
+  protectedAttributeFiles,
+  remapLocalSidecars,
 } from '../directory-utils.js'
+import type { AttributeReadIssue } from '../directory-utils.js'
 import type { ModelStructure, ClassReference, SplitModel } from '@dethernety/dt-core'
 import { flattenStructure } from '@dethernety/dt-core'
 
@@ -719,5 +724,315 @@ describe('applyIdMapping — conduit peerId remap (regression: conduit lost on r
     await expect(
       applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid']]), 'ROOT-uuid'),
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('attribute read failures are reported, and never mistaken for staleness', () => {
+  let tmpDir: string
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-attr-issues-'))
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'components'), { recursive: true })
+  })
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  const baseFiles = async (components: Array<{ id: string; name: string }>) => {
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), JSON.stringify({
+      schemaVersion: '2.0.0', format: 'split',
+      model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [],
+    }), 'utf-8')
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), JSON.stringify({
+      defaultBoundary: { id: 'root', name: 'root', boundaries: [], components },
+    }), 'utf-8')
+    await fs.writeFile(path.join(tmpDir, 'dataflows.json'), JSON.stringify({ dataFlows: [] }), 'utf-8')
+    await fs.writeFile(path.join(tmpDir, 'data-items.json'), JSON.stringify({ dataItems: [] }), 'utf-8')
+  }
+
+  const writeAttr = async (file: string, body: string) =>
+    fs.writeFile(path.join(tmpDir, 'attributes', 'components', file), body, 'utf-8')
+
+  const componentAttrs = (id: string) => JSON.stringify({
+    elementId: id, elementType: 'component', elementName: id,
+    classData: { id: 'class-db', name: 'Database' },
+    attributes: { ssl_enabled: true },
+  })
+
+  it('reports a structured file whose elementId is unusable', async () => {
+    // The parse-failure branch reported into the accumulator; this one — a file
+    // that parses but carries no id — did not, so the same class of failure was
+    // visible or invisible depending on which branch caught it.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', JSON.stringify({
+      elementType: 'component', attributes: { ssl_enabled: true },
+    }))
+
+    const issues: AttributeReadIssue[] = []
+    const attrs = await readAttributes(tmpDir, undefined, issues)
+
+    expect(Object.keys(attrs.components ?? {})).toEqual([])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]!.file).toBe('attributes/components/c-db.json')
+    expect(issues[0]!.reason).toMatch(/elementId/)
+  })
+
+  it('reports the literal string "undefined" as an unusable elementId', async () => {
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('undefined.json', JSON.stringify({
+      elementId: 'undefined', elementType: 'component', attributes: {},
+    }))
+
+    const issues: AttributeReadIssue[] = []
+    await readAttributes(tmpDir, undefined, issues)
+    expect(issues.map(i => i.file)).toEqual(['attributes/components/undefined.json'])
+  })
+
+  it('a read issue names the file by the same key the write path protects', async () => {
+    // These two spellings have to agree or the protection silently does nothing.
+    // Pin the contract rather than the string.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', '{ truncated')
+
+    const issues: AttributeReadIssue[] = []
+    await readAttributes(tmpDir, undefined, issues)
+    expect(issues).toHaveLength(1)
+    expect(issues[0]!.file).toBe(attributeFileKey('components', 'c-db.json'))
+    expect([...protectedAttributeFiles(issues)]).toEqual([issues[0]!.file])
+  })
+
+  it('writeModelDirectory does not delete an attribute file the read could not parse', async () => {
+    // The destructive shape: a truncated file is absent from the attribute bag,
+    // which is indistinguishable from a stale one — so stale-file cleanup
+    // unlinked it and the operator's enrichment work was gone.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', '{ "elementId": "c-db", "attribu')
+
+    const issues: AttributeReadIssue[] = []
+    const model = await readModelDirectory(tmpDir, issues)
+    expect(issues).toHaveLength(1)
+
+    await writeModelDirectory(tmpDir, model, {
+      protectedAttributeFiles: protectedAttributeFiles(issues),
+    })
+
+    const survivor = await fs.readFile(path.join(tmpDir, 'attributes', 'components', 'c-db.json'), 'utf-8')
+    expect(survivor).toBe('{ "elementId": "c-db", "attribu')
+  })
+
+  it('still deletes a genuinely stale attribute file', async () => {
+    // The protection must not turn cleanup off. A file for an element that is
+    // no longer in the model is stale and must still go.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', componentAttrs('c-db'))
+    await writeAttr('c-gone.json', componentAttrs('c-gone'))
+
+    const issues: AttributeReadIssue[] = []
+    const model = await readModelDirectory(tmpDir, issues)
+    expect(issues).toEqual([])
+    delete model.attributes.components!['c-gone']
+
+    await writeModelDirectory(tmpDir, model, {
+      protectedAttributeFiles: protectedAttributeFiles(issues),
+    })
+
+    const left = (await fs.readdir(path.join(tmpDir, 'attributes', 'components'))).sort()
+    expect(left).toEqual(['c-db.json'])
+  })
+
+  it('applyIdMapping does not delete an attribute file it could not read', async () => {
+    // applyIdMapping ends in the same cleanup, and it runs on the very first
+    // push — the point at which a parse error is most likely to be sitting in a
+    // freshly hand-enriched file.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', '{ "elementId": "c-db", not-json')
+
+    await applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid'], ['c-db', 'CDB-uuid']]), 'ROOT-uuid')
+
+    const left = await fs.readdir(path.join(tmpDir, 'attributes', 'components'))
+    expect(left).toContain('c-db.json')
+    expect(await fs.readFile(path.join(tmpDir, 'attributes', 'components', 'c-db.json'), 'utf-8'))
+      .toBe('{ "elementId": "c-db", not-json')
+  })
+
+  it('readModelDirectory surfaces the issues its readAttributes hit', async () => {
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', '}{')
+
+    const issues: AttributeReadIssue[] = []
+    await readModelDirectory(tmpDir, issues)
+    expect(issues.map(i => i.file)).toEqual(['attributes/components/c-db.json'])
+  })
+})
+
+describe('remapLocalSidecars', () => {
+  let tmpDir: string
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-sidecars-'))
+    await fs.mkdir(path.join(tmpDir, '.dethereal', 'template-fields'), { recursive: true })
+  })
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('re-keys template-field manifests and staleElements[] together', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, '.dethereal', 'template-fields', 'c-new.json'),
+      JSON.stringify({ classId: 'class-mysql', templateFields: ['ssl_enabled'] }), 'utf-8')
+    await fs.writeFile(
+      path.join(tmpDir, '.dethereal', 'state.json'),
+      JSON.stringify({ currentState: 'ENRICHING', staleElements: ['c-new'] }), 'utf-8')
+
+    await remapLocalSidecars(tmpDir, new Map([['c-new', 'CNEW-uuid']]))
+
+    expect((await fs.readdir(path.join(tmpDir, '.dethereal', 'template-fields'))).sort())
+      .toEqual(['CNEW-uuid.json'])
+    const state = JSON.parse(await fs.readFile(path.join(tmpDir, '.dethereal', 'state.json'), 'utf-8'))
+    expect(state.staleElements).toEqual(['CNEW-uuid'])
+  })
+
+  it('is a no-op for an empty or absent mapping', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, '.dethereal', 'template-fields', 'c-new.json'), '{}', 'utf-8')
+
+    await remapLocalSidecars(tmpDir, new Map())
+    await remapLocalSidecars(tmpDir, undefined)
+
+    expect(await fs.readdir(path.join(tmpDir, '.dethereal', 'template-fields')))
+      .toEqual(['c-new.json'])
+  })
+})
+
+describe('a protected attribute file survives every mutation path, not just unlink', () => {
+  // There are three ways to destroy a file under attributes/: unlink it as
+  // stale, write over it, and unlink it as the old side of an id rename.
+  // Guarding one leaves the file just as destroyed by the other two.
+  let tmpDir: string
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-protect-'))
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'components'), { recursive: true })
+  })
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  const baseFiles = async (components: Array<{ id: string; name: string }>) => {
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), JSON.stringify({
+      schemaVersion: '2.0.0', format: 'split',
+      model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [],
+    }), 'utf-8')
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), JSON.stringify({
+      defaultBoundary: { id: 'root', name: 'root', boundaries: [], components },
+    }), 'utf-8')
+    await fs.writeFile(path.join(tmpDir, 'dataflows.json'), JSON.stringify({ dataFlows: [] }), 'utf-8')
+    await fs.writeFile(path.join(tmpDir, 'data-items.json'), JSON.stringify({ dataItems: [] }), 'utf-8')
+  }
+  const writeAttr = async (file: string, body: string) =>
+    fs.writeFile(path.join(tmpDir, 'attributes', 'components', file), body, 'utf-8')
+  const read = async (file: string) =>
+    fs.readFile(path.join(tmpDir, 'attributes', 'components', file), 'utf-8')
+
+  const BROKEN = '{ "elementId": "c-db", HAND-ENRICHED-NEVER-PUSHED'
+
+  it('is not overwritten when the platform holds a copy at the same id', async () => {
+    // The overwrite fires in the case unlink never reaches: the element id is
+    // still current, so cleanup skips the file and writeAttributes writes the
+    // platform's copy straight over the operator's unpushed bytes.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', BROKEN)
+
+    const issues: AttributeReadIssue[] = []
+    const model = await readModelDirectory(tmpDir, issues)
+    model.attributes.components = {
+      'c-db': {
+        elementId: 'c-db', elementType: 'component', elementName: 'DB',
+        attributes: { ssl_enabled: true },
+      },
+    } as SplitModel['attributes']['components']
+
+    await writeModelDirectory(tmpDir, model, {
+      protectedAttributeFiles: protectedAttributeFiles(issues),
+    })
+
+    expect(await read('c-db.json')).toBe(BROKEN)
+  })
+
+  it('is not unlinked as the old side of an id rename', async () => {
+    // A flat-format file resolving to the same element puts `c-db` in the bag
+    // while the unreadable c-db.json sits beside it — and the rename's old-path
+    // unlink then deletes the unreadable one.
+    await baseFiles([{ id: 'c-db', name: 'Postgres' }])
+    await writeAttr('c-db.json', BROKEN)
+    await writeAttr('postgres.json', JSON.stringify({
+      componentId: 'c-db', name: 'Postgres', ssl_enabled: true,
+    }))
+
+    await applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid'], ['c-db', 'CDB-uuid']]), 'ROOT-uuid')
+
+    expect(await read('c-db.json')).toBe(BROKEN)
+    expect(await read('CDB-uuid.json')).toContain('ssl_enabled')
+  })
+
+  it('protects a file whose on-disk name differs only in case from the element id', async () => {
+    // The two sides are not derived from the same source: the producer reads the
+    // name off readdir, the write composes `<elementId>.json`. On APFS/NTFS those
+    // are the same file, so a missed lookup truncates it through the other
+    // spelling — the guard silently doing nothing, which is the shape it exists
+    // to prevent.
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('C-DB.json', BROKEN)
+
+    const issues: AttributeReadIssue[] = []
+    const model = await readModelDirectory(tmpDir, issues)
+    expect(issues).toHaveLength(1)
+    model.attributes.components = {
+      'c-db': {
+        elementId: 'c-db', elementType: 'component', elementName: 'DB',
+        attributes: { ssl_enabled: true },
+      },
+    } as SplitModel['attributes']['components']
+
+    await writeModelDirectory(tmpDir, model, {
+      protectedAttributeFiles: protectedAttributeFiles(issues),
+    })
+
+    const names = await fs.readdir(path.join(tmpDir, 'attributes', 'components'))
+    const survivor = await fs.readFile(
+      path.join(tmpDir, 'attributes', 'components', names[0]!), 'utf-8')
+    expect(survivor).toBe(BROKEN)
+  })
+
+  it('still deletes undefined.json — that is litter, not lost work', async () => {
+    // The no-usable-elementId issue is REPORTED but not preserved: cleanup has
+    // always removed undefined.json, and protecting it would leave the litter
+    // on disk indefinitely. Reporting it is the new part.
+    await baseFiles([])
+    await writeAttr('undefined.json', JSON.stringify({
+      elementId: 'undefined', elementType: 'component', attributes: { ssl_enabled: true },
+    }))
+
+    const issues: AttributeReadIssue[] = []
+    const model = await readModelDirectory(tmpDir, issues)
+    expect(issues).toHaveLength(1)
+    expect(issues[0]!.preserve).toBe(false)
+
+    await writeModelDirectory(tmpDir, model, {
+      protectedAttributeFiles: protectedAttributeFiles(issues),
+    })
+
+    expect(await fs.readdir(path.join(tmpDir, 'attributes', 'components'))).toEqual([])
+  })
+
+  it('preserves an unreadable file and a context-less flat file alike', async () => {
+    await baseFiles([{ id: 'c-db', name: 'DB' }])
+    await writeAttr('c-db.json', BROKEN)
+    await writeAttr('flat.json', JSON.stringify({ componentId: 'c-db', ssl_enabled: true }))
+
+    const issues: AttributeReadIssue[] = []
+    await readAttributes(tmpDir, undefined, issues) // no context: flat is unresolvable
+    expect(issues.every(i => i.preserve)).toBe(true)
+    expect([...protectedAttributeFiles(issues)].sort()).toEqual([
+      'attributes/components/c-db.json',
+      'attributes/components/flat.json',
+    ])
   })
 })

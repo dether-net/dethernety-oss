@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ToolContext } from '../base-tool.js'
 
-const { mockGetCountermeasure, mockUpdateCountermeasure } = vi.hoisted(() => ({
+const { mockGetCountermeasure, mockUpdateCountermeasure, mockDeleteCountermeasure } = vi.hoisted(() => ({
   mockGetCountermeasure: vi.fn(),
   mockUpdateCountermeasure: vi.fn(),
+  mockDeleteCountermeasure: vi.fn(),
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
@@ -14,6 +15,7 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       constructor(_apolloClient: unknown) {}
       getCountermeasure = mockGetCountermeasure
       updateCountermeasure = mockUpdateCountermeasure
+      deleteCountermeasure = mockDeleteCountermeasure
     },
   }
 })
@@ -181,5 +183,56 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
     expect(result.success).toBe(false)
     expect(result.error).toContain('not found')
     expect(mockUpdateCountermeasure).not.toHaveBeenCalled()
+  })
+})
+
+describe('ManageCountermeasuresTool — delete reports the outcome it actually got', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+
+  beforeEach(() => {
+    mockGetCountermeasure.mockReset()
+    mockDeleteCountermeasure.mockReset()
+  })
+
+  it('refuses to report success when the delete comes back false', () => {
+    // The controls tool already refuses this; the countermeasures tool returned
+    // `success: true, deleted: false` — an outcome the caller reads as done.
+    mockGetCountermeasure.mockResolvedValue({ id: 'cm-1', name: 'TLS 1.3' })
+    mockDeleteCountermeasure.mockResolvedValue(false)
+
+    return manageCountermeasuresTool
+      .run({ action: 'delete', countermeasure_id: 'cm-1' }, context)
+      .then((res) => {
+        expect(res.success).toBe(false)
+        expect(res.error).toMatch(/not confirmed/i)
+        expect((res.data as { deleted: boolean }).deleted).toBe(false)
+      })
+  })
+
+  it('reports success and forwards the pre-delete name when the delete works', async () => {
+    // The name drives dt-core's supersede companion; it must be the pre-delete
+    // value, which is exactly what the existence check holds.
+    mockGetCountermeasure.mockResolvedValue({ id: 'cm-1', name: 'TLS 1.3' })
+    mockDeleteCountermeasure.mockResolvedValue(true)
+
+    const res = await manageCountermeasuresTool.run(
+      { action: 'delete', countermeasure_id: 'cm-1' }, context)
+
+    expect(res.success).toBe(true)
+    expect(mockDeleteCountermeasure).toHaveBeenCalledWith({
+      countermeasureId: 'cm-1',
+      countermeasureName: 'TLS 1.3',
+    })
+  })
+
+  it('does not attempt the delete when the countermeasure is not there', async () => {
+    mockGetCountermeasure.mockResolvedValue(null)
+
+    const res = await manageCountermeasuresTool.run(
+      { action: 'delete', countermeasure_id: 'cm-gone' }, context)
+
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/not found/i)
+    expect(mockDeleteCountermeasure).not.toHaveBeenCalled()
   })
 })
