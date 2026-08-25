@@ -22,6 +22,11 @@
     modelId: string
   }
   const props = defineProps<Props>()
+  // Announced when the user leaves for an analysis's results. A host that floats
+  // this list over the results page (ModelAnalysisDialog) has to dismiss itself —
+  // the route watcher there cannot stand in, because re-selecting the analysis
+  // already on screen pushes an identical query and never fires.
+  const emit = defineEmits(['results:opened'])
   const showDeleteAnalysisDialog = ref<boolean>(false)
   const showAnalysisFlowDialog = ref<boolean>(false)
   const analysisIdToDelete = ref<string | undefined>(undefined)
@@ -52,7 +57,6 @@
     { title: 'Status', key: 'status' },
     { title: '', key: 'actions' },
   ]
-  const groupBy = [{ key: 'analysisClass.name', order: 'asc' as const }]
 
   const analysisClasses = computed(() => analysisStore.analysisClasses)
 
@@ -61,66 +65,6 @@
   const isInitialLoading = computed(
     () => analysisStore.loadingStates.fetchingAnalyses && analysisStore.analyses.length === 0,
   )
-
-  // --- Group open/closed state -------------------------------------------------
-  // Vuetify's data-table has no controlled API for group expansion, so we keep
-  // our own source of truth (`openGroups`) and reconcile each group header to it
-  // on mount (headers re-mount on every 5s poll) and whenever it changes.
-  // Typed loosely — Vuetify's Group<any> type isn't part of the public exports.
-  const openGroups = ref<Set<string>>(new Set())
-  const groupKey = (item: any): string => String(item?.value ?? '')
-  const groupNames = computed(() => {
-    const names = new Set<string>()
-    for (const a of analysisStore.analyses) {
-      const name = a.analysisClass?.name
-      if (name) names.add(name)
-    }
-    return names
-  })
-
-  // Live handles to each mounted group header, so we can reconcile them all when
-  // `openGroups` changes programmatically (initial rule / on create).
-  const groupControls = new Map<string, { item: any, toggle: (i: any) => void, isOpen: (i: any) => boolean }>()
-  const applyGroupState = (item: any, toggle: (i: any) => void, isOpen: (i: any) => boolean) => {
-    if (openGroups.value.has(groupKey(item)) !== isOpen(item)) toggle(item)
-  }
-  const reconcileGroup = (item: any, toggle: (i: any) => void, isOpen: (i: any) => boolean) => {
-    groupControls.set(groupKey(item), { item, toggle, isOpen })
-    applyGroupState(item, toggle, isOpen)
-  }
-  const reconcileAllGroups = () => {
-    for (const [key, ctl] of groupControls) {
-      // Drop handles for groups that no longer exist (last row deleted / class
-      // renamed) so the map can't accumulate stale entries over the session.
-      if (!groupNames.value.has(key)) {
-        groupControls.delete(key)
-        continue
-      }
-      applyGroupState(ctl.item, ctl.toggle, ctl.isOpen)
-    }
-  }
-
-  // User clicked the chevron — keep our source of truth in sync, then toggle.
-  const onToggleGroup = (item: any, toggle: (i: any) => void) => {
-    const key = groupKey(item)
-    const next = new Set(openGroups.value)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    openGroups.value = next
-    toggle(item)
-  }
-
-  // Initial rule (applied once, when analyses first load): a lone group opens; two
-  // or more stay collapsed so the dialog doesn't open as a wall of groups.
-  let groupsInitialised = false
-  watch(groupNames, names => {
-    if (groupsInitialised || names.size === 0) return
-    groupsInitialised = true
-    openGroups.value = names.size === 1 ? new Set(names) : new Set()
-  }, { immediate: true })
-
-  // Reconcile mounted headers after any programmatic change to the open set.
-  watch(openGroups, () => reconcileAllGroups(), { flush: 'post' })
 
   // Track which item is being edited
   const editingNameItem = ref<string | null>(null)
@@ -178,13 +122,6 @@
       category: analysisClass?.category || '',
       elementId: props.modelId,
       analysisClassId,
-    }).then(response => {
-      if (response) {
-        startEditingName(response)
-        // Focus the new analysis: open its group, collapse the rest, so the
-        // freshly-created row is never hidden inside a closed group.
-        if (analysisClass?.name) openGroups.value = new Set([analysisClass.name])
-      }
     })
   }
 
@@ -271,6 +208,7 @@
   const openResults = (id: string | undefined) => {
     if (!id) return
     router.push({ path: '/analysisresults', query: { id } })
+    emit('results:opened')
   }
 
   const openAnalysisFlow = (id: string | undefined) => {
@@ -296,7 +234,6 @@
           <v-sheet class="pa-2 opacity-90 border-thin rounded-lg elevation-11 mb-4">
             <v-data-table
               v-model:expanded="expanded"
-              :group-by="groupBy"
               :headers="headers"
               item-value="id"
               :items="analysisStore.analyses"
@@ -334,25 +271,6 @@
                   </v-list>
                 </v-menu>
               </template>
-              <template #group-header="{ item, columns, toggleGroup, isGroupOpen }">
-                <tr>
-                  <td :colspan="columns.length">
-                    <div class="d-flex align-center">
-                      <v-btn
-                        color="medium-emphasis"
-                        density="comfortable"
-                        :icon="isGroupOpen(item) ? '$expand' : '$next'"
-                        size="small"
-                        variant="outlined"
-                        @click="onToggleGroup(item, toggleGroup)"
-                        @vue:mounted="reconcileGroup(item, toggleGroup, isGroupOpen)"
-                      />
-                      <span class="ms-4">Analyzed by '{{ item.value }}'</span>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-
               <template #item.name="{ item }">
                 <div @click.stop="startEditingName(item)">
                   <v-text-field

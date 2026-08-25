@@ -54,6 +54,14 @@
   const controls = ref<Control[]>([])
   const modelName = ref<string>('')
 
+  // Model names are rendered in fixed-width furniture — the 220px browser tiles
+  // and the canvas overlay beside the toggle stack — so an unbounded name
+  // degrades layout rather than merely reading long. Enforced in the UI only for
+  // now; the platform accepts longer, and names predating this cap (or written
+  // through any non-UI path) still render, which is why the canvas title
+  // truncates on top of this rather than trusting it.
+  const MODEL_NAME_MAX_LENGTH = 80
+
   // Model-level compliance drivers (e.g. PCI-DSS, SOC2). Free-text [String!] on the
   // platform; seeded on load and round-tripped on save. The other four scope fields
   // (depth, modelingIntent, exclusions, trustAssumptions) are not edited here but must
@@ -301,7 +309,12 @@
                     <v-container>
                       <v-row>
                         <v-col cols="12">
-                          <v-text-field v-model="newName" label="Name" />
+                          <v-text-field
+                            v-model="newName"
+                            counter
+                            label="Name"
+                            :maxlength="MODEL_NAME_MAX_LENGTH"
+                          />
                         </v-col>
                       </v-row>
                       <v-row>

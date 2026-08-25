@@ -4,6 +4,7 @@
   import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
   // import { reportComponents } from '@/components/analysisComponents'
   import { componentRegistry } from '@/services/ComponentRegistry'
+  import ModelAnalysisDialog from '@/components/Dialogs/Analysis/ModelAnalysisDialog.vue'
 
 
   interface SnackBar {
@@ -118,6 +119,8 @@
     router.push({ path: '/issues' })
   }
 
+  const showAnalysisDialog = ref(false)
+
 </script>
 
 <template>
@@ -130,13 +133,28 @@
         :title="'Analysis Results: ' + analysisName + ' - ' + analysisElementName"
       >
         <v-spacer />
+        <!-- Outlined rather than plain: these read as toolbar decoration at
+             `variant="plain"`, so the thin border is what marks them actionable. -->
         <v-btn
+          aria-label="Open model"
           class="ma-2"
           color="tertiary"
           icon="mdi-vector-polyline"
           size="large"
-          variant="plain"
+          title="Open model"
+          variant="outlined"
           @click="openModel"
+        />
+        <v-btn
+          aria-label="Open analyses"
+          class="ma-2"
+          color="tertiary"
+          :disabled="!analysisStore.currentAnalysis?.element?.id"
+          icon="mdi-creation"
+          size="large"
+          title="Analyses"
+          variant="outlined"
+          @click="showAnalysisDialog = true"
         />
       </v-toolbar>
       <div class="analysis-content">
@@ -152,6 +170,14 @@
       </div>
     </v-card>
   </div>
+
+  <ModelAnalysisDialog
+    v-if="showAnalysisDialog && analysisStore.currentAnalysis?.element?.id"
+    :model-id="analysisStore.currentAnalysis?.element?.id ?? ''"
+    :model-name="analysisElementName"
+    :show="showAnalysisDialog"
+    @analysis:closed="showAnalysisDialog = false"
+  />
 
   <v-snackbar v-model="snackBar.show" :color="snackBar.color" timeout="5000" top>
     {{ snackBar.message }}

@@ -28,7 +28,11 @@
   }>()
 
   const store = useClassSuggestionsStore()
-  const { recent } = useRecentClasses(toRef(props, 'modelId'), toRef(props, 'classLabel'))
+  const { recent } = useRecentClasses(
+    toRef(props, 'modelId'),
+    toRef(props, 'classLabel'),
+    toRef(props, 'componentType'),
+  )
 
   const FOOTER_SENTINEL = Symbol('browse-all-footer')
   type FocusableItem = ClassCandidate | ClassRecord | typeof FOOTER_SENTINEL

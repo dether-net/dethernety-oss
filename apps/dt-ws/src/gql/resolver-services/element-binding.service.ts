@@ -355,6 +355,34 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
           );
           return failure(elementId, target, 'VALIDATION_ERROR', msg);
         }
+        // Wrong-component-type refusal. A ComponentClass is bound to exactly one
+        // ComponentType, so a STORE class on a PROCESS component instantiates
+        // derived exposures and countermeasures that do not describe the element.
+        // Unlike the wrong-label case above this does NOT fail the rewire's final
+        // MATCH — the bind succeeds and the model is silently wrong — so it has to
+        // be refused here, before the destructive sweep runs.
+        // Both properties are `ComponentType!` in the schema; the null guards are
+        // for pre-schema rows, which are left alone rather than blocked.
+        if (
+          elementType === 'Component' &&
+          preflight.elementComponentType &&
+          status.componentType &&
+          status.componentType !== preflight.elementComponentType
+        ) {
+          const msg =
+            `Class ${classId} is a ${status.componentType} class — ` +
+            `component type ${preflight.elementComponentType} cannot bind to it`;
+          this.logFailure(
+            operationId,
+            actor,
+            elementId,
+            target,
+            msg,
+            'VALIDATION_ERROR',
+            startedAt,
+          );
+          return failure(elementId, target, 'VALIDATION_ERROR', msg);
+        }
         if (!status.moduleName) {
           const msg = `Class ${classId} is orphaned (HAS_ORPHANED_CLASS)`;
           this.logFailure(
@@ -706,6 +734,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     elementId: string,
   ): Promise<{
     elementType: string;
+    elementComponentType: string | null;
     currentClassIds: string[];
     currentModelId: string | null;
   } | null> {
@@ -718,6 +747,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
         OPTIONAL MATCH (c)-[:REPRESENTS_MODEL]->(m:Model)
         RETURN
           labels(c) AS labels,
+          c.type AS elementComponentType,
           collect(DISTINCT klass.id) AS currentClassIds,
           m.id AS currentModelId
         `,
@@ -728,9 +758,11 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       const labels = (rec.get('labels') as string[]) ?? [];
       const elementType = labels.find((l) => ELEMENT_TYPE_KEYS.has(l));
       if (!elementType) return null;
+      const elementComponentType =
+        (rec.get('elementComponentType') as string | null) ?? null;
       const currentClassIds = (rec.get('currentClassIds') as string[]) ?? [];
       const currentModelId = (rec.get('currentModelId') as string | null) ?? null;
-      return { elementType, currentClassIds, currentModelId };
+      return { elementType, elementComponentType, currentClassIds, currentModelId };
     });
   }
 
@@ -776,7 +808,12 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   private async lookupClassStatus(
     session: DatabaseSession,
     classId: string,
-  ): Promise<{ exists: boolean; moduleName: string | null; labels: string[] }> {
+  ): Promise<{
+    exists: boolean;
+    moduleName: string | null;
+    labels: string[];
+    componentType: string | null;
+  }> {
     return session.executeRead(async (tx) => {
       const result = await tx.run(
         `
@@ -784,7 +821,8 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
           WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
         OPTIONAL MATCH (klass)<-[:HAS_CLASS]-(m:Module)
         RETURN klass IS NOT NULL AS exists, m.name AS moduleName,
-               CASE WHEN klass IS NULL THEN [] ELSE labels(klass) END AS klassLabels
+               CASE WHEN klass IS NULL THEN [] ELSE labels(klass) END AS klassLabels,
+               klass.type AS klassComponentType
         `,
         { classId },
       );
@@ -792,7 +830,9 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       const exists = (rec?.get('exists') as boolean) ?? false;
       const moduleName = (rec?.get('moduleName') as string | null) ?? null;
       const labels = (rec?.get('klassLabels') as string[]) ?? [];
-      return { exists, moduleName, labels };
+      const componentType =
+        (rec?.get('klassComponentType') as string | null) ?? null;
+      return { exists, moduleName, labels, componentType };
     });
   }
 

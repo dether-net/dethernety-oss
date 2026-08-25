@@ -4,6 +4,9 @@ import { ElementBindingService } from '../element-binding.service';
  * Unit pins for ElementBindingService's class-scope guards:
  *   - wrong-kind rebind is refused BEFORE anything destructive (no module
  *     call, no write transaction) and surfaces as VALIDATION_ERROR;
+ *   - likewise a ComponentClass whose ComponentType contradicts the element's
+ *     (STORE class onto a PROCESS component) — right label, wrong type, which
+ *     the rewire itself would happily bind;
  *   - a correct-kind rebind still succeeds through the same path;
  *   - the rewire row-count guards turn a zero-row final MATCH (single-class
  *     and Controls N-N) into a thrown-and-rolled-back DATABASE_ERROR instead
@@ -21,12 +24,20 @@ const rec = (row: Row) => ({ get: (k: string) => row[k] });
 interface FixtureOptions {
   // Element labels returned by the preflight read.
   elementLabels: string[];
+  // The element's own ComponentType (`c.type`), when it is a Component.
+  elementComponentType?: string | null;
   // Current IS_INSTANCE_OF class ids (preflight + in-tx read).
   currentClassIds: string[];
   // Per-classId answer for lookupClassStatus.
   classStatus: Record<
     string,
-    { exists: boolean; moduleName: string | null; labels: string[] }
+    {
+      exists: boolean;
+      moduleName: string | null;
+      labels: string[];
+      // The class's own ComponentType (`klass.type`), for ComponentClass rows.
+      componentType?: string | null;
+    }
   >;
   // `bound` answered by the single-class rewire statement.
   singleRewireBound?: number;
@@ -50,6 +61,7 @@ function makeFixture(opts: FixtureOptions) {
               exists: status.exists,
               moduleName: status.moduleName,
               klassLabels: status.labels,
+              klassComponentType: status.componentType ?? null,
             }),
           ],
         };
@@ -59,6 +71,7 @@ function makeFixture(opts: FixtureOptions) {
           records: [
             rec({
               labels: opts.elementLabels,
+              elementComponentType: opts.elementComponentType ?? null,
               currentClassIds: opts.currentClassIds,
               currentModelId: null,
             }),
@@ -160,6 +173,88 @@ describe('ElementBindingService — class-scope guards', () => {
     // and BEFORE the destructive write transaction.
     expect(getModuleByName).not.toHaveBeenCalled();
     expect(executeWrite).not.toHaveBeenCalled();
+  });
+
+  it('refuses a ComponentClass whose type contradicts the component (VALIDATION_ERROR)', async () => {
+    const { service, executeWrite, getModuleByName } = makeFixture({
+      elementLabels: ['Component'],
+      elementComponentType: 'PROCESS',
+      currentClassIds: ['cls-old'],
+      classStatus: {
+        'cls-store': {
+          exists: true,
+          moduleName: 'mod-1',
+          labels: ['ComponentClass'],
+          componentType: 'STORE',
+        },
+      },
+    });
+
+    const result = await service.changeElementBinding(
+      { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-store'] } },
+      CTX,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('VALIDATION_ERROR');
+    expect(result.errorMessage).toContain('is a STORE class');
+    expect(result.errorMessage).toContain('PROCESS');
+    // Same discipline as the wrong-label guard: refused before the module SDK
+    // and before the destructive write transaction.
+    expect(getModuleByName).not.toHaveBeenCalled();
+    expect(executeWrite).not.toHaveBeenCalled();
+  });
+
+  it('allows a ComponentClass whose type matches the component', async () => {
+    const { service, executeWrite } = makeFixture({
+      elementLabels: ['Component'],
+      elementComponentType: 'PROCESS',
+      currentClassIds: ['cls-old'],
+      classStatus: {
+        'cls-proc': {
+          exists: true,
+          moduleName: 'mod-1',
+          labels: ['ComponentClass'],
+          componentType: 'PROCESS',
+        },
+      },
+      singleRewireBound: 1,
+    });
+
+    const result = await service.changeElementBinding(
+      { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-proc'] } },
+      CTX,
+    );
+
+    expect(result.success).toBe(true);
+    expect(executeWrite).toHaveBeenCalled();
+  });
+
+  it('leaves pre-schema rows alone when either component type is absent', async () => {
+    // `type` is non-null in the schema, so a missing value means legacy data —
+    // refuse to block a rebind on an absence we cannot interpret.
+    const { service, executeWrite } = makeFixture({
+      elementLabels: ['Component'],
+      elementComponentType: null,
+      currentClassIds: ['cls-old'],
+      classStatus: {
+        'cls-store': {
+          exists: true,
+          moduleName: 'mod-1',
+          labels: ['ComponentClass'],
+          componentType: 'STORE',
+        },
+      },
+      singleRewireBound: 1,
+    });
+
+    const result = await service.changeElementBinding(
+      { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-store'] } },
+      CTX,
+    );
+
+    expect(result.success).toBe(true);
+    expect(executeWrite).toHaveBeenCalled();
   });
 
   it('correct-kind rebind still succeeds through the guarded path', async () => {
