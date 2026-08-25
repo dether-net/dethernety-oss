@@ -44,14 +44,14 @@ describe('useRecentClasses — initial state', () => {
   })
 
   it('reads existing records from localStorage on first paint', async () => {
-    storage.set('recentClasses:u1:model-1:COMPONENT', JSON.stringify([sample]))
+    storage.set('recentClasses:u1:model-1:COMPONENT:_', JSON.stringify([sample]))
     const { recent } = useRecentClasses(ref('model-1'), ref('COMPONENT'))
     await nextTick()
     expect(recent.value).toEqual([sample])
   })
 
   it('treats malformed JSON as empty', async () => {
-    storage.set('recentClasses:u1:model-1:COMPONENT', 'not-json-{')
+    storage.set('recentClasses:u1:model-1:COMPONENT:_', 'not-json-{')
     const { recent } = useRecentClasses(ref('model-1'), ref('COMPONENT'))
     await nextTick()
     expect(recent.value).toEqual([])
@@ -80,7 +80,7 @@ describe('useRecentClasses.push', () => {
     await nextTick()
     push(sample)
     expect(setItem).toHaveBeenCalledWith(
-      'recentClasses:u1:model-1:COMPONENT',
+      'recentClasses:u1:model-1:COMPONENT:_',
       JSON.stringify([sample]),
     )
   })
@@ -88,13 +88,13 @@ describe('useRecentClasses.push', () => {
 
 describe('useRecentClasses.clear', () => {
   it('removes the storage entry and empties recent', async () => {
-    storage.set('recentClasses:u1:model-1:COMPONENT', JSON.stringify([sample]))
+    storage.set('recentClasses:u1:model-1:COMPONENT:_', JSON.stringify([sample]))
     const { recent, clear } = useRecentClasses(ref('model-1'), ref('COMPONENT'))
     await nextTick()
     expect(recent.value).toEqual([sample])
     clear()
     expect(recent.value).toEqual([])
-    expect(removeItem).toHaveBeenCalledWith('recentClasses:u1:model-1:COMPONENT')
+    expect(removeItem).toHaveBeenCalledWith('recentClasses:u1:model-1:COMPONENT:_')
   })
 })
 
@@ -113,7 +113,7 @@ describe('useRecentClasses — defer-until-defined guard', () => {
   })
 
   it('starts reading once modelId becomes defined', async () => {
-    storage.set('recentClasses:u1:model-2:COMPONENT', JSON.stringify([sample]))
+    storage.set('recentClasses:u1:model-2:COMPONENT:_', JSON.stringify([sample]))
     const modelId = ref<string | undefined>(undefined)
     const { recent } = useRecentClasses(modelId, ref('COMPONENT'))
     await nextTick()
@@ -132,8 +132,57 @@ describe('useRecentClasses — userId fallback', () => {
     await nextTick()
     push(sample)
     expect(setItem).toHaveBeenCalledWith(
-      'recentClasses:anonymous:model-1:COMPONENT',
+      'recentClasses:anonymous:model-1:COMPONENT:_',
       expect.any(String),
     )
+  })
+})
+
+describe('useRecentClasses — componentType bucketing', () => {
+  it('keeps PROCESS and STORE recents in separate buckets', () => {
+    const processPick: ClassRecord = { classId: 'c-proc', className: 'API Service' }
+    storage.set('recentClasses:u1:model-1:COMPONENT:PROCESS', JSON.stringify([processPick]))
+
+    const { recent: asProcess } = useRecentClasses(ref('model-1'), ref('COMPONENT'), ref('PROCESS'))
+    expect(asProcess.value).toEqual([processPick])
+
+    // A STORE element must not be offered the PROCESS pick — its own bucket is empty.
+    const { recent: asStore } = useRecentClasses(ref('model-1'), ref('COMPONENT'), ref('STORE'))
+    expect(asStore.value).toEqual([])
+  })
+
+  it('writes into the bucket for the element type in play', () => {
+    const { push } = useRecentClasses(ref('model-1'), ref('COMPONENT'), ref('EXTERNAL_ENTITY'))
+    push({ classId: 'c-ext', className: 'Third-party API' })
+
+    expect(setItem).toHaveBeenCalledWith(
+      'recentClasses:u1:model-1:COMPONENT:EXTERNAL_ENTITY',
+      expect.any(String),
+    )
+  })
+
+  it('falls back to the type-less bucket for labels that have no component type', () => {
+    const { push } = useRecentClasses(ref('model-1'), ref('SECURITY_BOUNDARY'))
+    push({ classId: 'c-b', className: 'DMZ' })
+
+    expect(setItem).toHaveBeenCalledWith(
+      'recentClasses:u1:model-1:SECURITY_BOUNDARY:_',
+      expect.any(String),
+    )
+  })
+
+  it('re-reads when the element type changes under the same model', async () => {
+    const type = ref<string>('PROCESS')
+    storage.set('recentClasses:u1:model-1:COMPONENT:PROCESS', JSON.stringify([{ classId: 'p', className: 'P' }]))
+    storage.set('recentClasses:u1:model-1:COMPONENT:STORE', JSON.stringify([{ classId: 's', className: 'S' }]))
+
+    const { recent } = useRecentClasses(ref('model-1'), ref('COMPONENT'), type)
+    await nextTick()
+    expect(recent.value.map(r => r.classId)).toEqual(['p'])
+
+    // Selecting a different element in the settings panel swaps the type in place.
+    type.value = 'STORE'
+    await nextTick()
+    expect(recent.value.map(r => r.classId)).toEqual(['s'])
   })
 })

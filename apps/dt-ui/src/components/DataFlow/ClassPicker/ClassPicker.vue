@@ -54,7 +54,11 @@
   }>()
 
   const store = useClassSuggestionsStore()
-  const { push } = useRecentClasses(toRef(props, 'modelId'), toRef(props, 'classLabel'))
+  const { push } = useRecentClasses(
+    toRef(props, 'modelId'),
+    toRef(props, 'classLabel'),
+    toRef(props, 'componentType'),
+  )
 
   const sheetOpen = ref(false)
   const inlineSearchAtOpen = ref('')

@@ -60,6 +60,7 @@ declare module 'vue' {
     IssueDialog: typeof import('./components/Dialogs/Issues/IssueDialog.vue')['default']
     IssueSelector: typeof import('./components/Dialogs/General/IssueSelector.vue')['default']
     LifecycleBadge: typeof import('./components/Disposition/LifecycleBadge.vue')['default']
+    ModelAnalysisDialog: typeof import('./components/Dialogs/Analysis/ModelAnalysisDialog.vue')['default']
     ModelDialog: typeof import('./components/Dialogs/Model/ModelDialog.vue')['default']
     ModelPreview: typeof import('./components/DataFlow/ClassPicker/ModelPreview.vue')['default']
     ModuleCard: typeof import('./components/Dialogs/Module/ModuleCard.vue')['default']

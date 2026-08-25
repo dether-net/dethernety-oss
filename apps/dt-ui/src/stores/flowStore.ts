@@ -59,6 +59,11 @@ export const useFlowStore = defineStore('flow', () => {
 
   // === UI PREFERENCES ===
   const editMode = ref(false)
+  // Set once per load: did THIS model open with no elements? A pristine canvas
+  // gets a different starting posture (unlocked, palette open) from a populated
+  // one. Deliberately a load-time fact, not a computed over `nodes` — adding the
+  // first element must not undo that posture.
+  const openedEmpty = ref(false)
 
   // === ERROR AND LOADING STATES ===
   const errors = ref<Record<string, string>>({})
@@ -310,6 +315,7 @@ export const useFlowStore = defineStore('flow', () => {
 
     // Reset UI preferences
     editMode.value = false
+    openedEmpty.value = false
   }
 
   const setModelId = ({ newModelId }: { newModelId: string }) => { modelId.value = newModelId }
@@ -1323,6 +1329,14 @@ export const useFlowStore = defineStore('flow', () => {
         ...results.components.map((n: Node) => ({ ...n, class: crownJewelClass(n.data) })),
         ...results.boundaries,
       ]
+      // `components`/`boundaries` are descendants of the root boundary, so a
+      // pristine model is genuinely length 0 — the default boundary is carried
+      // separately and must not count as an element.
+      openedEmpty.value = nodes.value.length === 0
+      // An empty canvas has nothing to protect, and the only thing to do with one
+      // is add to it — so open it unlocked rather than making the user find the
+      // lock first. Every caller resets editMode to false beforehand (resetStore).
+      if (openedEmpty.value) editMode.value = true
       await nextTick()
       edges.value = results.dataFlows
       await nextTick()
@@ -1343,7 +1357,7 @@ export const useFlowStore = defineStore('flow', () => {
     controls, dataItems, modules, mitreAttackTactics,
 
     // UI preferences
-    editMode,
+    editMode, openedEmpty,
 
     // Error and loading states
     errors, isLoading, operationStates,

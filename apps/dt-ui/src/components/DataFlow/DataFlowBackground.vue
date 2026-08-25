@@ -78,6 +78,17 @@
     modelName.value = newVal
   })
 
+  // Palette starts expanded for a model that opened with no elements — there is
+  // nothing on the canvas to inspect, so the only useful next action is to drag
+  // something in. Keyed to the store's load-time fact rather than to `nodes`, so
+  // dropping that first element does not collapse the palette under the cursor,
+  // and a user who closes it stays closed. Re-evaluated on model switch, where
+  // resetStore flips the fact back to false before the next load decides again.
+  const palettePanel = ref<number | null>(null)
+  watch(() => flowStore.openedEmpty, isEmpty => {
+    palettePanel.value = isEmpty ? 0 : null
+  }, { immediate: true })
+
   </script>
 
 <template>
@@ -92,6 +103,7 @@
     />
     <v-container class="sidebar-container">
       <v-expansion-panels
+        v-model="palettePanel"
         variant="popout"
       >
         <v-expansion-panel
@@ -167,7 +179,6 @@
     <div
       v-if="modelName"
       class="pa-1 px-6 model-name-container border-md rounded-lg border-opacity-25 elevation-5"
-      @click="editModel"
     >
       <v-icon
         color="tertiary"
@@ -176,10 +187,30 @@
         variant="outlined"
       />
       <span
-        class="model-name text-h6 font-italic pa-2 pr-4"
+        class="model-name text-h6 font-italic py-0 pl-2 pr-4"
+        :title="modelName ?? ''"
       >
         {{ modelName }}
       </span>
+    </div>
+
+    <div
+      v-if="props.modelId"
+      class="model-dialog-toggle pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+      role="button"
+      tabindex="0"
+      aria-label="Open model settings"
+      title="Model settings"
+      @click="editModel"
+      @keydown.enter.prevent="editModel"
+      @keydown.space.prevent="editModel"
+    >
+      <v-icon
+        color="tertiary"
+        icon="mdi-receipt-text-edit-outline"
+        size="large"
+        variant="outlined"
+      />
     </div>
 
     <div
@@ -256,10 +287,16 @@
   left: 80px;
   z-index: 1000;
   font-family: 'JetBrains Mono', monospace !important;
-  cursor: pointer;
+  /* The box is fixed-position with no intrinsic width, so without a cap a long
+     name grows to the viewport edge and then wraps down onto the toggle stack
+     below it. Bound the width and ellipsise instead; the full name stays
+     reachable via the title tooltip. */
+  display: flex;
+  align-items: center;
+  max-width: 480px;
 }
 
-.edit-mode-toggle {
+.model-dialog-toggle {
   position: fixed;
   top: 120px;
   left: 80px;
@@ -269,7 +306,7 @@
   opacity: 0.9;
 }
 
-.zoning-overview-toggle {
+.edit-mode-toggle {
   position: fixed;
   top: 175px;
   left: 80px;
@@ -279,8 +316,22 @@
   opacity: 0.9;
 }
 
+.zoning-overview-toggle {
+  position: fixed;
+  top: 230px;
+  left: 80px;
+  z-index: 1000;
+  cursor: pointer;
+  background-color: rgb(var(--v-theme-surface));
+  opacity: 0.9;
+}
+
 .model-name {
   font-family: 'JetBrains Mono', monospace !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .vignette-overlay {

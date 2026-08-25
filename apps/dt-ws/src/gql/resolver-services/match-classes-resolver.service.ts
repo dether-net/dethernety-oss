@@ -194,12 +194,20 @@ export class MatchClassesResolverService {
   /**
    * Priority 2: Substring containment (case-insensitive).
    * Skips very short element names (< 3 chars) to avoid false positives.
-   * No componentType filter — the broader candidate set is intentional.
+   * Filtered by componentType when classLabel = COMPONENT, like the other three
+   * tiers. This tier used to widen the net deliberately, on the reasoning that a
+   * broader candidate set helps when the type is uncertain — but a
+   * ComponentClass carries exactly one ComponentType, and changeElementBinding
+   * now refuses a cross-type bind outright. Offering a candidate the user cannot
+   * accept is a dead end, not a wider net; the tier's `continue` in the pipeline
+   * also means an unfiltered substring hit SUPPRESSES the type-filtered Priority
+   * 4 fallback that would have answered correctly.
    * Returns matches sorted by overlap ratio descending.
    */
   private substringMatch(
     elementName: string,
     classes: ClassRecord[],
+    componentType?: string,
   ): { record: ClassRecord; score: number }[] {
     if (elementName.length < MIN_SUBSTRING_LENGTH) return [];
 
@@ -207,6 +215,7 @@ export class MatchClassesResolverService {
     const matches: { record: ClassRecord; score: number }[] = [];
 
     for (const cls of classes) {
+      if (componentType && cls.type !== componentType) continue;
       const clsLower = cls.className.toLowerCase();
       if (clsLower.includes(elLower) || elLower.includes(clsLower)) {
         const overlapLen = Math.min(elLower.length, clsLower.length);
@@ -534,7 +543,11 @@ export class MatchClassesResolverService {
       }
 
       // Priority 2: Substring match
-      const substringHits = this.substringMatch(element.name, allClasses);
+      const substringHits = this.substringMatch(
+        element.name,
+        allClasses,
+        input.componentType,
+      );
       if (substringHits.length > 0) {
         for (const { record, score } of substringHits.slice(0, topN)) {
           candidates.push(

@@ -497,9 +497,25 @@
                   @contextmenu.prevent="selectedModelId = model.id; showModelDialog = true"
                 >
                   <v-card-title class="ma-0 pa-0">
-                    <v-sheet class="pa-1 ma-0 text-body-1" color="primary" density="compact" variant="plain">
-                      <v-icon color="tertiary" size="small">mdi-vector-polyline</v-icon>
-                      <span class="ml-2 text-body-1">Model</span>
+                    <v-sheet class="pa-1 ma-0 text-body-1 d-flex flex-row align-center justify-space-between" color="primary" density="compact" variant="plain">
+                      <div class="d-flex align-center">
+                        <v-icon color="tertiary" size="small">mdi-vector-polyline</v-icon>
+                        <span class="ml-2 text-body-1">Model</span>
+                      </div>
+                      <!-- Same dialog the card's right-click opens; .stop keeps the
+                           card's own click from navigating to the canvas instead. -->
+                      <v-icon
+                        aria-label="Open model settings"
+                        class="tile-action-icon"
+                        color="tertiary"
+                        role="button"
+                        size="small"
+                        tabindex="0"
+                        title="Model settings"
+                        @click.stop="selectedModelId = model.id; showModelDialog = true"
+                        @keydown.enter.stop.prevent="selectedModelId = model.id; showModelDialog = true"
+                        @keydown.space.stop.prevent="selectedModelId = model.id; showModelDialog = true"
+                      >mdi-receipt-text-edit-outline</v-icon>
                     </v-sheet>
                   </v-card-title>
                   <v-card-text class="pa-2 ma-0">
@@ -711,6 +727,18 @@
 .folder-card-skeleton :deep(.v-skeleton-loader__image),
 .context-card-skeleton :deep(.v-skeleton-loader__image) {
   height: 100%;
+}
+
+/* Tile title-bar action: sits inline with the tile's own icon and label, so it
+   keeps the small icon size rather than becoming a button that grows the bar. */
+.tile-action-icon {
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.tile-action-icon:hover,
+.tile-action-icon:focus-visible {
+  opacity: 1;
 }
 
 /* Dashed outline distinguishes the empty-state create affordance from real cards. */
