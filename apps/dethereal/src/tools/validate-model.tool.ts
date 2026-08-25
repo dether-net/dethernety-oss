@@ -875,12 +875,14 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         let inferred_coverage: InferredCategoryBreakdown | undefined
         let formal_coverage: FormalTierBreakdown | undefined
         let source_breakdown: SourceBreakdown | undefined
+        let readWarnings: string[] = []
         if (input.directory_path && await pathExists(input.directory_path) && await isModelDirectory(input.directory_path)) {
           await validatePathConfinement(input.directory_path)
           const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
           inferred_coverage = localData.inferred_coverage
           formal_coverage = localData.formal_coverage
           source_breakdown = localData.source_breakdown
+          readWarnings = this.coverageReadWarnings(localData.attribute_issues)
         }
 
         return {
@@ -901,6 +903,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
             ...(source_breakdown ? { source_breakdown } : {}),
             details: result,
           },
+          ...(readWarnings.length > 0 ? { warnings: readWarnings } : {}),
         }
       } catch (error) {
         return {
@@ -949,6 +952,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           ...(localData.source_breakdown ? { source_breakdown: localData.source_breakdown } : {}),
         },
         warnings: [
+          ...this.coverageReadWarnings(localData.attribute_issues),
           'Offline mode reports ASSIGNMENT coverage (which exposures have a control assigned to their element), NOT mitigation. A control with zero countermeasures still counts as assigned, so do not report this as "exposures mitigated". Use model_id with authentication for authoritative MITRE-chain mitigation coverage.',
         ],
       }
@@ -970,11 +974,18 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     inferred_coverage: InferredCategoryBreakdown
     formal_coverage: FormalTierBreakdown
     source_breakdown: SourceBreakdown | undefined
+    attribute_issues: AttributeReadIssue[]
   }> {
     const structure = await readStructure(dirPath)
     const dataFlows = await readDataFlows(dirPath)
     const dataItems = await readDataItems(dirPath)
-    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+    // An attribute file that cannot be read contributes nothing to coverage,
+    // which is indistinguishable from an element that genuinely has no security
+    // attributes — it drags the percentage down and names no cause. Coverage is
+    // read-only so nothing is destroyed here, but the number is wrong and the
+    // operator has to be told why.
+    const attributeIssues: AttributeReadIssue[] = []
+    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems }, attributeIssues)
 
     const classifiedIds = this.collectClassifiedComponentIds(structure.defaultBoundary, attributes)
     const controlCoverageSet = this.buildControlCoverageSet(structure.defaultBoundary, dataFlows)
@@ -1110,7 +1121,18 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       },
       source_breakdown: source_breakdown.discovered + source_breakdown.declared + source_breakdown.both > 0
         ? source_breakdown : undefined,
+      attribute_issues: attributeIssues,
     }
+  }
+
+  /** Coverage is computed over what could be read; say so when that is not everything. */
+  private coverageReadWarnings(issues: readonly AttributeReadIssue[] | undefined): string[] {
+    // A warning helper is never allowed to be the reason a report fails.
+    return (issues ?? []).map(
+      (i) =>
+        `${i.file} could not be read (${i.reason}). Its security attributes are absent from this ` +
+        `coverage calculation, so the figures below understate coverage by an unknown amount.`,
+    )
   }
 
   /**

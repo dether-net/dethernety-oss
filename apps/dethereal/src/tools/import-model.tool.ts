@@ -31,6 +31,7 @@ import {
   applyIdMapping,
   validatePathConfinement,
 } from '../utils/directory-utils.js'
+import type { AttributeReadIssue } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
 import { writeSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
@@ -105,7 +106,11 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
 
       // Read the split model from directory
       debugLog(config, `Reading model from directory: ${input.directory_path}`)
-      const splitModel = await readModelDirectory(input.directory_path)
+      // Collect read failures — see the same accumulator on the update path.
+      // An attribute file that cannot be read is absent from the bag that gets
+      // imported, and nothing downstream would ever mention it.
+      const readIssues: AttributeReadIssue[] = []
+      const splitModel = await readModelDirectory(input.directory_path, readIssues)
 
       // Attach the local scope (.dethereal/scope.json is not read by readModelDirectory)
       // so it publishes with the model. scope.json is the authoritative on-disk home.
@@ -128,6 +133,12 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
           success: false,
           error: `Import failed: ${result.errors.map((e: { error: string }) => e.error).join(', ')}`
         }
+      }
+
+      for (const issue of readIssues) {
+        result.warnings.push(
+          `${issue.file} could not be read (${issue.reason}) — its attributes were NOT imported.`,
+        )
       }
 
       // Surface crown-jewel marks on non-component elements (local-only; no platform field).

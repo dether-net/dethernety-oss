@@ -1,6 +1,6 @@
 {
   "name": "@dether.net/dethereal",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Dethereal - Claude Code plugin for AI-guided threat modeling with Dethernety",
   "type": "module",
   "main": "dist/index.js",
@@ -29,6 +29,7 @@
     ".mcp.json",
     "settings.json",
     "scripts",
+    "src/utils/source-globs.v1.json",
     "CLAUDE.md"
   ],
   "dependencies": {

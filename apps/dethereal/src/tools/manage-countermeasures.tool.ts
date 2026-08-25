@@ -162,6 +162,19 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
             countermeasureId: input.countermeasure_id!,
             countermeasureName: existing.name,
           })
+          if (!deleted) {
+            // Wording stays non-committal, like manage_controls': dt-core's
+            // deleteCountermeasure ends in `catch { return false }`, so a false
+            // is a refusal, a nullish response, or a transport error that may
+            // have deleted the node before failing — the boolean cannot tell
+            // them apart. What it definitely is not is a confirmed delete, and
+            // reporting success:true with deleted:false said exactly that.
+            return {
+              success: false,
+              error: `Countermeasure ${input.countermeasure_id} delete was not confirmed — it may not have been removed`,
+              data: { countermeasure_id: input.countermeasure_id, deleted: false },
+            }
+          }
           return { success: true, data: { deleted, countermeasure_id: input.countermeasure_id } }
         }
 

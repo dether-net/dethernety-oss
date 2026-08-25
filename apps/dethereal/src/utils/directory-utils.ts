@@ -397,6 +397,82 @@ export async function readDataItems(dirPath: string): Promise<DataItem[]> {
 export interface AttributeReadIssue {
   file: string
   reason: string
+  /**
+   * Whether the file's bytes may hold work that exists nowhere else.
+   *
+   * True for a file that could not be read at all (parse or I/O failure) and
+   * for a flat-format file this caller had no structure context to resolve —
+   * in both cases the content is real enrichment that was never pushed, so
+   * losing the bytes loses the work.
+   *
+   * False for the one case that is known litter rather than lost work: a file
+   * that parsed cleanly but carries no usable element id (`undefined.json`).
+   * `cleanupStaleAttributeFiles` exists in part to remove exactly that, and it
+   * has always done so. Reporting it is the new part; preserving it would leave
+   * the litter on disk indefinitely.
+   */
+  preserve: boolean
+}
+
+/**
+ * The identity an attribute file is known by across a read/write round trip.
+ *
+ * `AttributeReadIssue.file` and the stale-file cleanup's protected set have to
+ * agree exactly or the protection silently does nothing — so neither of them
+ * spells the path itself.
+ */
+export function attributeFileKey(subdir: string, file: string): string {
+  return `${DEFAULT_FILE_NAMES.attributes}/${subdir}/${file}`
+}
+
+/**
+ * The comparison form of an attribute-file key.
+ *
+ * The two sides of the protection are not derived from the same source: the
+ * producer reads a name off `fs.readdir`, while `writeAttributes` composes
+ * `<elementId>.json` from the id the platform returned. On a case-insensitive
+ * filesystem — APFS and NTFS by default, so most operators — an on-disk
+ * `C-DB.json` holding `elementId: "c-db"` is protected under one spelling and
+ * looked up under the other, the lookup misses, and the write truncates the
+ * very file through its case-folded name. The guard silently does nothing,
+ * which is the failure shape it exists to prevent.
+ *
+ * Comparing case-insensitively everywhere costs an over-match on a
+ * case-sensitive filesystem: two files differing only in case would both be
+ * protected, so a genuinely stale one survives. That is the right direction to
+ * be wrong in — over-protection keeps a file and says so, under-protection
+ * destroys one in silence.
+ */
+function attributeFileKeyForCompare(key: string): string {
+  return key.toLowerCase()
+}
+
+/** Ask the protected set about a file, in the one form both sides agree on. */
+function isProtectedAttributeFile(
+  protectedFiles: ReadonlySet<string> | undefined,
+  subdir: string,
+  file: string,
+): boolean {
+  if (!protectedFiles || protectedFiles.size === 0) return false
+  return protectedFiles.has(attributeFileKeyForCompare(attributeFileKey(subdir, file)))
+}
+
+/**
+ * The set of attribute files a write must not touch, built from what a read
+ * reported.
+ *
+ * The invariant every mutation path under `attributes/` honours: **a protected
+ * path is never written over, renamed over, or unlinked.** There are three such
+ * paths — `writeAttributes`, `updateAndRenameAttributes`, and
+ * `cleanupStaleAttributeFiles` — and guarding only one of them leaves the file
+ * just as destroyed by the other two.
+ */
+export function protectedAttributeFiles(
+  issues: readonly AttributeReadIssue[]
+): ReadonlySet<string> {
+  return new Set(
+    issues.filter((i) => i.preserve).map((i) => attributeFileKeyForCompare(i.file)),
+  )
 }
 
 export async function readAttributes(
@@ -452,8 +528,9 @@ export async function readAttributes(
                     `cannot be normalized (no structure context). Skipping.`
                   )
                   issues?.push({
-                    file: `attributes/${subdir}/${file}`,
+                    file: attributeFileKey(subdir, file),
                     reason: 'flat-format file skipped — caller supplied no structure context',
+                    preserve: true,
                   })
                   continue
                 }
@@ -466,6 +543,12 @@ export async function readAttributes(
                 const attrs = rawJson as unknown as ElementAttributes
                 if (!attrs.elementId || attrs.elementId === 'undefined') {
                   console.warn(`[dethereal] Attribute file ${filePath} has invalid elementId: "${attrs.elementId}". Skipping.`)
+                  issues?.push({
+                    file: attributeFileKey(subdir, file),
+                    reason: `structured attribute file carries no usable elementId (saw ${JSON.stringify(attrs.elementId)})`,
+                    // Known litter, not lost work — see AttributeReadIssue.preserve.
+                    preserve: false,
+                  })
                   continue
                 }
                 validateElementId(attrs.elementId)
@@ -474,7 +557,7 @@ export async function readAttributes(
             } catch (parseError) {
               const reason = parseError instanceof Error ? parseError.message : String(parseError)
               console.warn(`[dethereal] Failed to read attribute file ${filePath}: ${reason}`)
-              issues?.push({ file: `attributes/${subdir}/${file}`, reason })
+              issues?.push({ file: attributeFileKey(subdir, file), reason, preserve: true })
             }
           }
         } catch {
@@ -492,13 +575,18 @@ export async function readAttributes(
 /**
  * Read a complete model from a split-file directory
  */
-export async function readModelDirectory(dirPath: string): Promise<SplitModel> {
+export async function readModelDirectory(
+  dirPath: string,
+  issues?: AttributeReadIssue[]
+): Promise<SplitModel> {
   const manifest = await readManifest(dirPath)
   const structure = await readStructure(dirPath)
   const dataFlows = await readDataFlows(dirPath)
   const dataItems = await readDataItems(dirPath)
-  // Pass structure context so flat-format attribute files are normalized
-  const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+  // Pass structure context so flat-format attribute files are normalized, and
+  // the accumulator so a file this read could not use is not mistaken for an
+  // absent element by whatever the caller does next (see readAttributes).
+  const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems }, issues)
 
   return {
     manifest,
@@ -571,10 +659,32 @@ export async function writeDataItems(dirPath: string, dataItems: DataItem[]): Pr
  */
 export async function writeAttributes(
   dirPath: string,
-  attributes: ConsolidatedAttributesFile
+  attributes: ConsolidatedAttributesFile,
+  protectedFiles?: ReadonlySet<string>
 ): Promise<void> {
   await validatePathConfinement(dirPath);
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
+
+  /**
+   * Overwriting is the second way to destroy a protected file, and it fires in
+   * the case unlink never reaches: the element id is still current, so cleanup
+   * skips the file, and the merge-back writes the platform's copy straight over
+   * the bytes. The platform's copy cannot contain the local enrichment — the
+   * file failed to read, so it was never pushed — so this trades the operator's
+   * unpushed work for a copy that is missing it.
+   *
+   * Skipping means the platform's values do not land for that element until the
+   * file is repaired. That is the right trade: the values are still on the
+   * platform, the bytes exist nowhere else.
+   */
+  const skip = (subdir: string, elementId: string): boolean => {
+    if (!isProtectedAttributeFile(protectedFiles, subdir, `${elementId}.json`)) return false
+    console.warn(
+      `[dethereal] Not overwriting ${subdir}/${elementId}.json: it could not be read, ` +
+      `so its contents cannot be recovered if replaced.`
+    )
+    return true
+  }
 
   // Ensure subdirectories exist
   for (const subdir of ATTRIBUTES_SUBDIRS) {
@@ -585,6 +695,7 @@ export async function writeAttributes(
   if (attributes.boundaries) {
     for (const [elementId, attrs] of Object.entries(attributes.boundaries)) {
       validateElementId(elementId)
+      if (skip('boundaries', elementId)) continue
       const filePath = path.join(attributesDir, 'boundaries', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -594,6 +705,7 @@ export async function writeAttributes(
   if (attributes.components) {
     for (const [elementId, attrs] of Object.entries(attributes.components)) {
       validateElementId(elementId)
+      if (skip('components', elementId)) continue
       const filePath = path.join(attributesDir, 'components', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -603,6 +715,7 @@ export async function writeAttributes(
   if (attributes.dataFlows) {
     for (const [elementId, attrs] of Object.entries(attributes.dataFlows)) {
       validateElementId(elementId)
+      if (skip('dataFlows', elementId)) continue
       const filePath = path.join(attributesDir, 'dataFlows', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -612,6 +725,7 @@ export async function writeAttributes(
   if (attributes.dataItems) {
     for (const [elementId, attrs] of Object.entries(attributes.dataItems)) {
       validateElementId(elementId)
+      if (skip('dataItems', elementId)) continue
       const filePath = path.join(attributesDir, 'dataItems', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -621,9 +735,27 @@ export async function writeAttributes(
 /**
  * Write a complete model to a split-file directory
  */
+export interface WriteModelDirectoryOptions {
+  /**
+   * Attribute files (as `attributes/<subdir>/<file>.json`, the shape
+   * `AttributeReadIssue.file` carries) that the caller's read could NOT parse
+   * or resolve.
+   *
+   * Stale-file cleanup decides what to unlink by asking whether a filename
+   * corresponds to a current element. A file that failed to read produced no
+   * element, so it looks exactly like a stale one and gets deleted — a parse
+   * error in an enriched attribute file would otherwise destroy that file on
+   * the next write. Cleanup cannot detect this itself: from its side an
+   * unreadable file and a genuinely orphaned one are indistinguishable. Only
+   * the reader knows, so the reader tells it.
+   */
+  protectedAttributeFiles?: ReadonlySet<string>
+}
+
 export async function writeModelDirectory(
   dirPath: string,
-  model: SplitModel
+  model: SplitModel,
+  options?: WriteModelDirectoryOptions
 ): Promise<void> {
   // Ensure directory structure exists
   await ensureModelDirectoryStructure(dirPath)
@@ -633,13 +765,13 @@ export async function writeModelDirectory(
   await writeStructure(dirPath, model.structure)
   await writeDataFlows(dirPath, model.dataFlows)
   await writeDataItems(dirPath, model.dataItems)
-  await writeAttributes(dirPath, model.attributes)
+  await writeAttributes(dirPath, model.attributes, options?.protectedAttributeFiles)
 
   // writeAttributes only writes the current bags — attribute files for
   // elements deleted since the last write would otherwise survive forever
   // (and update_model's local-merge resurrects them). Idempotent; also runs
   // on the applyIdMapping path.
-  await cleanupStaleAttributeFiles(dirPath, model.attributes)
+  await cleanupStaleAttributeFiles(dirPath, model.attributes, options?.protectedAttributeFiles)
 }
 
 // =============================================================================
@@ -819,8 +951,12 @@ export async function applyIdMapping(
   const structure = await readStructure(dirPath)
   const dataFlows = await readDataFlows(dirPath)
   const dataItems = await readDataItems(dirPath)
-  // Pass normalization context so flat-format attribute files are converted
-  const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+  // Pass normalization context so flat-format attribute files are converted,
+  // and collect read failures: this function ends in a stale-file cleanup, and
+  // a file that failed to read is absent from `attributes` for reasons that
+  // have nothing to do with staleness.
+  const readIssues: AttributeReadIssue[] = []
+  const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems }, readIssues)
 
   // Update manifest with model ID and default boundary ID
   manifest.model.id = modelId
@@ -841,28 +977,52 @@ export async function applyIdMapping(
   const updatedDataItems = dataItems.map(item => updateDataItemIds(item, idMapping))
 
   // Update attribute element IDs and rename files
-  const updatedAttributes = await updateAndRenameAttributes(dirPath, attributes, idMapping)
+  const protectedFiles = protectedAttributeFiles(readIssues)
+  const updatedAttributes = await updateAndRenameAttributes(dirPath, attributes, idMapping, protectedFiles)
 
-  // Re-key the template-field manifests. These live at
-  // .dethereal/template-fields/<element-id>.json and are keyed by element id, so
-  // a push that swaps local reference ids for platform ids orphans every one of
-  // them. generate_attribute_stubs looks a manifest up by the element's CURRENT
-  // id (readManifest(dir, el.id)); against an orphaned set that lookup always
-  // misses, which silently disables reclassification cleanup — stale template
-  // fields from the previous class are never pruned. Same failure shape as the
-  // conduit peerId regression covered below.
-  await renameTemplateFieldManifests(dirPath, idMapping)
-  await remapStateStaleElements(dirPath, idMapping)
+  // Re-key the id-keyed sidecars under .dethereal/ — see remapLocalSidecars.
+  await remapLocalSidecars(dirPath, idMapping)
 
   // Write updated files
   await writeManifest(dirPath, manifest)
   await writeStructure(dirPath, updatedStructure)
   await writeDataFlows(dirPath, updatedDataFlows)
   await writeDataItems(dirPath, updatedDataItems)
-  await writeAttributes(dirPath, updatedAttributes)
+  await writeAttributes(dirPath, updatedAttributes, protectedFiles)
 
   // Clean up stale files (flat-format originals, undefined.json, etc.)
-  await cleanupStaleAttributeFiles(dirPath, updatedAttributes)
+  await cleanupStaleAttributeFiles(dirPath, updatedAttributes, protectedFiles)
+}
+
+/**
+ * Re-key the id-keyed sidecars under `.dethereal/` onto the platform's ids.
+ *
+ * Two local files are keyed by element id and are therefore invalidated the
+ * moment a push swaps local reference ids for platform ones:
+ *
+ * - `.dethereal/template-fields/<element-id>.json` — `generate_attribute_stubs`
+ *   looks a manifest up by the element's CURRENT id, so against an orphaned set
+ *   that lookup always misses. Reclassification cleanup silently stops pruning
+ *   the previous class's template fields.
+ * - `.dethereal/state.json`'s `staleElements[]` — the re-enrichment queue. Held
+ *   in pre-push ids it resolves to no element, so the next enrichment pass
+ *   finds nothing and drops the elements that were explicitly queued.
+ *
+ * This must run wherever ids change on disk, which is not only the first push:
+ * `update_model` mints platform ids for newly added elements and rewrites the
+ * model files with them on its re-export path. Both are id-remap sites; only
+ * one used to fix the sidecars.
+ *
+ * Best-effort throughout: these are local optimisations, never model data, so
+ * nothing here may fail a push that already succeeded platform-side.
+ */
+export async function remapLocalSidecars(
+  dirPath: string,
+  idMapping: Map<string, string> | undefined
+): Promise<void> {
+  if (!idMapping || idMapping.size === 0) return
+  await renameTemplateFieldManifests(dirPath, idMapping)
+  await remapStateStaleElements(dirPath, idMapping)
 }
 
 /**
@@ -1104,7 +1264,8 @@ function updateDataItemIds(item: DataItem, idMapping: Map<string, string>): Data
 async function updateAndRenameAttributes(
   dirPath: string,
   attributes: ConsolidatedAttributesFile,
-  idMapping: Map<string, string>
+  idMapping: Map<string, string>,
+  protectedFiles?: ReadonlySet<string>
 ): Promise<ConsolidatedAttributesFile> {
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
   const updated: ConsolidatedAttributesFile = {
@@ -1137,6 +1298,18 @@ async function updateAndRenameAttributes(
 
       // Delete old file if ID changed
       if (newId !== oldId) {
+        // The third mutation path, and the one that is easiest to miss: the
+        // old-id filename can belong to a DIFFERENT file from the one that
+        // produced this bag entry. A flat-format file resolving to `c-db`
+        // puts `c-db` in the bag while the unreadable `c-db.json` sits beside
+        // it — and this unlink then deletes the unreadable one.
+        if (isProtectedAttributeFile(protectedFiles, subdir, `${oldId}.json`)) {
+          console.warn(
+            `[dethereal] Keeping ${subdir}/${oldId}.json through the id remap: ` +
+            `it could not be read, so its contents cannot be recovered if removed.`
+          )
+          continue
+        }
         const oldPath = path.join(attributesDir, subdir, `${oldId}.json`)
         try {
           await fs.unlink(oldPath)
@@ -1231,7 +1404,8 @@ export async function validateModelDirectory(dirPath: string): Promise<{
  */
 async function cleanupStaleAttributeFiles(
   dirPath: string,
-  currentAttributes: ConsolidatedAttributesFile
+  currentAttributes: ConsolidatedAttributesFile,
+  protectedFiles?: ReadonlySet<string>
 ): Promise<void> {
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
 
@@ -1252,12 +1426,20 @@ async function cleanupStaleAttributeFiles(
       for (const file of files) {
         if (!file.endsWith('.json')) continue
         const stem = file.replace('.json', '')
-        if (!validIds.has(stem)) {
-          try {
-            await fs.unlink(path.join(subdirPath, file))
-          } catch {
-            // File may already be gone
-          }
+        if (validIds.has(stem)) continue
+        // A file the read could not use is absent from `currentAttributes` for
+        // a reason that has nothing to do with staleness. Deleting it would
+        // turn a recoverable parse error into lost enrichment work.
+        if (isProtectedAttributeFile(protectedFiles, subdir, file)) {
+          console.warn(
+            `[dethereal] Keeping ${subdir}/${file}: it could not be read, so it cannot be shown to be stale.`
+          )
+          continue
+        }
+        try {
+          await fs.unlink(path.join(subdirPath, file))
+        } catch {
+          // File may already be gone
         }
       }
     } catch {
