@@ -438,6 +438,9 @@
   }
 
   const onNodeDelete = () => {
+    // Reset before the guard — an early return here would leave the flag stuck
+    // 'true', and the dialog could never reopen.
+    showNodeDeleteDialog.value = false
     if (!selectedItem.value) return
     if (selectedItem.value.type === 'BOUNDARY') {
       flowStore.deleteBoundaryNode({ boundaryId: selectedItem.value.id })
@@ -445,7 +448,6 @@
       flowStore.deleteComponentNode({ componentId: selectedItem.value.id })
     }
     flowStore.setSelectedItem({ item: null })
-    showNodeDeleteDialog.value = false
   }
 
   const onEdgeDelete = () => {
