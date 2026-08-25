@@ -33,6 +33,7 @@ import {
   isModelDirectory,
   validatePathConfinement,
 } from '../utils/directory-utils.js'
+import type { AttributeReadIssue } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
 import { writeSyncJson, readSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
@@ -98,6 +99,10 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
 
       let backupPath: string | undefined
 
+      // Warnings raised before dt-core returns its result object, merged into
+      // result.warnings once it exists.
+      const preWarnings: string[] = []
+
       // Create backup before processing
       if (createBackup) {
         try {
@@ -105,7 +110,13 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           debugLog(config, `Created backup at: ${backupPath}`)
         } catch (error) {
           debugLog(config, `Failed to create backup: ${error}`)
-          // Continue without backup but warn
+          // "Continue without backup but warn" — the warn was missing, so a
+          // failed backup was reported only on the debug channel and the
+          // response was indistinguishable from a successful one.
+          preWarnings.push(
+            `Backup could not be created (${error instanceof Error ? error.message : String(error)}). ` +
+            `Proceeding without one — this push overwrites local files with no restore point.`,
+          )
         }
       }
 
@@ -136,6 +147,8 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
         }
       }
 
+      result.warnings.push(...preWarnings)
+
       // Surface crown-jewel marks on non-component elements (local-only; no platform field).
       // Computed from the local model we pushed, not the re-export below.
       const crownJewelNotice = localOnlyCrownJewelNotice(splitModel.attributes)
@@ -152,7 +165,26 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           // Preserve local attributes that the platform doesn't have.
           // Platform is the authority for attributes it knows about;
           // local files are preserved for attributes not yet pushed.
-          const localAttributes = await readAttributes(input.directory_path)
+          // The normalization context is required, and the issue accumulator is
+          // load-bearing here: a file missing from `localAttributes` is absent
+          // from the merged bag, and writeModelDirectory's stale-file cleanup
+          // then unlinks it. Without the context a flat-format file is skipped;
+          // without the accumulator an unparseable one is skipped. Either way
+          // the merge-back silently destroys local work.
+          const attributeIssues: AttributeReadIssue[] = []
+          const localAttributes = await readAttributes(
+            input.directory_path,
+            { structure: splitModel.structure, dataFlows: splitModel.dataFlows, dataItems: splitModel.dataItems },
+            attributeIssues,
+          )
+          for (const issue of attributeIssues) {
+            result.warnings.push(
+              `${issue.file} could not be read (${issue.reason}) and is NOT in the merged result. ` +
+              (backupPath
+                ? `Restore it from the backup at ${backupPath} before re-running.`
+                : `No backup was taken — restore it from version control before re-running.`),
+            )
+          }
           exportedModel.attributes = mergeAttributes(localAttributes, exportedModel.attributes)
 
           // Re-materialise scope.json from the post-push platform state and strip it from

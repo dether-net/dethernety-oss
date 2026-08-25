@@ -628,4 +628,96 @@ describe('applyIdMapping — conduit peerId remap (regression: conduit lost on r
     expect(edge.conduits[0].direction).toBe('OUTBOUND') // other conduit fields preserved
     expect(edge.conduits[0].justification).toBe('approved edge → app channel')
   })
+
+  it('re-keys .dethereal/template-fields manifests onto the new element ids', async () => {
+    // Manifests are keyed by element id. Before the fix, applyIdMapping rewrote every id in the model
+    // but left the manifest filenames on the author-supplied ids, so after the first push
+    // generate_attribute_stubs' readManifest(dir, el.id) lookup missed every time — silently
+    // disabling reclassification cleanup for the rest of the model's life.
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': {
+        defaultBoundary: {
+          id: 'root', name: 'root', boundaries: [], components: [
+            { id: 'c-db', name: 'DB', type: 'STORE', classData: { id: 'class-mysql', name: 'MySQL' } },
+          ],
+        },
+      },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [] },
+    })
+
+    const manifestDir = path.join(tmpDir, '.dethereal', 'template-fields')
+    await fs.mkdir(manifestDir, { recursive: true })
+    await fs.writeFile(path.join(manifestDir, 'c-db.json'), JSON.stringify({
+      classId: 'class-mysql', className: 'MySQL',
+      templateFields: ['ssl_enabled', 'innodb_buffer_pool_size'],
+      generatedAt: '2026-01-01T00:00:00.000Z',
+    }), 'utf-8')
+    // An id absent from the mapping must be left exactly where it is.
+    await fs.writeFile(path.join(manifestDir, 'c-orphan.json'), JSON.stringify({
+      classId: 'class-x', className: 'X', templateFields: [], generatedAt: '2026-01-01T00:00:00.000Z',
+    }), 'utf-8')
+
+    await applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid'], ['c-db', 'CDB-uuid']]), 'ROOT-uuid')
+
+    const after = (await fs.readdir(manifestDir)).sort()
+    expect(after).toEqual(['CDB-uuid.json', 'c-orphan.json'])
+
+    // Contents must survive the rename intact — the field list is the whole point.
+    const m = JSON.parse(await fs.readFile(path.join(manifestDir, 'CDB-uuid.json'), 'utf-8'))
+    expect(m.templateFields).toEqual(['ssl_enabled', 'innodb_buffer_pool_size'])
+    expect(m.classId).toBe('class-mysql')
+  })
+
+  it('re-keys state.json staleElements[] onto the new element ids', async () => {
+    // staleElements[] queues elements that need re-enrichment. Nothing else runs
+    // at the moment ids change, so before this fix the array kept pre-push ids
+    // after the first push and the next enrichment pass silently prioritised
+    // nothing.
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': { defaultBoundary: { id: 'root', name: 'root', boundaries: [], components: [{ id: 'c-new', name: 'New' }] } },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [] },
+    })
+    const dethDir = path.join(tmpDir, '.dethereal')
+    await fs.mkdir(dethDir, { recursive: true })
+    await fs.writeFile(path.join(dethDir, 'state.json'), JSON.stringify({
+      currentState: 'ENRICHING',
+      completedStates: ['INITIALIZED'],
+      staleElements: ['c-new', 'c-unmapped'],
+    }), 'utf-8')
+
+    await applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid'], ['c-new', 'CNEW-uuid']]), 'ROOT-uuid')
+
+    const state = JSON.parse(await fs.readFile(path.join(dethDir, 'state.json'), 'utf-8'))
+    expect(state.staleElements).toEqual(['CNEW-uuid', 'c-unmapped']) // unmapped id left alone
+    expect(state.currentState).toBe('ENRICHING')                     // other keys untouched
+    expect(state.completedStates).toEqual(['INITIALIZED'])
+  })
+
+  it('does not fail the id remap when no state.json or template-fields exist', async () => {
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': { defaultBoundary: { id: 'root', name: 'root', boundaries: [], components: [] } },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [] },
+    })
+    await expect(
+      applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid']]), 'ROOT-uuid'),
+    ).resolves.toBeUndefined()
+  })
+
+  it('does not fail the id remap when no template-fields directory exists', async () => {
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': { defaultBoundary: { id: 'root', name: 'root', boundaries: [], components: [] } },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [] },
+    })
+    await expect(
+      applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid']]), 'ROOT-uuid'),
+    ).resolves.toBeUndefined()
+  })
 })

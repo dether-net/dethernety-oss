@@ -137,8 +137,30 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
         }
 
         case 'delete': {
-          const deleted = await dtCountermeasure.deleteCountermeasure({
+          // Pre-check existence, following the same pattern the update branch
+          // uses above. This is not belt-and-braces: dt-core's
+          // deleteCountermeasure returns `true` whenever the GraphQL response
+          // object is merely non-nullish — it never inspects nodesDeleted — so
+          // its boolean cannot distinguish "removed it" from "matched nothing".
+          // Without this check the tool reported `deleted: true` for a
+          // countermeasure that was never there.
+          const existing = await dtCountermeasure.getCountermeasure({
             countermeasureId: input.countermeasure_id!
+          })
+          if (!existing) {
+            return { success: false, error: `Countermeasure ${input.countermeasure_id} not found` }
+          }
+
+          // Pass the name captured by the pre-check. dt-core uses it to flip
+          // `dispositionStale` on any SYSTEM countermeasure this USER copy
+          // superseded, and skips that companion entirely when the name is
+          // absent (a wildcard match would flip unrelated dispositions). The
+          // tool never supplied one, so deleting a USER copy silently left the
+          // superseded SYSTEM countermeasure un-flipped. The name must be the
+          // pre-delete value, which is exactly what the check above holds.
+          const deleted = await dtCountermeasure.deleteCountermeasure({
+            countermeasureId: input.countermeasure_id!,
+            countermeasureName: existing.name,
           })
           return { success: true, data: { deleted, countermeasure_id: input.countermeasure_id } }
         }

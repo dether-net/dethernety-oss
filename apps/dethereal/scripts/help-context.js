@@ -3,8 +3,12 @@
 // Used by the /dethereal:help skill to show "Suggested now" section
 // Standalone script — no dependencies beyond Node.js built-ins
 
-const fs = require('fs');
-const path = require('path');
+// ESM imports: package.json declares "type": "module", so `require` is not
+// defined here and every invocation died with a ReferenceError before the first
+// statement — the /dethereal:help "Suggested now" section silently produced
+// nothing.
+import fs from 'node:fs';
+import path from 'node:path';
 
 const MODELS_FILE = '.dethernety/models.json';
 

@@ -789,6 +789,8 @@ If the target directory already exists:
 1. Read `manifest.json` to confirm it's a model directory
 2. Read `.dethereal/sync.json` for stored content hashes
 3. Read the model files and compute a content hash. SHA-256 over the **semantic** content, in this fixed order: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`; then `.dethereal/scope.json` (model scope + local-only keys); then each `attributes/{boundaries,components,dataFlows,dataItems}/` subdir in that order, files sorted by name within a subdir. Exclude non-semantic properties — layout (`positionX`, `positionY`, `dimensionsWidth`, `dimensionsHeight`) and churny metadata (`modifiedAt`, `exportedAt`). The digest is version-tagged: `sha256:v2:<hex>`. Per SYNC_AND_SOURCE_OF_TRUTH.md §4.
+
+   **Each contribution is framed with its path.** The digest absorbs `"<name>:" + JSON.stringify(<stripped-json>)`, not the JSON alone — `manifest.json:{…}`, `scope.json:{…}`, `attributes/components/<id>.json:{…}`. Omitting the `<name>:` prefix produces a different, silently-mismatching digest, which reads as "local changes" on every comparison.
 4. Compare the computed hash against `pull_content_hash` or `push_content_hash` from sync.json (whichever is more recent based on `last_pull_at` vs `last_push_at`). **Version guard first:** if the stored hash does **not** begin with `sha256:v2:`, it was written by a prior hash algorithm — treat the model as a clean baseline (it will re-baseline silently on the next sync) and do **not** report local changes or show the overwrite warning.
 5. If hashes **match** (or the stored hash is a prior-version baseline): no local changes. Proceed to L4.
 6. If hashes **differ** (or no sync.json exists): show warning:
@@ -873,16 +875,19 @@ Read the exported model files and infer workflow state. Platform models have no 
 - **DISCOVERED is skipped** — discovery is a plugin concept; platform models were not "discovered"
 - **REVIEWED is never inferred** — review is a human attestation, must be explicit
 
-Write `.dethereal/state.json`:
+**Merge** into `.dethereal/state.json` — read it first and preserve every key you are not setting. Do **not** write the object below over an existing file.
+
 ```json
 {
   "currentState": "<inferred-state>",
   "completedStates": [<all states up to inferred state, excluding DISCOVERED>],
   "lastModified": "<ISO 8601 timestamp>",
   "inferredFromContent": true,
-  "staleElements": []
+  "staleElements": [<preserve the existing array; do not reset to []>]
 }
 ```
+
+> A full replace here is silent data loss on any pull that lands on a directory that already has state — the documented "pull before push" and push-conflict "pull (with backup)" routes both do. It drops `lastReconcileCommit`, which `scripts/detect-drift.js` needs and nothing else can reconstruct, so the next `/dethereal:threat-model` resume skips drift detection **with no message at all**. It also drops `model_signed_off`, empties `staleElements[]` (losing the queue of elements awaiting re-enrichment), and can regress `currentState`, since REVIEWED is never inferred from content. Preserve unknown keys verbatim — this step is the only full-replace state writer in the plugin, and the same step already merges `.dethereal/scope.json` rather than replacing it.
 
 The `completedStates` array should include all states up to and including the current state (excluding DISCOVERED, which was not performed):
 

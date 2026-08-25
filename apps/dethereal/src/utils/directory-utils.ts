@@ -385,9 +385,24 @@ export async function readDataItems(dirPath: string): Promise<DataItem[]> {
  * When `normCtx` is provided, flat-format files are automatically normalized to
  * structured format by resolving element names against the structure.
  */
+/**
+ * A per-file failure encountered while reading the attributes tree.
+ *
+ * These used to go only to `console.warn`, which in the MCP server writes to a
+ * stderr stream that is part of no tool result — so an unparseable attribute
+ * file was invisible to `validate` (which still returned `valid: true`),
+ * silently lowered `quality`, and could be overwritten or unlinked by the next
+ * push. Callers pass an accumulator to surface them.
+ */
+export interface AttributeReadIssue {
+  file: string
+  reason: string
+}
+
 export async function readAttributes(
   dirPath: string,
-  normCtx?: AttributeNormalizationContext
+  normCtx?: AttributeNormalizationContext,
+  issues?: AttributeReadIssue[]
 ): Promise<ConsolidatedAttributesFile> {
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
   const result: ConsolidatedAttributesFile = {
@@ -436,6 +451,10 @@ export async function readAttributes(
                     `[dethereal] Flat-format attribute file ${file} in ${subdir}/ ` +
                     `cannot be normalized (no structure context). Skipping.`
                   )
+                  issues?.push({
+                    file: `attributes/${subdir}/${file}`,
+                    reason: 'flat-format file skipped — caller supplied no structure context',
+                  })
                   continue
                 }
                 const normalized = normalizeFlatAttribute(rawJson, subdir, elementLookup, file)
@@ -453,10 +472,9 @@ export async function readAttributes(
                 result[targetKey]![attrs.elementId] = attrs
               }
             } catch (parseError) {
-              console.warn(
-                `[dethereal] Failed to read attribute file ${filePath}: ` +
-                `${parseError instanceof Error ? parseError.message : String(parseError)}`
-              )
+              const reason = parseError instanceof Error ? parseError.message : String(parseError)
+              console.warn(`[dethereal] Failed to read attribute file ${filePath}: ${reason}`)
+              issues?.push({ file: `attributes/${subdir}/${file}`, reason })
             }
           }
         } catch {
@@ -825,6 +843,17 @@ export async function applyIdMapping(
   // Update attribute element IDs and rename files
   const updatedAttributes = await updateAndRenameAttributes(dirPath, attributes, idMapping)
 
+  // Re-key the template-field manifests. These live at
+  // .dethereal/template-fields/<element-id>.json and are keyed by element id, so
+  // a push that swaps local reference ids for platform ids orphans every one of
+  // them. generate_attribute_stubs looks a manifest up by the element's CURRENT
+  // id (readManifest(dir, el.id)); against an orphaned set that lookup always
+  // misses, which silently disables reclassification cleanup — stale template
+  // fields from the previous class are never pruned. Same failure shape as the
+  // conduit peerId regression covered below.
+  await renameTemplateFieldManifests(dirPath, idMapping)
+  await remapStateStaleElements(dirPath, idMapping)
+
   // Write updated files
   await writeManifest(dirPath, manifest)
   await writeStructure(dirPath, updatedStructure)
@@ -834,6 +863,96 @@ export async function applyIdMapping(
 
   // Clean up stale files (flat-format originals, undefined.json, etc.)
   await cleanupStaleAttributeFiles(dirPath, updatedAttributes)
+}
+
+/**
+ * Re-key the element ids held in `.dethereal/state.json`'s `staleElements[]`.
+ *
+ * `src/` otherwise never touches state.json — it is maintained by the skills —
+ * but nothing else runs at the moment ids change, so after the first push the
+ * array holds pre-push ids that resolve to no element. The next enrichment pass
+ * reads it to decide what to prioritise, finds nothing, and silently drops the
+ * elements that were explicitly queued as needing attention. Same failure shape
+ * as the orphaned template-field manifests above; fixed in the same place.
+ *
+ * Best-effort: state.json is workflow bookkeeping, never model data, so a
+ * missing or malformed file must not fail a push that already succeeded.
+ */
+async function remapStateStaleElements(
+  dirPath: string,
+  idMapping: Map<string, string>
+): Promise<void> {
+  const statePath = path.join(dirPath, DETHEREAL_DIR, 'state.json')
+
+  try {
+    const raw = await fs.readFile(statePath, 'utf-8')
+    const state = JSON.parse(raw) as Record<string, unknown>
+    const stale = state.staleElements
+    if (!Array.isArray(stale) || stale.length === 0) return
+
+    let changed = false
+    const remapped = stale.map((id) => {
+      if (typeof id !== 'string') return id
+      const next = idMapping.get(id)
+      if (next && next !== id) { changed = true; return next }
+      return id
+    })
+    if (!changed) return
+
+    state.staleElements = remapped
+    await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf-8')
+  } catch {
+    // Absent, unreadable, or not JSON — leave it alone.
+  }
+}
+
+/**
+ * Rename `.dethereal/template-fields/<element-id>.json` manifests onto the
+ * element's new id after an id remap.
+ *
+ * Best-effort by design: the manifests are a local optimisation for
+ * reclassification cleanup, not model data, so a missing directory or an
+ * unreadable entry must never fail the push that just succeeded platform-side.
+ * Only entries whose id actually changed are touched; unmapped ids are left
+ * where they are.
+ */
+async function renameTemplateFieldManifests(
+  dirPath: string,
+  idMapping: Map<string, string>
+): Promise<void> {
+  const manifestDir = path.join(dirPath, DETHEREAL_DIR, 'template-fields')
+
+  let entries: string[]
+  try {
+    entries = await fs.readdir(manifestDir)
+  } catch {
+    return // no manifests for this model — nothing to re-key
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue
+    const oldId = entry.slice(0, -'.json'.length)
+    const newId = idMapping.get(oldId)
+    if (!newId || newId === oldId) continue
+
+    try {
+      validateElementId(oldId)
+      validateElementId(newId)
+    } catch {
+      continue // refuse to build a path from an id that failed confinement checks
+    }
+
+    const oldPath = path.join(manifestDir, entry)
+    const newPath = path.join(manifestDir, `${newId}.json`)
+    try {
+      // Overwrite rather than skip: a manifest already sitting on the new id is
+      // from an earlier run of the same element and is not newer than this one.
+      await fs.rename(oldPath, newPath)
+    } catch {
+      // Unreadable/locked manifest — losing it costs one reclassification
+      // cleanup, never model data. Do not fail the id remap for it.
+    }
+  }
 }
 
 /**

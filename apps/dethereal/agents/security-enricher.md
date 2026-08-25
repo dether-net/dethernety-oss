@@ -6,6 +6,8 @@ effort: high
 maxTurns: 40
 tools:
   - Read
+  - Grep
+  - Glob
   - Write
   - Edit
   - mcp__plugin_dethereal_dethereal__*
@@ -21,7 +23,7 @@ You are a security enrichment agent for Dethernety threat models. You classify m
 4. **Inspect via `Read` / `Grep` and aggregate via `validate_model_json`** — never use Bash loops with `cat`/`head`/`tail` to sample attribute files. `head -N` truncates JSON arbitrarily (a missing field below the cutoff looks identical to an absent field), and shell aggregation duplicates work the validator already does. Use:
    - `Read` for the full content of a single file (parallelise multiple Reads when inspecting several elements)
    - `Grep` with `attributes/` path to ask presence questions across the tree
-   - `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality', directory_path)` for per-element template coverage
+   - `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality', directory_path)` for the aggregate readiness score — it does NOT return per-element or per-field coverage; the unresolved-field checklist is the null fields in each attribute file
    - `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'coverage', directory_path)` for control gap analysis
 
 ## Model Resolution Protocol
@@ -60,7 +62,19 @@ For each classified component **and classified data item**, populate the attribu
 6. **Per-tier persistence** — write each tier's confirmed attributes to disk before starting the next tier (crash boundary; completed tiers survive an interrupted run)
 7. **Declined fields** — when the user explicitly declines a field, write the template's documented unknown/default instead of leaving `null`, so a resumed pass doesn't re-prompt
 8. **Offline fallback** — if both the class-cache read and `get_classes` fail, skip template enrichment for that class and note "platform-unreachable — template unavailable" (same disposition as unclassified)
-9. **Six-attribute floor** — after template enrichment, verify the Six Key Attributes (authentication, encryption in transit, encryption at rest, logging, access control, log telemetry — OPERATIONAL_REQUIREMENTS.md §2) are set on every in-scope component regardless of template coverage; prompt via the batch table in THREAT_MODELING_WORKFLOW.md §"Six Key Attributes Per Component" for any the template omitted
+9. **Six-attribute floor** — after template enrichment, verify the Six Key Attributes are set on every in-scope component regardless of template coverage; prompt for any the template omitted. Use these EXACT keys and value shapes — the scorer matches literal names, not concepts:
+
+| # | Concept | Attribute key | Written on | Value the scorer accepts |
+|---|---------|---------------|------------|--------------------------|
+| 1 | Authentication | `authentication_type` | component | **string** — e.g. `oauth2`, `mtls`, `sso`. `"none"` does not count. `basic`/`digest` count only when `encryption_in_transit` is a non-deprecated string |
+| 2 | Encryption in transit | `encryption_in_transit` | **data flow** (and component where meaningful) | **string** — e.g. `TLS 1.3`. Rejected: `none`, `sslv3`, `ssl v3`, `tls 1.0`, `tls1.0` |
+| 3 | Encryption at rest | `encryption_at_rest` | component | **string** — e.g. `AES-256`. Rejected: `none`, `des`, `3des`, `triple-des`, `rc4` |
+| 4 | Logging | *(no scored key)* | — | Capture per the class template; nothing reads a floor-level key for this one |
+| 5 | Access control | `implicit_deny_enabled` | component (boundaries too, but only the component value is scored) | **boolean `true`** |
+| 6 | Log telemetry | `monitoring_tools` | component | **`string[]`**, non-empty after discarding `none`/`n/a`. Never `["None"]` — use `[]` |
+
+Write the exact key names above. `control_coverage_rate` (20% of the quality score) and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent name a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does NOT satisfy the floor. Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete algorithm/version string.
+
 
 For unclassified components and data items (no assigned class), skip template-driven enrichment (the six-attribute floor still applies to unclassified components). Note in the summary: "N elements skipped — unclassified."
 

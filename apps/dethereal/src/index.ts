@@ -105,16 +105,23 @@ async function buildToolContext(): Promise<ToolContext> {
   if (authDisabled) {
     debug('Auth disabled — creating unauthenticated Apollo client')
     let apolloClient = undefined
+    let clientUnavailableReason: string | undefined
     try {
       if (!getCachedPlatformConfig()) {
         await fetchPlatformConfig()
       }
       apolloClient = createApolloClient()
       debug('Unauthenticated Apollo client created successfully')
+      clientUnavailableReason = undefined
     } catch (error) {
       debug(`Failed to create Apollo client: ${error}`)
+      clientUnavailableReason =
+        `auth is DISABLED on this platform, so this is not an authentication problem — ` +
+        `the client could not be built: ${error instanceof Error ? error.message : String(error)}. ` +
+        `Calling "login" will not help (it answers "No login needed"). Check the platform URL and that ` +
+        `its /config endpoint is reachable and well-formed.`
     }
-    return { apolloClient, token: undefined, debug: config.debug }
+    return { apolloClient, token: undefined, debug: config.debug, clientUnavailableReason }
   }
 
   // Get the best available token (stored → transparent refresh → undefined)
@@ -123,6 +130,7 @@ async function buildToolContext(): Promise<ToolContext> {
 
   // Create Apollo client if we have a token
   let apolloClient = undefined
+  let tokenPathFailure: string | undefined
   if (idToken) {
     try {
       // Ensure platform config is loaded before creating Apollo client
@@ -134,14 +142,21 @@ async function buildToolContext(): Promise<ToolContext> {
       debug('Apollo client created successfully')
     } catch (error) {
       debug(`Failed to create Apollo client: ${error}`)
-      // Don't throw - let the tool handle the missing client
+      // Don't throw - let the tool handle the missing client. Keep the reason:
+      // the token was present and usable here, so reporting this as an auth
+      // failure sends the operator to re-login for a problem re-login cannot fix.
+      tokenPathFailure =
+        `a stored token WAS available, so this is not an authentication problem — ` +
+        `the GraphQL client could not be built: ${error instanceof Error ? error.message : String(error)}. ` +
+        `This usually means the platform's /config endpoint is unreachable or malformed.`
     }
   }
 
   return {
     apolloClient,
     token: idToken,
-    debug: config.debug
+    debug: config.debug,
+    clientUnavailableReason: tokenPathFailure
   }
 }
 
@@ -196,18 +211,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const context = await buildToolContext()
 
   if (requiresClient && !context.apolloClient) {
-    // Return helpful error if authentication is missing
+    // Both client-construction catches record WHY the client is missing. Only
+    // say "Authentication required" when that is actually the cause — otherwise
+    // this message sends the operator to re-login for a fault re-login cannot
+    // fix, and in auth-disabled mode the advice cannot even be followed.
+    const reason = context.clientUnavailableReason
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(
-            {
-              error: 'Authentication required',
-              message:
-                'This tool requires authentication. Please call the "login" tool first to authenticate via browser OAuth.',
-              tool: name
-            },
+            reason
+              ? { error: 'Platform client unavailable', message: reason, tool: name }
+              : {
+                  error: 'Authentication required',
+                  message:
+                    'This tool requires authentication. Please call the "login" tool first to authenticate via browser OAuth.',
+                  tool: name
+                },
             null,
             2
           )
@@ -222,11 +243,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const result = await tool.run(args, context)
 
     if (result.success) {
+      // ToolResult carries an optional top-level `warnings`, but only `data`
+      // was serialized — so a tool that set warnings as a sibling of data (the
+      // shape the ToolResult type invites) had them silently dropped before
+      // they reached the caller. Merge them in rather than requiring every tool
+      // to remember to nest them, which is the mistake this shape encourages.
+      const payload = result.warnings?.length
+        ? (result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+            // Nested warnings win: a tool that already put them in `data` has
+            // the richer, tool-specific list.
+            ? { warnings: result.warnings, ...(result.data as Record<string, unknown>) }
+            : { data: result.data, warnings: result.warnings })
+        : result.data
+
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(result.data, null, 2)
+            text: JSON.stringify(payload, null, 2)
           }
         ]
       }

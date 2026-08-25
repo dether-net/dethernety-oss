@@ -47,9 +47,15 @@ All elements are classified. Quality: X/100.
 
 1. Read `activeModules` from `.dethereal/scope.json`
 2. Extract `moduleIds` from `activeModules` (order matters — see tiebreaking below). If `activeModules` is absent from scope.json, omit `moduleIds` from `match_classes` calls (backward compatibility — searches all installed modules)
-3. Group unclassified elements by class label: components (`COMPONENT`), boundaries (`SECURITY_BOUNDARY`), flows (`DATA_FLOW`), data items (`DATA`)
+3. Group unclassified elements by class label: components (`COMPONENT`), boundaries (`SECURITY_BOUNDARY`), flows (`DATA_FLOW`), data items (`DATA`). Then sub-group the `COMPONENT` set by component type — `PROCESS`, `STORE`, `EXTERNAL_ENTITY` — because `componentType` is a single top-level filter, not per-element, so a mixed batch cannot be type-constrained.
 4. For each label with unclassified elements, call:
    `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, type?, description?}, ...], classLabel: <label>, moduleIds: [...], topN: 3, fields: ['description', 'category', 'type'])`
+
+   **For `COMPONENT`, pass `componentType` and make one call per type.** A ComponentClass declares the type it describes; `componentType` restricts candidates to classes that match, and it is the only hard type constraint available. Passing `type` on each element only feeds the ranking's lowest-priority tier — it does not stop a STORE being offered a PROCESS class:
+
+   `match_classes(elements: [...only STOREs...], classLabel: 'COMPONENT', componentType: 'STORE', moduleIds: [...], topN: 3, fields: [...])`
+
+   A class assigned across types is a real defect, not a cosmetic one: the class's policy is written for the type it declares, so it evaluates against a thing it does not describe. `/dethereal:review` (`validate`) now warns when a component's type disagrees with its class's.
 5. Cross-module tiebreaking: when multiple modules return same-confidence matches for the same element, prefer the module listed earlier in `activeModules` (user-set priority order). Specialized modules should precede baseline (dethernety-general)
 6. For IaC-discovered elements, check `.dethereal/discovery.json` for `sources` — if pre-classification exists and matches a `match_classes` candidate, boost confidence to `high (IaC)`. If they differ, present both options in the confirmation table
 7. Auto-accept `exact_name` matches (high confidence)

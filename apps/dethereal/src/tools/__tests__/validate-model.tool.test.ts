@@ -768,3 +768,97 @@ describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
     }
   })
 })
+
+describe('validate — component type vs assigned class type', () => {
+  const writeBase = async (dir: string, componentType: string, classComponentType: string) => {
+    await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({
+      schemaVersion: '2.0.0', format: 'split',
+      model: { id: null, name: 'T', defaultBoundaryId: 'b-1' }, modules: [],
+    }))
+    await fs.writeFile(path.join(dir, 'structure.json'), JSON.stringify({
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [],
+        components: [{
+          id: 'c-1', name: 'Orders DB', type: componentType,
+          classData: { id: 'cls-1', name: 'Web Server' },
+        }],
+      },
+    }))
+    await fs.writeFile(path.join(dir, 'dataflows.json'), JSON.stringify({ dataFlows: [] }))
+    await fs.writeFile(path.join(dir, 'data-items.json'), JSON.stringify({ dataItems: [] }))
+    await fs.mkdir(path.join(dir, '.dethereal', 'class-cache'), { recursive: true })
+    await fs.writeFile(path.join(dir, '.dethereal', 'class-cache', 'cls-1.json'), JSON.stringify({
+      classId: 'cls-1', className: 'Web Server', classType: 'component',
+      componentType: classComponentType,
+      template: { schema: { properties: { tls_enabled: {} } } },
+    }))
+  }
+
+  it('warns when a STORE is bound to a class that describes a PROCESS', async () => {
+    const dir = await fs.mkdtemp(path.join(process.cwd(), '.test-typemix-'))
+    try {
+      await writeBase(dir, 'STORE', 'PROCESS')
+      const data = (await validateModelTool.run({ action: 'validate', directory_path: dir }, context)).data as any
+      const w = data.warnings.find((x: any) => x.message?.includes('Orders DB'))
+      expect(w).toBeDefined()
+      expect(w.message).toContain('STORE')
+      expect(w.message).toContain('PROCESS')
+      // Advisory, not fatal — the cache may be stale and only the platform binds.
+      expect(data.valid).toBe(true)
+    } finally { await fs.rm(dir, { recursive: true, force: true }) }
+  })
+
+  it('stays silent when the types agree', async () => {
+    const dir = await fs.mkdtemp(path.join(process.cwd(), '.test-typeok-'))
+    try {
+      await writeBase(dir, 'PROCESS', 'PROCESS')
+      const data = (await validateModelTool.run({ action: 'validate', directory_path: dir }, context)).data as any
+      expect(data.warnings.some((x: any) => x.message?.includes('Orders DB'))).toBe(false)
+    } finally { await fs.rm(dir, { recursive: true, force: true }) }
+  })
+
+  it('stays silent when the cache predates componentType', async () => {
+    // Old caches carry no componentType; absence must not be read as a mismatch.
+    const dir = await fs.mkdtemp(path.join(process.cwd(), '.test-typeold-'))
+    try {
+      await writeBase(dir, 'STORE', 'PROCESS')
+      const cachePath = path.join(dir, '.dethereal', 'class-cache', 'cls-1.json')
+      const c = JSON.parse(await fs.readFile(cachePath, 'utf-8'))
+      delete c.componentType
+      await fs.writeFile(cachePath, JSON.stringify(c))
+      const data = (await validateModelTool.run({ action: 'validate', directory_path: dir }, context)).data as any
+      expect(data.warnings.some((x: any) => x.message?.includes('Orders DB'))).toBe(false)
+    } finally { await fs.rm(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('validate — unparseable attribute files', () => {
+  it('fails validation instead of returning valid:true for a truncated attribute file', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-badattr-'))
+    try {
+    // The regression: readAttributes never throws on a per-file parse error, so
+    // validate's try/catch could not fire and it returned a byte-identical
+    // {valid:true, errors:[], warnings:[]} before and after a file was corrupted.
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), JSON.stringify({
+      schemaVersion: '2.0.0', format: 'split',
+      model: { id: null, name: 'T', defaultBoundaryId: 'b-1' }, modules: [],
+    }))
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), JSON.stringify({
+      defaultBoundary: { id: 'b-1', name: 'System', boundaries: [], components: [{ id: 'c-1', name: 'DB' }] },
+    }))
+    await fs.writeFile(path.join(tmpDir, 'dataflows.json'), JSON.stringify({ dataFlows: [] }))
+    await fs.writeFile(path.join(tmpDir, 'data-items.json'), JSON.stringify({ dataItems: [] }))
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'components'), { recursive: true })
+    await fs.writeFile(path.join(tmpDir, 'attributes', 'components', 'c-1.json'),
+      '{"elementId":"c-1","elementType":"component","attributes":{"ssl_enabled":tr')
+
+      const res = await validateModelTool.run({ action: 'validate', directory_path: tmpDir }, context)
+      const data = res.data as any
+      expect(data.valid).toBe(false)
+      expect(data.errors.some((e: any) => e.file?.includes('c-1.json'))).toBe(true)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+

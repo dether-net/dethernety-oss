@@ -579,8 +579,8 @@ Skip to README generation.
 
 **If countermeasures exist:**
 
-1. Call `mcp__plugin_dethereal_dethereal__manage_exposures(action: 'list')` to get platform-computed exposures
-2. If no exposures yet (analysis hasn't run): "Analysis results not available yet. Linking will be possible after the analysis engine processes this model. Proceed to finish."
+1. Call `mcp__plugin_dethereal_dethereal__get_control_gaps(model_id: '<id>')` to get platform-computed exposures model-wide. Do NOT call `manage_exposures(action: 'list')` here — it requires an `element_id` and rejects a model-wide call, so the request fails validation rather than returning an empty list.
+2. If the call returns no exposures (analysis hasn't run): "Analysis results not available yet. Linking will be possible after the analysis engine processes this model. Proceed to finish." Distinguish this from a tool ERROR — an error means the call was malformed or the platform is unreachable, and must be surfaced, not reported as "analysis hasn't run".
 3. If exposures exist, present a batch linking table:
    ```
    ## Exposure-to-Countermeasure Linking
