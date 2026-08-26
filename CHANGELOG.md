@@ -5,6 +5,100 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-26
+
+Entitled code arrives on the deployment. The console could already mount content packages, whose
+bytes the platform fetches per request; it can now install a signed **artifact** — code delivered
+once, verified before it is placed, loaded from disk thereafter. Alongside it: a knowledge-graph
+access contract that answers identically from a local graph or a remote service, a batch of
+correctness fixes in the plugin and the editor, and a deployment fix without which the bundle does
+not start on Docker Desktop at all. Compared against the previous tag, `v0.6.1`.
+
+**Upgrading:** take the new bundle. If your database currently starts, this release does not change
+how it runs; if it never did — the container exiting immediately on macOS or Windows, logging only
+its banner — that is the last item under *Fixed* and it is why. Nothing else requires an edit to an
+existing `.env`.
+
+### Added
+
+- **The console installs, reports and removes signed artifacts.** `POST /api/artifacts` fetches a
+  descriptor and an archive from the content service carrying the operator's own access token on its
+  own header — the console holds no credential of its own for this and keeps nothing between
+  requests. The archive is verified against an identity **derived from the key and version that were
+  requested**, never from anything the service returned, and the stamp inside the payload must name
+  the same two. Signing is keyless: there is no key to distribute, nothing to rotate, and no
+  override. A tampered archive, an unverifiable one, or one carrying another version's valid
+  signature is refused and nothing is placed. What is installed is discovered by scanning the
+  modules directory rather than tracked in a ledger, so a scan cannot disagree with the disk.
+- **A knowledge-graph access contract with two implementations.** `KgClient` is a closed set of
+  named, keyed, batch-shaped queries — never raw Cypher, never an unkeyed enumeration — and a
+  consumer cannot tell whether it is being answered from the deployment's own graph or from an HTTP
+  service. One contract suite runs against both to prove they answer alike. `createKgClient` selects
+  from configuration rather than introspection: a base URL with a valid digest gives the remote
+  implementation, a base URL with a missing or malformed one reports unavailable and logs the
+  misconfiguration once, and no base URL at all gives the local implementation.
+- **Disconnecting from the cloud now asks first, and takes the cloud's modules with it.** A
+  deployment the console reports as pure open-source while it still serves cloud-provided modules is
+  not one. The disconnect removes every module the console placed — content mounts, installed
+  artifacts, the knowledge-graph connection — each identified by the marker file written beside it,
+  and never touches a directory it did not write. The console deletes files and issues no database
+  command; what the platform does with a module it no longer finds is stated in the confirmation
+  before anything is removed.
+
+### Fixed
+
+- **The database could not start on Docker Desktop.** A default deployment on macOS or Windows
+  failed on first `up`, and the error named the wrong file: a permission failure writing
+  `/var/log/memgraph`. The real fault was ownership. The database refuses a data directory it does
+  not own — an ownership comparison, not a permission one — and the control script answered that
+  question from the container engine's *name*: the operator's own uid under Docker. That holds for
+  Docker Engine on Linux, where uids pass through to a bind mount, and is false on Docker Desktop,
+  whose file-sharing layer presents every bind mount as root-owned. Handed a uid that could never
+  match, the database also could not report it, because a non-root uid cannot write the log
+  directory either — so the assertion had nowhere to go. The script now asks the engine directly,
+  with a short-lived container that reports the owner as the container sees it. Mounting a writable
+  log directory fixes neither half; correcting the uid fixes both.
+- **The console told operators their callback URLs were already registered.** The text sat directly
+  beneath a box containing two callback URLs and said local development addresses are always
+  accepted and not listed there — wrong twice over, since the reader is looking at exactly the thing
+  it claims is not shown, and only specific host, port and path combinations are registered. A
+  reader who believed it skipped the step; the failure then lands at the identity provider, where
+  nothing in the operator's own logs explains it. It now says to paste both and save, without
+  exception. The same sentence has been corrected in the connect procedure of the documentation.
+- **A second delete never opened its dialog.** Deleting a second component from the data-flow
+  settings panel silently did nothing until a page reload. The panel raised its own flag while the
+  confirm dialog closed itself internally, leaving flag and visible state disagreeing; the next
+  delete then assigned `true` to a ref already holding `true`, which is not a reactive change, so
+  nothing remounted and no watcher fired.
+- **Class binding ignored component type.** A component class is bound to exactly one component
+  type, but a PROCESS component could be offered — and successfully assigned — a STORE class. The
+  exposures and countermeasures instantiated from that class then described something the element is
+  not. Both directions of the hole are closed, and the error taxonomy documents the constraint.
+- **The plugin reported success for work that did not happen.** An audit surfaced a recurring shape
+  — an operation claiming to have done something it had not, or a metric measuring a proxy rather
+  than the thing it is named after — and the confirmed instances are fixed. Attribute stubs were
+  seeded with each field's schema default instead of null, so the enrichment checklist skipped them
+  by construction and shipped an assertion nobody had made. A follow-up guards every path that can
+  destroy an attribute file, not just the one the first pass covered.
+- **Every URL-shaped recipe value is held to its contract.** The scheme check constrains scheme
+  alone — https, or http only on loopback — and never the destination, which is the product rather
+  than a defect: a recipe names the cloud service a deployment talks to. Refusing redirects is the
+  control that matters when the host is caller-nameable by design, and the comments on that path now
+  say so rather than asserting a property the code does not have.
+- **The signer refusal named only one spelling of a workflow file.** The pattern accepts both
+  extensions; the message mentioned one, sending an operator to check a value that was already
+  correct.
+
+### Documentation
+
+- The console's public documentation describes the artifact install, its routes and its second
+  credential — the previous set described a daemon with three responsibilities and listed eleven of
+  its sixteen routes, and the credential inventory predated both a second credential and an outbound
+  trust boundary.
+- The plugin's nineteen documents were audited against source; eighty-four discrepancies were
+  raised, seventeen refuted as design records or misreadings, and the rest applied — each
+  re-verified before it was written.
+
 ## [0.6.1] - 2026-08-14
 
 A deployment fix. The bundle shipped in 0.6.0 does not start under Podman when Podman's own
@@ -543,6 +637,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.7.0]: https://github.com/dether-net/dethernety-oss/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/dether-net/dethernety-oss/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dether-net/dethernety-oss/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dether-net/dethernety-oss/compare/v0.4.0...v0.5.0
