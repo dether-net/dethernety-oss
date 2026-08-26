@@ -252,7 +252,7 @@ Components can be configured in two ways:
 2. Choose from available component classes provided by **modules assigned to the model**
 3. Select the most appropriate class for your component (e.g., "Web Application Server", "Apache HTTP Server")
 
-**Note**: The available classes depend on which modules were assigned to the model during creation. If you don't see expected classes, check the model's module assignments.
+**Note**: The classes offered for a component depend on two things — which modules were assigned to the model during creation, and the component's own type. Every component class is written for exactly one type, so a class written for a **Store** is never offered to a **Process** component: not in the suggestions, not in the search results, and not in the recently used list. If you don't see a class you expect, check the model's module assignments first, then check whether the class was written for this component's type (**Process**, **Store**, or **External Entity**). A class written for a different type cannot be used on this component — choose one that matches its type instead.
 
 **Option 1a: AI-Generated Class Creation**
 If no existing class fits your specific requirements, you can create a custom class using Dethernety's AI capabilities:
