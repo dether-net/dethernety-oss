@@ -152,6 +152,15 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 		sort.Strings(missing)
 		return nil, nil, fmt.Errorf("recipe is missing required variables: %s", strings.Join(missing, ", "))
 	}
+	// The redirect is request-supplied on the paste path, and this function both writes it verbatim and
+	// derives ALLOWED_ORIGINS from it — so it is checked here, alongside every other value this function
+	// writes, rather than only where it happens to be called from. cloudApply checks it first as well,
+	// to answer 400 before the recipe is parsed, and that stays: this is the same reasoning
+	// cloudContentBase records for re-checking on read, that a check living only at one call site is a
+	// property of that call site rather than of the value.
+	if err := validateRedirectURI(redirectURI); err != nil {
+		return nil, nil, err
+	}
 	// Console-supplied and derived. NODE_ENV is mode-dependent and only the console sets it.
 	vars["NODE_ENV"] = "production"
 	vars["OIDC_REDIRECT_URI"] = redirectURI
@@ -159,7 +168,8 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 	// ALLOWED_ORIGINS is the browser origin the platform must accept for CORS in production. The
 	// platform's production validation requires it, and it is not a recipe value — it is the origin of
 	// the fixed front-door redirect (the deployment's own front door), which only the console knows.
-	// Derived here so it stays in step with OIDC_REDIRECT_URI on the paste path.
+	// Derived here so it stays in step with OIDC_REDIRECT_URI, and derived only after the check above,
+	// so no origin is ever computed from a redirect this function would reject.
 	origin, err := redirectOrigin(redirectURI)
 	if err != nil {
 		return nil, nil, err
@@ -299,6 +309,19 @@ func secureURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("must be an absolute URL with a host")
 	}
+	// Userinfo is refused for the reason artifactSignerPrefix's comment gives above: url.Parse lifts
+	// "user@" into u.User and leaves u.Host clean, so every check here passes a value that READS as one
+	// host and RESOLVES to another. On its own that buys a hostile recipe nothing — this function
+	// constrains the host not at all, and u.Hostname() already strips userinfo before the loopback
+	// comparison, so the http exception is not widened either. It is refused because the producer's
+	// bare-host contract refuses "@" and these are two ends of one contract, and because a value that
+	// misrepresents where it points is worth refusing wherever it is later shown or logged. Go's
+	// net/http would also turn it into an Authorization: Basic header on any request made to this base.
+	// Note this is a LITERAL "@": the percent-encoded form passes every check here and at the producer,
+	// and is refused by the browser instead, which throws on the URL rather than resolving it anywhere.
+	if u.User != nil {
+		return fmt.Errorf(`must not carry userinfo (a "user@" prefix)`)
+	}
 	switch u.Scheme {
 	case "https":
 		return nil
@@ -316,7 +339,8 @@ func secureURL(raw string) error {
 // endpoints, the content service base, and the knowledge-graph service base. cloudModeVars holds each
 // to secureURL so a pasted recipe cannot point the platform's identity checks, or a module's fetches,
 // at a plaintext or off-box host. OIDC_DOMAIN is excluded — it is a bare hosted-UI hostname, not a URL
-// — and OIDC_REDIRECT_URI is validated separately at the paste, where the operator confirms it.
+// — and OIDC_REDIRECT_URI is held to secureURL through validateRedirectURI rather than through this
+// list, both at the paste, where the operator confirms it, and in cloudModeVars itself.
 //
 // MODULE_KG_BASE_URL is checked here for a second reason as well: the console itself fetches the
 // version listing from that host during an apply, so this is the check that stands between a pasted
