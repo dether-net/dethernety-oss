@@ -40,8 +40,8 @@ Each state represents a maturity level. The guided workflow advances through the
 | 5 | Data Flow Mapping | Connect components, add operational flows; ratify risk-bearing crossings as approved channels | ENRICHING |
 | — | *Session Break* | *Checkpoint — resume later or continue* | — |
 | 6 | Classification | Classify remaining elements, tag crown jewels | ENRICHING |
-| 7 | Data Item Classification | Classify sensitive data on flows; promote qualifying boundaries to RESTRICTED | ENRICHING |
-| 8 | Enrichment | Security attributes, credentials, MITRE | ENRICHING |
+| 7 | Data Item Classification | Classify sensitive data on flows; promote qualifying boundaries to Restricted | ENRICHING |
+| 8 | Enrichment | Class-template attributes, security floor, credentials | ENRICHING |
 | 9 | Validation | Quality score, gate checks, readiness; advisory zoning-coherence findings | REVIEWED |
 | 10 | Sync | Push to platform | REVIEWED |
 | 11 | Post-Sync Linking | Link countermeasures to exposures | REVIEWED |
@@ -234,7 +234,43 @@ The plugin checks for structural issues:
 - Flat hierarchy (no nesting — consider sub-boundaries)
 - External entities inside internal boundaries
 
-For each boundary, it prompts for enforcement attributes:
+#### One gate, two tables
+
+Both decisions — the **trust skeleton** (zone + plane) and the **enforcement posture** — are settled in a single batched accept-all / adjust gate. There is no per-boundary interrogation. The plugin computes the proposal; it never silently sets it:
+
+```
+## Boundary Refinement
+
+Trust classification (proposed from discovery + scope)
+| Boundary    | Zone            | Role (plane) | Resolved              |
+|-------------|-----------------|--------------|-----------------------|
+| Edge / DMZ  | DMZ       [hi]  | Workload     | declared              |
+| App Tier    | Internal        | Workload     | declared              |
+| payment-db  | Internal        | Workload     | declared              |
+| Logging     | —               | Undecided    | inherited · App Tier  |
+
+Enforcement posture
+| Boundary    | Implicit deny   | Any inbound  | Egress                |
+| …           | …               | …            | …                     |
+
+Proposed from discovery + scope. Accept all, or adjust specific rows?
+```
+
+**Zones are shown by display name, never by their stored value.** The table says "Open internet", "DMZ", "Internal", "Restricted" — `UNTRUSTED`, `EXPOSED`, `INTERNAL`, `RESTRICTED` are what lands in `structure.json`, and you will only see them if you open the file. The mapping is in the [Glossary](GLOSSARY.md#trust-zoning-and-conduits).
+
+**Scan the Resolved column.** It is the one column worth reading row by row, and it is a glyph rather than prose:
+
+| Resolved | Meaning |
+|----------|---------|
+| `⬆` | Declared **and stricter than its parent** — the case to catch |
+| A plain zone name | Declared on this boundary |
+| `· inherited · <ancestor>` | Resolves from a named ancestor, not declared here |
+| `—` | Unclassified; counted in the Step 9 review |
+| `— structural` | A container that nests other boundaries; it abstains and is not counted |
+
+The other columns: **Zone** carries an inline `[hi/med/lo]` confidence from discovery when there was a topology signal to go on. **Role (plane)** is `Workload` or `Management`, defaulting to **Undecided** — which is not the same as Workload. A boundary that is both carries an inline ⚠.
+
+The enforcement posture table carries three attributes:
 
 | Attribute | Options | What It Means |
 |-----------|---------|--------------|
@@ -242,31 +278,24 @@ For each boundary, it prompts for enforcement attributes:
 | `allow_any_inbound` | true / false | Boundary allows unrestricted inbound |
 | `egress_filtering` | deny_all / allow_list / allow_all / unknown | Outbound traffic policy |
 
-#### Trust skeleton — zones and planes
+Notes on how zones behave here:
 
-The plugin then proposes a **trust zone** and **operational plane** for each *leaf* boundary and asks you to ratify them in a single batched accept-all / adjust gate — it computes the proposal, it never silently sets it:
-
-```
-Trust skeleton (accept all / adjust):
-| Boundary        | Proposed zone | Plane      |
-|-----------------|---------------|------------|
-| External        | UNTRUSTED     | —          |
-| DMZ             | EXPOSED       | WORKLOAD   |
-| Internal Network| INTERNAL      | WORKLOAD   |
-| Data Tier       | INTERNAL      | WORKLOAD   |
-| — VPC (wrapper) | — structural  | —          |
-
-Accept all, or adjust rows?
-```
-
-- **Zones** place each boundary on the exposure gradient (`UNTRUSTED` / `PUBLIC` / `EXPOSED` / `INTERNAL` / `RESTRICTED` / `VENDOR`). A boundary you leave unset **inherits** its nearest declaring ancestor's zone, falling back to `INTERNAL`.
+- A boundary you leave unset **inherits** its nearest declaring ancestor's zone, falling back to Internal.
 - **Structural containers abstain.** A boundary that only nests other boundaries renders `— structural` and is not nagged — zone the leaves inside it, not the wrapper.
-- This is the **skeleton** phase: it sets external, exposed, and internal tiers but **defers `RESTRICTED`**, which needs asset classification (promoted at Step 7).
+- This is the **skeleton** phase: it sets the external, exposed, and internal tiers but **defers Restricted**, which needs asset classification (promoted at Step 7).
+- **Proposed is not set.** Only rows you accept are written. An unconfirmed boundary keeps no zone and shows up in the Step 9 unclassified count.
+- A row already marked `declared` was ratified by you earlier and is never re-proposed, including on resume.
 - Identity, compute-node, location, and business grouping are steered to `domains` / `planes` **tags**, not zone-bearing boundaries.
 
 For the concepts and the GUI equivalent, see [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md).
 
-**Auto-skip:** If the boundary hierarchy is already well-structured (depth >= 2, no single-child boundaries, no external entities in internal boundaries), this step shows "Boundary hierarchy is well-structured" and skips automatically. You can still jump to Step 4 explicitly if needed.
+**Auto-skip:** This step skips only when the hierarchy is already well-structured (depth >= 2, no single-child boundaries, no external entities in internal boundaries) **and** there are no zone proposals left to ratify:
+
+```
+Boundary hierarchy is well-structured (quality factor: 1.0), no zone proposals pending. Skipping refinement.
+```
+
+On a freshly discovered model, discovery almost always produces zone proposals — so expect a well-structured model to still stop here for the trust table. That is the trust skeleton doing its job, not the workflow ignoring your structure. You can also jump to Step 4 explicitly at any time.
 
 **State after:** STRUCTURE_COMPLETE
 
@@ -388,20 +417,25 @@ Sensitivity levels:
 
 Compliance drivers from your scope definition inform the regulatory mapping.
 
-#### RESTRICTED promotion
+#### Restricted promotion
 
-Now that assets and sensitive data are classified, the plugin re-runs the trust determination it deferred at Step 4 and proposes promoting qualifying boundaries to **`RESTRICTED`** — the strictest tier, for boundaries that hold high-value assets and take ingress only from other trusted tiers. Promotions are folded into a batched confirm:
+Now that assets and sensitive data are classified, the plugin re-runs the trust determination it deferred at Step 4 and proposes promoting qualifying boundaries to **Restricted** — the strictest tier, for boundaries that hold high-value assets and take ingress only from other trusted tiers. Promotions are folded into a batched confirm:
 
 ```
-Promote to RESTRICTED (assets now classified)?
-| Boundary   | Was      | Now proposed | Because                         |
-|------------|----------|--------------|---------------------------------|
-| Data Tier  | INTERNAL | RESTRICTED   | holds cardholder data           |
+## Restricted promotion — completing the trust skeleton
 
-Confirm promotions?
+The promotion we deferred at Step 4: now that data sensitivity and the flow graph exist, these
+Internal boundaries qualify for Restricted. This is a safe-direction change (Internal → Restricted)
+— tightening only; declared zones are never loosened or overwritten.
+
+| Boundary   | Now      | → Proposed | Why                                               |
+|------------|----------|------------|---------------------------------------------------|
+| payment-db | Internal | Restricted | holds Card data (PCI), ingress only from App Tier |
+
+Promote all, or adjust?
 ```
 
-A zone you ratified by hand at Step 4 is never overwritten. If a boundary holds an asset but resolves looser than `RESTRICTED`, that surfaces as an `under-protected` finding at Step 9.
+This only ever tightens. A boundary you declared Internet-facing, DMZ, Open internet, or Trusted external is never offered here — exposure outranks asset pull. A boundary you declared Internal *is* offered, but only ever proposed: nothing is written unless you confirm it this turn. If a boundary holds an asset but cannot qualify — it is reachable from a DMZ, or vendor-touched — it stays Internal and surfaces as an `under-protected` finding at Step 9.
 
 **State:** No transition — already at ENRICHING.
 
@@ -409,26 +443,25 @@ A zone you ratified by hand at Step 4 is never overwritten. If a boundary holds 
 
 ## Step 8: Enrichment
 
-The most intensive step. The plugin delegates to the **security-enricher** agent, which populates security attributes for every component:
+The most intensive step, and the one hardest to size in advance. The plugin delegates to the **security-enricher** agent.
 
-**6 key attributes per component:**
-1. Authentication — OAuth2, JWT, mTLS, API key, none
-2. Encryption in transit — TLS 1.3, TLS 1.2, mTLS, none
-3. Encryption at rest — AES-256, none, unknown
-4. Logging — access logging, audit logging, centralized
-5. Access control — RBAC, ABAC, ACL, none
-6. Log telemetry — SIEM, CloudWatch, local, none
+**Class templates set the workload.** The bulk of the pass walks every field of each element's class template — the stubs written during classification, each field seeded to `null` — and resolves all of them. That means the questions differ per element (a Database is asked about `ssl_enabled`, `password_encryption`, `log_connections`; other classes ask about other things), and the volume scales with your class templates, not with a fixed list. Values the enricher can find in your code, IaC, or config it fills in itself and shows you for confirmation; it asks only about the rest.
+
+**Then a six-attribute floor** is applied to every in-scope component, whatever its class template covered: `authentication_type`, `encryption_in_transit`, `encryption_at_rest`, `implicit_deny_enabled`, and `monitoring_tools` (logging is captured by the class template and has no floor key). Two of these are not free-text choices — `implicit_deny_enabled` is a boolean and `monitoring_tools` is a list — and the key names are read literally by the quality score and the surface report. See [The Six-Attribute Floor](DISCOVERY_AND_ENRICHMENT.md#the-six-attribute-floor) for the exact spellings and accepted values.
 
 **Additional enrichment:**
-- **Credential topology** — which components share credentials, where service accounts are used
-- **MITRE ATT&CK mapping** — relevant attack techniques per component (verified against the platform, never generated from memory)
+- **Credential topology** — captured flow by flow: which credential authenticates each cross-boundary flow, and what else that credential reaches
 - **Monitoring tools** — SIEM, EDR, NDR coverage per component
 - **Auth failure modes** — what happens when authentication fails (deny, fallback, fail_open)
 - **Boundary enforcement** — implicit deny, egress filtering per boundary
 
+MITRE ATT&CK techniques are **not** written during this step. Technique coverage is derived on the platform from analysis exposures — see [Discovery and Enrichment Part 3](DISCOVERY_AND_ENRICHMENT.md#part-3-mitre-attck-and-d3fend-integration).
+
 If stale elements exist (from a backward transition), they're enriched first.
 
-**Control assignment is a separate pass.** The default Step 8 enrichment populates the 6 attributes + credentials + MITRE + monitoring. Assigning reusable security Controls (e.g., "Database Encryption Package") to elements is a follow-up pass invoked as `/dethereal:enrich --focus controls` — its own 40-turn budget, auto-pulls referenced Controls, and queues `pendingEdit` blocks for the next push. See [Discovery and Enrichment Part 4](DISCOVERY_AND_ENRICHMENT.md#part-4-control-enrichment).
+The enricher runs without being able to ask you directly, so it returns its work for one batched review: the values it set, plus an explicit **"Operator confirmations needed"** list of everything it took on a defensive default or could not find in code. Accept all or adjust specific rows — nothing is silently accepted on your behalf.
+
+**Control assignment is a separate pass.** The default Step 8 enrichment covers template attributes, the six-attribute floor, credentials, and monitoring. Assigning reusable security Controls (e.g., "Database Encryption Package") to elements is a follow-up pass invoked as `/dethereal:enrich --focus controls` — its own 40-turn budget, auto-pulls referenced Controls, and queues `pendingEdit` blocks for the next push. See [Discovery and Enrichment Part 4](DISCOVERY_AND_ENRICHMENT.md#part-4-control-enrichment).
 
 For details on the enrichment process, see [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md).
 
@@ -506,6 +539,17 @@ Not authenticated. Run /dethereal:login first, or skip sync for now.
 
 If you skip, the workflow jumps to README generation and finishes without sync.
 
+### Push Consent
+
+Authentication is **not** the last decision point. Passing the auth check — including on a platform running with auth disabled, which counts as authenticated — is permission to *reach* the platform, not permission to publish this model. Before anything is pushed, the plugin asks:
+
+```
+Model passed Gate 2 and is ready to publish to <platform URL>.
+Push to platform now? (push / skip — resume later with /dethereal:sync push)
+```
+
+Answer **skip** to finish the workflow locally and publish later with `/dethereal:sync push`. This is the way to hold a sensitive model back — you do not have to stay logged out, and it works the same on a no-auth platform. The workflow never pushes on your behalf just because authentication succeeded.
+
 ### The Push
 
 - **First push** (no platform model ID): creates a new model on the platform
@@ -520,7 +564,7 @@ Server IDs written to local files.
 Commit these changes to preserve sync state.
 ```
 
-**Control-library prompts.** If you ran the control pass (`/dethereal:enrich --focus controls`) and have edits to brownfield Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you confirm `cancel | push-anyway | push-unverified | clone-and-swap` per Control. Decisions land in `.dethereal/control-audit.log`. If someone else changed a Control on the platform between your pull and push, the push aborts with `EXTERNAL_EDIT_DETECTED`; recover with `/dethereal:sync promote-external-edit <controlId> <classId>`.
+**Control-library prompts.** If you ran the control pass (`/dethereal:enrich --focus controls`) and have edits to brownfield Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you confirm `cancel`, `push-anyway`, or `push-unverified` per Control. (`clone-and-swap` is a planned V1.1 option; choosing it today returns `CLONE_AND_SWAP_NOT_IMPLEMENTED`. The V1 equivalent is `cancel`, then create a separate Control with `/dethereal:enrich --focus controls`. `push-anyway` and `push-unverified` both **overwrite the shared Control on every model that references it** — the opposite of what you wanted if you reached for clone-and-swap.) Decisions land in `.dethereal/control-audit.log`. If someone else changed a Control on the platform between your pull and push, the push aborts with `EXTERNAL_EDIT_DETECTED`; recover with `/dethereal:sync promote-external-edit <controlId> <classId>`.
 
 For details on sync, conflicts, and version control, see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md).
 

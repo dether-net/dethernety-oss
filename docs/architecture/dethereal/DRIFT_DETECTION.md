@@ -81,6 +81,8 @@ In a non-git folder, neither writer fires (both check `git rev-parse HEAD` and o
 
 `.dethereal/state.json` is read and written as raw JSON from skill bodies via `Read` / `Edit` / `Write`. The field is documented as an optional schema entry in [`docs/guidelines-core.md`](../../../apps/dethereal/docs/guidelines-core.md) alongside the other state-file fields (`currentState`, `completedStates`, `staleElements`, `model_signed_off`). `mcp__plugin_dethereal_dethereal__validate_model_json` does not validate `state.json`, only the model-data files.
 
+**The MCP server is a third writer of the file, but never of this field.** When a push mints platform IDs for locally created elements, the server re-keys `state.json`'s `staleElements[]` onto the new IDs — see [THREAT_MODELING_WORKFLOW.md §Methodology State Machine](THREAT_MODELING_WORKFLOW.md#methodology-state-machine). It parses the file, rewrites that one array, and writes it back with every other key preserved, so `lastReconcileCommit` survives untouched. A missing, unreadable, or non-JSON `state.json` is left alone rather than recreated. The drift baseline is therefore still the two writers above, and still the only persisted detection state — but a handler that assumes skill bodies are the only thing that ever opens this file is wrong.
+
 ## Reconciliation
 
 ### Mechanism

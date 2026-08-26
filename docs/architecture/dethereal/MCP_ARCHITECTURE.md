@@ -1,6 +1,6 @@
-# Dethereal MCP Server -- Target Architecture
+# Dethereal MCP Server Architecture
 
-> Target architecture for the Dethereal MCP server. Replaces [ARCHITECTURE.md](ARCHITECTURE.md) (current implementation) once the upgrade is complete.
+> Architecture of the Dethereal MCP server. Supersedes [ARCHITECTURE.md](ARCHITECTURE.md), which is retained as a pre-upgrade snapshot. §11 records the migration that produced this architecture and is kept as a design record.
 
 ## Table of Contents
 
@@ -104,18 +104,19 @@
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                         │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                            Tool Registry (20 tools)                    │  │
+│  │                            Tool Registry (22 tools)                    │  │
 │  │  ┌─────────────────────┐  ┌─────────────────────────────────────────┐  │  │
 │  │  │ Client-Free Tools   │  │ Client-Dependent Tools                  │  │  │
 │  │  │ • login             │  │ • import_model    • get_classes         │  │  │
 │  │  │ • logout            │  │ • export_model    • update_attributes   │  │  │
 │  │  │ • refresh_token     │  │ • update_model    • generate_attribute_ │  │  │
-│  │  │ • validate_model    │  │ • create_threat_    stubs               │  │  │
-│  │  │ • get_model_schema  │  │   model           • manage_exposures    │  │  │
-│  │  │ • get_example_models│  │ • list_models     • manage_controls     │  │  │
-│  │  │                     │  │ • search_mitre_   • manage_counter-     │  │  │
+│  │  │ • validate_model_   │  │ • create_threat_    stubs               │  │  │
+│  │  │   json              │  │   model           • manage_exposures    │  │  │
+│  │  │ • get_model_schema  │  │ • list_models     • manage_controls     │  │  │
+│  │  │ • get_example_models│  │ • search_mitre_   • manage_counter-     │  │  │
 │  │  │                     │  │   attack            measures            │  │  │
 │  │  │                     │  │ • get_mitre_defend• manage_analyses     │  │  │
+│  │  │                     │  │ • match_classes   • get_control_gaps    │  │  │
 │  │  └─────────────────────┘  └─────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                         │
@@ -177,7 +178,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools: allTools.map(tool => ({
     name: tool.name,
     description: tool.description,
-    inputSchema: zodToJsonSchema(tool.inputSchema)
+    // Zod 4 emits the JSON Schema directly; the server then forwards ONLY
+    // { type, properties, required } — top-level keywords such as `$ref` or the
+    // `allOf` a cross-field refinement produces are dropped before the client
+    // sees them, so tool inputs must be expressible as a flat property bag.
+    inputSchema: unwrapProperties(z.toJSONSchema(tool.inputSchema, { target: 'draft-07' }))
   }))}
 })
 
@@ -195,12 +200,16 @@ await server.connect(transport)
 
 ### Base Tool Classes (`src/tools/base-tool.ts`)
 
-Abstract base classes define the tool interface. All 20 tools extend one of two concrete base classes:
+Abstract base classes define the tool interface. All 22 tools extend one of two concrete base classes:
 
 ```typescript
 export interface ToolContext {
   apolloClient?: ApolloClient<NormalizedCacheObject>
+  /** Why `apolloClient` is absent, when it is — see §5 step 4 */
+  clientUnavailableReason?: string
   token?: string
+  /** JWT-anchored operator identity, decoded from the token's `email`/`sub` claim */
+  authnOperator?: string
   debug: boolean
 }
 
@@ -236,11 +245,11 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 | **Reference** | `get_model_schema`, `get_example_models` | `ClientFreeTool` | 2 |
 | **Validation** | `validate_model_json` | `ClientFreeTool` | 1 |
 | **Model CRUD** | `create_threat_model`, `import_model`, `export_model`, `update_model`, `list_models` | `ClientDependentTool` | 5 |
-| **Element Management** | `get_classes`, `update_attributes`, `generate_attribute_stubs` | `ClientDependentTool` | 3 |
+| **Element Management** | `get_classes`, `match_classes`, `update_attributes`, `generate_attribute_stubs` | `ClientDependentTool` | 4 |
 | **MITRE Frameworks** | `search_mitre_attack`, `get_mitre_defend` | `ClientDependentTool` | 2 |
-| **Security Elements** | `manage_exposures`, `manage_controls`, `manage_countermeasures` | `ClientDependentTool` | 3 |
+| **Security Elements** | `manage_exposures`, `manage_controls`, `manage_countermeasures`, `get_control_gaps` | `ClientDependentTool` | 4 |
 | **Analysis** | `manage_analyses` | `ClientDependentTool` | 1 |
-| **Total** | | | **20** |
+| **Total** | | | **22** |
 
 ### Source Directory Layout
 
@@ -275,13 +284,16 @@ oss/apps/dethereal/src/
 │   ├── update-model.tool.ts        # update_model
 │   ├── update-attributes.tool.ts   # update_attributes
 │   ├── get-classes.tool.ts         # get_classes
+│   ├── match-classes.tool.ts       # match_classes
+│   ├── generate-attribute-stubs.tool.ts # generate_attribute_stubs
 │   ├── list-models.tool.ts         # list_models (NEW)
 │   ├── search-mitre-attack.tool.ts # search_mitre_attack (NEW)
 │   ├── get-mitre-defend.tool.ts    # get_mitre_defend (NEW)
 │   ├── manage-exposures.tool.ts    # manage_exposures (NEW)
 │   ├── manage-controls.tool.ts     # manage_controls (NEW)
 │   ├── manage-countermeasures.tool.ts # manage_countermeasures (NEW)
-│   └── manage-analyses.tool.ts     # manage_analyses (NEW)
+│   ├── manage-analyses.tool.ts     # manage_analyses (NEW)
+│   └── get-control-gaps.tool.ts    # get_control_gaps
 ├── utils/
 │   ├── directory-utils.ts          # Read/write model directories
 │   ├── file-utils.ts               # Path operations, JSON I/O, backups
@@ -387,8 +399,9 @@ In this mode:
 ```typescript
 // Token storage structure (~/.dethernety/tokens.json)
 // Keyed by platform URL to prevent cross-instance token confusion (D61)
-interface TokenStore {
-  [platformUrl: string]: StoredTokens
+interface TokenFile {
+  version: number
+  tokens: Record<string, StoredTokens>   // keyed by platform URL
 }
 
 interface StoredTokens {
@@ -396,7 +409,10 @@ interface StoredTokens {
   idToken: string
   refreshToken: string
   expiresAt: number  // Unix timestamp (milliseconds)
-  tokenType: string
+  baseUrl: string    // Platform these tokens belong to
+  storedAt: number   // When the tokens were last written (reset on every save)
+  issuedAt?: number  // When the CURRENT refresh token was issued; refresh-token
+                     // validity is measured from issuance, not from storedAt
 }
 
 // Token resolution for authenticated requests:
@@ -453,9 +469,11 @@ The `getIdToken()` function implements this chain:
    │
    ▼
 4. Check client requirement
-   ├─ If requiresClient && !apolloClient
-   │  └─ Return structured error: { error: "Authentication required",
-   │     message: "...", hint: "Use the login tool to authenticate" }
+   ├─ If requiresClient && !apolloClient — branch on context.clientUnavailableReason:
+   │  ├─ Reason set: { error: "Platform client unavailable", message: <reason>, tool }
+   │  │  (the token was usable — /config unreachable or malformed, or auth-disabled
+   │  │   mode; re-login cannot fix this and `login` answers "No login needed")
+   │  └─ No reason: { error: "Authentication required", message: "...", tool }
    └─ Continue if satisfied (always satisfied when authDisabled)
    │
    ▼
@@ -499,7 +517,9 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
     const result = await dtImportSplit.importSplitModel(splitModel)
 
     // 4. Post-process (write IDs back to files)
-    await applyIdMapping(input.directory_path, result.idMapping)
+    // modelId is required — it stamps manifest.model.id, which update_model
+    // and the sync push path read back later.
+    await applyIdMapping(input.directory_path, result.idMapping, result.model.id)
 
     // 5. Return structured result
     return { success: true, data: { model_id: result.model.id, ... } }
@@ -541,6 +561,7 @@ MCP tool errors propagate to the agent via `ToolResult`. Agent prompts include h
 | Error Type | Agent Behavior |
 |------------|---------------|
 | **Auth errors** ("Authentication required") | Agent suggests `/dethereal:login` and retries |
+| **Client unavailable** ("Platform client unavailable") | Re-login cannot help — agent surfaces `message` and checks the platform URL and `/config` reachability |
 | **Validation errors** (Zod parse failure) | Agent presents errors to user with suggested fixes |
 | **Network errors** (platform unreachable) | Agent retries once after 5 seconds, then reports to user |
 | **Platform errors** (GraphQL 500) | Agent reports to user without retry |
@@ -626,14 +647,34 @@ Offline structural validation, quality scoring, control-coverage analysis, and b
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientFreeTool` |
-| **Input** | `{ action: 'validate' \| 'quality' \| 'coverage' \| 'zoning', directory_path: string, assets?: 'full' \| 'skeleton', model_id? }` |
+| **Input** | `{ action?: 'validate' \| 'quality' \| 'coverage' \| 'zoning' (default `validate`), directory_path?: string, data?: string \| object, file_type?: 'manifest' \| 'structure' \| 'dataflows' \| 'data-items' \| 'attributes', assets?: 'full' \| 'skeleton', model_id? }` |
 | **Output** | Validation errors (`validate`), quality score breakdown (`quality`), coverage summary (`coverage`), or per-boundary trust determination + advisory findings (`zoning`) |
 | **dt-core class** | None for `validate`/`quality`/`zoning` (local file computation; zoning runs the `dt-boundary` determination engine); `DtControl` for online `coverage` |
 
 - `validate`: Structural checks — required fields, ID uniqueness, reference integrity, schema compliance. Includes conduit `peerId` integrity (peer must be a known boundary; self-conduits and lone-inbound conduits are rejected, so `validate` matches what the OUTBOUND-canonical write can persist).
-- `quality`: Quality score computation using the formula from THREAT_MODELING_WORKFLOW.md (component classification rate, attribute completion, boundary hierarchy quality, data flow coverage, data classification, control coverage, credential coverage)
+- `quality`: Quality score computation using the formula from THREAT_MODELING_WORKFLOW.md (component classification rate, attribute completion, boundary hierarchy quality, data flow coverage, data classification, control coverage, credential coverage). The payload also carries a top-level `attribute_residual` — see below.
 - `coverage`: Control-coverage analysis — online (authoritative MITRE-chain, requires `model_id` + auth) or offline (assignment heuristic from local files)
+Either `directory_path` or `data` must be supplied. `directory_path` validates the whole model directory and takes precedence; `data` validates a single file inline (a JSON string or an already-parsed object), with `file_type` naming which schema to apply. `quality` and `zoning` require `directory_path`.
+
 - `zoning`: Offline per-boundary trust determination — computes each boundary's `{ declaredZone, resolvedZone, proposedTier, structural, summary? }` plus advisory coherence findings, entirely over the local files (the plugin computes; it never asks the LLM to walk the tree). The `assets` parameter selects the phase: `skeleton` sets external + exposure + `INTERNAL` and defers `RESTRICTED` (the Step-4 trust skeleton), `full` (default) is the close-of-Step-7 / Step-9 determination where qualifying `INTERNAL` boundaries promote to `RESTRICTED`. See [TRUST_ZONING.md](TRUST_ZONING.md) for the cascade, the six finding kinds, and the guided-workflow ratification points.
+
+**`quality` -> `attribute_residual`.** The enrichment worklist that `attribute_completion_rate` compresses into one number:
+
+```typescript
+attribute_residual: {
+  declared: number            // template fields seen across scored elements
+  resolved: number
+  unresolved: number
+  elements_scored: number             // classified, with a cached template
+  elements_unclassified: number       // no class binding — excluded from the ratio
+  elements_without_template: number   // classified, no cached template — excluded
+  basis: 'template' | 'file-presence'
+  blocked: Array<{ element: string; class_id: string }>
+  top_unresolved: Array<{ element: string; class: string; unresolved: number; declared: number; fields: string[] }>
+}
+```
+
+`basis` is load-bearing. It is `template` when the rate was measured against real class template fields, and `file-presence` when no class cache exists and the rate fell back to counting attribute *files*. A consumer that reads only `quality_score` cannot tell a `1.0` that means "fully enriched" from a `1.0` that means "no class cache, so we counted files" — run `generate_attribute_stubs` to populate the cache. `blocked` names the classified elements the ratio could not measure; `top_unresolved` is capped so the payload stays usable on a large model.
 
 ### Model CRUD Tools (Client-Dependent)
 
@@ -670,11 +711,16 @@ Export a platform model to a local directory.
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ model_id: string, directory_path: string }` |
-| **Output** | `{ directory_path: string, element_count: number, warnings: string[] }` |
+| **Input** | `{ model_id: string, directory_path?: string, if_exists?: 'backup' \| 'update' \| 'error' }` |
+| **Output** | `{ model_id: string, name?: string, directory_path: string, backup_path?: string, files_written: string[] }` |
 | **dt-core class** | `DtExportSplit` |
 
-Exports the full model including structure, data flows, data items, attributes, and controls. Writes `sync.json` with pull metadata (content hash, baseline element IDs, referenced models).
+Exports the full model including structure, data flows, data items, and attributes. When `directory_path` is omitted, a directory named after the model ID is created in the current working directory. Writes `sync.json` with pull metadata (`platform_model_id`, `platform_url`, `last_pull_at`, `pull_content_hash`, `baseline_element_ids`).
+
+`if_exists` decides what happens when the target directory already holds a model, and is the only control a caller has over live local work:
+- `backup` (default) — copy the existing directory to a timestamped path, then write; the copy is reported as `backup_path`.
+- `update` — overwrite in place, no copy.
+- `error` — refuse and fail.
 
 #### `update_model`
 
@@ -684,7 +730,7 @@ Update an existing platform model from local files.
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
 | **Input** | `{ model_id: string, directory_path: string, delete_orphaned?: boolean, create_backup?: boolean, disable_source_file_update?: boolean }` |
-| **Output** | `{ updated: true, changes: { added: number, modified: number, removed: number } }` |
+| **Output** | `{ model_id: string, name: string, stats: { created: number, updated: number, deleted: number }, warnings: string[], backup_path?: string, source_files_updated: boolean }` |
 | **dt-core class** | `DtUpdateSplit` |
 
 Applies structural changes (add/remove/modify elements) and attribute updates. The caller (e.g. the `/dethereal:sync` push path) resolves `model_id` from `manifest.model.id`. Optional flags:
@@ -700,10 +746,10 @@ List threat models on the platform.
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
 | **Input** | `{ folder_id?: string, name?: string }` |
-| **Output** | `{ models: Array<{ id, name, description, folder_id }> }` |
+| **Output** | `{ models: Array<{ id: string, name: string, description?: string }>, total: number }` |
 | **dt-core class** | `DtModel` |
 
-Wraps `DtModel.getModels()`. The `name` filter is applied client-side after fetching (the backend API only supports `folderId` filtering). Used during workflow Step 4 for `representedModel` linking via `getNotRepreseningModels(modelId)`.
+Wraps `DtModel.getModels({ folderId })`. The `name` filter is applied client-side after fetching (the backend API only supports `folderId` filtering). Note that `folder_id` is an *input* filter only — it is not echoed back on the result rows, so callers cannot re-filter by folder client-side.
 
 ### Element Management Tools (Client-Dependent)
 
@@ -721,6 +767,23 @@ Query available classes from installed modules.
 - `list` (default): Returns all classes of the specified type (e.g., `DTComponentClass`, `DTControlClass`, `DTDataFlowClass`)
 - `classify_components`: Returns component classes with descriptions optimized for classification matching
 
+#### `match_classes`
+
+Match elements against the class catalog and return ranked candidates.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ elements: Array<{ name: string, type?: string, description?: string }> (1--100), classLabel: 'COMPONENT' \| 'SECURITY_BOUNDARY' \| 'DATA_FLOW' \| 'DATA' \| 'CONTROL', componentType?: 'PROCESS' \| 'STORE' \| 'EXTERNAL_ENTITY', moduleIds?: string[], topN?: number (1--10, default 3), fields?: Array<'description' \| 'category' \| 'type'> }` |
+| **Output** | `{ matches: Array<{ elementName: string, candidates: Array<{ classId, className, classDescription?, classCategory?, classType?, moduleName, matchType, confidence, similarityScore? }> }>, unmatched: string[], total_elements: number, matched_count: number, unmatched_count: number, vector_search_available: boolean, clarification?: string }` |
+| **dt-core class** | `DtClass` |
+
+Runs a multi-priority pipeline — exact name, fuzzy name, vector similarity, type-filtered heuristic — and returns ranked candidates per element. Use this instead of repeated `get_classes` calls when classifying model elements: one call covers up to 100 elements. `componentType` only applies when `classLabel` is `COMPONENT`.
+
+`vector_search_available` reports whether semantic (vector) search exists on the deployment. When it is `false`, matching is name- and type-based only and a human-readable `clarification` is included for the agent to relay.
+
+> **Naming note:** this tool's parameters are camelCase (`classLabel`, `topN`), unlike the snake_case convention used by the rest of the tool surface.
+
 #### `update_attributes`
 
 Update element attributes only (no structural changes).
@@ -728,11 +791,32 @@ Update element attributes only (no structural changes).
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ directory_path: string, element_ids?: string[] }` |
-| **Output** | `{ updated_count: number, warnings: string[] }` |
-| **dt-core class** | `DtUpdateSplit` (attribute-only mode) |
+| **Input** | `{ model_id: string, directory_path: string }` |
+| **Output** | `{ model_id: string, stats: { boundaries, components, dataFlows, dataItems, total: { updated: number, failed: number } }, attributes: { sent: number, withheld_unresolved: number, elements_without_class: number }, errors: Array<{ step, elementId?, elementName?, error }>, warnings: string[] }` |
+| **dt-core class** | `DtUpdateSplit.updateAttributesOnly()` |
 
-Reads attribute files from the directory and calls `setInstantiationAttributes()` for each element. If `element_ids` is provided, only updates those elements.
+Reads the `attributes/` subdirectory and pushes attribute values without touching model structure. There is no element filter — the whole directory is read.
+
+`stats` counts **elements**, so on its own it cannot distinguish "29 elements fully enriched" from "29 elements whose every value is still unresolved". The `attributes` block is the attribute-level outcome, and `withheld_unresolved` is the number that matters: null-valued attributes are deliberately **not** pushed. A null in an attribute file means "template field, not yet resolved" (the enrichment checklist `generate_attribute_stubs` writes), but the platform write is a property merge that cannot store null — pushing one would either do nothing or erase a value somebody else established. The consequence worth knowing is that the plugin cannot *clear* a platform-side attribute by nulling it locally.
+
+#### `generate_attribute_stubs`
+
+Write class template attribute stubs to disk for classified elements.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ directory_path: string, element_ids?: string[] }` |
+| **Output** | `{ generated: number, skipped: number, reclassified: number, cached_classes: number, failed: Array<{ element_id: string, reason: string }>, warnings: string[] }` |
+| **dt-core class** | `DtClass` |
+
+Auto-scans `structure.json`, `dataflows.json`, and `data-items.json` for classified elements (or just `element_ids`, when given), deduplicates class IDs so N elements with K unique classes cost K fetches, and merges template fields into existing attribute files. Template fields are seeded as `null`; **existing values always win**. Running it twice produces identical output.
+
+Two side effects other tools depend on:
+- `.dethereal/class-cache/` — the cached class templates. `validate_model_json(action: 'quality')` reads this to score attribute completion against real template fields; without it the score falls back to counting attribute files (`attribute_residual.basis: 'file-presence'`).
+- `.dethereal/template-fields/` — per-element template field manifests, used to detect reclassification.
+
+Call it after classification so attribute files carry the exact field names the platform's policies evaluate.
 
 ### MITRE Framework Tools (Client-Dependent, NEW)
 
@@ -830,6 +914,19 @@ z.object({
 
 > **Temporal dependency (R6/F3):** Countermeasures created before model import will not have `exposure_ids` (no exposures exist yet). The guided workflow handles this in Step 11: after sync, read back platform-computed exposures via `manage_exposures(action: 'list')` and present a batch linking table.
 
+#### `get_control_gaps`
+
+Model-wide control gap analysis over the MITRE framework chain.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ model_id: string, top_n?: number (1--20, default 3), limit?: number (1--200, default 50) }` |
+| **Output** | `{ ..., coverageSummary: { totalExposures, ... } }` — unmitigated exposures, unaddressable exposures (no module covers them), recommended controls ranked by coverage, and a coverage summary with percentage |
+| **dt-core class** | `DtControl.controlGaps()` |
+
+The model-wide counterpart to `validate_model_json(action: 'coverage')`, which scores coverage for a directory. Requires a model that has already been analyzed for exposures — when `coverageSummary.totalExposures` is `0` the tool succeeds but returns a warning saying to run an exposure analysis first. `top_n` caps recommended controls; `limit` caps returned unmitigated exposures.
+
 ### Analysis Tool (Client-Dependent, NEW)
 
 #### `manage_analyses`
@@ -839,18 +936,24 @@ List analysis classes, create/run analyses, get results.
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ action: 'list_classes' \| 'list' \| 'create' \| 'run' \| 'status' \| 'results' \| 'delete', model_id?: string, analysis_id?: string }` |
+| **Input** | `{ action: 'list_classes' \| 'list' \| 'create' \| 'run' \| 'status' \| 'results' \| 'delete', element_id?: string, analysis_id?: string, analysis_class_id?: string, name?: string, description?: string }` |
 | **dt-core class** | `DtAnalysis` |
+
+Analyses hang off a model **element**, not a model — there is no `model_id` parameter. A cross-field refinement enforces the per-action requirements: `element_id` for `list`; `element_id` + `name` + `analysis_class_id` for `create`; `analysis_id` for `run`, `status`, `results`, and `delete`.
 
 **Polling contract** (streaming/subscription-based delivery cannot work through stateless MCP tools):
 
 | Action | Returns | Next Step |
 |--------|---------|-----------|
-| `list_classes` | Available analysis module classes | Select class for `create` |
-| `create` | `{ analysis_id }` | Call `run` |
-| `run` | `{ session_id, status: 'started' }` | Poll `status` |
-| `status` | `{ status: 'running' \| 'completed' \| 'failed', progress?: { completed_tasks, total_tasks, current_phase } }` | When `completed`, call `results` |
-| `results` | Analysis results when complete, otherwise `{ status: 'running', retry_after_seconds: 5 }` | Display to user |
+| `list_classes` | `{ analysis_classes }` — available analysis module classes | Select class for `create` |
+| `list` | `{ analyses, total }` for the given `element_id` | -- |
+| `create` | `{ analysis }` — the created analysis object, carrying its ID | Call `run` |
+| `run` | `{ session_id, status: 'started', next }` | Poll `status` |
+| `status` | `{ analysis_id, status }` | When complete, call `results` |
+| `results` | `{ analysis_id, results }`, or `{ analysis_id, status: 'no_results', message }` when nothing is available yet | Display to user |
+| `delete` | `{ deleted, analysis_id }` | -- |
+
+The contract carries no progress or back-off metadata: `status` returns the raw status value with no `progress` object, and an incomplete `results` call returns `status: 'no_results'` rather than a `retry_after_seconds` hint. Callers must choose their own polling interval.
 
 ---
 
@@ -864,7 +967,6 @@ model-directory/
 ├── structure.json      # Boundary/component hierarchy (no attributes)
 ├── dataflows.json      # Array of data flow connections
 ├── data-items.json     # Array of data classification items
-├── controls.json       # Security controls on elements
 └── attributes/         # Per-element attribute files
     ├── boundaries/
     │   └── {elementId}.json
@@ -875,6 +977,8 @@ model-directory/
     └── dataItems/
         └── {elementId}.json
 ```
+
+There is no `controls.json`. The canonical file names are fixed by `DEFAULT_FILE_NAMES` in dt-core's manifest schema, which defines exactly the five entries above. Controls ride as a `controls` reference array on the model and its elements inside `manifest.json` / `structure.json`, and the control library materialises one file per control under a `controls/` **folder** (`<model-dir>/controls/{controlId}.json`) owned by the `manage_controls` sync state machine. Hand-writing a top-level `controls.json` has no effect — no reader looks for it.
 
 ### Import Flow
 
@@ -890,8 +994,8 @@ manifest.json ─────┐
 structure.json ────┼──> SplitModel ──> DtImportSplit ──────────> GraphQL API
 dataflows.json ────┤        │              │
 data-items.json ───┤        │              │
-controls.json ─────┤        │              ▼
-attributes/* ──────┘        │         ImportResult
+attributes/* ──────┘        │              ▼
+                            │         ImportResult
                             │         { model, idMapping,
                             │           warnings, errors }
                             │              │
@@ -920,20 +1024,15 @@ GraphQL API ──> DtExportSplit ──> SplitModel ──> manifest.json
                      │                │           structure.json
                      │                │           dataflows.json
                      │                │           data-items.json
-                     │                │           controls.json
                      │                │           attributes/*
                      │                │
                      │                ▼
                      │           Write sync.json
                      │           (platform_model_id,
+                     │            platform_url,
+                     │            last_pull_at,
                      │            pull_content_hash,
-                     │            baseline_element_ids,
-                     │            referenced_models)
-                     │
-                     ▼
-                representedModel
-                references tracked
-                in sync.json
+                     │            baseline_element_ids)
 ```
 
 ### Update Flow
@@ -980,7 +1079,7 @@ When importing, reference IDs in source files are mapped to server-generated UUI
 }
 ```
 
-ID mapping is applied to all files in the directory (manifest, structure, dataflows, data-items, controls, attribute files). Cross-references within the model (e.g., data flow source/target component IDs) are updated consistently.
+ID mapping is applied to all files in the directory (manifest, structure, dataflows, data-items, attribute files). Cross-references within the model (e.g., data flow source/target component IDs) are updated consistently.
 
 ### Sync Metadata (`sync.json`)
 
@@ -1000,9 +1099,7 @@ Written to `<model-directory>/.dethereal/sync.json` after each push/pull operati
     "flows": ["f-001", "f-002"],
     "dataItems": ["d-001"]
   },
-  "referenced_models": [
-    { "id": "xyz-789", "name": "API Service", "localPath": null }
-  ]
+  "referenced_models": ["xyz-789"]
 }
 ```
 
@@ -1021,9 +1118,9 @@ See SYNC_AND_SOURCE_OF_TRUTH.md for the full sync architecture (dual-authority m
 | `DtUpdateSplit` | `update_model`, `update_attributes` | Update existing model from SplitModel |
 | `DtModule` | `get_classes` | Query modules and class definitions |
 | `DtModel` | `list_models` | List and query models on the platform |
-| `DtClass` | `update_attributes` | `setInstantiationAttributes()` for attribute updates |
+| `DtClass` | `match_classes`, `generate_attribute_stubs` | Class catalog matching and class template fetching |
 | `DtExposure` | `manage_exposures` | Read platform-computed exposures |
-| `DtControl` | `manage_controls` | CRUD for security controls |
+| `DtControl` | `manage_controls`, `get_control_gaps` | CRUD for security controls; model-wide control gap analysis |
 | `DtCountermeasure` | `manage_countermeasures` | Link controls to exposures |
 | `DtMitreAttack` | `search_mitre_attack` | ATT&CK technique search and browsing |
 | `DtMitreDefend` | `get_mitre_defend` | D3FEND technique browsing |
@@ -1107,7 +1204,14 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 | **Backup Before Modify** | Timestamped backups on import/update (when `create_backup: true`) |
 | **Path Containment** | `directory_path` must resolve to a subdirectory of the current working directory or a path registered in `.dethernety/models.json`. Paths must not contain `..` after `path.resolve()`. Symlink targets are validated to ensure they resolve within allowed boundaries. Enforced via a shared `validatePath()` utility called before any file I/O (D61) |
 | **No Arbitrary Execution** | Tools only read/write model files and sync metadata |
+| **Protected Attribute Files** | An attribute file that fails to parse is never written over, renamed over, or unlinked — see below |
 | **Token File Permissions** | `~/.dethernety/tokens.json` created with `0600` permissions; server warns if permissions are too broad |
+
+**Protected attribute files.** An attribute file that cannot be parsed still holds enrichment that was never pushed, so overwriting it with the platform's copy destroys work. The invariant every mutation path under `attributes/` honours is: **a protected path is never written over, renamed over, or unlinked.**
+
+The protected set is built from what the read reported (`protectedAttributeFiles(issues)`) and threaded into every write path — there are three (`writeAttributes`, `updateAndRenameAttributes`, `cleanupStaleAttributeFiles`), and guarding only one leaves the file just as destroyed by the other two. Unreadable files are excluded from push, merge-back, and coverage instead of being silently replaced. Comparison is case-folded so the guarantee also holds on case-insensitive filesystems; the cost is over-protection (a genuinely stale file may survive), which is the right direction to be wrong in.
+
+> Any new write path under `attributes/` must accept and honour the protected set, or it reintroduces the destroy-on-next-push bug.
 
 ### OAuth Callback Security
 
@@ -1142,8 +1246,9 @@ Exposures are **read-only** in the MCP server. Create/update/delete operations a
 {
   "mcpServers": {
     "dethereal": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@dether.net/dethereal@<exact-version>"],
       "env": {
         "DETHERNETY_URL": "${DETHERNETY_URL}"
       }
@@ -1153,6 +1258,8 @@ Exposures are **read-only** in the MCP server. Create/update/delete operations a
 ```
 
 `DETHERNETY_URL` is inherited from the user's shell environment. The MCP server falls back to `http://localhost:3003` internally if unset.
+
+> **Release invariant:** the `npx` invocation is pinned to the **exact** published package version, never a floating range and never a local `dist/` path — an installed user's skills and agents must not silently run against a stale or unpinned server. Bumping the version in `package.json` therefore requires updating the pin in `.mcp.json`; a unit test enforces that the two agree.
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -1178,7 +1285,7 @@ Exposures are **read-only** in the MCP server. Create/update/delete operations a
   "mcp.servers": {
     "dethereal": {
       "command": "npx",
-      "args": ["@dethernety/dethereal"],
+      "args": ["@dether.net/dethereal"],
       "env": {
         "DETHERNETY_URL": "https://demo.dethernety.io"
       }
@@ -1248,7 +1355,7 @@ Exposures are **read-only** in the MCP server. Create/update/delete operations a
 - [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) — Full plugin specification (skills, agents, hooks, settings)
 - [THREAT_MODELING_WORKFLOW.md](THREAT_MODELING_WORKFLOW.md) — End-to-end workflow that orchestrates these tools
 - [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) — Sync architecture (dual-authority model, conflict taxonomy, push flow)
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Current MCP server implementation (to be replaced by this document)
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Pre-upgrade MCP server snapshot, superseded by this document
 - [User Guide](../../user/dethereal/README.md) — End-user documentation
 - [dt-core](../dt-core/) — Data access layer architecture
 - [Backend Architecture](../backend/BACKEND_ARCHITECTURE.md) — GraphQL API

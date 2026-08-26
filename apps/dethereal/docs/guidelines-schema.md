@@ -72,6 +72,10 @@ Each boundary's `boundaries` and `components` arrays hold the full objects, not 
 | `dimensionsMinHeight` | number | No | Minimum height constraint |
 | `parentBoundary` | `{ id: ID }` | No | Omit for root boundary |
 | `classData` | ClassReference \| null | No | Class assignment (enables attributes). Explicit `null` unassigns on the next `update_model` push (the platform deletes the class's auto-generated exposures, keeping user-authored ones); an absent key leaves the binding untouched |
+| `zone` | `"UNTRUSTED"` `"PUBLIC"` `"EXPOSED"` `"INTERNAL"` `"RESTRICTED"` `"VENDOR"` \| `null` | No | Trust zone. `null` or absent = inherit from the nearest declaring ancestor. Operator-facing display names in guidelines-core.md |
+| `domains` | string[] | No | Free-text business domain tags (max 16, max 64 chars each), e.g. `["payments"]` |
+| `planes` | `("WORKLOAD" \| "MANAGEMENT")[]` | No | Operational planes. Absent = Undecided (not Workload) |
+| `conduits` | Conduit[] | No | Declared boundary-crossing channels — see [Conduit](#conduit). A present array (including `[]`) is reconciled on push; an absent key leaves platform conduits untouched |
 | `boundaries` | StructureBoundary[] | No | Nested child boundaries |
 | `components` | StructureComponent[] | No | Components inside this boundary |
 | `controls` | `{ id, name? }[]` | No | Security controls applied |
@@ -91,6 +95,7 @@ Each boundary's `boundaries` and `components` arrays hold the full objects, not 
 | `classData` | ClassReference \| null | No | Explicit `null` unassigns on update; absent = untouched |
 | `controls` | `{ id, name? }[]` | No | |
 | `dataItemIds` | ID[] | No | Data items this component originates, processes, or stores (data at rest / in use). Valid for all component types — `STORE`, `PROCESS`, and `EXTERNAL_ENTITY` (e.g. user-originated data) |
+| `crownJewel` | boolean | No | Author flag: high-value asset. **REPLACE on push** — the push always sends a definite boolean, so omitting the key or setting `false` CLEARS the flag on the platform. Carry it through whenever you rewrite `structure.json` |
 
 ## dataflows.json
 
@@ -133,15 +138,21 @@ Wrapper object with a `dataItems` array:
 | `name` | string | Yes | e.g., "User Credentials", "Payment Information" |
 | `description` | string | No | |
 | `classData` | ClassReference \| null | No | Data classification class. Explicit `null` unassigns on update; absent = untouched |
+| `sensitivity` | `"public"` `"internal"` `"confidential"` `"restricted"` | No | Author-asserted sensitivity, lowercase. **REPLACE on push** — an absent key clears the platform value |
+| `regulatory_flags` | string[] | No | Free-text regulatory scopes, e.g. `["PCI cardholder", "PHI"]`. **REPLACE on push** — an absent key clears the platform list |
+
+`sensitivity` and `regulatory_flags` are first-class fields on the data item in `data-items.json` — never attribute-file keys. Together with component `crownJewel` they are the asset signals `validate_model_json(action: 'zoning')` joins on to propose a `RESTRICTED` zone.
 
 ## attributes/{type}/{elementId}.json
 
-Per-element attribute files. Written during enrichment in flat format (agent authoring); normalized to structured format after platform import.
+Per-element attribute files in the structured `ElementAttributes` format. `{type}` is the subdirectory `boundaries`, `components`, `dataFlows`, or `dataItems`; `{elementId}` is the element's `id`.
+
+`generate_attribute_stubs` writes each file during **classification** — before any platform import — seeding every class-template field as `null`. Edit that stub in place; do not author a flat key-value file over it (see [Legacy flat format](#legacy-flat-format-read-only)).
 
 **Merge principle:** Always read the existing attribute file before writing. Merge new values into the existing content — never overwrite the entire file. Attribute files contain a union of two vocabularies that must coexist:
 
 1. **Class-template fields** — defined by the element's assigned class (e.g., `requirepass_present`, `tls_enabled`). Evaluated by OPA policies to produce exposures and countermeasures.
-2. **Plugin-enrichment fields** — added by the agent (e.g., `crown_jewel`, `credential_scope`, `monitoring_tools`). Used by the Analysis Engine and local analysis. MITRE ATT&CK techniques are **not** a plugin-enrichment field — tactic coverage is derived server-side from `Exposure.exploitedBy` (see `/dethereal:surface` §5).
+2. **Plugin-enrichment fields** — added by the agent (e.g., `credential_scope`, `monitoring_tools`, and `crown_jewel` on boundaries, data flows and data items only — a **component's** crown-jewel flag is the first-class `crownJewel` field in `structure.json`). Used by the Analysis Engine and local analysis. MITRE ATT&CK techniques are **not** a plugin-enrichment field — tactic coverage is derived server-side from `Exposure.exploitedBy` (see `/dethereal:surface` §5).
 
 Both are stored on the same IS_INSTANCE_OF relationship in the graph. OPA evaluates the fields it knows about (template-defined); extra fields are harmlessly ignored.
 
@@ -149,7 +160,7 @@ Both are stored on the same IS_INSTANCE_OF relationship in the graph. OPA evalua
 
 Call `get_classes(class_id: '<uuid>', fields: ['attributes', 'guide'])` to retrieve:
 
-- **`attributes`** — JSON Schema defining the exact fields and types the class template expects. Populate **all** fields for OPA policies to fire correctly.
+- **`attributes`** — JSON Schema defining the exact fields and types the class template expects. Resolve **all** fields to concrete values for OPA policies to fire correctly — a field left `null` is not populated (see [`null` means "not yet resolved"](#null-means-not-yet-resolved)).
 - **`guide`** — Configuration guide with per-attribute entries:
   - `option_name` — the field name
   - `option_description` — what it means
@@ -158,59 +169,53 @@ Call `get_classes(class_id: '<uuid>', fields: ['attributes', 'guide'])` to retri
 
 Use the guide's `how_to_obtain` instructions to systematically discover attribute values from code, IaC, and configuration files. For attributes not discoverable from code, ask the user targeted class-specific questions.
 
-### Agent authoring format (pre-import)
-
-Agents write flat key-value files with a type-specific ID field. The file contains both class-template fields and plugin-enrichment fields:
+### File format
 
 ```json
 {
-  "componentId": "c-redis",
-  "name": "Redis",
-  "type": "STORE",
-  "requirepass_present": false,
-  "protected_mode": false,
-  "acl_enabled": false,
-  "tls_enabled": false,
-  "bind_addresses": ["0.0.0.0"],
-  "network_policy_enabled": true,
-  "persistence_enabled": true,
-  "persistence_unencrypted": true,
-  "monitoring_enabled": false,
-  "credential_scope": ["session-jwt-tokens"],
-  "stores_credentials": true,
-  "monitoring_tools": ["None"]
-}
-```
-
-ID fields by type: `componentId`, `boundaryId`, `flowId`, `dataItemId`.
-
-### Platform format (post-import)
-
-After import, files are normalized to the `ElementAttributes` structure:
-
-```json
-{
-  "elementId": "<server-uuid>",
+  "elementId": "c-redis",
   "elementType": "component",
   "elementName": "Redis",
   "classData": { "id": "<class-uuid>", "name": "Key-Value Store" },
   "attributes": {
     "requirepass_present": false,
-    "tls_enabled": false,
-    "acl_enabled": false,
-    "credential_scope": ["session-jwt-tokens"]
-  }
+    "tls_enabled": null,
+    "acl_enabled": null,
+    "bind_addresses": ["0.0.0.0"],
+    "credential_scope": ["session-jwt-tokens"],
+    "monitoring_tools": ["None"]
+  },
+  "modifiedAt": "2026-03-27T14:30:00Z"
 }
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `elementId` | UUID | Yes | Server-assigned after import |
-| `elementType` | `"boundary"` `"component"` `"dataFlow"` `"dataItem"` | Yes | |
+| `elementId` | ID | Yes | Work-name before import (e.g. `c-redis`); UUID after. **This — not the filename — is what the loader keys on**; `generate_attribute_stubs` writes the file as `<elementId>.json`, so keep the two equal or one element ends up with two files |
+| `elementType` | `"boundary"` `"component"` `"dataFlow"` `"dataItem"` | Yes | Singular — note it differs from the `{type}` directory name |
 | `elementName` | string | No | Human-readable (for debugging) |
-| `classData` | ClassReference | Yes | Class that defines the attribute schema |
+| `classData` | ClassReference | No | Class that defines the attribute schema. Written by `generate_attribute_stubs` from the element's `classData`; absent only on an unclassified element |
 | `attributes` | Record<string, unknown> | Yes | Class-template fields + plugin fields merged |
 | `modifiedAt` | ISO 8601 string | No | Last modification timestamp |
+
+### `null` means "not yet resolved"
+
+A `null` attribute value is the enrichment checklist marker — "this class-template field exists and nobody has answered it yet". It is **not** "not applicable", "unknown", or "clear this value". Three consequences follow:
+
+- `update_attributes` **withholds** null-valued keys from the push (counted as `withheld_unresolved`) — they never reach the platform. The push cannot clear a platform-side attribute; dropping a key leaves the platform value untouched.
+- `attribute_completion_rate` counts a null as unresolved, and the field is listed in `attribute_residual.top_unresolved` (see guidelines-core.md).
+- Reclassifying an element deletes its still-`null` template fields; non-null values are preserved.
+
+Resolve every field to a concrete value. `false`, `"none"`, and `[]` are resolutions; `null` is not.
+
+### Legacy flat format (read-only)
+
+Older models may contain flat key-value files with a type-specific ID field (`componentId`, `boundaryId`, `flowId`, `dataItemId`) instead of `attributes`. These are still **read** — normalized on load into `ElementAttributes` — but must not be written:
+
+- The element is resolved by `{elementType}:{name}` lookup against the structure, not by id, so a renamed element falls back to the work-name id.
+- `classData` is recovered only if that name lookup hits; `modifiedAt` is never recovered.
+
+When you encounter one, let `generate_attribute_stubs` rewrite it into the structured format rather than extending it.
 
 ## Shared Types
 
@@ -235,3 +240,31 @@ Optional additional fields: `description`, `type`, `category`, `module`.
 ```
 
 Used for `parentBoundary`, `source`, `target` relationships.
+
+### Conduit
+
+A declared channel across a boundary edge, carried on `StructureBoundary.conduits`:
+
+```json
+{
+  "peerId": "b-dmz",
+  "peerName": "DMZ",
+  "direction": "OUTBOUND",
+  "justification": "Payment callbacks",
+  "controlRefs": ["ctrl-mtls"]
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `peerId` | ID | Yes | The boundary on the other end. Must be another boundary in this model |
+| `peerName` | string | No | Denormalized for display; the peer boundary is the source of truth |
+| `direction` | `"OUTBOUND"` `"INBOUND"` | Yes | Which side of the edge this boundary sits on |
+| `justification` | string | No | Why the channel is approved |
+| `controlRefs` | string[] | No | Control ids protecting the channel |
+
+`validate_model_json` raises **errors** (not warnings) on three shapes:
+
+- **Self-conduit** — `peerId` equals the declaring boundary's own `id`.
+- **Unknown peer** — `peerId` matches no boundary in `structure.json`.
+- **Lone inbound** — an `INBOUND` conduit whose peer declares no matching `OUTBOUND` conduit back. Each edge is persisted once from its `OUTBOUND` side, so an unmatched `INBOUND` would be dropped on write. A lone `OUTBOUND` is fine — the inbound view is re-derived on read.

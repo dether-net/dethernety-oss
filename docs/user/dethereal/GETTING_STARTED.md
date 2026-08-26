@@ -16,8 +16,8 @@ This guide walks you through installing the Dethereal plugin, connecting to the 
 ## Prerequisites
 
 - **Claude Code** — the Anthropic CLI (`claude`), VS Code extension, or JetBrains plugin
-- **Node.js 18+** and **pnpm** — for running the MCP server
-- **A Dethernety platform instance** — local (`http://localhost:3003`) or hosted
+- **Node.js 20 or later** — required for the MCP server; the plugin will not install or start on Node 18. **pnpm** as well, if you build from source
+- **A Dethernety platform instance** — local (`http://localhost:3003`) or hosted over HTTPS
 
 ---
 
@@ -80,6 +80,12 @@ claude --plugin-dir oss/apps/dethereal
 | Environment Variable | Default | Purpose |
 |---------------------|---------|---------|
 | `DETHERNETY_URL` | `http://localhost:3003` | Platform URL |
+
+**`DETHERNETY_URL` must use HTTPS unless the host is `localhost`, `127.0.0.1`, or `::1`.** Plain `http://` to any other host — a self-hosted instance on an internal address, for example — is rejected at startup with a configuration error:
+
+> DETHERNETY_URL must use HTTPS for non-localhost connections. HTTP is only permitted for localhost, 127.0.0.1, and ::1.
+
+The MCP server exits rather than starting, so inside Claude Code this looks like the Dethereal tools simply not being there. If your commands have vanished, check the scheme first. Put a TLS-terminating proxy in front of a remote instance, or reach it over an SSH tunnel to `localhost`.
 
 In no-auth mode the platform runs with authentication disabled (`ENABLE_NOAUTH=true`), and Dethereal detects this automatically.
 

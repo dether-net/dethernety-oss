@@ -67,9 +67,10 @@ interface GenerateStubsResult {
 4. For each element:
    a. Check for reclassification (manifest classId ≠ current classData.id)
       → remove unenriched (null) old template fields, keep enriched values
-   b. Extract template defaults from schema properties (default ?? null)
+   b. Collect the field NAMES from the class schema's properties
+      → seed every one as null (schema `default`s are deliberately not read)
    c. Read existing attribute file, normalize if flat format
-   d. Merge: existing values win, new template fields added with defaults
+   d. Merge: existing values win, absent template fields added as null
    e. Write in structured ElementAttributes format
    f. Write template field manifest to .dethereal/template-fields/<elementId>.json
 
@@ -78,21 +79,32 @@ interface GenerateStubsResult {
 
 ## Merge Semantics
 
-**Existing values always win.** The merge is an additive overlay:
+**Existing values always win.** The merge is an additive overlay, and every field it adds is seeded `null`:
 
 ```typescript
-for (const [key, defaultValue] of Object.entries(templateDefaults)) {
-  if (!(key in existingAttributes)) {
-    existingAttributes[key] = defaultValue
+const templateFieldSeeds: Record<string, unknown> = {}
+for (const key of Object.keys(templateProps)) {
+  templateFieldSeeds[key] = null
+}
+
+const mergedAttributes = { ...existingAttributes }
+for (const [key, seedValue] of Object.entries(templateFieldSeeds)) {
+  if (!(key in mergedAttributes)) {
+    mergedAttributes[key] = seedValue
   }
 }
 ```
 
+**Schema `default`s are never seeded.** Only `Object.keys()` of the class schema's `properties` is read; the property values, defaults included, are not. A `default` is authoring-time metadata — "what this attribute usually is" — not an observation about *this* element, and nothing downstream of the attribute file (sync → graph edge → policy input) records where a value came from. Writing a default would make an assumption indistinguishable from a discovered fact.
+
+It would also silently shrink the enrichment checklist. The enricher's contract is that **null fields are the work list**; a field pre-filled from its default is not null, so it is skipped by construction and ships as an assertion nobody made. The default is not lost — the full class template is written to the class cache, so the enricher can still consult it as a suggestion.
+
 Consequences:
-- First run: all template fields added with schema defaults or `null`
-- After partial enrichment: only unenriched fields remain at defaults
+- First run: every template field added as `null`
+- After partial enrichment: only unenriched fields remain `null`
 - Idempotent: running twice produces identical output
 - Plugin fields (`crown_jewel`, `credential_scope`, etc.) are never overwritten
+- Reclassification cleanup can safely equate `=== null` with "unenriched" (see §Reclassification)
 
 ### Attribute File Format
 
@@ -124,6 +136,7 @@ Location: `.dethereal/class-cache/<classId>.json`
   "classId": "92e72e32-...",
   "className": "Redis",
   "classType": "component",
+  "componentType": "STORE",
   "cachedAt": "2026-03-28T20:00:00Z",
   "template": { "schema": { "properties": { ... } } },
   "guide": [{ "option_name": "bind_addresses", "how_to_obtain": "..." }]
@@ -133,8 +146,11 @@ Location: `.dethereal/class-cache/<classId>.json`
 | Concern | Detail |
 |---------|--------|
 | **Written by** | `generate_attribute_stubs` (side-effect of template fetching) |
-| **Read by** | Enrichment agent (guide from disk instead of re-calling `get_classes`), stub generation (offline fallback) |
+| **Read by** | Enrichment agent (guide from disk instead of re-calling `get_classes`), stub generation (offline fallback), `validate_model_json` for both `attribute_completion_rate` and the component-type check below |
 | **Staleness** | >7 days produces advisory warning. Stale cache still usable — template JSON is small and changes only on module version bumps. |
+| **Keyed by** | CLASS id, which survives the local-id → platform-id remap on push. This is why the quality score measures enrichment from the cache rather than from the element-keyed template-field manifests. |
+
+`componentType` is written whenever the fetched class reports a `type`, and omitted otherwise. For a component class it is the declared `PROCESS | STORE | EXTERNAL_ENTITY` — distinct from `classType` above, which is the element category (`component`, `boundary`, `dataflow`, `data`). Only components consume it. Nothing else on disk carries it, so persisting it is what lets `validate_model_json(action: 'validate')` warn offline when a component's own type disagrees with the type its assigned class describes. That mismatch matters because the class's Rego policy is written for the type it declares — see [THREAT_MODELING_WORKFLOW.md §4](THREAT_MODELING_WORKFLOW.md#classification-flow) for the `componentType` filter that prevents it at classification time.
 
 ## Template Field Manifest
 
@@ -151,6 +167,8 @@ Location: `.dethereal/template-fields/<elementId>.json`
 
 The manifest enables clean reclassification by distinguishing template fields from plugin fields. Without it, the tool cannot know which fields to remove when an element's class changes.
 
+**The manifest is keyed by ELEMENT id, so it is re-keyed whenever ids change on disk.** A push mints platform ids for locally created elements; the manifests are renamed onto the new ids in the same operation, on both the create/import path and the `update_model` re-export path. Without that rename the lookup by the element's *current* id always misses, and reclassification cleanup silently stops pruning the previous class's fields. The rename is best-effort — losing a manifest costs one reclassification cleanup, never model data, so it never fails a push that already succeeded platform-side. `.dethereal/state.json`'s `staleElements[]` is re-keyed alongside it; see [THREAT_MODELING_WORKFLOW.md §1](THREAT_MODELING_WORKFLOW.md#methodology-state-machine).
+
 ## Reclassification
 
 When an element changes from Class A to Class B:
@@ -159,12 +177,12 @@ When an element changes from Class A to Class B:
 2. For each old template field:
    - Value is `null` → remove (unenriched, safe to delete)
    - Value is non-null → keep (enrichment work preserved)
-3. Add Class B template fields with new defaults
+3. Add Class B template fields as `null`
 4. Update manifest with Class B fields
 
 Plugin fields (`crown_jewel`, `credential_scope`, `monitoring_tools`) are never in any manifest's `templateFields`, so they are never candidates for removal.
 
-**Shared field names** (e.g., both MySQL and PostgreSQL have `max_connections`): if the enriched value is non-null, it survives reclassification. If unenriched, it gets the new class's default.
+**Shared field names** (e.g., both MySQL and PostgreSQL have `max_connections`): if the enriched value is non-null, it survives reclassification. If unenriched it is `null`, so it is removed in step 2 and re-seeded `null` in step 3 — indistinguishable from having been left alone, which is the point.
 
 ## Element Type Mapping
 
@@ -193,5 +211,5 @@ The enrichment workflow (Step 8) then reads the template stubs as its checklist:
 ## Implementation
 
 - Tool: `src/tools/generate-attribute-stubs.tool.ts` (extends `ClientDependentTool`)
-- Tests: `src/tools/__tests__/generate-attribute-stubs.tool.test.ts` (22 test cases)
+- Tests: `src/tools/__tests__/generate-attribute-stubs.tool.test.ts` (25 test cases)
 - Registration: `src/tools/index.ts` (tool #20, in `allTools[]` and `clientDependentTools[]`)

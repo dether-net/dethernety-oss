@@ -163,10 +163,12 @@ Local model "Production Stack" already exists at ./threat-models/prod/
 
 Options:
   push     — Push your local changes first, then pull
-  backup   — Save current local to .backup/, then pull
+  backup   — Save current local to <dir>.backup-<timestamp>/, then pull
   overwrite — Replace local with platform version
   cancel   — Cancel pull
 ```
+
+The backup is a full copy of the model tree written **beside** the model directory — `./threat-models/prod.backup-2026-08-25T09-14-02-771Z/`, not a `.backup/` subdirectory. Push takes one too, by default, before it updates the platform. Backups are never garbage-collected, so prune stale `*.backup-*` siblings periodically and keep them out of git (see [What to Commit](#what-to-commit)).
 
 ### State Inference
 
@@ -242,6 +244,9 @@ The plugin uses content hashes to determine if local changes exist. Diagram layo
 - `.dethereal/pending-id-rewrite.json` — WAL journal (transient; replayed automatically on next skill entry)
 - `.dethereal/merge-staging/` — staging directory for `merge-from-file` payloads
 - `.dethernety/discovery-cache.json` — transient cache
+- `*.backup-*/` — timestamped model-tree snapshots dropped beside the model directory by push and by backup-mode pull
+
+**If the plugin tells you to ignore all of `.dethereal/`.** `/dethereal:discover` recommends adding the entire `.dethereal/` directory to `.gitignore`, because it holds source paths and workflow state. Use the per-file rules above instead. Ignoring the directory wholesale also drops `control-audit.log` — the record of who approved each shared-Control push, which is the whole reason it is reviewable in a PR — and `state.json`, whose `lastReconcileCommit` is the baseline that drift detection compares against. (Read the audit-log note below before committing that file — it records prior attribute payloads verbatim.) Without that baseline, the next `/dethereal:threat-model` resume skips drift detection until you re-run `/dethereal:discover`.
 
 **Note on the audit log.** `.dethereal/control-audit.log` records per-Control decisions verbatim, including the prior `platformAttributes` payload. If your Controls store secret-shaped values (raw API keys, tokens), redact before commit. The log is human-readable, line-oriented JSON.
 
@@ -264,6 +269,9 @@ Add to your `.gitignore`:
 
 # Discovery cache (transient)
 .dethernety/discovery-cache.json
+
+# Timestamped model backups (push, and backup-mode pull)
+*.backup-*/
 ```
 
 ### Git as the Undo Mechanism

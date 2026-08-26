@@ -168,16 +168,15 @@ INITIALIZED → SCOPE_DEFINED → DISCOVERED → STRUCTURE_COMPLETE → ENRICHIN
 
 `lastReconcileCommit` is optional — set by `/dethereal:discover` at the end of discovery (initial baseline) and advanced by the `/dethereal:threat-model` resume path at the end of a successful drift-loop reconcile (subsequent baselines). Used as the baseline for the next `git diff`. Omitted when the project is not a git repo. See [`docs/architecture/dethereal/DRIFT_DETECTION.md`](../../../docs/architecture/dethereal/DRIFT_DETECTION.md).
 
-**`<model-path>/.dethereal/quality.json`** — Quality score cache
+**`<model-path>/.dethereal/quality.json`** — Quality score cache. Written verbatim from the `validate_model_json(action: 'quality')` payload.
 
 ```json
 {
   "quality_score": 56.25,
   "label": "In Progress",
-  "computedAt": "2026-03-27T14:30:00Z",
   "factors": {
     "component_classification_rate": { "value": 0.6, "weight": 25 },
-    "attribute_completion_rate": { "value": 0.4, "weight": 20 },
+    "attribute_completion_rate": { "value": 0.4, "weight": 20, "note": "Measured over 6 element(s); excluded 2 unclassified" },
     "boundary_hierarchy_quality": { "value": 1.0, "weight": 15 },
     "data_flow_coverage": { "value": 0.8, "weight": 15 },
     "data_classification_rate": { "value": 0.0, "weight": 10 },
@@ -189,9 +188,31 @@ INITIALIZED → SCOPE_DEFINED → DISCOVERED → STRUCTURE_COMPLETE → ENRICHIN
     "components": 8,
     "data_flows": 12,
     "data_items": 3
-  }
+  },
+  "attribute_residual": {
+    "declared": 40,
+    "resolved": 16,
+    "unresolved": 24,
+    "elements_scored": 6,
+    "elements_unclassified": 2,
+    "elements_without_template": 0,
+    "basis": "template",
+    "blocked": [],
+    "top_unresolved": [
+      { "element": "PostgreSQL", "class": "Database", "unresolved": 9, "declared": 14, "fields": ["ssl_enabled", "log_connections"] }
+    ]
+  },
+  "model_name": "Production Stack"
 }
 ```
+
+`factors[*].note` and a top-level `warnings: string[]` are present only when the tool emits them.
+
+`attribute_residual` is the enrichment worklist behind `attribute_completion_rate` — render it, never collapse it to the single number:
+
+- `top_unresolved` names the elements and the exact fields still unresolved (capped at 25 elements, 12 fields each). Those are the questions to go and answer.
+- `blocked` lists classified elements the ratio could NOT measure, each with its `class_id` — normally because no class template is cached. Fix by running `generate_attribute_stubs`, not by re-scoring.
+- `basis: "file-presence"` means no class template was cached for anything, so the factor measured whether an attribute *file* exists rather than whether fields are resolved. In that mode `elements_scored` is 0 and `blocked` is empty, and the factor carries the note "No cached class templates — measuring attribute-file presence, not resolved fields. Run generate_attribute_stubs."
 
 Quality labels: >= 90 "Comprehensive", 70-89 "Good", 40-69 "In Progress", < 40 "Starting". Analysis readiness threshold: 70/100.
 
@@ -220,3 +241,4 @@ Quality labels: >= 90 "Comprehensive", 70-89 "Good", 40-69 "In Progress", < 40 "
 
 - **`.dethernety/`** (project root) — plugin-level metadata: model registry, config
 - **`.dethereal/`** (per-model) — per-model workflow metadata: state, discovery, quality, scope, sync
+  - `.dethereal/class-cache/<class-id>.json` and `.dethereal/template-fields/<element-id>.json` are written by `generate_attribute_stubs`. The class cache is what `attribute_completion_rate` measures against — without it the factor degrades to `basis: "file-presence"`.

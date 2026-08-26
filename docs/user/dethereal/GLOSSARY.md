@@ -15,7 +15,7 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 ## Plugin Concepts
 
-**Agent** — A specialized AI persona with specific tools, behaviors, and constraints. Dethereal has 4 agents: threat-modeler, infrastructure-scout, security-enricher, and model-reviewer.
+**Agent** — A specialized AI persona with specific tools, behaviors, and constraints. Dethereal has 5 agents: threat-modeler, infrastructure-scout, infrastructure-scout-scoped, security-enricher, and model-reviewer. See [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md#the-5-ai-agents).
 
 **Command** (also called **Skill** internally) — A slash command (`/dethereal:<name>`) that performs a specific modeling workflow step. Commands invoke agents and use MCP tools. Dethereal has 14 commands. See [Command Reference](COMMAND_REFERENCE.md).
 
@@ -201,7 +201,7 @@ Zoning records the *declared design intent* of your segmentation — which trust
 
 **`.dethernety/`** — Plugin-level metadata at the project root. Contains `models.json` (model registry), `discovery-cache.json` (cached discovery results), and `decomposition-plan.json` (multi-model plan).
 
-**`.dethereal/`** — Per-model workflow metadata inside each model directory. Contains `state.json` (workflow state), `scope.json` (scope definition), `quality.json` (quality cache), `discovery.json` (discovery provenance), `sync.json` (sync metadata), `class-cache/` (cached class templates and guides), and `template-fields/` (template field manifests for reclassification).
+**`.dethereal/`** — Per-model workflow metadata inside each model directory. Contains `state.json` (workflow state), `scope.json` (scope definition), `quality.json` (quality cache), `discovery.json` (discovery provenance), `sync.json` (sync metadata), `control-audit.log` (control-decision ledger), `class-cache/` (cached class templates and guides), and `template-fields/` (per-element template field manifests, used on reclassification).
 
 ---
 
