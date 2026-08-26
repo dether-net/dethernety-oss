@@ -33,7 +33,7 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 
 | Platform reachable? | `rank` outcome | Element has assigned class? | Path |
 |---|---|---|---|
-| no | n/a | n/a | **Path 3** (name-only `{id: null}`) — defer Control creation to next online sync |
+| no | n/a | n/a | **Path 3** (name-only `{id: null}`) — records nothing on the platform; must be promoted to Path 1/2 when online |
 | yes | ≥1 candidate | n/a | **Path 1** (brownfield) — use the candidate's `controlId` |
 | yes | empty | **yes** | **Path 2** (file-first greenfield) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and a `classes[]` binding; let `/dethereal:sync push` create the platform Control |
 | yes | empty | no | **Path 3** (name-only `{id: null}`) |
@@ -56,11 +56,13 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 **Path 3 procedure (name-only):**
 1. Present the greenfield prompt (see format below). User describes controls as free-text.
 2. Write `{ id: null, name: "...", source: "declared" }` to the element's `controls[]`.
-3. The platform creates a Control by name on next sync but it will NOT be bound to any ControlClass.
+3. **No Control is created by this.** On the next push the entry is resolved against the org's **existing** control library by name — exact, then case-insensitive, then partial substring in either direction. A hit assigns that existing Control to the element; a miss drops the reference with a `Could not resolve control: <name>` warning and nothing reaches the platform. Neither outcome binds a ControlClass, so no countermeasures are derived.
+4. Because the last matcher is a substring match in either direction, a loose name ("Firewall") can bind to an unrelated library Control ("Perimeter Firewall", and vice versa). Use the exact library name when you know it; prefer Path 1 whenever `rank` can supply the `controlId`.
+5. Treat Path 3 as a **deferral, not a record**. Report these entries as "captured locally, not yet on the platform", and once the platform is reachable promote each one to Path 1 (bind the ranked `controlId`) or Path 2 (author `controls/<temp-id>.json`, then `push-greenfield`).
 
 **Error recovery:** If `rank` fails for a boundary (network error, auth expired), treat the platform as unreachable — fall back to Path 3 for that boundary. Do not retry or stall. Log: "Platform unreachable — switching to local control entry for this boundary."
 
-**Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Path 2 (file-first) remains achievable offline — author the `controls/<temp-id>.json` locally and the `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose Path 2 whenever attributes matter and the element has a class; choose Path 3 only when no class binding is desired.
+**Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Path 2 (file-first) remains achievable offline — author the `controls/<temp-id>.json` locally and the `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose Path 2 whenever attributes matter and the element has a class. Choose Path 3 only when the element has no class **and** you expect a Control of that exact name to already exist in the library — Path 3 creates nothing.
 
 **Offline coverage is assignment, not mitigation.** `validate_model_json(action: 'coverage')` run offline reports **assignment coverage** — which exposures have a control assigned to their element — and tags the result `coverage_kind: "assignment-heuristic"`. A control with zero countermeasures still counts. Never report an offline "N/N, 100%" result as "N exposures mitigated"; label it "assignment coverage (offline heuristic)". Real mitigation coverage requires the platform's MITRE-chain analysis (`model_id` + auth).
 
@@ -137,7 +139,7 @@ The `id` in a `controls[]` entry is a **Control ID** (instance from the org's co
 |------|---------------|-------------------------------|
 | Path 1 — Brownfield (`rank` returned candidates) | `controlId` from a candidate row | `{ id: "<controlId>", name: "<controlName>", source: "declared" }` |
 | Path 2 — Greenfield with class binding (`rank` empty AND element has assigned class) | `controlClassId`s discovered via `match_classes(classLabel: 'CONTROL')` (the element's own class is a ComponentClass — never valid here) | **Default:** use the file-first path documented in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, one `classes[]` entry per applicable ControlClass, and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "<descriptive name>", class_ids: ["<controlClassId-1>", "<controlClassId-2>"], element_ids: ["<element-id>"])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "<descriptive name>", source: "declared" }` to `structure.json`. The legacy path skips the file-first benefits (local iteration on attributes before commit) but works for non-attribute use cases. |
-| Path 3 — Greenfield name-only (`rank` empty AND element has no class, OR platform unreachable) | Nothing | `{ id: null, name: "<descriptive name>", source: "declared" }`. Platform creates a Control by name on next sync but it will not be bound to any ControlClass. |
+| Path 3 — Greenfield name-only (`rank` empty AND element has no class, OR platform unreachable) | Nothing | `{ id: null, name: "<descriptive name>", source: "declared" }`. Creates nothing: the push matches the name against the existing library (exact → case-insensitive → partial substring) and drops a miss with a `Could not resolve control` warning. No ControlClass is bound. Promote to Path 1 or Path 2 when the platform is reachable. |
 
 **Never** write `{ id: "<controlClassId>", name: "..." }` — the ID lookup will fail.
 
@@ -216,7 +218,7 @@ Additional detection controls? (SOC monitoring, NDR, automated response, or "non
 3. For confirmed tools from attribute files: `source: "discovered"`
 4. For user-added detection tools: `source: "declared"`
 5. Write detection controls to the appropriate element's `controls[]` field in `structure.json` (boundary or component) or `dataflows.json` (data flow). Same destination as enforcement controls — see the Persistence note in Step 1. Detection controls do NOT go in `attributes/<...>/<id>.json`.
-6. **Class binding:** apply the same Path Selection as Step 1 — when a matching ControlClass exists in active modules (e.g. a SIEM/monitoring/EDR class, discovered via `match_classes(classLabel: 'CONTROL')`), bind the detection Control via Path 1/Path 2 so the platform can derive countermeasures. Fall back to name-only (`{ id: null, ... }`) only when no class matches — a name-only detection Control generates no countermeasures.
+6. **Class binding:** apply the same Path Selection as Step 1 — when a matching ControlClass exists in active modules (e.g. a SIEM/monitoring/EDR class, discovered via `match_classes(classLabel: 'CONTROL')`), bind the detection Control via Path 1/Path 2 so the platform can derive countermeasures. Fall back to name-only (`{ id: null, ... }`) only when no class matches — a name-only entry binds no ControlClass, generates no countermeasures, and is dropped on push unless a Control of that name already exists in the library.
 
 ## Step 3: Governance Placeholder (Category 4)
 
@@ -303,25 +305,35 @@ When you assign an existing platform Control to a model element, the auto-pull a
 
 **Do not modify `classes[].attributes` unless the user explicitly asks.** Controls are reusable entities — the same `ctrl-waf-123` may be assigned to five other models. Your local edit will trigger a platform mutation that changes the Control for every model that references it.
 
-If the user asks to update attributes (e.g. "the firewall's default policy is actually `log_only`, not `deny`"):
+If the user asks to update attributes (e.g. "the firewall's default policy is actually `log_only`, not `deny`"), **never hand-edit `controls/<id>.json`.** Apply the edit through the tool:
 
-1. Read the current `classes[<idx>].attributes` values for the keys you're about to change.
-2. Populate `classes[<idx>].pendingEdit`:
-   ```json
-   {
-     "editedBy": "agent",
-     "editedAt": "<iso-timestamp>",
-     "previousAttributes": {
-       "default_inbound_policy": "deny"
-     }
-   }
-   ```
-   The `previousAttributes` block is keyed by the changed attribute name only (NOT the full payload) — on push, this key set determines which keys are sent to the platform (partial payload).
-3. Update `classes[<idx>].attributes` with the new values.
-4. Bump `classes[<idx>].localEditedAt` to the current ISO timestamp.
-5. Warn the user: "This edit will trigger the shared-ownership safety prompt at sync time. Push-anyway writes to every model that references this Control."
+```
+mcp__plugin_dethereal_dethereal__manage_controls(
+  action: 'set-local-edited',
+  directory_path: '<model-dir>',
+  control_id: '<control-id>',
+  class_idx: <index into classes[]>,
+  new_attributes: { "default_inbound_policy": "log_only" },
+  edited_by: 'agent'
+)
+```
 
-**Two-write rule.** If `pendingEdit` already exists on a class entry and you're making a second edit to the *same* key, **do not overwrite** `pendingEdit.previousAttributes[k]` — the original pre-edit value is the operator's intent baseline. Only add entries for keys not already recorded.
+The tool owns `classes[<idx>].attributes`, `classes[<idx>].localEditedAt`, and `classes[<idx>].pendingEdit`. Then warn the user: "This edit will trigger the shared-ownership safety prompt at sync time. Push-anyway writes to every model that references this Control."
+
+**Why the tool and not the file.** The push payload is keyed by `pendingEdit.previousAttributes` keys **plus** `pendingEdit.firstWriteKeys`. A key with no prior value on disk cannot go in `previousAttributes` — its pre-edit value is `undefined` and JSON drops it — so it belongs in `firstWriteKeys`, which only `set-local-edited` computes. Hand-write the block and such a key lands in neither array: the local file shows the new value and the push silently never sends it. The two arrays are mutually exclusive, and the validator rejects overlap.
+
+The resulting block (written by the tool, shown here so you can read the file):
+```json
+{
+  "editedBy": "agent",
+  "editedAt": "<iso-timestamp>",
+  "previousAttributes": { "default_inbound_policy": "deny" },
+  "firstWriteKeys": ["rate_limit_enabled"]
+}
+```
+`firstWriteKeys` is present only when non-empty.
+
+**Two-write rule.** Within one `pendingEdit` lifecycle, a key already pinned in `previousAttributes` or `firstWriteKeys` is never re-recorded — the FIRST pre-edit value is the operator's intent baseline. `set-local-edited` enforces this; do not reimplement it.
 
 ### Sync-Owned Fields (Never Touch Directly)
 
@@ -329,6 +341,9 @@ The agent **must not** directly mutate these fields on `controls/<id>.json`:
 
 | Field | Owned by |
 |---|---|
+| `classes[].attributes` on an **existing** file | `set-local-edited` (the only path that keeps `pendingEdit` in step). Authoring a new greenfield `controls/<temp-id>.json` is exempt — `push-greenfield` sends `classes[].attributes` as written |
+| `classes[].localEditedAt` | `set-local-edited` |
+| `classes[].pendingEdit` | `set-local-edited` (and `promote-external-edit` for the recovery case) |
 | `classes[].pushedAt` | Push path (set on successful `setInstantiationAttributes`) |
 | `classes[].platformAttributes` | Pull path (snapshot of last-known-server payload) |
 | `platformState.lastPushedAt` | Push path |

@@ -174,7 +174,7 @@ A lightweight validation without quality scoring. Useful for catching errors bef
 
 #### What It Checks
 
-7 structural checks, each reported as `[PASS]`, `[FAIL]`, or `[WARN]`:
+8 structural checks, each reported as `[PASS]`, `[FAIL]`, or `[WARN]`:
 
 ```
 Structural Validation: Payment API
@@ -187,6 +187,7 @@ Checks:
   [WARN] 1 orphaned component: "Legacy Gateway" (no data flows)
   [PASS] No empty boundaries
   [PASS] No orphaned attribute files
+  [PASS] No component/class type mismatches
   [PASS] Schema validation passed
 
 Result: 1 failure, 1 warning. Fix reference integrity before sync.
@@ -198,7 +199,8 @@ Result: 1 failure, 1 warning. Fix reference integrity before sync.
 4. **Orphaned components** — components with no inbound or outbound data flows (warning)
 5. **Empty boundaries** — boundaries with no child components or sub-boundaries (warning)
 6. **Orphaned attribute files** — attribute files whose element ID no longer exists (warning)
-7. **Schema compliance** — full schema validation against the platform schema
+7. **Component/class type mismatch** — a component whose `type` disagrees with the component type its assigned class describes, e.g. a `STORE` bound to a class written for a `PROCESS` (warning). This is a real defect, not a cosmetic one: the class's policy evaluates against a thing it does not describe. Fix it by correcting either the component type or the class assignment. The check needs a cached class template, so it is skipped for classes not present in `.dethereal/class-cache/`
+8. **Schema compliance** — full schema validation against the platform schema
 
 ---
 
@@ -276,10 +278,12 @@ Each component appears in its **highest-priority tier only** — a crown jewel t
 
 ### 5. MITRE ATT&CK Coverage
 
-Technique mappings from attribute files, showing which of the 14 Enterprise ATT&CK tactics are covered:
+**This section requires a platform sync and a completed analysis.** Tactic coverage is derived from the techniques the analysis engine attaches to exposures — the plugin does not maintain its own client-side technique annotation, so enriching components alone produces no coverage here.
+
+When exposures are available, their techniques are aggregated and deduplicated to show which of the 14 Enterprise ATT&CK tactics are covered:
 
 ```
-MITRE ATT&CK Coverage
+MITRE ATT&CK Coverage (platform-derived)
   Techniques mapped: 12
   Tactics covered (5/14): Initial Access, Credential Access, Lateral Movement,
     Collection, Exfiltration
@@ -287,7 +291,10 @@ MITRE ATT&CK Coverage
     Privilege Escalation, Defense Evasion, Discovery, Command and Control, Impact
 ```
 
-If components are unenriched: "N components unenriched — tactic coverage may be incomplete."
+Two cases produce no coverage instead:
+
+- **Model not synced:** "Model not synced — push to platform and run an analysis for MITRE tactic coverage." Run `/dethereal:sync push`, then start an analysis.
+- **Synced, but no exposures yet:** "No exposures — analysis has not produced technique mappings yet." Either the analysis has not run, or no installed module has policies covering this model's components.
 
 ### 6. Credential Topology
 
@@ -334,10 +341,11 @@ Understanding which analysis requires platform sync:
 |----------|--------|------------------------|
 | Quality score, structural validation | Local (`/dethereal:review`) | No |
 | Boundary crossing matrix, control gaps, credential topology | Local (`/dethereal:surface`) | No |
+| MITRE ATT&CK tactic coverage (`/dethereal:surface` §5) | Platform analysis engine | Yes |
 | Exposures, attack paths | Platform analysis engine | Yes |
 | Countermeasure coverage, defense gaps | Platform analysis engine | Yes |
 
-Local analysis runs entirely from model files — you can review quality and attack surface without a platform connection. Platform analysis requires pushing the model and running the analysis engine.
+Local analysis runs entirely from model files — you can review quality and most of the attack surface without a platform connection. `/dethereal:surface` still runs offline, but its exposure counts (§3) and MITRE tactic coverage (§5) come from the platform and are reported as unavailable until you push and run an analysis.
 
 ### Prioritization Guidance
 

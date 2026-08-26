@@ -1,6 +1,6 @@
 ---
 title: 'Agents, Tools, and Hooks'
-description: 'How the 4 AI agents, 22 MCP tools, and 3 lifecycle hooks work together'
+description: 'How the 5 AI agents, 22 MCP tools, and 3 lifecycle hooks work together'
 category: 'documentation'
 position: 9
 navigation: true
@@ -9,11 +9,11 @@ tags: ['dethereal', 'agents', 'mcp', 'tools', 'hooks', 'architecture']
 
 # Agents, Tools, and Hooks
 
-Under the hood, Dethereal uses 4 specialized AI agents, 22 MCP tools for platform communication, and 3 lifecycle hooks for workflow automation. You don't need to know these details to use the plugin — this page is for users who want to understand what's happening behind the scenes.
+Under the hood, Dethereal uses 5 specialized AI agents, 22 MCP tools for platform communication, and 3 lifecycle hooks for workflow automation. You don't need to know these details to use the plugin — this page is for users who want to understand what's happening behind the scenes.
 
 ---
 
-## The 4 AI Agents
+## The 5 AI Agents
 
 Each agent has a specific role, tool access, and constraints. Slash commands invoke agents automatically — you don't select them manually.
 
@@ -26,9 +26,9 @@ The primary agent for creating and editing threat models. Orchestrates the 11-st
 | **Effort** | High |
 | **Max turns** | 60 |
 | **Tools** | Read, Write, Edit, Glob, Grep, Bash, all MCP tools |
-| **Delegates to** | infrastructure-scout, security-enricher, model-reviewer |
+| **Delegates to** | infrastructure-scout, infrastructure-scout-scoped, security-enricher, model-reviewer |
 
-**Used by commands:** create, discover, add, remove, threat-model, sync
+**Used by commands:** create, discover, add, remove, threat-model
 
 **Key behaviors:**
 - Reads model files from disk at the start of each operation
@@ -57,23 +57,42 @@ A read-only agent that scans codebases for infrastructure components. Returns st
 - Never includes secret values — extracts names and endpoints only
 - Returns a compact discovery report; full provenance is read from disk
 
+### infrastructure-scout-scoped (Drift Re-Verification)
+
+A deliberately narrowed companion to infrastructure-scout. Drift reconciliation uses it to re-verify the elements touched by a file diff without re-scanning the whole repository.
+
+| Property | Value |
+|----------|-------|
+| **Effort** | Medium |
+| **Max turns** | 20 |
+| **Tools** | Read, `get_classes` MCP tool |
+| **Constraint** | No Glob, Grep, or Bash — reads only the files on the allowlist it is handed |
+
+**Used by commands:** threat-model (resume, when drift is detected)
+
+**Key behaviors:**
+- Receives a pre-computed file allowlist from the calling skill and reads nothing outside it
+- Answers one of four scoped questions: discover elements, re-verify element attributes, propose reclassification, check element existence
+- Shares classification rules with the full-scope infrastructure-scout
+- Stops and reports rather than widening its own scope when it needs a file outside the allowlist
+
 ### security-enricher (Attributes and Classification)
 
-Populates security attributes, handles classification, and integrates MITRE ATT&CK data. This is the only sub-agent with write access to attribute files.
+Populates security attributes, handles classification, and identifies security controls. This is the only sub-agent with write access to attribute files.
 
 | Property | Value |
 |----------|-------|
 | **Effort** | High |
 | **Max turns** | 40 |
-| **Tools** | Read, Write, Edit, all MCP tools |
-| **Constraint** | Never generates MITRE IDs from memory |
+| **Tools** | Read, Write, Edit, Glob, Grep, all MCP tools |
+| **Constraint** | Does not annotate MITRE techniques on attribute files — tactic coverage is derived platform-side from analysis exposures |
 
 **Used by commands:** classify, enrich, threat-model (Steps 6, 8)
 
 **Key behaviors:**
 - Two-pass classification: deterministic matching first, LLM-assisted for ambiguous cases
 - Crown jewel tagging with fuzzy matching from scope definition
-- MITRE ATT&CK 3-step verification: search platform → validate ID format → persist
+- Looks MITRE techniques up against the platform when explaining an exposure — never generates technique IDs from memory
 - Credential enrichment in 4 phases: inventory → flow mapping → STORE scope → shared analysis
 - Compliance-driven prompts based on scope compliance drivers
 - Presents all proposals in batch confirmation tables
@@ -89,7 +108,7 @@ A read-only auditor that assesses model quality and produces analysis reports. C
 | **Tools** | Read, Glob, Grep, MCP tools (read-only subset) |
 | **Constraint** | Strictly read-only — no file modifications |
 
-**Used by commands:** review, surface, view, threat-model (Step 9)
+**Used by commands:** review, surface, threat-model (Step 9)
 
 **Key behaviors:**
 - Computes quality score with 7-factor breakdown
@@ -108,6 +127,8 @@ The threat-modeler orchestrates complex workflows by delegating to sub-agents:
 threat-modeler
 ├── delegates to infrastructure-scout (discovery scanning)
 │   └── returns: compact report (element counts, sources, confidence)
+├── delegates to infrastructure-scout-scoped (drift re-verification)
+│   └── returns: re-verified elements for an allowlisted file diff
 ├── delegates to security-enricher (enrichment)
 │   └── returns: enriched element count + quality delta
 └── delegates to model-reviewer (validation)
@@ -166,7 +187,7 @@ Tokens are cached at `~/.dethernety/tokens.json`, keyed by platform URL. Refresh
 | Tool | Purpose |
 |------|---------|
 | `get_classes` | Queries available classes from installed modules. Used for browsing/exploration ("what classes exist?"). Classification workflow uses `match_classes` instead. |
-| `update_attributes` | Incremental attribute updates without full model push |
+| `update_attributes` | Incremental attribute updates without full model push. Attribute keys whose local value is still `null` are withheld rather than sent — the tool reports the withheld count, and a locally nulled key does not clear the value the platform already holds. |
 | `generate_attribute_stubs` | Deterministically writes class template attribute stubs to disk for classified elements |
 
 ### Classification (1 tool)
@@ -215,7 +236,7 @@ Three hooks automate workflow tasks at key moments:
 
 **When:** After the Write or Edit tool modifies a model file.
 
-**What it does:** Automatically calls `validate_model_json` to check structural validity. If validation finds errors (broken references, schema violations), they surface immediately — before you move on to the next step.
+**What it does:** Checks whether the written path belongs to a registered model directory, and if so prints a one-line reminder to run `validate_model_json`. The hook is a prompt, not a check — it does not run validation and cannot report an error. Broken references and schema violations stay undetected until you run `/dethereal:review` or the Gate 2 pre-flight on `/dethereal:sync push`.
 
 ### PreCompact — Context Preservation
 

@@ -2,6 +2,8 @@
 
 > Architecture of the Dethernety MCP Server
 
+> **Status (2026-08-25):** Superseded snapshot. This document describes the pre-upgrade server -- version `2.0.0`, 12 tools -- and is retained as a historical reference. For the shipped tool surface, token handling, and MCP registration, see [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md).
+
 ## Table of Contents
 - [Overview](#overview)
 - [Architecture Diagram](#architecture-diagram)
@@ -152,7 +154,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools: allTools.map(tool => ({
     name: tool.name,
     description: tool.description,
-    inputSchema: zodToJsonSchema(tool.inputSchema)
+    // Zod 4 emits the JSON Schema; only { type, properties, required } is forwarded
+    inputSchema: unwrapProperties(z.toJSONSchema(tool.inputSchema, { target: 'draft-07' }))
   }))}
 })
 
@@ -305,20 +308,24 @@ See [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-single
 ### Token Management
 
 ```typescript
-// Token storage structure
+// Token storage structure (~/.dethernety/tokens.json, keyed by platform URL)
 interface StoredTokens {
   accessToken: string
   idToken: string
   refreshToken: string
-  expiresAt: number  // Unix timestamp
-  tokenType: string
+  expiresAt: number  // Unix timestamp (milliseconds)
+  baseUrl: string    // Platform these tokens belong to
+  storedAt: number   // When the tokens were last written
+  issuedAt?: number  // When the current refresh token was issued
 }
 
-// Token priority for authenticated requests:
-// 1. Token passed in tool arguments (_token parameter)
-// 2. Cached tokens from ~/.dethernety/tokens.json (if not expired)
+// Token resolution for authenticated requests:
+// 1. Stored tokens for the current baseUrl (if not expired)
+// 2. Transparent refresh when the access token expired but the refresh token is valid
 // 3. No token needed when authDisabled is true
 ```
+
+> **Security:** Tokens are never read from tool arguments -- a `_token` argument is **not supported**. Accepting tokens from the conversation layer would let prompt injection supply attacker-controlled JWTs. See [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#4-authentication-flow).
 
 ### Auth Component Files
 
@@ -400,7 +407,7 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
     const result = await dtImportSplit.importSplitModel(splitModel)
 
     // 4. Post-process (write IDs back to files)
-    await applyIdMapping(input.directory_path, result.idMapping)
+    await applyIdMapping(input.directory_path, result.idMapping, result.model.id)
 
     // 5. Return result
     return { success: true, data: { model_id: result.model.id, ... } }
@@ -610,7 +617,7 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
   "mcp.servers": {
     "dethereal": {
       "command": "npx",
-      "args": ["@dethernety/dethereal"],
+      "args": ["@dether.net/dethereal"],
       "env": {
         "DETHERNETY_URL": "https://demo.dethernety.io"
       }

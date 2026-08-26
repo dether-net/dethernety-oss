@@ -25,14 +25,14 @@ Arguments can be natural language, paths, or flags. Most commands work without a
 
 ### Agent Delegation
 
-Each command runs on a specific AI agent. The agent determines what tools and behaviors are available:
+Most commands delegate to a specific AI agent, which determines what tools and behaviors are available. The rest run in the main conversation:
 
 | Agent | Role | Commands |
 |-------|------|----------|
-| *(no agent)* | Simple display, no model writes | status, login, help |
-| threat-modeler | Creates and modifies model files | create, discover, add, remove, threat-model, sync |
+| *(no agent)* | Runs in the main conversation — no dedicated agent, so no agent-level tool allowlist applies | status, login, help, view, sync |
+| threat-modeler | Creates and modifies model files | create, discover, add, remove, threat-model |
 | security-enricher | Classification and security attributes | classify, enrich |
-| model-reviewer | Read-only quality analysis | review, surface, view |
+| model-reviewer | Read-only quality analysis | review, surface |
 
 ### Post-Action Footer
 
@@ -47,9 +47,9 @@ Every command that modifies model files ends with a footer showing quality and r
 
 ## Foundation Commands
 
-### `/dethereal:status`
+### `/dethereal:status [show models <controlId>]`
 
-Show connection status, authentication state, and local model summary.
+Show connection status, authentication state, local model summary, and a per-model control-library roll-up.
 
 ```
 > /dethereal:status
@@ -63,7 +63,35 @@ Auth status:   Authenticated (user@example.com, 59 min remaining)
 Local Models:
   Production Stack  ./threat-models/prod  56/100 (ENRICHING)  synced 2h ago
   Dev Environment   ./threat-models/dev   23/100 (DISCOVERED) never synced
+
+Control library (Production Stack):
+  Lifecycle:      greenfield: 0 | partially-pushed: 0 | brownfield: 12 | tombstoned: 1
+
+  Pending edits:  2 controls queued for push
+    - Azure Firewall (MCE/MCETest Hub) [Firewall Policy]: 5 keys edited by agent
+    - NSG Least-Privilege Ingress [Network Access Control]: 2 keys edited by operator
+
+  Drift warnings: 1 control has asymmetric state (external edit suspected)
+    - TLS 1.3 (API Gateway) [TLS Config]: attributes differ from platformAttributes
+      with no pendingEdit.
+      Recovery: /dethereal:sync promote-external-edit <controlId> <classId>
+
+  Stale-sync:     1 control last synced > 15 min ago
+    - Vault KMS Rotation: last synced 3h ago — consider /dethereal:enrich --focus controls
+
+  Orphan files:   1 control file not referenced by structure or dataflows
+    - ctrl-abc-123.json — remove with manual cleanup or re-link via /dethereal:enrich
 ```
+
+A `Control library (<model-name>):` block is rendered per model that has a `controls/` directory; each row (`Lifecycle`, `Pending edits`, `Drift warnings`, `Stale-sync`, `Orphan files`) is omitted when its set is empty. **Drift warnings** is the only place a suspected external edit is surfaced proactively — it is what routes you to `/dethereal:sync promote-external-edit`. Long lists are capped at five entries with a `(N more — ...)` footer.
+
+**Sub-verb:**
+
+```
+> /dethereal:status show models <controlId>
+```
+
+Lists the model IDs assigned to a Control, read from the `platformState.assignedModelIds` cached in the local `controls/<controlId>.json` — no fresh platform query. If the Control has not been pulled locally, the command says so and points you at `/dethereal:enrich --focus controls`. Model names, owners, and freshness are not shown (a V1 limitation).
 
 Reads all data from local files — does not call the platform.
 
@@ -314,7 +342,13 @@ Enrichment scope: 13 components
 Processing: tier1 only. Confirm? (yes / all / pick)
 ```
 
-For each component, prompts for the 6 key security attributes (authentication, encryption in transit, encryption at rest, logging, access control, log telemetry), plus credential mapping, MITRE ATT&CK techniques, and monitoring tools.
+Enrichment is driven by each element's **class template**, not by a fixed question list. The attribute stub written during classification contains every field the assigned class declares, seeded to `null`; those null fields are the checklist, and every one of them must be resolved to a concrete value. The plugin looks for values in code, IaC, and config first, then asks you only about what it could not find.
+
+The **six key attributes** are a floor applied after the template pass — checked on every in-scope component regardless of what its class template happened to cover. See [The 6 Key Component Attributes](MODEL_CONCEPTS.md#the-6-key-component-attributes) for the exact key names, which must be written literally.
+
+Enrichment also covers credential mapping and monitoring tools. It does **not** write MITRE ATT&CK technique IDs onto attribute files — tactic coverage is derived on the platform from analysis exposures.
+
+Because `attribute_completion_rate` (20 points of the quality score) counts resolved **template** fields, answering only the six and stopping leaves the score low — the remaining null fields in each attribute file are the outstanding work.
 
 **State after:** ENRICHING (first confirmed batch triggers the transition if not already there)
 

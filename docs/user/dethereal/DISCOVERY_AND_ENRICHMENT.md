@@ -119,7 +119,7 @@ Components are enriched in priority order:
 
 | Tier | Components | Why This Order |
 |------|-----------|---------------|
-| **Tier 1** | Crown jewels (`crown_jewel: true`) | Highest-value targets — enrich first |
+| **Tier 1** | Crown jewels (`crownJewel: true` in `structure.json`) | Highest-value targets — enrich first |
 | **Tier 2** | Cross-boundary components | Exposed at trust transitions |
 | **Tier 3** | Internet-facing components | Directly reachable from outside |
 | **Tier 4** | Internal-only components | Lowest exposure |
@@ -128,42 +128,80 @@ Each component is assigned to its **highest-priority matching tier only** — a 
 
 If stale elements exist (from adding components during enrichment), they're prioritized first regardless of tier.
 
-### The 6 Key Security Attributes
+### Class Templates Drive the Questions
 
-For each component, the enricher prompts for:
+Enrichment is not a fixed questionnaire. The questions come from each element's **class template**, so they differ per element: a Database is asked about `ssl_enabled`, `password_encryption`, and `log_connections`; a Load Balancer is asked about something else entirely.
 
-| # | Attribute | Question | Example Values |
-|---|-----------|---------|---------------|
-| 1 | `authentication` | How is this component protected? | OAuth2, JWT, mTLS, API key, basic, none |
-| 2 | `encryption_in_transit` | What transport encryption? | TLS 1.3, TLS 1.2, mTLS, none |
-| 3 | `encryption_at_rest` | Is stored data encrypted? | AES-256, AES-128, none, unknown |
-| 4 | `logging` | Is audit logging enabled? | enabled, disabled, unknown |
-| 5 | `access_control` | What authorization model? | RBAC, ABAC, ACL, none |
-| 6 | `log_telemetry` | Where do logs go? Are they queryable? | SIEM/queryable, CloudWatch/queryable, local/not-queryable, none |
+This works because classification leaves a checklist behind. When you classify, the plugin writes a stub attribute file for each classified component and data item containing every field its class template defines, seeded to `null` — schema defaults are deliberately *not* filled in, because a default describes the class, not your system. Those null fields are the checklist, and enrichment resolves every one of them.
 
-Enrichment presents proposals in batch confirmation tables per tier:
+For each element in scope, the enricher:
+
+1. Reads the stub to see which fields are still `null`
+2. Reads the class configuration guide, cached at `.dethereal/class-cache/<class-id>.json`, for where each value can be found
+3. Searches your code, IaC, and config files for concrete evidence
+4. Asks you only about what it could not find, grouped per component to keep round-trips down
+
+Budget for every template field on every in-scope element — not for a fixed six.
+
+> **Classify first.** Template-driven enrichment needs those stubs on disk. An element with no class assigned is skipped and reported in the summary (`N elements skipped — unclassified`); only the six-attribute floor below is applied to it. The same applies if the platform is unreachable and the class cache is cold.
+
+Proposals arrive as a batch confirmation table per tier:
 
 ```
-Proposed Enrichment — Tier 1 (Crown Jewels)
+## Proposed Enrichment — Tier 1 (Crown Jewels)
 
-| # | Component | Attribute | Current | Proposed | Rationale |
-|---|-----------|-----------|---------|----------|-----------|
-| 1 | payment-db | authentication | — | mTLS | Service account with cert |
-| 2 | payment-db | encryption_at_rest | — | AES-256 | AWS RDS encryption |
-| 3 | payment-db | logging | — | enabled | CloudTrail audit |
+| # | Component | Class | Attribute | Current | Proposed | Source |
+|---|-----------|-------|-----------|---------|----------|--------|
+| 1 | payment-db | Database | ssl_enabled | null | true | postgresql.conf |
+| 2 | payment-db | Database | password_encryption | null | scram-sha-256 | pg_hba.conf |
+| 3 | payment-db | Database | log_connections | null | true | postgresql.conf |
 | ...
 
 Apply these changes? (yes / modify / skip)
 ```
 
+Each tier is written to disk before the next one begins, so an interrupted run keeps the tiers it finished. If you decline a field, the plugin writes the template's documented unknown value rather than leaving it `null` — a resumed pass reads `null` as "not yet asked" and would ask again.
+
+To see what is left, run a quality check: alongside the score it returns an **attribute residual** — the elements carrying the most unresolved template fields, with the field names, plus the elements it could not measure at all (usually a missing class template). Both lists are capped, so treat them as the top of the queue; the complete checklist is still the null fields in the attribute files.
+
+### The Six-Attribute Floor
+
+After template-driven enrichment, the enricher checks six security concepts on every in-scope component, whether or not its class template covered them. Anything the template missed is prompted for. Surface reports assume these are captured universally, so a template that omits one must not become a silent blind spot.
+
+**Write these exact key names.** The `control_coverage_rate` quality factor (10% of the score) and the `/dethereal:surface` encryption and authentication coverage read these literal keys and no others. A semantically equivalent name that a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does **not** satisfy the floor — and nothing raises an error. The element simply reads as having no positive security attribute.
+
+| # | Concept | Attribute key | Written on | Value that counts |
+|---|---------|--------------|------------|-------------------|
+| 1 | Authentication | `authentication_type` | component | String — `oauth2`, `mtls`, `sso`. `none` does not count. `basic`/`digest` count only when `encryption_in_transit` is a current protocol |
+| 2 | Encryption in transit | `encryption_in_transit` | data flow (and component where meaningful) | String — e.g. `TLS 1.3`. Rejected: `none`, `sslv3`, `tls 1.0` |
+| 3 | Encryption at rest | `encryption_at_rest` | component | String — e.g. `AES-256`. Rejected: `none`, `des`, `3des`, `rc4` |
+| 4 | Logging | *(no scored key)* | — | Captured by the class template; nothing reads a floor-level key for this one |
+| 5 | Access control | `implicit_deny_enabled` | component (and boundary, though only the component value is scored) | Boolean `true` |
+| 6 | Log telemetry | `monitoring_tools` | component | Non-empty `string[]` once `none`/`n/a` entries are discarded. Use `[]`, never `["None"]` |
+
+Types are strict as well as names: a boolean `true` for `encryption_at_rest` scores as absent, because that field wants the concrete algorithm string.
+
 ### Credential Enrichment
 
 Credential topology is critical for lateral movement analysis — it shows which components share credentials and where credential compromise could spread.
 
-**Phase 1 — Inventory:** The plugin asks you to list all credentials in your system:
-> What credentials and service accounts does your system use? List all: service accounts, API keys, database credentials, certificates, shared secrets.
+Capture is **anchored to your data flows**, not to a cold inventory. A "list all your credentials" brain-dump reliably misses the shared service accounts that *are* the lateral-movement story, so the plugin asks flow by flow instead.
 
-**Phase 2 — Mapping:** Each credential is mapped to the data flows that use it. The plugin writes `required_credentials` on flow attribute files.
+**Phase 1 — Flow-anchored capture:** The plugin enumerates the cross-boundary flows it computed during tiering and asks about them in one batched table:
+
+```
+For each of these cross-boundary flows: what credential authenticates it,
+and what ELSE does that credential reach?
+
+| # | Flow | Credential (id or "none"/"unknown") | Also used by |
+|---|------|--------------------------------------|--------------|
+| 1 | API Server → PostgreSQL | db-admin-account | Worker → PostgreSQL |
+| 2 | Client → API Gateway | api-gateway-key | — |
+```
+
+Come prepared to answer *per flow* rather than with a flat list — the "also used by" column is what makes shared credentials visible. A free-form sweep follows for anything no flow surfaced: break-glass accounts, CI deploy keys, certificates.
+
+**Phase 2 — Mapping:** The answers are consolidated into a credential → flows mapping and presented for confirmation. The plugin then writes `required_credentials` on flow attribute files — this is the key the analysis engine reads when deciding whether an attacker can traverse a flow.
 
 **Phase 3 — STORE scope:** For components that store credential material (databases with password tables, secret managers), the plugin sets `stores_credentials: true` and `credential_scope` listing which credentials are stored there.
 
@@ -223,7 +261,7 @@ Your compliance drivers (from scope definition) determine which framework-specif
 
 | Integration Level | Frameworks | What's Prompted |
 |-------------------|-----------|----------------|
-| **Full integration** | SOC2, ISO 27001 | Framework-specific attribute prompts for all 6 key attributes |
+| **Full integration** | SOC2, ISO 27001 | Framework-specific attribute prompts — SOC2 covers access control, encryption in transit, and monitoring; ISO 27001 covers asset classification, cryptographic controls, and logging |
 | **Data-focused** | PCI-DSS, HIPAA, GDPR | Data classification prompts, sensitivity mapping |
 | **Declared only** | NIST CSF 2.0, NIS2, DORA | Recorded as drivers, no framework-specific prompts |
 
@@ -231,15 +269,16 @@ Your compliance drivers (from scope definition) determine which framework-specif
 
 ## Part 3: MITRE ATT&CK and D3FEND Integration
 
-During enrichment, the plugin maps relevant ATT&CK techniques to your components. This is done carefully to avoid hallucinated technique IDs.
+ATT&CK technique coverage is **derived on the platform**, not annotated locally. Enrichment does not write technique IDs onto your attribute files — its job is to produce component attributes good enough for the platform's analysis policies to fire. Those policies attach techniques to the exposures they raise, and `/dethereal:surface` reports coverage from there. Do not expect to find a `mitre_attack_techniques` field after enrichment; there isn't one, and its absence is not a failed run.
 
-### The 3-Step Verification Protocol
+### Verified Technique Lookup
 
-1. **Search** — the plugin queries the platform's MITRE database using semantic descriptions (e.g., "SQL injection against database"), not memorized technique IDs
-2. **Validate** — returned technique IDs are checked against the expected format (`T####` or `T####.###` for techniques, `TA####` for tactics)
-3. **Persist** — only verified IDs are written to attribute files
+You can still look techniques up interactively — to understand an exposure the platform surfaced, for example. When the plugin does, it **never generates technique IDs from memory**:
 
-The plugin **never generates technique IDs from memory**. All references come from the platform's graph database via the `search_mitre_attack` tool.
+1. **Search** — it queries the platform's MITRE database using semantic descriptions (e.g., "SQL injection against database"), not remembered IDs
+2. **Validate** — each candidate is confirmed against the platform and checked for format (`T####` or `T####.###` for techniques, `TA####` for tactics). Anything that fails validation is dropped
+
+All references come from the platform's graph database via the `search_mitre_attack` tool.
 
 ### D3FEND Countermeasures
 
@@ -247,10 +286,10 @@ For each mapped ATT&CK technique, the plugin can look up D3FEND defensive techni
 
 ### Coverage Assessment
 
-The attack surface analysis (`/dethereal:surface`) shows which of the 14 Enterprise ATT&CK tactics are covered by your technique mappings:
+The attack surface analysis (`/dethereal:surface`) shows which of the 14 Enterprise ATT&CK tactics are covered by the techniques the platform's analysis attached to your exposures:
 
 ```
-MITRE ATT&CK Coverage
+MITRE ATT&CK Coverage (platform-derived)
   Techniques mapped: 12
   Tactics covered (5/14): Initial Access, Credential Access, Lateral Movement,
     Collection, Exfiltration
@@ -258,7 +297,10 @@ MITRE ATT&CK Coverage
     Privilege Escalation, Defense Evasion, Discovery, Command and Control, Impact
 ```
 
-Gaps in tactic coverage highlight areas where your model may be missing relevant threats. Running `/dethereal:enrich` adds more technique mappings.
+Gaps in tactic coverage highlight areas where your model may be missing relevant threats. Re-running `/dethereal:enrich` will **not** move these numbers — they come from platform analysis, not from anything enrichment writes. To change coverage: push the model with `/dethereal:sync push`, run an analysis, then re-run `/dethereal:surface`.
+
+Until that has happened, the section reports the reason instead of a count — either "Model not synced" or "No exposures — analysis has not produced technique mappings yet."
+
 
 > **Note:** Not all 14 tactics are expected to be relevant to every model. Tactics like Reconnaissance and Resource Development describe attacker preparation activities typically outside the scope of component-level threat modeling. Focus on gaps in tactics directly relevant to your system's architecture (e.g., Initial Access, Lateral Movement, Credential Access for internet-facing applications).
 
@@ -310,7 +352,7 @@ Every edit to `attributes` must (a) bump `localEditedAt` and (b) populate `pendi
 
 ### Push-Time Safety
 
-Pushing edits to a Control assigned to multiple Models pauses on the **shared-ownership prompt** — the operator chooses `cancel`, `push-anyway`, `push-unverified`, or (V1.1) `clone-and-swap` per Control. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+Pushing edits to a Control assigned to multiple Models pauses on the **shared-ownership prompt** — the operator chooses `cancel`, `push-anyway`, or `push-unverified` per Control. `clone-and-swap` is planned for V1.1 and is not yet implemented: choosing it returns `CLONE_AND_SWAP_NOT_IMPLEMENTED` and the Control is left untouched. If you reached for it because you did **not** want to mutate a shared Control, the V1 equivalent is `cancel`, then create a separate Control with `/dethereal:enrich --focus controls` — not `push-anyway`, which overwrites the shared Control on every model referencing it. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 ### Status Visibility
 
@@ -325,22 +367,38 @@ This avoids the "branch-switch ambush" case where you forget a queued review scr
 
 ## Enrichment Output Example
 
-After enrichment, a component attribute file (`attributes/components/{id}.json`) looks like this:
+After enrichment, a component attribute file (`attributes/components/{id}.json`) looks like this — here, a PostgreSQL store classified as a Database:
 
 ```json
 {
-  "authentication": "OAuth2",
+  "componentId": "c-db",
+  "name": "PostgreSQL",
+  "type": "STORE",
+  "ssl_enabled": true,
+  "ssl_version": "TLSv1.3",
+  "password_encryption": "scram-sha-256",
+  "log_connections": true,
+  "authentication_type": "mtls",
   "encryption_in_transit": "TLS 1.3",
   "encryption_at_rest": "AES-256",
-  "logging": "enabled",
-  "access_control": "RBAC",
-  "log_telemetry": "SIEM/queryable",
-  "monitoring_tools": ["SIEM", "APM"],
+  "implicit_deny_enabled": true,
+  "monitoring_tools": ["SIEM", "CloudWatch"],
   "auth_failure_mode": "deny",
-  "crown_jewel": true,
-  "asset_criticality": "high"
+  "asset_criticality": "high",
+  "stores_credentials": true,
+  "credential_scope": ["db-admin-account"]
 }
 ```
+
+Three groups are mixed in one flat file:
+
+- **Class-template fields** — `ssl_enabled`, `ssl_version`, `password_encryption`, `log_connections`. These come from the Database class template and differ for every class.
+- **Six-attribute floor keys** — `authentication_type`, `encryption_in_transit`, `encryption_at_rest`, `implicit_deny_enabled`, `monitoring_tools`. Spelled exactly as above, on every component, regardless of class.
+- **Plugin-enrichment fields** — `auth_failure_mode`, `asset_criticality`, `stores_credentials`, `credential_scope`.
+
+Crown-jewel status is not in this file: it is the first-class `crownJewel` field on the component in `structure.json`, which is what the enrichment tier sweep reads.
+
+If you edit these files by hand, read → merge → write. Overwriting drops the groups you weren't thinking about.
 
 MITRE ATT&CK tactic coverage is not stored on the attribute file. After you push the model and run an analysis, the platform emits `Exposure` nodes with `EXPLOITED_BY` edges to MITRE techniques — `/dethereal:surface` §5 aggregates those techniques and reports tactic coverage (see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md)).
 

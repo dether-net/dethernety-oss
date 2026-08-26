@@ -191,33 +191,40 @@ A web application with a React frontend, Node.js API, and PostgreSQL database. T
 
 ## attributes/components/c-db.json (enrichment example)
 
-After classification and enrichment, attribute files contain both class-template fields (evaluated by OPA) and plugin-enrichment fields (used by the Analysis Engine). Always merge — never overwrite.
+`generate_attribute_stubs` writes this file at classification time in the structured `ElementAttributes` format, with every class-template field seeded `null`. Enrichment resolves those nulls in place and adds plugin-enrichment fields. Always merge — never overwrite.
 
 ```json
 {
-  "componentId": "c-db",
-  "name": "PostgreSQL",
-  "type": "STORE",
-  "ssl_enabled": true,
-  "ssl_version": "TLSv1.3",
-  "password_encryption": "scram-sha-256",
-  "hba_auth_method": "scram-sha-256",
-  "log_connections": true,
-  "log_disconnections": true,
-  "log_statement": "ddl",
-  "row_level_security_enabled": false,
-  "pg_hba_trust_entries": false,
-  "listen_addresses": ["127.0.0.1"],
-  "max_connections": 100,
-  "stores_credentials": true,
-  "credential_scope": ["db-admin-account"],
-  "monitoring_tools": ["CloudWatch"]
+  "elementId": "c-db",
+  "elementType": "component",
+  "elementName": "PostgreSQL",
+  "classData": { "id": "<class-uuid>", "name": "PostgreSQL Database" },
+  "attributes": {
+    "ssl_enabled": true,
+    "ssl_version": "TLSv1.3",
+    "password_encryption": "scram-sha-256",
+    "hba_auth_method": "scram-sha-256",
+    "log_connections": true,
+    "log_disconnections": true,
+    "log_statement": "ddl",
+    "row_level_security_enabled": false,
+    "pg_hba_trust_entries": false,
+    "listen_addresses": ["127.0.0.1"],
+    "max_connections": 100,
+    "row_level_security_policies": null,
+    "stores_credentials": true,
+    "credential_scope": ["db-admin-account"],
+    "monitoring_tools": ["CloudWatch"]
+  },
+  "modifiedAt": "2026-03-27T14:30:00Z"
 }
 ```
 
-**Class-template fields** (top group): `ssl_enabled`, `password_encryption`, `hba_auth_method`, etc. — discovered from `postgresql.conf`, `pg_hba.conf`, and IaC. The class template defines these; the guide's `how_to_obtain` tells the agent where to find values.
+`row_level_security_policies` is still `null` — a template field nobody has answered yet. It is withheld from the push and counts against `attribute_completion_rate` until it is resolved to a concrete value.
 
-**Plugin-enrichment fields** (bottom group): `credential_scope`, `monitoring_tools` — added by the agent for the Analysis Engine. Not evaluated by OPA but preserved alongside template fields. (Crown-jewel tagging is the first-class `crownJewel` field on the component in `structure.json`, not an attribute-file field.) (MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy` after analysis — the plugin does not write MITRE techniques on attribute files.)
+**Class-template fields** (top of `attributes`): `ssl_enabled`, `password_encryption`, `hba_auth_method`, etc. — discovered from `postgresql.conf`, `pg_hba.conf`, and IaC. The class template defines these; the guide's `how_to_obtain` tells the agent where to find values.
+
+**Plugin-enrichment fields** (bottom of `attributes`): `credential_scope`, `monitoring_tools` — added by the agent for the Analysis Engine. Not evaluated by OPA but preserved alongside template fields. (Crown-jewel tagging is the first-class `crownJewel` field on the component in `structure.json`, not an attribute-file field.) (MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy` after analysis — the plugin does not write MITRE techniques on attribute files.)
 
 ## Key Points
 
@@ -227,4 +234,5 @@ After classification and enrichment, attribute files contain both class-template
 - **`parentBoundary`** references link each element to its containing boundary.
 - **Positions** are relative to the parent boundary, not the canvas root.
 - **STORE handles** are `left`/`right` only (see `f-api-db` using `right` on the STORE target).
-- **Attribute files** contain both class-template and plugin fields. Always read before writing; merge, never overwrite.
+- **Attribute files** contain both class-template and plugin fields, nested under `attributes`. Always read before writing; merge, never overwrite.
+- **Asset signals** are first-class structural fields, not attributes: `crownJewel` on a component in `structure.json`, `sensitivity` and `regulatory_flags` on a data item in `data-items.json`. All three are REPLACE-on-push — omitting one clears it on the platform.

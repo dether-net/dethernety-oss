@@ -140,22 +140,23 @@ Models are stored at user-chosen visible paths (e.g., `./threat-models/productio
 ```json
 {
   "name": "dethereal",
-  "version": "1.0.0",
+  "version": "0.4.1",
   "description": "Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with MITRE ATT&CK, and sync with the Dethernety platform.",
   "author": {
-    "name": "Dether Labs",
-    "url": "https://dethernety.io"
+    "name": "dether.net",
+    "url": "https://dether.net"
   },
   "homepage": "https://github.com/dether-net/dethernety-oss",
   "repository": "https://github.com/dether-net/dethernety-oss",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0",
   "keywords": [
     "threat-modeling",
     "cybersecurity",
     "mitre-attack",
     "data-flow-diagram",
     "security-analysis"
-  ]
+  ],
+  "mcpServers": "./.mcp.json"
 }
 ```
 
@@ -166,18 +167,21 @@ Models are stored at user-chosen visible paths (e.g., `./threat-models/productio
   "mcpServers": {
     "dethereal": {
       "type": "stdio",
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "command": "npx",
+      "args": ["@dether.net/dethereal@0.4.1"],
       "env": {
-        "DETHERNETY_URL": "${DETHERNETY_URL}",
-        "CLAUDE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
+        "DETHERNETY_URL": "${DETHERNETY_URL}"
       }
     }
   }
 }
 ```
 
-> `DETHERNETY_URL` is inherited from the user's shell environment. The MCP server falls back to `http://localhost:3003` internally if unset.
+> `DETHERNETY_URL` is inherited from the user's shell environment. The MCP server falls back to `http://localhost:3003` internally if unset. It is the only variable the server reads from this block.
+
+**The server is launched from the published npm package, not from a local build.** `npx @dether.net/dethereal@<version>` resolves the same package the plugin ships as, pinned to the exact version in `plugin.json`. The pin is the mechanism that keeps the MCP tool surface and the skills that call it in lockstep — installing plugin version *X* always runs server version *X*, so a skill body can rely on a tool argument that only exists from that version onward. Bumping the plugin therefore means bumping the version in three places together: `package.json`, `.claude-plugin/plugin.json`, and the `args` pin here.
+
+`${CLAUDE_PLUGIN_ROOT}` is still used, but by the hooks and by the drift-detection invocation in `/dethereal:threat-model` — those run scripts from the installed plugin directory rather than the npm package. See [DRIFT_DETECTION.md §State surface](DRIFT_DETECTION.md#state-surface).
 
 ---
 
@@ -743,7 +747,9 @@ Authentication works through the existing mechanism:
 
 ### Persistent Plugin Data
 
-Uses `${CLAUDE_PLUGIN_DATA}` for:
+> **Not implemented.** `${CLAUDE_PLUGIN_DATA}` is not read anywhere in the MCP server, and none of the three caches below exist on disk. The one cache that shipped is per-model rather than plugin-global: `<model-path>/.dethereal/class-cache/<classId>.json`, written by `generate_attribute_stubs` with a 7-day advisory staleness threshold ([TEMPLATE_STUB_GENERATION.md §Class Cache](TEMPLATE_STUB_GENERATION.md#class-cache)). Auth tokens are the only plugin-global state, and they live at `~/.dethernety/tokens.json` (see §Authentication above). The list below is the original design intent, retained as the shape a future implementation would take.
+
+Would use `${CLAUDE_PLUGIN_DATA}` for:
 - Class definition cache (TTL: 24 hours)
 - MITRE tactic name cache (for conversational reference, not model data)
 - User profile (session count, expertise signals for UX adaptation)

@@ -573,9 +573,16 @@ For compliance (SOC2, PCI-DSS), auditors need both: git for "who approved the mo
     |
 [Step 6: Post-Push]
     Update sync.json: push_content_hash, baseline_element_ids
+    Re-key .dethereal/ sidecars onto the platform ids (see below)
     Suggest git commit
     If countermeasures exist → suggest linking (R6/F3)
 ```
+
+**Step 5 rewrites local files, and two invariants govern that rewrite.**
+
+*Element IDs are re-keyed everywhere they appear on disk.* A push mints platform IDs for elements that only existed locally, and the re-export writes the model files with them. Two sidecars under `.dethereal/` are keyed by element ID and must follow, or they orphan silently: `template-fields/<element-id>.json` (reclassification cleanup looks the manifest up by the element's *current* ID, so an orphaned set always misses) and `state.json`'s `staleElements[]` (the re-enrichment queue, which otherwise holds pre-push IDs that resolve to nothing). This runs on the `update_model` path as well as first create/import — both are ID-remap sites. Unmapped IDs are left alone, every other key in `state.json` is preserved, and the whole re-key is best-effort: these are local optimisations, never model data, so a failure here warns but never reports a successful push as failed.
+
+*An attribute file that cannot be read is preserved, not destroyed.* The push path re-reads `attributes/` to merge local values the platform does not have. A file that fails to parse — or a flat-format file with no structure context to resolve it — is absent from that merge, and the write that follows would then treat it as stale and unlink it, destroying enrichment that was never pushed. Read failures are instead collected and surfaced as push warnings naming the file, the reason, and where to restore it from (the pre-push backup, or version control if none was taken). The same set marks the file protected: **no write path may write over it, rename over it, or unlink it.** Comparison is case-insensitive, because on APFS and NTFS a file protected under one spelling would otherwise be truncated through its case-folded name. The tradeoff is deliberate — over-protection keeps a stale file and says so; under-protection destroys a live one in silence.
 
 ### First Push After Pull (Special Case)
 

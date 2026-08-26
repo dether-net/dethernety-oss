@@ -92,7 +92,14 @@ Users can leave and resume at any state. The state is tracked in `<model-path>/.
 }
 ```
 
-`staleElements` tracks element IDs added after the ENRICHING state was entered that have not yet been enriched. Populated by the backward transition rule (D29): when structural changes occur at ENRICHING or later, the state reverts to STRUCTURE_COMPLETE and newly added elements are added to `staleElements`. The enrichment skill prioritizes stale elements first.
+`staleElements` is the re-enrichment queue: element IDs that need enrichment attention before the model is trustworthy again. Populated by the backward transition rule (D29): when structural changes occur at ENRICHING or later, the state reverts to STRUCTURE_COMPLETE and the affected elements are queued. The enrichment skill prioritizes stale elements first and removes their IDs once enrichment is confirmed and written.
+
+Two properties of the queue are easy to get wrong when writing a `state.json` handler:
+
+- **It is not additions-only.** `/dethereal:remove` drops deleted IDs from the queue, and *adds* the IDs of elements it modified as a side effect — flows reconnected around a deleted component, child components relocated to a parent boundary. Those elements were never added; their enrichment is stale because their context changed. An entry that does not correspond to a recent addition is not corruption.
+- **The MCP server re-keys it.** `state.json` is otherwise skill-owned, but element IDs change on disk whenever a push mints platform IDs for locally created elements, and nothing else runs at that moment. The server rewrites `staleElements[]` onto the new IDs — on the `update_model` re-export path as well as the first create/import push — preserving every other key in the file. `.dethereal/template-fields/<element-id>.json` is renamed in the same operation ([TEMPLATE_STUB_GENERATION.md §Template Field Manifest](TEMPLATE_STUB_GENERATION.md#template-field-manifest)). IDs with no mapping are left alone. Without this, the queue holds pre-push IDs that resolve to no element and the next enrichment pass silently drops exactly the elements that were flagged as needing attention.
+
+> The hazard this creates for a full-replace writer is real: `/dethereal:sync` pull is the only step in the plugin that rewrites `state.json` wholesale, and it must preserve the existing array rather than reset it to `[]`, along with `lastReconcileCommit`, `model_signed_off`, and any unknown keys.
 
 ### Phase-to-Step Mapping
 
@@ -498,8 +505,10 @@ Add `.dethereal/discovery.json` to the suggested `.gitignore` — provenance met
 Classification uses a two-pass approach (R6/F6):
 
 **Pass 1 — Deterministic (at Step 3, during discovery confirmation):**
-1. Call `match_classes` with `{ elements: [{ name, type, description }], classLabel: 'COMPONENT', moduleIds: [activeModules], topN: 3 }`. The MCP tool performs batch fuzzy matching against the IaC mapping table and class definitions across all specified modules, returning ranked matches with confidence levels and match types (`exact_name`, `fuzzy`, `type_only`) (D51).
+1. Group the unclassified elements by class label, then sub-group the `COMPONENT` set by component type. Call `match_classes` once per group with `{ elements: [{ name, type, description }], classLabel: 'COMPONENT', componentType: 'STORE', moduleIds: [activeModules], topN: 3 }`. The MCP tool performs batch fuzzy matching against the IaC mapping table and class definitions across all specified modules, returning ranked matches with confidence levels and match types (`exact_name`, `fuzzy`, `type_only`) (D51).
 2. High-confidence matches (exact IaC mapping or unambiguous type match) are pre-filled in the discovery confirmation table, so users see *"Redis Cache (STORE / Key-Value Store)"* rather than *"Redis Cache (STORE / unclassified)"* when confirming discovered components.
+
+> **`componentType` is required for `COMPONENT`, and it is why the batch is sub-grouped.** It is a single top-level filter, not per-element, so a mixed batch cannot be type-constrained — hence one call per `PROCESS` / `STORE` / `EXTERNAL_ENTITY` group. It is also the only *hard* type constraint available: the per-element `type` field feeds the ranking's lowest-priority tier and does not stop a STORE being offered a PROCESS class. A cross-type binding is a real defect rather than a cosmetic one, because the class's Rego policy is written for the type the class declares and would then evaluate against a thing it does not describe. `validate_model_json(action: 'validate')` warns on the mismatch after the fact, comparing the component's type against the `componentType` persisted in `.dethereal/class-cache/` — a warning, not an error, since the cache can be stale and only the platform is authoritative about the binding.
 
 **Pass 2 — LLM-assisted (at Step 6, after boundary refinement):**
 3. Low-confidence and unmatched items are flagged for LLM-assisted reasoning — the agent uses component context (boundary position, connected flows) to propose classifications.
@@ -680,16 +689,57 @@ score = (
 )
 ```
 
-All factors are normalized to the range 0.0-1.0 before multiplication. Rate factors (`component_classification_rate`, etc.) are computed as ratios (e.g., classified_components / total_components). When a denominator is zero (e.g., `total_components = 0` during early scope definition, or `total_cross_boundary_flows = 0` for models without trust boundaries), the rate is 0.0 — not NaN or undefined.
+All factors are normalized to the range 0.0-1.0 before multiplication. Rate factors (`component_classification_rate`, etc.) are computed as ratios (e.g., classified_components / total_components). When a denominator is zero (e.g., `total_components = 0` during early scope definition, or `total_cross_boundary_flows = 0` for models without trust boundaries), the rate is 0.0 — not NaN or undefined. `attribute_completion_rate` is the exception: a zero denominator routes it to a fallback basis rather than to 0.0 (see below).
+
+`attribute_completion_rate`: **the units are class template FIELDS, not elements.** It is `resolved / declared`, where `declared` sums the template field count of every scored element and `resolved` counts the fields that carry a value. A field is unresolved when it is absent from the attribute bag, `null`, or `undefined`; presence is tested with `hasOwnProperty`, so a template field named `toString` or `constructor` does not score as resolved on every element.
+
+The population is every element in the model — boundaries, components, data flows, data items — read from the structural files (`structure.json`, `dataflows.json`, `data-items.json`), not from the attribute tree. Reading the attribute tree instead would drop exactly the classified-but-unenriched elements that carry the largest residual, and produce a completion rate that climbs as enrichment gets worse. The class binding likewise comes from the structure, never from the `classData` copy embedded in the attribute file, which is written at stub time and is the stale one after a reclassification.
+
+Templates come from `.dethereal/class-cache/`, keyed by CLASS id. Two groups are excluded from **both** sides of the ratio rather than scored either way:
+
+| Excluded | Counter | Why |
+|---|---|---|
+| No class binding | `elements_unclassified` | Already penalized by `component_classification_rate` and `data_classification_rate` |
+| Classified, but the class is not in the cache | `elements_without_template` | Counting them complete overstates readiness; counting them incomplete punishes a model for a cache miss |
+
+Whenever either exclusion is non-empty, the factor carries a `note` naming the counts, so the ratio is honest about what it measured. Because the class cache is keyed by class id it survives the local-id → platform-id remap on push, which is why enrichment is measured from it rather than from the element-keyed `.dethereal/template-fields/` manifests.
+
+**Fallback basis.** If no element resolves to a cached template at all — `declared` is 0, meaning the model was never stubbed or predates the cache — the factor falls back to the pre-existing file-presence heuristic: `(component attribute files + data item attribute files) / (total components + total data items)`, capped at 1.0. This is a materially different measure: it counts one entry per element, so a stub whose every field is `null` scores identically to a fully enriched element. The payload labels which one ran (`attribute_residual.basis` is `'template'` or `'file-presence'`) and the factor's `note` says *"No cached class templates — measuring attribute-file presence, not resolved fields. Run generate_attribute_stubs."* **The same model can therefore score differently before and after `generate_attribute_stubs` runs**, and the label is the only way to tell which number is in hand.
+
+**`attribute_residual`.** The quality payload carries the worklist behind this one number, because a number cannot tell an operator what to go and answer:
+
+```typescript
+attribute_residual: {
+  declared: number                    // template fields across all scored elements
+  resolved: number                    // of those, fields carrying a value
+  unresolved: number                  // declared - resolved
+  elements_scored: number             // classified, with a cached template — the ratio's population
+  elements_unclassified: number       // excluded from the ratio
+  elements_without_template: number   // excluded from the ratio
+  basis: 'template' | 'file-presence'
+  blocked: Array<{ element: string; class_id: string }>
+  top_unresolved: Array<{
+    element: string; class: string
+    unresolved: number; declared: number
+    fields: string[]                  // the unresolved field names
+  }>
+}
+```
+
+`blocked[]` names the classified elements the ratio could not measure — the fix is almost always to run `generate_attribute_stubs` so the class template is cached. `top_unresolved[]` is sorted by unresolved count descending. Both arrays cap at 25 entries and each entry's `fields` caps at 12, so treat them as the top of the queue rather than the whole of it; the complete checklist is still the `null` fields in the attribute files. On the file-presence fallback, `elements_scored` and `blocked[]` are zeroed rather than left holding a partial tally from a pass that did not complete.
 
 `control_coverage_rate`: two-tier metric. *Inferred tier* (offline): percentage of classified components with at least one positive security attribute per the mapping table in [CONTROL_INTEGRATION.md §10](CONTROL_INTEGRATION.md#phase-1--fix-the-quality-score-zero-new-ux). *Formal tier* (post-sync): percentage of classified components with at least one control reference in `controls[]` (directly or boundary-inherited). The quality score uses the maximum of the two tiers per element.
 
 `credential_coverage_rate`: percentage of cross-boundary data flows with `credential_type` set (not `"none"`).
 
-**boundary_hierarchy_quality** is computed as a continuous score. Each of three conditions contributes 0.33 to the factor, summing to 1.0:
+**boundary_hierarchy_quality** is computed as a continuous score. Three conditions sum to 1.0 (the third carries the rounding remainder, and the total is capped at 1.0):
 - Hierarchy depth >= 2: +0.33
-- No boundary contains only one child: +0.33
-- No external entities share a boundary with internal components: +0.33
+- No boundary contains only one child: +0.33 (also granted when the model has no boundaries at all)
+- No boundary mixes an EXTERNAL_ENTITY with internal components: +0.34
+
+The third condition compares **direct children only**, recursively: a boundary fails if it directly contains both an `EXTERNAL_ENTITY` and at least one component of another type. A nested boundary is its own zone, which is the shape the modeling guidelines recommend — putting the external actor in its own Internet Zone rather than flattening it in beside the web server.
+
+> That third condition was previously awarded unconditionally, on the reasoning that external entities could not be distinguished offline. They can — the same tool already walks for them when computing coverage — and the free 0.34 made the factor unable to report the one modeling error it names. It is now evaluated. A model that flattens an external actor in with internal components loses 5.1 points (0.34 × 15) that it used to be given.
 
 > Previous ternary scoring (10/5/0) was ambiguous ("which two-of-three combinations yield 5?") and created a 7.5-point cliff effect that penalized valid architectures (e.g., a DMZ containing only a WAF is architecturally correct but scored 0 on the single-child condition).
 
@@ -702,7 +752,9 @@ All factors are normalized to the range 0.0-1.0 before multiplication. Rate fact
 
 Analysis readiness: minimum 70 required. Quality score >= 70 is necessary but not sufficient for analysis readiness. Gate 3 includes structural checks (trust boundary crossing review, cross-boundary data flow existence) that are pass/fail requirements independent of the numeric score.
 
-**Quality computation:** The quality score is computed deterministically by the MCP server via `validate_model_json(action: 'quality')`. The `model-reviewer` agent calls this tool and receives the structured score breakdown, then presents and interprets the results. This keeps the computation deterministic (not LLM-dependent) and the agent's role limited to presentation.
+**Quality computation:** The quality score is computed deterministically by the MCP server via `validate_model_json(action: 'quality')`. The `model-reviewer` agent calls this tool and receives the structured score breakdown, then presents and interprets the results. This keeps the computation deterministic (not LLM-dependent) and the agent's role limited to presentation. The final score is rounded to two decimal places.
+
+**Unreadable attribute files lower the score, and say so.** Every factor that reads `attributes/` treats a file it cannot parse as unenriched, so a single corrupt file drags the score down for a reason that looks exactly like unfinished enrichment. The quality payload therefore emits a `warnings[]` entry naming the file and the read failure, and states that the next push may overwrite it. The file itself is protected: a read failure marks it so that no write path — the attribute write, the id-remap rename, or the stale-file cleanup — may write over it, rename over it, or unlink it. Restoring the file and re-running `quality` is the fix; the score should recover on its own.
 
 **Post-action footer:** Mutating skills compute only the "after" score (absolute, not delta): `[done] Classification complete. Quality: 56/100.` The cached score from `.dethereal/quality.json` provides the "before" reference if needed. This halves MCP tool calls per mutation compared to computing both before/after scores.
 

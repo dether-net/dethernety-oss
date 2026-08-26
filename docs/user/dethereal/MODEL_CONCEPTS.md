@@ -204,22 +204,25 @@ For more on the classification process, see the [classify command](COMMAND_REFER
 
 ### The 6 Key Component Attributes
 
-Every component can have these security properties, populated during enrichment:
+A floor of six security properties that enrichment captures on every in-scope component, whatever its class template happens to cover. Five are component attributes; encryption in transit is recorded on the data flow. The **attribute key** column is what you must write — the scorer reads these literal names:
 
-| # | Attribute | What It Captures | Example Values |
-|---|-----------|-----------------|---------------|
-| 1 | `authentication` | How the component is protected | OAuth2, JWT, mTLS, API key, none |
-| 2 | `encryption_in_transit` | Transport-level encryption | TLS 1.3, TLS 1.2, mTLS, none |
-| 3 | `encryption_at_rest` | Storage encryption | AES-256, AES-128, none, unknown |
-| 4 | `logging` | Whether audit logging is enabled | enabled, disabled, unknown |
-| 5 | `access_control` | Authorization model | RBAC, ABAC, ACL, none |
-| 6 | `log_telemetry` | Log destination and queryability | SIEM/queryable, CloudWatch/queryable, local/not-queryable, none |
+| # | Concept | Attribute key | Written on | Value the scorer accepts |
+|---|---------|---------------|------------|--------------------------|
+| 1 | Authentication | `authentication_type` | component | String — e.g. `oauth2`, `mtls`, `sso`. `none` does not count. `basic`/`digest` count only when `encryption_in_transit` is a non-deprecated string |
+| 2 | Encryption in transit | `encryption_in_transit` | **data flow** (and component where meaningful) | String — e.g. `TLS 1.3`. Rejected: `none`, `sslv3`, `ssl v3`, `tls 1.0`, `tls1.0` |
+| 3 | Encryption at rest | `encryption_at_rest` | component | String — e.g. `AES-256`. Rejected: `none`, `des`, `3des`, `triple-des`, `rc4` |
+| 4 | Logging | *(no scored key)* | — | Captured by the class template; nothing reads a floor-level key for this one |
+| 5 | Access control | `implicit_deny_enabled` | component (boundaries too, but only the component value is scored) | Boolean `true` |
+| 6 | Log telemetry | `monitoring_tools` | component | Non-empty `string[]` after discarding `none`/`n/a`. Use `[]`, never `["None"]`. Components with no monitoring tools are detection blind spots |
 
-These attributes are populated during the enrichment step and stored in individual attribute files under `attributes/components/`.
+**Write these key names literally.** `control_coverage_rate` (10 points of the quality score) and the attack-surface report's encryption and authentication coverage read these exact keys and no others — a semantically equivalent name that a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does not satisfy the floor. Types are strict too: a boolean `true` for `encryption_at_rest` scores as absent, because that key wants the concrete algorithm string.
+
+Note that `encryption_in_transit` is scored **per cross-boundary data flow**, not per component — it belongs on the flow's attribute file under `attributes/dataFlows/`. The other five are component attributes, stored in individual files under `attributes/components/`.
+
+These attributes are a floor, not the whole enrichment job: the primary pass resolves every field declared by each element's assigned class template. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md).
 
 ### Additional Attributes
 
-- **`monitoring_tools`** — which monitoring systems observe this component (SIEM, EDR, NDR, APM). Components without monitoring tools are detection blind spots.
 - **`asset_criticality`** — high/medium/low, the business impact of compromise
 - **`stores_credentials`** — true for STORE components that hold credential material
 - **`credential_scope`** — which credential identifiers are stored (drives lateral movement analysis)
@@ -279,7 +282,11 @@ threat-models/my-system/
 │   ├── quality.json       # Quality score cache
 │   ├── discovery.json     # Discovery provenance (gitignore)
 │   ├── sync.json          # Sync metadata (gitignore)
-│   └── control-audit.log  # Append-only control-decision ledger (commit)
+│   ├── control-audit.log  # Append-only control-decision ledger (commit)
+│   ├── class-cache/       # Cached class templates and guides
+│   │   └── {class-id}.json
+│   └── template-fields/   # Per-element template field manifests
+│       └── {element-id}.json
 ├── attributes/            # Per-element security attributes
 │   ├── boundaries/
 │   │   └── {id}.json
@@ -346,6 +353,9 @@ Per-model workflow metadata inside each model directory:
 - **`quality.json`** — cached quality score (deleted on backward transitions)
 - **`discovery.json`** — discovery provenance (gitignore — may contain infrastructure details)
 - **`sync.json`** — sync metadata (gitignore — per-user state)
+- **`control-audit.log`** — append-only ledger of shared-ownership control decisions
+- **`class-cache/`** — class templates and configuration guides cached at classification time. This is what makes enrichment work offline, and it is the basis the attribute-completion factor is measured against. Delete it and the quality score silently falls back to counting attribute *files* instead of resolved *fields*; `generate_attribute_stubs` rebuilds it.
+- **`template-fields/`** — one manifest per element, recording which fields its current class declared. When an element is reclassified, this is what lets the plugin drop the old class's unanswered fields while preserving values you already enriched.
 
 ---
 
