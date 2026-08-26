@@ -1029,13 +1029,15 @@ The mutation handler runs validation and a preflight read outside any transactio
 
 All five steps share one Bolt transaction. On any error inside the block (module-SDK failure, database error, constraint violation), Bolt rolls back the rewire and the upsert together — no partial graph state can land.
 
+Class-compatibility refusals are made in the preflight, before the write block opens: a class whose node label is wrong for the element type, and — for Components — a `ComponentClass` whose `type` contradicts the Component's own `type`. The label case has a downstream symptom (the rewire's final `MATCH` finds zero rows, but only *after* the destructive sweep has already run); the type case has none, so an unrefused wrong-type target rewires cleanly and leaves the element bound to a class describing something it is not.
+
 ### Error taxonomy
 
 `ElementBindingErrorCode` is an 8-value enum. The UI branches on the code rather than the message string so copy / locale changes don't break behaviour:
 
 | Code | Meaning |
 |------|---------|
-| `VALIDATION_ERROR` | Input shape inconsistent with `kind` (e.g. `kind: CLASS` with `classIds` empty for a non-Control) |
+| `VALIDATION_ERROR` | Five refusals share this code, told apart by `errorMessage`: actor absent from context; input shape inconsistent with `kind` (e.g. `kind: CLASS` with `classIds` empty for a non-Control); element type supports no class binding at all; target class carries the wrong node label for the element type (a `ComponentClass` targeted by a DataFlow); or, Components only, a `ComponentClass` whose `type` contradicts the Component's own `type` (a `STORE` class on a `PROCESS` Component) |
 | `ELEMENT_NOT_FOUND` | `elementId` resolves to no node |
 | `CLASS_NOT_FOUND` | One or more `classIds` resolve to no class node |
 | `MODEL_NOT_FOUND` | `modelId` resolves to no model node |
