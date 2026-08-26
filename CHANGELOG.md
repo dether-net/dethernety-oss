@@ -12,12 +12,12 @@ bytes the platform fetches per request; it can now install a signed **artifact**
 once, verified before it is placed, loaded from disk thereafter. Alongside it: a knowledge-graph
 access contract that answers identically from a local graph or a remote service, a batch of
 correctness fixes in the plugin and the editor, and a deployment fix without which the bundle does
-not start on Docker Desktop at all. Compared against the previous tag, `v0.6.1`.
+not start on a bind mount at all. Compared against the previous tag, `v0.6.1`.
 
-**Upgrading:** take the new bundle. If your database currently starts, this release does not change
-how it runs; if it never did — the container exiting immediately on macOS or Windows, logging only
-its banner — that is the last item under *Fixed* and it is why. Nothing else requires an edit to an
-existing `.env`.
+**Upgrading:** take the new bundle. If your database never started — the container exiting
+immediately, or restarting forever on a permission error naming its log file — that is the first
+item under *Fixed* and it is why. The new bundle adds one directory beside your data
+(`data/memgraph-log`); nothing else requires an edit to an existing `.env`.
 
 ### Added
 
@@ -47,17 +47,29 @@ existing `.env`.
 
 ### Fixed
 
-- **The database could not start on Docker Desktop.** A default deployment on macOS or Windows
-  failed on first `up`, and the error named the wrong file: a permission failure writing
-  `/var/log/memgraph`. The real fault was ownership. The database refuses a data directory it does
-  not own — an ownership comparison, not a permission one — and the control script answered that
-  question from the container engine's *name*: the operator's own uid under Docker. That holds for
-  Docker Engine on Linux, where uids pass through to a bind mount, and is false on Docker Desktop,
-  whose file-sharing layer presents every bind mount as root-owned. Handed a uid that could never
-  match, the database also could not report it, because a non-root uid cannot write the log
-  directory either — so the assertion had nowhere to go. The script now asks the engine directly,
-  with a short-lived container that reports the owner as the container sees it. Mounting a writable
-  log directory fixes neither half; correcting the uid fixes both.
+- **The database would not start on a bind mount — on any host, for one of two reasons.** Two
+  independent faults shared a single symptom, and each platform showed only one of them.
+
+  The first is **ownership**. The database refuses a data directory it does not own — an ownership
+  comparison, not a permission one — and the control script answered that question from the
+  container engine's *name*: the operator's own uid under Docker. That holds for Docker Engine on
+  Linux, where uids pass through to a bind mount, and is false on Docker Desktop, whose file-sharing
+  layer presents every bind mount as root-owned. On macOS and Windows the database was handed a uid
+  that could never match. The script now asks the engine directly, with a short-lived container that
+  reports the owner as the container sees it, so there is nothing left to infer.
+
+  The second is **the log directory**, and it is why the first was so hard to read. The image ships
+  `/var/log/memgraph` writable only by its own user, so a container running as anyone else dies on
+  its first log line — reporting a permission error that names the log file while the ownership
+  fault it was really failing on goes unmentioned. On macOS the corrected uid is root, which can
+  write anywhere, so fixing ownership alone appeared to fix everything; on Linux the corrected uid
+  is the operator, and the database still could not start. The log directory now comes from the
+  host, created world-writable, which satisfies the image's own user in named-volume mode and the
+  operator in bind mode. A named volume would not do: the engine seeds one from the image,
+  ownership included.
+
+  Verified on four combinations — Docker Desktop and Podman on macOS, Docker Engine and rootless
+  Podman on Linux — each starting healthy and writing its log where the operator can read it.
 - **The console told operators their callback URLs were already registered.** The text sat directly
   beneath a box containing two callback URLs and said local development addresses are always
   accepted and not listed there — wrong twice over, since the reader is looking at exactly the thing

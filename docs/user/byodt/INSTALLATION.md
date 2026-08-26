@@ -171,7 +171,7 @@ Expect output like this:
 | Step | What it creates |
 |---|---|
 | Configuration | `.env`, copied from `.env.example`, with the detected container engine appended as `CONTAINER_ENGINE`. |
-| Runtime directories | `modules/`, `schema/`, `data/`, `data/ollama/`, `data/content-cache/`, `mode/`, and `tls/`. |
+| Runtime directories | `modules/`, `schema/`, `data/`, `data/ollama/`, `data/content-cache/`, `data/memgraph-log/`, `mode/`, and `tls/`. |
 | Database password | A freshly generated password written to `.env.secrets`, mode `0600`. This file is created once and never regenerated. |
 | Mode layer | `mode/mode.env`, seeded with the standalone defaults. |
 

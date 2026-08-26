@@ -66,6 +66,23 @@ services:
       # DB_DATA (see .env) selects the store: the default host bind mount `./data/memgraph`
       # (visible on disk) or the `memgraph-data` named volume (robust on VM-backed runtimes).
       - "${DB_DATA:-./data/memgraph}:/var/lib/memgraph"
+      # THE LOG DIRECTORY HAS TO COME FROM THE HOST, and it is not a convenience.
+      #
+      # The image ships /var/log/memgraph as mode 0750 owned by its own user, so ONLY that user can
+      # write it. In bind mode the container runs as whoever owns the data directory (see db_user),
+      # which on a Linux host is the operator — not the image's user — and the database then dies on
+      # its very first log line, reporting a permission error that names the log file while the data
+      # directory it was really asking about goes unmentioned. On macOS the same derivation yields
+      # root, which can write anywhere, so the fault is invisible there: one bug, visible on one
+      # platform, and that asymmetry is what hid it.
+      #
+      # A NAMED VOLUME WOULD NOT DO. The engine seeds one from the image, ownership included, so it
+      # arrives 0750 owned by the image's user and the operator's uid still cannot write it.
+      #
+      # Mounted unconditionally rather than only in bind mode, because ensure_layout creates it
+      # world-writable: that satisfies the image's own user in named-volume mode and the operator's
+      # uid in bind mode, without compose needing to know which one is in play.
+      - "./data/memgraph-log:/var/log/memgraph"
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
       memlock: { soft: -1, hard: -1 }

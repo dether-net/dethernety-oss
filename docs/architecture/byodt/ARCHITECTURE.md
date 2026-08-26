@@ -240,6 +240,7 @@ console* to your network; the consequences of that are the subject of
 | Host path | Mounted at | By | Mode | Contents |
 |---|---|---|---|---|
 | `${DB_DATA}` (default `./data/memgraph`) | `/var/lib/memgraph` | `db` | rw | The graph, plus the database's own in-place snapshots |
+| `./data/memgraph-log` | `/var/log/memgraph` | `db` | rw | The database's own log. Mounted from the host because the image's log directory is writable only by the image's user, and on a bind mount the container runs as whoever owns the data directory instead |
 | `./data/ollama` | `/root/.ollama` | `ollama` | rw | The pulled embedding model |
 | `./modules` | `/app/apps/dt-ws/custom_modules` | `console-init`, `console` | rw | Installed module payloads, the console's state file, content-mount stubs |
 | `./modules` | `/app/apps/dt-ws/custom_modules` | `platform` | **ro** | The platform loads what was placed; it never writes here |
