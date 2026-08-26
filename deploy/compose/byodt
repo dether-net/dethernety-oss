@@ -251,8 +251,28 @@ ensure_layout() {
   # gives: the database image's log directory is writable only by the image's own user, and in bind
   # mode the container runs as the operator instead. World-writable here covers both, and covers them
   # without this script having to know which mode is in play.
-  mkdir -p modules schema data data/ollama data/content-cache data/memgraph-log mode
-  chmod 0777 modules schema data data/ollama data/content-cache data/memgraph-log mode
+  #
+  # data/ carries the STICKY BIT and its children do not, and the asymmetry is the point. Every path
+  # widened below is chmod'ed by name, and chmod follows a symlink — so an entry replaced by a link
+  # before this runs gets the link's TARGET widened instead, under the operator's identity. Only the
+  # children of data/ are replaceable that way: every other widened dir is an entry in the bundle
+  # root, which is 0755 and the operator's. Sticky on data/ stops a non-owner unlinking those entries
+  # at all, and costs nothing, because this function creates them and no container renames them. It
+  # is deliberately NOT applied to modules/, schema/ or mode/, whose entries ARE created and replaced
+  # by containers: sticky there would refuse a replacement written under a different uid than the one
+  # that installed it, which is what a module install becomes after the engine changes. The bit is set
+  # before anything below is widened, so the ordering opens no window of its own.
+  #
+  # Not closed by this: a link planted BEFORE the first run that sets the bit is still followed on
+  # that one run, and a runtime dir added in a future version is plantable until the upgrade that
+  # creates it. Closing either needs a chmod-through-a-path check, which would also refuse the symlink
+  # an operator legitimately uses to move a multi-gigabyte cache onto another disk — compose.yaml
+  # hardcodes these paths and only the database has an env var for it. The end state is not a wider
+  # guard here but narrower permissions: give each service a uid that matches its directory's owner
+  # and none of this has to be world-writable at all.
+  mkdir -p data && chmod 1777 data
+  mkdir -p modules schema data/ollama data/content-cache data/memgraph-log mode
+  chmod 0777 modules schema data/ollama data/content-cache data/memgraph-log mode
   mkdir -p tls && chmod 0700 tls
   if db_is_bind; then mkdir -p data/memgraph && chmod 0777 data/memgraph; fi
 
@@ -285,6 +305,14 @@ ensure_layout() {
   fi
 
   # The console rewrites this file (never deletes it) when the deployment is connected to the cloud.
+  # The symlink test comes first for the same reason it does above schema-noauth.graphql, and what it
+  # refuses here is worse. [ -f ] dereferences, so a DANGLING link at this path is not "already
+  # present" — the redirection below then CREATES the operator's file wherever the link points,
+  # holding a mode layer that turns authentication off. mode/ is world-writable, so planting the link
+  # needs no privilege, and `set -e` does not catch it: the redirection succeeds.
+  if [ -L "$MODE_FILE" ]; then
+    die "$MODE_FILE is a symlink — refusing to write through it. Remove it, then run '$SELF up' again."
+  fi
   if [ ! -f "$MODE_FILE" ]; then
     printf 'ENABLE_NOAUTH=true\nNODE_ENV=development\n' > "$MODE_FILE"
     info "Seeded $MODE_FILE with the pure open-source defaults."

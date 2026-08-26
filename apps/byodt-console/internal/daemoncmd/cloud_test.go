@@ -141,6 +141,31 @@ func TestCloudModeVarsRejectsInsecureURL(t *testing.T) {
 	}
 }
 
+func TestCloudModeVarsRejectsUserinfoInEveryURLValue(t *testing.T) {
+	// Every name held to secureURL, not just the content base: the producer's own bare-host contract
+	// refuses a literal "@", and these are the two ends of one contract. A parsed-field check is what
+	// misses it —
+	// url.Parse leaves u.Host clean and puts the deception in u.User.
+	for _, name := range secureURLVars {
+		recipe := validRecipeVars()
+		recipe[name] = "https://legit.example@attacker.example"
+		if _, _, err := cloudModeVars(recipe, "https://d.example/auth/callback", "/cache"); err == nil {
+			t.Fatalf("%s must reject a userinfo value — it names a host it does not resolve to", name)
+		}
+	}
+}
+
+func TestCloudModeVarsRejectsAUserinfoRedirect(t *testing.T) {
+	// cloudApply validates the redirect before calling this, so the paste path is covered either way.
+	// This pins the property that makes the check worth having HERE: the function writes the redirect
+	// verbatim as OIDC_REDIRECT_URI and derives ALLOWED_ORIGINS from it, and redirectOrigin drops the
+	// userinfo — so without the check the derived origin is the attacker's host, spelled plainly.
+	redirect := "https://front.example@attacker.example/auth/callback"
+	if _, _, err := cloudModeVars(validRecipeVars(), redirect, "/cache"); err == nil {
+		t.Fatal("a userinfo redirect must be rejected before ALLOWED_ORIGINS is derived from it")
+	}
+}
+
 func TestCloudModeVarsStripsRetiredCommerceURL(t *testing.T) {
 	// A saved OLDER recipe may still carry COMMERCE_API_BASE_URL. It is retired: tolerated so the paste
 	// still applies, but dropped rather than written — never rejected as a foreign variable, and never
@@ -268,6 +293,12 @@ func TestValidateRedirectURI(t *testing.T) {
 		"not-a-url",
 		"",
 		"/auth/callback", // relative, no host
+		// url.Parse lifts "front.example@" into u.User and leaves u.Host as attacker.example, so every
+		// other check here passes a value that reads as one host and resolves to another.
+		"https://front.example@attacker.example/auth/callback",
+		// The reverse direction resolves to loopback and reads as a hostile host — refused for the
+		// same reason, not because the loopback exception was widened (u.Hostname() strips userinfo).
+		"http://attacker.example@localhost:3000/auth/callback",
 	}
 	for _, u := range bad {
 		if err := validateRedirectURI(u); err == nil {
