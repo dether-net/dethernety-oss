@@ -302,13 +302,39 @@ marker failure undoes a directory the call created; a stub failure deliberately 
 the marker is exactly what makes that state recoverable. The half-mount it leaves is reported rather than
 hidden — the mount's currency reads `incomplete`, rendered as "module file missing" — and mounting again
 completes it while unmounting removes it. On a re-mount that advances a pin, which half is which
-matters: the marker records the new pin while the stub still carries the old one.
+matters: the marker records the new pin while the stub still carries the old one — a file that is
+present, non-empty and loadable, so every check the inventory makes passes and the mount reads `current`
+while the platform serves the old code.
+
+**The stub is published by rename.** It is written to a temp file beside it and renamed into place, so a
+reader sees the previous stub or the new one and never a partial write, and the window the marker-first
+ordering opens closes for every failure the write itself can catch. Where the temp cannot be created the
+console writes in place instead, and that fallback is not a nicety: a module directory at mode `0555`
+with the stub already in it permits an overwrite and refuses the creation of a sibling, so a rename-only
+publish would turn a pin advance that succeeds today into a failure — landing in exactly the state the
+ordering exists to make recoverable. The temp's mode is set explicitly rather than left to the write that
+created it, because a temp left behind by an earlier attempt would otherwise carry its own mode into the
+published stub, and the mode is load-bearing: the platform runs as a different user than the console and
+has to be able to read the file.
+
+**What a rename cannot close is an abrupt death between the two writes**, so the state is reported as
+well as narrowed. A module file that does not carry the pin its mount records reads `diverged`, rendered
+as "module file mismatched" and in the fault tone rather than the warning tone `outdated` and
+`incomplete` share — this is not a state an operator chose, nor one they finish by getting round to it.
+The row stays and offers **Repair**, which mounts again at the pin the marker already records and not at
+the catalog's newest, because the complaint is that the platform is not running what was asked for and
+answering it must not quietly substitute a different version. `incomplete` is asked first and wins — a
+directory with no loadable file cannot also have one naming the wrong pin — and both override the catalog
+comparison: a mount can be behind the catalog and also not be serving what it records, and only the
+second is something the operator has not already been told.
 
 The catalog itself is read **unauthenticated** — it is public, and attaching the operator's credential
 would forward it to a surface that must not receive it. The catalog host is read from the mode file the
 console itself wrote, never from the request, which is what keeps the console from being usable as a
-request-forwarding primitive. If the catalog is unreachable the local inventory still renders, with
-every mount's currency reported as `unknown` and a note explaining why.
+request-forwarding primitive. If the catalog is unreachable the local inventory still renders, with a
+note explaining why and every mount's currency reported as `unknown` — except where the on-disk checks
+have something to say regardless, since `incomplete` and `diverged` are answered from the volume and need
+no catalog to reach.
 
 A mount takes effect when the platform is recreated. If the written stub ends up world-writable — some
 bind-mount backends do not preserve modes — the console says so, because the platform refuses to load a
@@ -402,8 +428,10 @@ installed, and its currency against the catalog:
 
 `outdated` is never answered on a comparison that could not be made. It is an invitation to install, and
 the cases that cannot be compared would be inviting either a downgrade the install refuses or a version
-that no longer exists. The mounts' own fourth value, `incomplete`, is not one of these: it belongs to a
-stub mount whose module file is not there, and mounting it again is what completes it
+that no longer exists. The mounts carry two values of their own, `incomplete` and `diverged`, and
+neither is one of these: they report what is on disk rather than how it compares to the catalog.
+`incomplete` belongs to a stub mount whose module file is not there; `diverged` to one whose module file
+is there and names a pin the mount does not record. Mounting again is what settles both
 ([above](#content-mounts)).
 
 **Removal takes only what the console installed as an artifact.** `DELETE /api/artifacts/{key}` renames

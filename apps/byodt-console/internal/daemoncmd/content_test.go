@@ -281,6 +281,21 @@ func TestMountWritesStubAndMarker(t *testing.T) {
 	if m.PackageKey != "acme-cloud" || m.ModuleKey != "acme-compute" || m.Pin != pinA || m.Schema != mountMarkerSchema {
 		t.Fatalf("marker fields are wrong: %+v", m)
 	}
+
+	// The mode again after a RE-mount, which is a different code path: publishStub renames a fresh file
+	// over the old one, so the published mode is the temp's rather than the original's. It is load-bearing
+	// and it fails silently — the platform runs as a different uid than the console and has to read this
+	// file, while worldWritable only tests o+w, so a too-narrow mode is a module that never loads with
+	// nothing said about it.
+	if code, resp := send(t, http.MethodPost, base+"/api/modules", sid, body); code != http.StatusOK {
+		t.Fatalf("re-mount must be 200, got %d %s", code, resp)
+	}
+	if info, err = os.Stat(stub); err != nil {
+		t.Fatalf("the stub must survive a re-mount: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("a re-mounted stub must still be mode 0644, got %o", info.Mode().Perm())
+	}
 }
 
 func TestMountRejectsBadInput(t *testing.T) {
@@ -337,6 +352,274 @@ func TestMountAdvancesPin(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(modulesDir, "acme-compute", "AcmeComputeModule.js"))
 	if !strings.Contains(string(data), pinB) || strings.Contains(string(data), pinA) {
 		t.Fatalf("the stub must carry the new pin only, got %s", data)
+	}
+}
+
+// The input is renderStub's OWN output, never a literal. TestRenderStubGolden is the one place the stub's
+// text may be pinned character for character; a hand-written fixture here would be a second copy of that
+// shape, free to drift from stubTemplate without either test noticing.
+func TestStubCarriesPinReadsWhatRenderStubWrote(t *testing.T) {
+	dir := t.TempDir()
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "AcmeComputeModule.js"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write(renderStub("acme-compute", pinA))
+	if !stubCarriesPin(dir, "AcmeComputeModule.js", pinA) {
+		t.Fatal("a stub rendered at pinA must be recognised as carrying pinA")
+	}
+	// The whole point: a valid, loadable module file at the WRONG pin. stubPresent says yes to this.
+	if stubCarriesPin(dir, "AcmeComputeModule.js", pinB) {
+		t.Fatal("a stub rendered at pinA must not be recognised as carrying pinB")
+	}
+
+	// Every other shape answers false, because false is the answer that cannot report a mount current in
+	// error. "x" is not hypothetical — writeMount is called with it elsewhere in this file.
+	for name, content := range map[string]string{
+		"not a stub at all": "x",
+		"no pin":            "'use strict';\nmodule.exports = {};\n",
+		"a truncated stub":  renderStub("acme-compute", pinA)[:40],
+		// The pin pushed PAST the cap by padding in front of it. The mirror orientation is a separate case
+		// below, because it does not answer the same way and the difference is the cap's whole semantics.
+		"pushed past the cap": strings.Repeat("/* pad */\n", maxStubBytes) + renderStub("acme-compute", pinA),
+	} {
+		t.Run(name, func(t *testing.T) {
+			write(content)
+			if stubCarriesPin(dir, "AcmeComputeModule.js", pinA) {
+				t.Fatalf("%s must not be read as carrying the pin", name)
+			}
+		})
+	}
+
+	// The cap bounds the READ; it does not reject the file. A stub with the pin in its first maxStubBytes
+	// and megabytes of anything after it still carries the pin, and answering false would report a mount
+	// the platform loads correctly as diverged. Both orientations are asserted because only one of them
+	// answers false, and a suite carrying just that one would read as though the cap rejected the file.
+	t.Run("oversize but the pin is within the cap", func(t *testing.T) {
+		write(renderStub("acme-compute", pinA) + strings.Repeat("/* pad */\n", maxStubBytes))
+		if !stubCarriesPin(dir, "AcmeComputeModule.js", pinA) {
+			t.Fatal("a stub carrying the pin before the cap must be recognised, however long the file is")
+		}
+	})
+
+	// A file that is not there at all, which the caller has already excluded with stubPresent but which
+	// must not panic or answer true if it ever reaches here.
+	if stubCarriesPin(dir, "MissingModule.js", pinA) {
+		t.Fatal("an absent stub carries no pin")
+	}
+}
+
+// The defect this whole change exists for: the marker is written first, so a stub write that fails on a
+// re-mount — or an abrupt death between the two — leaves a VALID, non-empty module file at the previous
+// pin while the marker records the new one. Every check the inventory had then passed and the row read
+// "current" while the platform served the old code.
+//
+// Root-proof: the divergence is forced by writing a file, never by permission bits, so this exercises the
+// real path in a container running as uid 0 where skipIfRoot would otherwise skip it away.
+func TestModulesInventoryReportsAPinDivergence(t *testing.T) {
+	content := fakeContent(t, []fakePkg{{
+		key: "acme-cloud", name: "Acme Cloud", latest: "1.0.0",
+		modules: []catalogModuleEntry{{Key: "acme-compute", Name: "Acme Compute", Version: "1.0.0", ContentHash: pinA}},
+	}}, nil)
+	defer content.Close()
+	base, sid, modulesDir := newContentServer(t, content.URL)
+	stub := filepath.Join(modulesDir, "acme-compute", "AcmeComputeModule.js")
+
+	// A complete mount at the catalog's latest reads current — the state the divergence has to displace.
+	send(t, http.MethodPost, base+"/api/modules", sid, `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pinA+`"}`)
+	if _, raw := get(t, base, "/api/modules", sid); !strings.Contains(string(raw), `"currency":"current"`) {
+		t.Fatalf("a complete mount at the latest pin must read current, got %s", raw)
+	}
+
+	// Now only the stub moves. The marker still records pinA; the platform would load pinB.
+	if err := os.WriteFile(stub, []byte(renderStub("acme-compute", pinB)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, raw := get(t, base, "/api/modules", sid)
+	if code != http.StatusOK {
+		t.Fatalf("modules must be 200, got %d %s", code, raw)
+	}
+	var inv modulesResponse
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.Modules) != 1 {
+		t.Fatalf("the row must survive so it can still be repaired or unmounted, got %#v", inv.Modules)
+	}
+	if inv.Modules[0].Currency != "diverged" {
+		t.Fatalf("a stub at a pin the marker does not record is not up to date, got %q", inv.Modules[0].Currency)
+	}
+	// The repair is a re-mount at the RECORDED pin, and the SPA's one re-POST control reads latestPin —
+	// so this field is what makes the row actionable rather than a dead end.
+	if inv.Modules[0].LatestPin != pinA {
+		t.Fatalf("the repair must be offered at the recorded pin, got %q", inv.Modules[0].LatestPin)
+	}
+	if inv.Modules[0].LatestVersion != "" {
+		t.Fatalf("a repair is not a version change, got %q", inv.Modules[0].LatestVersion)
+	}
+	// "does not confirm", deliberately weaker than "does not carry": stubCarriesPin answers false for a
+	// file it could not read as well as for one naming another pin, and the console cannot separate them.
+	if !strings.Contains(inv.Note, "acme-compute") || !strings.Contains(inv.Note, "does not confirm") {
+		t.Fatalf("the divergence must name itself and its remedy, got %q", inv.Note)
+	}
+	if strings.Contains(inv.Note, "is serving different content") {
+		t.Fatalf("the note must not assert what the console cannot establish, got %q", inv.Note)
+	}
+
+	// Mounting again at the recorded pin repairs it, through exactly the request the panel's button sends.
+	send(t, http.MethodPost, base+"/api/modules", sid, `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pinA+`"}`)
+	if _, raw := get(t, base, "/api/modules", sid); !strings.Contains(string(raw), `"currency":"current"`) {
+		t.Fatalf("a re-mount at the recorded pin must repair the divergence, got %s", raw)
+	}
+
+	// A marker whose pin is unusable still gets the verdict, and does NOT get the offer. readMarker parses
+	// without checking, so this is the one place a marker field would otherwise be handed back to the SPA
+	// as an instruction — and a Repair button the SPA then declines to act on is worse than no button.
+	// NON-EMPTY and invalid, deliberately. An empty pin proves nothing here: `omitempty` drops it from the
+	// wire whether or not the arm validated, so the assertion below would hold against an unguarded arm too.
+	if err := writeMarkerNamed(filepath.Join(modulesDir, "acme-compute"), mountMarkerName, mountMarker{
+		Schema: mountMarkerSchema, PackageKey: "acme-cloud", ModuleKey: "acme-compute", Pin: "not-a-pin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, raw = get(t, base, "/api/modules", sid)
+	inv = modulesResponse{}
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.Modules) != 1 || inv.Modules[0].Currency != "diverged" {
+		t.Fatalf("an unusable recorded pin is still a divergence, got %#v", inv.Modules)
+	}
+	if inv.Modules[0].LatestPin != "" {
+		t.Fatalf("an unusable pin must not be offered as the repair, got %q", inv.Modules[0].LatestPin)
+	}
+
+	// Restore a usable marker so the precedence check below starts from a well-formed mount.
+	send(t, http.MethodPost, base+"/api/modules", sid, `{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pinA+`"}`)
+
+	// PRECEDENCE. A directory with no loadable file cannot also have one naming the wrong pin, and
+	// `incomplete` is the more basic answer — so removing the stub must not now report a divergence.
+	if err := os.Remove(stub); err != nil {
+		t.Fatal(err)
+	}
+	if _, raw := get(t, base, "/api/modules", sid); !strings.Contains(string(raw), `"currency":"incomplete"`) {
+		t.Fatalf("no stub at all stays incomplete, it does not become a divergence, got %s", raw)
+	}
+}
+
+// publishStub renames the stub into place, and the fallback that makes that safe is the whole reason it
+// is not a two-line function. A directory standing where the temp file would go fails the temp write with
+// EISDIR and leaves the in-place write to succeed — the same shape as a 0555 volume that permits an
+// overwrite and refuses a sibling, but forced with a file-type error rather than a permission bit, so it
+// runs as root. skipIfRoot would make a chmod version of this test vacuous in a root container.
+func TestWriteMountFallsBackWhenItCannotCreateItsTemp(t *testing.T) {
+	base, sid, modulesDir := newContentServer(t, "https://content.example")
+	mount := func(pin string) (int, string) {
+		return send(t, http.MethodPost, base+"/api/modules", sid,
+			`{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pin+`"}`)
+	}
+	if code, resp := mount(pinA); code != http.StatusOK {
+		t.Fatalf("first mount must be 200, got %d %s", code, resp)
+	}
+	dir := filepath.Join(modulesDir, "acme-compute")
+	if err := os.Mkdir(filepath.Join(dir, "AcmeComputeModule.js.tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without the fallback this is where a pin advance that succeeds today starts failing instead, and
+	// lands in precisely the state TestModulesInventoryReportsAPinDivergence is about.
+	if code, resp := mount(pinB); code != http.StatusOK {
+		t.Fatalf("a pin advance must still succeed when the temp cannot be created, got %d %s", code, resp)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "AcmeComputeModule.js"))
+	if !strings.Contains(string(data), pinB) || strings.Contains(string(data), pinA) {
+		t.Fatalf("the fallback must publish the new pin, got %s", data)
+	}
+
+	// The loader takes ANY *Module.js in a module directory, so a publish that stranded a second one would
+	// be a module nobody meant to ship. Nothing else in this suite looks past the one expected name.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loadable []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), "Module.js") {
+			loadable = append(loadable, e.Name())
+		}
+	}
+	if len(loadable) != 1 || loadable[0] != "AcmeComputeModule.js" {
+		t.Fatalf("exactly one loadable module file must survive a publish, got %v", loadable)
+	}
+}
+
+// os.WriteFile's perm argument applies only at CREATION, so a temp file left behind by an earlier failed
+// rename is written THROUGH and keeps its own mode, which the rename then publishes. That is why
+// publishStub chmods rather than trusting the write. The failure mode is silent in every direction: the
+// console reports a complete mount, worldWritable tests only o+w so nothing warns, and the platform —
+// a different uid — simply never loads the module.
+func TestWriteMountPublishesA0644StubOverAStaleTemp(t *testing.T) {
+	base, sid, modulesDir := newContentServer(t, "https://content.example")
+	mount := func(pin string) (int, string) {
+		return send(t, http.MethodPost, base+"/api/modules", sid,
+			`{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pin+`"}`)
+	}
+	if code, resp := mount(pinA); code != http.StatusOK {
+		t.Fatalf("first mount must be 200, got %d %s", code, resp)
+	}
+	dir := filepath.Join(modulesDir, "acme-compute")
+	tmp := filepath.Join(dir, "AcmeComputeModule.js.tmp")
+	if err := os.WriteFile(tmp, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, resp := mount(pinB); code != http.StatusOK {
+		t.Fatalf("a pin advance over a stale temp must be 200, got %d %s", code, resp)
+	}
+	info, err := os.Stat(filepath.Join(dir, "AcmeComputeModule.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("a stale temp must not publish its own mode, got %o", info.Mode().Perm())
+	}
+}
+
+// When BOTH the rename and the in-place fallback fail, the error must still wrap errStubNotWritten —
+// server.go branches on it with errors.Is to tell the operator the mount was recorded and how to finish
+// it. Drop the wrap and that becomes a generic 500. A directory standing where the STUB goes lets the
+// temp write succeed and fails the rename, so this too runs as root.
+func TestWriteMountKeepsErrStubNotWrittenWhenBothWritesFail(t *testing.T) {
+	base, sid, modulesDir := newContentServer(t, "https://content.example")
+	mount := func(pin string) (int, string) {
+		return send(t, http.MethodPost, base+"/api/modules", sid,
+			`{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pin+`"}`)
+	}
+	if code, resp := mount(pinA); code != http.StatusOK {
+		t.Fatalf("first mount must be 200, got %d %s", code, resp)
+	}
+	dir := filepath.Join(modulesDir, "acme-compute")
+	stub := filepath.Join(dir, "AcmeComputeModule.js")
+	if err := os.Remove(stub); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(stub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, resp := mount(pinB)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("a stub that cannot be published must be 500, got %d %s", code, resp)
+	}
+	if !strings.Contains(resp, "recorded") {
+		t.Fatalf("the operator must be told the mount was recorded and how to finish it, got %s", resp)
+	}
+	// The temp must not outlive the failure it could not publish.
+	if _, err := os.Stat(filepath.Join(dir, "AcmeComputeModule.js.tmp")); !os.IsNotExist(err) {
+		t.Fatalf("a failed publish must not strand its temp file, stat gave %v", err)
 	}
 }
 

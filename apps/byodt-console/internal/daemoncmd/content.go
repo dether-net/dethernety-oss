@@ -51,6 +51,12 @@ const entitledTimeout = 60 * time.Second
 // protocol's refusal bodies are short JSON, so this is generous rather than tight.
 const maxDenialBytes = 8 << 10
 
+// maxStubBytes caps the module file read back when checking which pin it names. The stub the console
+// writes is one rendering of stubTemplate — a few hundred bytes, with the pin on the fifth line — but it
+// sits in an operator-writable volume, so the read is bounded like any other. The cap only ever bites on
+// a file the console did not write; see stubCarriesPin for what a file over it is answered with.
+const maxStubBytes = 8 << 10
+
 // maxCatalogPackages caps the per-request fan-out when resolving each package's modules. The catalog is
 // small in practice; this is a safety valve against a pathological or hostile response, not a real
 // limit. Hitting it is logged server-side (the returned list is capped, not the whole response failed).
@@ -520,11 +526,10 @@ func undoMountDir(dir string, created bool) {
 //
 // A marker failure undoes the directory when this call created it. A stub failure deliberately does
 // NOT undo anything — the marker is exactly what makes that state recoverable, and removing it would
-// take the recovery away. One consequence is worth naming: on a re-mount that advances a pin, a stub
-// failure leaves the marker recording the NEW pin while the stub still carries the old one, so the
-// inventory reports the mount as current when the platform will serve the old pin. That is why the
-// failure is distinguishable (errStubNotWritten) and why its caller tells the operator rather than
-// reporting a generic write failure.
+// take the recovery away. The half state that leaves is bounded at both ends: publishStub closes the
+// window for every failure it can catch, and stubCarriesPin reports the state to the operator when it
+// arises anyway. The failure stays distinguishable (errStubNotWritten) so its caller can tell
+// the operator what to do rather than reporting a generic write failure.
 func writeMount(dir, markerName string, marker any, stubFileName, stubContent string) (worldWritableWarning bool, err error) {
 	created, err := ensureMountDir(dir)
 	if err != nil {
@@ -535,13 +540,56 @@ func writeMount(dir, markerName string, marker any, stubFileName, stubContent st
 		return false, fmt.Errorf("writing the mount marker: %w", err)
 	}
 	stubPath := filepath.Join(dir, stubFileName)
-	if err := os.WriteFile(stubPath, []byte(stubContent), 0o644); err != nil {
+	if err := publishStub(stubPath, stubContent); err != nil {
 		return false, fmt.Errorf("%w: %v", errStubNotWritten, err)
 	}
 	// Some bind-mount backends do not preserve modes, and the platform refuses to load a world-writable
 	// module file in cloud mode — so the console reports the condition rather than letting the mount
 	// fail silently later.
 	return worldWritable(stubPath), nil
+}
+
+// publishStub writes the stub at path, atomically where the filesystem allows it.
+//
+// The rename IS the publish: a reader sees the previous stub or the new one, never a partial write and
+// never the window in which the marker is ahead of a stub that was never written. That window is the
+// reason this function exists, and it matters most for the failure no error return can report — an
+// abrupt death between the marker write and this one leaves the same half state with nobody told.
+//
+// THE IN-PLACE FALLBACK IS NOT OPTIONAL. A directory at mode 0555 with the stub already in it permits an
+// overwrite and refuses the creation of a sibling — measured, not reasoned — so a rename-only publish
+// would turn a pin advance that succeeds today into a failure landing in exactly the state the marker
+// ordering exists to make recoverable. Atomicity where it is obtainable, today's behaviour where it is
+// not, never worse than now.
+//
+// The temp is chmod'd rather than trusted to WriteFile's perm argument, which applies only at CREATION:
+// a temp left behind by an earlier failed rename would otherwise publish the stub carrying THAT file's
+// mode. The mode is load-bearing and gets no second chance to be noticed — the platform runs as a
+// different uid than the console and has to read the file, while worldWritable tests only o+w, so a
+// too-narrow mode is a module that silently never loads.
+//
+// The temp name must not end in Module.js. The loader takes any *Module.js in a module directory, so a
+// suffix is the only safe shape here; ".tmp" appended is what cloud.go and initcmd/state.go already use.
+func publishStub(path, content string) error {
+	inPlace := func() error { return os.WriteFile(path, []byte(content), 0o644) }
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		// Every path out of here removes the temp, this one included. os.WriteFile is O_CREATE|O_TRUNC and
+		// then writes, so a failure part-way — ENOSPC being the case that produces it — leaves a truncated
+		// temp behind. Nothing loads a .tmp, but leaving one would contradict the fallback's whole claim of
+		// being never worse than a direct write.
+		_ = os.Remove(tmp)
+		return inPlace()
+	}
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		_ = os.Remove(tmp)
+		return inPlace()
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return inPlace()
+	}
+	return nil
 }
 
 // writeContentMount writes a content mount from its marker, so the stub's key and pin and the marker's
@@ -565,6 +613,42 @@ func writeContentMount(dir string, m mountMarker) (worldWritableWarning bool, er
 func stubPresent(dir, fileName string) bool {
 	info, err := os.Stat(filepath.Join(dir, fileName))
 	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
+// stubCarriesPin reports whether the module file at dir/fileName is the one this mount RECORDS: whether
+// it names pin in the constructor call renderStub wrote into it.
+//
+// stubPresent asks whether the platform has something to load. This asks whether that something is the
+// right thing, and the two stopped being the same question on a re-mount. A pin advance writes the marker
+// first, so a stub write that fails afterwards — or an abrupt death between the two — leaves a valid,
+// non-empty module file at the PREVIOUS pin while the marker records the new one. Every other check the
+// inventory has then passes and the row reads current while the platform serves the old code.
+//
+// A substring test over renderStub's own output, deliberately, rather than a parser. stubTemplate is the
+// only producer of this text and TestRenderStubGolden already pins its bytes character for character, so
+// a pattern here would be a SECOND thing to keep in step with it — and the inventory only ever needs the
+// boolean. It follows that this cannot distinguish a stub carrying a different pin from one carrying no
+// pin at all, and it does not need to: the answer to both is that the file is not what the mount records,
+// and the remedy for both is to mount it again.
+//
+// FALSE is the safe answer, and it is what an unreadable file and a file not carrying the pin both give.
+// A caller must never read a false as licence to report the mount current.
+//
+// The cap is a bound on the READ, not a rejection: io.ReadAll over a LimitReader returns no error at the
+// limit, so a file larger than the cap is answered on its first maxStubBytes and reports TRUE when the
+// pin lies in that prefix. That is the right answer — the file does carry the pin — and the cap only ever
+// bites on a file the console did not write, since renderStub's output is a few hundred bytes.
+func stubCarriesPin(dir, fileName, pin string) bool {
+	f, err := os.Open(filepath.Join(dir, fileName))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxStubBytes))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "pin: '"+pin+"'")
 }
 
 // worldWritable reports whether the file at path has its world-writable bit set.
