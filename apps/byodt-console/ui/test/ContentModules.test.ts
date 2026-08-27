@@ -289,6 +289,56 @@ describe('ContentModules', () => {
     w.unmount()
   })
 
+  it('renders a diverged mount as mismatched, and its Repair posts the RECORDED pin', async () => {
+    // The operator-facing half of the daemon's 'diverged' currency: the module file on disk names a
+    // different pin than the marker, so the platform is serving content this mount does not record.
+    // chipClass and chipLabel both end in unguarded defaults, so a missing arm compiles clean and falls
+    // through to the grey "update unknown" chip — the negative assertions below are the only thing that
+    // catches that, since tsc flags nothing.
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({
+      modules: [
+        {
+          packageKey: 'acme-cloud',
+          moduleKey: 'acme-compute',
+          name: 'Acme Compute',
+          pin: 'sha256:aaa',
+          currency: 'diverged',
+          // The daemon offers the RECORDED pin, not the catalog's newest: repairing must not quietly
+          // substitute a different version.
+          latestPin: 'sha256:aaa',
+        },
+      ] as MountedModule[],
+      note: 'acme-compute is recorded at a pin its module file does not carry, so the platform is serving different content than this mount records',
+    })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await expand(w)
+
+    expect(w.text()).toContain('module file mismatched')
+    expect(w.text()).not.toContain('up to date')
+    expect(w.text()).not.toContain('update unknown')
+    expect(w.text()).not.toContain('module file missing')
+    expect(w.text()).not.toContain('newer available')
+    // The row is actionable, and the control says what it does — this is not an update.
+    expect(w.findAll('button').filter((b) => b.text() === 'Update')).toHaveLength(0)
+    const repair = w.findAll('button').filter((b) => b.text() === 'Repair')
+    expect(repair.length).toBe(1)
+    expect(repair[0].attributes('disabled')).toBeUndefined()
+    expect(w.findAll('button').filter((b) => b.text() === 'Unmount')).toHaveLength(1)
+
+    await repair[0].trigger('click')
+    await flushPromises()
+    // The repair is a re-POST at the pin the marker already records.
+    expect(mountModule).toHaveBeenCalledWith({
+      packageKey: 'acme-cloud',
+      moduleKey: 'acme-compute',
+      pin: 'sha256:aaa',
+    })
+    expect(w.text()).toContain('does not carry')
+    w.unmount()
+  })
+
   it('gates an unsubscribed package: Not subscribed, disabled Mount, Subscribe link', async () => {
     packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: false }] })
     modules.mockResolvedValue({ modules: [] as MountedModule[] })

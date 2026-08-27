@@ -678,9 +678,12 @@ type mountedModuleView struct {
 	Name       string `json:"name,omitempty"`
 	Pin        string `json:"pin"`
 	MountedAt  string `json:"mountedAt,omitempty"`
-	// current | outdated | unknown | incomplete. The fourth is this list's own and is not a currency at
-	// all: the console owns the directory but the platform has nothing loadable in it, which the marker
-	// alone cannot tell you now that it is written before the stub.
+	// current | outdated | unknown | incomplete | diverged. The last two are this list's own and are not
+	// currencies at all — they answer "what is actually on disk", not "how does it compare to the
+	// catalog", and both exist because the marker is written before the stub. `incomplete`: the console
+	// owns the directory and the platform has nothing loadable in it. `diverged`: it has something
+	// loadable, and that something names a different pin than the marker does, so the platform serves
+	// code the operator did not ask for. Neither is derivable from the marker alone.
 	Currency      string `json:"currency"`
 	LatestPin     string `json:"latestPin,omitempty"`
 	LatestVersion string `json:"latestVersion,omitempty"`
@@ -786,10 +789,42 @@ func (s *server) modulesList(w http.ResponseWriter, r *http.Request) {
 		// lists, an unreachable catalog, and an unsubscribed package all render their controls from this
 		// list, so dropping the row would leave the operator a note and nothing to act with. It is the
 		// CURRENCY that must stop lying, and no update is offered for a mount that is not there.
-		if !stubPresent(md.dir, moduleFileName(m.ModuleKey)) {
+		//
+		// The two questions are asked in this order because they are not independent: a directory with no
+		// loadable file cannot also have one naming the wrong pin, and `incomplete` is the more basic
+		// answer. Both OVERRIDE the catalog comparison above, deliberately — a mount can be behind the
+		// catalog and also not be running what its marker says, and of those two the second is the more
+		// urgent truth, because it is the one the operator has not been told.
+		switch {
+		case !stubPresent(md.dir, moduleFileName(m.ModuleKey)):
 			v.Currency = "incomplete"
 			v.LatestPin, v.LatestVersion = "", ""
 			note = joinNote(note, m.ModuleKey+" is recorded as mounted but its module file is not loadable — unmounting it is what clears this, and mounting it again restores it where the catalog still offers it")
+		case !stubCarriesPin(md.dir, moduleFileName(m.ModuleKey), m.Pin):
+			v.Currency = "diverged"
+			// The repair is a re-mount at the pin the marker ALREADY records, so LatestPin carries that
+			// rather than the catalog's newest: this row's complaint is that the platform is not running
+			// what was asked for, and answering it must not quietly substitute a different version. A
+			// mount that is also behind the catalog says so again on the next inventory, once it is
+			// running what it claims. LatestVersion stays empty — the version this pin belongs to is the
+			// one the row already shows.
+			//
+			// VALIDATED, because this is the one place a marker field is handed back as an instruction.
+			// readMarker parses; it does not check, and listMounts keeps any directory whose marker merely
+			// unmarshals. An unusable pin offered as the repair renders a Repair button the SPA then
+			// declines to act on — a control that does nothing is worse than no control, so the row keeps
+			// the verdict and drops the offer.
+			if pinPattern.MatchString(m.Pin) {
+				v.LatestPin = m.Pin
+			} else {
+				v.LatestPin = ""
+			}
+			v.LatestVersion = ""
+			// "does not confirm", not "is serving different content": stubCarriesPin answers false for a
+			// file it could not read as well as for one naming another pin, and the console cannot tell
+			// those apart. Claiming the stronger of the two would be the same class of overstatement this
+			// whole item exists to remove.
+			note = joinNote(note, m.ModuleKey+" is recorded at a pin its module file does not confirm, so the platform may not be serving what this mount records — mounting it again at the recorded pin is what repairs it")
 		}
 		views = append(views, v)
 	}

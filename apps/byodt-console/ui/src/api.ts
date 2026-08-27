@@ -124,18 +124,22 @@ export interface CatalogPackage {
 
 // One mounted stub plus whether a newer content version is available. `currency` is 'current' when the
 // pin matches the catalog's latest, 'outdated' when a newer pin exists (then latestPin/latestVersion are
-// set), 'unknown' when the catalog could not be consulted, and 'incomplete' when the console owns the
-// directory but the platform has nothing loadable in it — see the field below.
+// set), 'unknown' when the catalog could not be consulted, and 'incomplete' or 'diverged' when the
+// question is not about the catalog at all — see the field below.
 export interface MountedModule {
   packageKey: string
   moduleKey: string
   name?: string
   pin: string
   mountedAt?: string
-  // 'incomplete' is the mount's half state: the console owns the directory but the module file the
-  // platform loads is not in it. It is the daemon's judgement, not a derived one — the marker is written
-  // before the stub, so the two stopped being the same question.
-  currency: 'current' | 'outdated' | 'unknown' | 'incomplete'
+  // 'incomplete' and 'diverged' are the mount's two half states, and neither is a currency: they are the
+  // daemon's judgement about what is on disk, not a comparison with the catalog. The marker is written
+  // before the stub, so "the console owns this directory" and "the platform has the right thing to load"
+  // stopped being the same question. 'incomplete' — nothing loadable is there. 'diverged' — something
+  // loadable is there and it names a different pin than the marker, so the platform is serving content
+  // this mount does not record. On 'diverged', latestPin carries the RECORDED pin, because the repair is
+  // to mount it again at that pin rather than to move to a different version.
+  currency: 'current' | 'outdated' | 'unknown' | 'incomplete' | 'diverged'
   latestPin?: string
   latestVersion?: string
 }

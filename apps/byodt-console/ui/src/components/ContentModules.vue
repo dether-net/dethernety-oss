@@ -13,8 +13,10 @@ import Banner from '@/components/Banner.vue'
 import Artifacts from '@/components/Artifacts.vue'
 
 // The content-module manager: one list, grouped by package, where every module shows its own state —
-// a Mount button when it is not mounted, or its currency plus Update (when outdated) and Unmount when it
-// is. It owns both fetches (the public catalog and the local mounted inventory) and reloads on
+// a Mount button when it is not mounted, or its currency plus Unmount and, when the mount is not serving
+// what it should, the one button that re-POSTs it (Update when the catalog has moved on, Repair when the
+// module file on disk does not carry the recorded pin). It owns both fetches (the public catalog and the
+// local mounted inventory) and reloads on
 // reloadToken so it stays in step with the rest of the dashboard; it emits 'changed' after any action so
 // the dashboard refreshes the pending-restart banner (a mount change needs a stack recreate).
 const props = defineProps<{ reloadToken: number }>()
@@ -124,6 +126,10 @@ const isEmpty = computed(
 
 function chipClass(currency: MountedModule['currency']): string {
   if (currency === 'current') return 'bg-dt-secondary/15 text-dt-accent'
+  // A divergence takes the fault tone rather than the warning one that 'outdated' and 'incomplete' share.
+  // Those two are states the operator chose or can simply finish; this one means the platform is running
+  // content nobody asked for, and it should not read as one more thing to get around to.
+  if (currency === 'diverged') return 'bg-dt-quinary/15 text-dt-quinary'
   if (currency === 'outdated' || currency === 'incomplete') return 'bg-dt-tertiary/15 text-dt-tertiary'
   return 'bg-white/5 text-dt-text-muted'
 }
@@ -131,10 +137,20 @@ function chipClass(currency: MountedModule['currency']): string {
 function chipLabel(m: MountedModule): string {
   if (m.currency === 'current') return 'up to date'
   if (m.currency === 'outdated') return `newer available${m.latestVersion ? ` (${m.latestVersion})` : ''}`
-  // The half state, not a currency at all: the console owns the directory and the platform has nothing to
-  // load in it. The inventory note carries the remedy; this stops the row reading as up to date.
+  // The two half states, neither a currency at all. 'incomplete': the console owns the directory and the
+  // platform has nothing to load in it. 'diverged': it has something, and that something is not the pin
+  // this mount records. The inventory note carries the remedy for both; these stop the row reading as up
+  // to date, which is what it did before either existed.
   if (m.currency === 'incomplete') return 'module file missing'
+  if (m.currency === 'diverged') return 'module file mismatched'
   return 'update unknown'
+}
+
+// Whether the row offers the button that re-POSTs a mount. 'outdated' takes it to the catalog's newest
+// pin; 'diverged' takes it back to the pin the marker already records, which the daemon supplies as
+// latestPin for exactly this reason. Both are the same request, so they share one control — see update().
+function offersRemount(currency: MountedModule['currency']): boolean {
+  return currency === 'outdated' || currency === 'diverged'
 }
 
 // run wraps a single action: it clears the prior message, records the result, emits 'changed', and always
@@ -396,13 +412,13 @@ onMounted(load)
                 {{ chipLabel(m.mounted) }}
               </span>
               <button
-                v-if="m.mounted.currency === 'outdated'"
+                v-if="offersRemount(m.mounted.currency)"
                 type="button"
                 :disabled="busyKey === m.cat.key || busyKey === row.pkg.key"
                 class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
                 @click="update(m.mounted)"
               >
-                Update
+                {{ m.mounted.currency === 'diverged' ? 'Repair' : 'Update' }}
               </button>
               <button
                 type="button"
@@ -447,13 +463,13 @@ onMounted(load)
           <div class="flex items-center gap-2">
             <span class="rounded-full px-2 py-0.5 text-xs" :class="chipClass(m.currency)">{{ chipLabel(m) }}</span>
             <button
-              v-if="m.currency === 'outdated'"
+              v-if="offersRemount(m.currency)"
               type="button"
               :disabled="busyKey === m.moduleKey"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="update(m)"
             >
-              Update
+              {{ m.currency === 'diverged' ? 'Repair' : 'Update' }}
             </button>
             <button
               type="button"
