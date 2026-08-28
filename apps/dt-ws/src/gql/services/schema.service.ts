@@ -9,6 +9,28 @@ import { ResolverService, ResolverMap, ResolverFunction, SchemaService as ISchem
 import { GqlConfig } from '../gql.config';
 import { populateAuthoredByOnCreate, stampCreatedByUserOnCreate } from '../populated-by/authored-by';
 
+/**
+ * Upstream refusal codes a module may surface, and the GraphQL code each maps to.
+ *
+ * Keyed on the error's `code` rather than on its class. These are values of the
+ * remote-module wire vocabulary (see `@dethernety/dt-module`'s remote errors) —
+ * a documented protocol constant — so the wrapper stays coupled to a contract
+ * rather than to a class graph it cannot import safely. A mounted module is
+ * loaded from the modules directory and may resolve its own copy of the module
+ * library, which would make `instanceof` fail silently with nothing to catch it.
+ *
+ * A Map rather than an object literal, deliberately: `code` arrives from module
+ * code, and a plain-object lookup on `'constructor'` or `'toString'` returns a
+ * truthy prototype member and would map a nonsense code to a real one.
+ *
+ * Deliberately narrow. An entitlement refusal, an unreachable service and a bad
+ * pin are operator problems, not credential problems, and stay MODULE_RESOLVER_ERROR.
+ */
+const UPSTREAM_REFUSAL_CODES = new Map<string, string>([
+  ['invalid_token', 'UNAUTHENTICATED'],
+  ['token_expired', 'UNAUTHENTICATED'],
+]);
+
 @Injectable()
 export class SchemaService implements ISchemaService {
   private readonly logger = new Logger(SchemaService.name);
@@ -486,23 +508,43 @@ export class SchemaService implements ISchemaService {
       } catch (error: any) {
         clearTimeout(timeoutId!);
         const duration = Date.now() - start;
-        const isTimeout = error?.message?.includes('timeout');
+
+        // A module that reaches out to a service of its own can be refused for
+        // a reason the caller could actually act on. Flattening that to
+        // "the module failed" tells an operator to investigate the platform
+        // when what they need to do is re-authenticate — and in production the
+        // code is the ONLY field that survives formatError, so the code is the
+        // entire message.
+        //
+        // Checked BEFORE isTimeout: that is a substring test on a message the
+        // upstream service controls, so a refusal whose text happened to
+        // mention a timeout would otherwise be reported as our own.
+        const refusalCode =
+          typeof error?.code === 'string'
+            ? UPSTREAM_REFUSAL_CODES.get(error.code)
+            : undefined;
+        const isTimeout = !refusalCode && error?.message?.includes('timeout');
 
         logger.error(`Module resolver ${fieldPath} failed`, {
           error: error?.message,
           duration,
           isTimeout,
+          refusalCode,
         });
 
         // Wrap module errors in a GraphQLError with a safe message.
         // In production, formatError will further sanitize.
         throw new GraphQLError(
-          isTimeout
-            ? 'Operation timed out'
-            : `Module operation failed: ${moduleName}`,
+          refusalCode
+            ? 'Authentication required'
+            : isTimeout
+              ? 'Operation timed out'
+              : `Module operation failed: ${moduleName}`,
           {
             extensions: {
-              code: isTimeout ? 'MODULE_RESOLVER_TIMEOUT' : 'MODULE_RESOLVER_ERROR',
+              code:
+                refusalCode ??
+                (isTimeout ? 'MODULE_RESOLVER_TIMEOUT' : 'MODULE_RESOLVER_ERROR'),
               moduleName,
               ...(process.env.NODE_ENV !== 'production' && {
                 originalMessage: error?.message,

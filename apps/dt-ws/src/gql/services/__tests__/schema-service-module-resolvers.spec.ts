@@ -3,6 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { SchemaService } from '../schema.service';
 import { GraphQLError } from 'graphql';
 import { GraphQLContext } from '../../interfaces/resolver.interface';
+// The real remote-module error taxonomy, imported HERE and never in
+// schema.service.ts. The wrapper keys on the wire `code` string on purpose (a
+// mounted module may resolve its own copy of the library, so `instanceof` would
+// fail silently). Constructing the genuine classes in the spec is what keeps
+// that string coupling honest: if a `code` value ever changes upstream, this
+// suite goes red instead of the wrapper quietly un-mapping in production.
+import {
+  CloudSessionExpiredError,
+  EvaluationNotEntitledError,
+  RemoteModuleUnavailableError,
+  ContentRecalledError,
+  RemoteModuleMisconfiguredError,
+} from '@dethernety/dt-module';
 
 /** Minimal context with a verified identity for tests */
 const authedContext = { user: { sub: 'test-user' }, jwt: { sub: 'test-user' }, driver: {} } as GraphQLContext;
@@ -25,6 +38,25 @@ const mockConfigService = {
 };
 
 const mockNeo4jDriver = {};
+
+/**
+ * Invoke a wrapped resolver and hand back the error it rejected with.
+ *
+ * The older cases in this file end their happy path with `fail('Should have
+ * thrown')`, but `fail` is not a global under jest-circus — it only ever
+ * "works" because the ReferenceError lands in the same catch block. This helper
+ * rejects for real when the resolver unexpectedly resolves.
+ */
+const captureResolverError = async (
+  resolver: (...args: any[]) => Promise<unknown>,
+): Promise<GraphQLError> => {
+  try {
+    await resolver({}, {}, authedContext, {});
+  } catch (error) {
+    return error as GraphQLError;
+  }
+  throw new Error('Expected the wrapped resolver to reject, but it resolved');
+};
 
 describe('SchemaService — Module Resolvers', () => {
   let service: SchemaService;
@@ -321,6 +353,103 @@ describe('SchemaService — Module Resolvers', () => {
       } finally {
         process.env.NODE_ENV = originalEnv;
       }
+    });
+  });
+
+  describe('wrapModuleResolver — upstream refusal mapping', () => {
+    const MODULE = 'test-module';
+
+    /** Mount one failing resolver under `MODULE` and return the wrapped field. */
+    const wrapRejectingWith = (error: unknown) => {
+      const failingFn = jest.fn().mockRejectedValue(error);
+      const result = service.mergeModuleResolvers({}, [
+        { moduleName: MODULE, resolvers: { Query: { f: failingFn } } },
+      ]);
+      return result.Query.f;
+    };
+
+    // NEW BEHAVIOUR. A module that reaches out to a service of its own can be
+    // refused for a reason the caller can act on. In production the extensions
+    // code is the only field that survives formatError, so flattening a 401 to
+    // MODULE_RESOLVER_ERROR sends an operator to investigate the platform when
+    // the caller simply needs to re-authenticate.
+    it.each([
+      ['token_expired', () => new CloudSessionExpiredError('token_expired')],
+      ['invalid_token (the constructor default)', () => new CloudSessionExpiredError()],
+    ])(
+      'should map a CloudSessionExpiredError carrying %s to UNAUTHENTICATED',
+      async (_label, makeError) => {
+        const error = await captureResolverError(wrapRejectingWith(makeError()));
+
+        expect(error).toBeInstanceOf(GraphQLError);
+        expect(error.extensions?.code).toBe('UNAUTHENTICATED');
+        // The module attribution must survive the remap — an operator still
+        // needs to know which mount refused.
+        expect(error.extensions?.moduleName).toBe(MODULE);
+        // The token belongs in extensions.code and NOWHERE ELSE: a downstream
+        // helper substring-matches error messages for 'UNAUTHENTICATED', so
+        // spelling it in the message would make every module error look like an
+        // auth failure.
+        expect(error.message).toBe('Authentication required');
+        expect(error.message).not.toContain('UNAUTHENTICATED');
+      },
+    );
+
+    // UNCHANGED BEHAVIOUR. The allowlist is deliberately two codes wide: an
+    // entitlement denial, an unreachable service and a bad pin are operator
+    // problems, not credential problems. This table is what stops the allowlist
+    // being widened by accident — each case constructs the real taxonomy class,
+    // so its `code` value is the one production actually sees.
+    it.each<[string, () => Error]>([
+      ['a plain Error with no code at all', () => new Error('boom')],
+      ["EvaluationNotEntitledError ('not_entitled')", () => new EvaluationNotEntitledError()],
+      ["RemoteModuleUnavailableError ('unavailable')", () => new RemoteModuleUnavailableError()],
+      ["ContentRecalledError ('version_recalled')", () => new ContentRecalledError()],
+      [
+        "RemoteModuleMisconfiguredError ('internal')",
+        () => new RemoteModuleMisconfiguredError(undefined, 'internal'),
+      ],
+    ])('should still report MODULE_RESOLVER_ERROR for %s', async (_label, makeError) => {
+      const error = await captureResolverError(wrapRejectingWith(makeError()));
+
+      expect(error).toBeInstanceOf(GraphQLError);
+      expect(error.extensions?.code).toBe('MODULE_RESOLVER_ERROR');
+      expect(error.extensions?.moduleName).toBe(MODULE);
+    });
+
+    // PROTOTYPE-LOOKUP GUARD. `code` arrives from module code, so it is
+    // attacker- or accident-controlled. The allowlist is a Map for exactly this
+    // reason: a plain-object lookup on 'constructor' or 'toString' returns a
+    // truthy Object.prototype member, and the wrapper would hand a nonsense
+    // code the UNAUTHENTICATED mapping. If anyone ever "simplifies" the Map to
+    // an object literal, these two cases go red.
+    it.each(['constructor', 'toString'])(
+      'should still report MODULE_RESOLVER_ERROR for an error whose code is the prototype member %p',
+      async (hostileCode) => {
+        const error = await captureResolverError(
+          wrapRejectingWith(Object.assign(new Error('boom'), { code: hostileCode })),
+        );
+
+        expect(error.extensions?.code).toBe('MODULE_RESOLVER_ERROR');
+      },
+    );
+
+    // ORDERING PIN. The timeout branch is a substring test on a message the
+    // upstream service controls. The refusal lookup therefore runs first and
+    // short-circuits it (`const isTimeout = !refusalCode && ...`); drop that
+    // guard and a 401 whose text happens to mention a timeout gets reported as
+    // our own MODULE_RESOLVER_TIMEOUT, telling the caller to retry a request
+    // that can only ever succeed after re-authenticating.
+    it('should map a refusal whose message mentions a timeout to UNAUTHENTICATED', async () => {
+      const error = await captureResolverError(
+        wrapRejectingWith(
+          new CloudSessionExpiredError('invalid_token', 'upstream timeout while validating the token'),
+        ),
+      );
+
+      expect(error.extensions?.code).toBe('UNAUTHENTICATED');
+      expect(error.extensions?.code).not.toBe('MODULE_RESOLVER_TIMEOUT');
+      expect(error.message).toBe('Authentication required');
     });
   });
 

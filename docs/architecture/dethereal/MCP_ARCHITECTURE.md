@@ -207,8 +207,11 @@ export interface ToolContext {
   apolloClient?: ApolloClient<NormalizedCacheObject>
   /** Why `apolloClient` is absent, when it is — see §5 step 4 */
   clientUnavailableReason?: string
+  /** The bearer sent to the platform — the OAuth access token */
   token?: string
-  /** JWT-anchored operator identity, decoded from the token's `email`/`sub` claim */
+  /** The same session's OIDC identity token, read for profile claims only */
+  identityToken?: string
+  /** JWT-anchored operator identity, decoded from the identity token's `email`/`sub` claim */
   authnOperator?: string
   debug: boolean
 }
@@ -405,14 +408,16 @@ interface TokenFile {
 }
 
 interface StoredTokens {
-  accessToken: string
-  idToken: string
+  accessToken: string       // Bearer presented to the platform (carries `scope`)
+  idToken: string           // Profile claims only — never sent as a bearer
+  grantedScope?: string     // Scope the provider actually granted; absent on older
+                            // records, where the access token's own claim is read instead
   refreshToken: string
-  expiresAt: number  // Unix timestamp (milliseconds)
-  baseUrl: string    // Platform these tokens belong to
-  storedAt: number   // When the tokens were last written (reset on every save)
-  issuedAt?: number  // When the CURRENT refresh token was issued; refresh-token
-                     // validity is measured from issuance, not from storedAt
+  expiresAt: number         // Unix timestamp (milliseconds)
+  baseUrl: string           // Platform these tokens belong to
+  storedAt: number          // When the tokens were last written (reset on every save)
+  issuedAt?: number         // When the CURRENT refresh token was issued; refresh-token
+                            // validity is measured from issuance, not from storedAt
 }
 
 // Token resolution for authenticated requests:
@@ -422,10 +427,14 @@ interface StoredTokens {
 // 4. No token needed when authDisabled is true
 ```
 
-The `getIdToken()` function implements this chain:
+The `getSessionTokens()` function implements this chain, returning the session's two tokens as `{ bearer, identity }`:
 1. Load stored tokens from `~/.dethernety/tokens.json` keyed by the current `baseUrl` and check expiry
 2. If expired but `refreshToken` exists and is not expired, transparently refresh by calling the OIDC token endpoint with `grant_type=refresh_token` — store new tokens and use the new access token
 3. Return `undefined` if no valid token is available (no token, no refresh token, or refresh also expired)
+
+The two are not interchangeable. `bearer` is the OAuth **access token** — only it carries the `scope` claim, and a resource server behind the platform is entitled to require one. `identity` is the **ID token** — only it carries the profile claims (`email`), which is what audit attribution reads; it is never sent as an `Authorization` header.
+
+**Scope.** Login requests the scope the platform advertises as `oidcScope`, falling back to `openid profile email` when it advertises none, and records what the provider actually granted as `grantedScope`. A stored session whose grant no longer satisfies the requirement is skipped in favour of a fresh browser login: the refresh grant takes no scope parameter, so refreshing would re-issue the original grant indefinitely. When the provider grants less than was asked for, login still succeeds and reports the shortfall — the tokens remain valid for the platform itself, but anything behind it may refuse them.
 
 > **Security (D61):** The `_token` argument is **not supported**. Tokens must only come from the secure token store, never from the conversation layer. Accepting tokens from tool arguments would allow prompt injection attacks to supply attacker-controlled JWTs.
 
@@ -1129,11 +1138,11 @@ See SYNC_AND_SOURCE_OF_TRUTH.md for the full sync architecture (dual-authority m
 ### Apollo Client Configuration
 
 ```typescript
-// Created with optional authenticated token
-// When authDisabled, idToken is omitted and no Authorization header is sent
+// Created with the OAuth access token as the bearer
+// When authDisabled, accessToken is omitted and no Authorization header is sent
 const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-if (idToken) {
-  headers.Authorization = `Bearer ${idToken}`
+if (accessToken) {
+  headers.Authorization = `Bearer ${accessToken}`
 }
 
 const apolloClient = new ApolloClient({
@@ -1159,6 +1168,7 @@ interface PlatformConfig {
   oidcDomain: string          // Cognito hosted UI domain (Cognito only)
   oidcRedirectUri: string     // Default redirect URI (dethereal uses localhost instead)
   oidcProvider: string        // Provider type: cognito, keycloak, auth0, zitadel, generic
+  oidcScope?: string          // Scope to request at login (default: "openid profile email")
   graphqlUrl: string          // GraphQL API path (e.g., "/graphql")
   graphqlWsUrl: string        // WebSocket URL for subscriptions
   subscriptionTransport: string // "sse" or "ws"

@@ -7,7 +7,13 @@
 
 import fetch from 'cross-fetch'
 import { getConfig, debug } from '../config.js'
-import { getCachedPlatformConfig, getOAuthUrls, fetchPlatformConfig } from './platform-config.js'
+import {
+  getCachedPlatformConfig,
+  getOAuthUrls,
+  fetchPlatformConfig,
+  getRequiredScope
+} from './platform-config.js'
+import { scopeSatisfies, scopeClaimOf, grantedScopeOf, parseScopes } from './scope.js'
 import { generatePKCE, generateState } from './pkce.js'
 import { startCallbackServer, DEFAULT_CALLBACK_PORT } from './oauth-server.js'
 import { openBrowser, buildAuthorizationUrl } from './browser.js'
@@ -33,6 +39,8 @@ export interface AuthTokens {
   expiresIn: number
   /** Token type (always "Bearer") */
   tokenType: string
+  /** The scope actually granted, as the provider reports it. Absent if it reports none. */
+  scope?: string
 }
 
 /**
@@ -49,6 +57,14 @@ export interface LoginResult {
   fromCache?: boolean
   /** Whether tokens were refreshed */
   refreshed?: boolean
+  /**
+   * Scopes the platform asked for that the provider did not grant.
+   *
+   * Set only on a login that otherwise succeeded. The tokens are still valid
+   * for the platform itself — this reports that something behind it may refuse
+   * them, which is otherwise invisible until a feature quietly stops working.
+   */
+  scopeShortfall?: string
 }
 
 /**
@@ -101,6 +117,7 @@ export async function exchangeCodeForTokens(
     refresh_token: string
     expires_in: number
     token_type: string
+    scope?: string
   }
 
   return {
@@ -108,7 +125,14 @@ export async function exchangeCodeForTokens(
     idToken: data.id_token,
     refreshToken: data.refresh_token,
     expiresIn: data.expires_in,
-    tokenType: data.token_type
+    tokenType: data.token_type,
+    // Two sources, in this order and on purpose. `scope` on the token response
+    // is optional per RFC 6749 §5.1 and some providers omit it on the
+    // authorization-code grant; the access token's own claim is the string a
+    // resource server actually tests. Preferring the response when it is there
+    // and the claim otherwise makes this a faithful pre-image of the remote
+    // check without depending on a field that may never arrive.
+    scope: data.scope ?? scopeClaimOf(data.access_token)
   }
 }
 
@@ -154,6 +178,7 @@ export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
     refresh_token?: string
     expires_in: number
     token_type: string
+    scope?: string
   }
 
   return {
@@ -162,7 +187,11 @@ export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
     // Cognito may return a new refresh token, or we keep the old one
     refreshToken: data.refresh_token || refreshToken,
     expiresIn: data.expires_in,
-    tokenType: data.token_type
+    tokenType: data.token_type,
+    // A refresh cannot widen a grant — the refresh grant takes no scope
+    // parameter, so what comes back is whatever the original authorization
+    // granted. Recording it keeps the stored value honest rather than stale.
+    scope: data.scope ?? scopeClaimOf(data.access_token)
   }
 }
 
@@ -187,12 +216,31 @@ export async function performLogin(options: {
     // Ensure platform config is loaded
     await fetchPlatformConfig()
     const platformConfig = getCachedPlatformConfig()!
+    const requiredScope = getRequiredScope(platformConfig)
 
     // Check for cached tokens unless forcing new login
     if (!forceNew) {
       const storedTokens = await loadStoredTokens(config.baseUrl)
 
-      if (storedTokens) {
+      // A stored session whose grant no longer covers what the platform asks
+      // for cannot be repaired in place: the refresh grant carries no scope, so
+      // the provider would keep re-issuing the original grant forever. Falling
+      // through to the browser login below is the only way to widen it.
+      //
+      // This guard sits ABOVE the refresh arm deliberately. Inside the
+      // `!isTokenExpired` branch it would gate the cache hit only, and an
+      // expired-but-refreshable session would go on minting under-scoped tokens
+      // indefinitely — which is the same bug, visible an hour later.
+      const staleScope =
+        storedTokens && !scopeSatisfies(grantedScopeOf(storedTokens), requiredScope)
+      if (staleScope) {
+        debug(
+          `Stored session was granted "${grantedScopeOf(storedTokens!) ?? '(unreadable)'}" but the ` +
+            `platform now requires "${requiredScope}" — forcing a fresh login`
+        )
+      }
+
+      if (storedTokens && !staleScope) {
         // Check if access token is still valid
         if (!isTokenExpired(storedTokens)) {
           debug('Using cached tokens (still valid)')
@@ -222,7 +270,8 @@ export async function performLogin(options: {
               refreshToken: newTokens.refreshToken,
               expiresAt: Date.now() + newTokens.expiresIn * 1000,
               baseUrl: config.baseUrl,
-              storedAt: Date.now()
+              storedAt: Date.now(),
+              grantedScope: newTokens.scope
             })
 
             return {
@@ -258,7 +307,7 @@ export async function performLogin(options: {
         authorizeEndpoint: authorize,
         clientId: platformConfig.oidcClientId,
         redirectUri: server.callbackUrl,
-        scope: 'openid profile email',
+        scope: requiredScope,
         codeChallenge,
         state
       })
@@ -285,13 +334,29 @@ export async function performLogin(options: {
         refreshToken: tokens.refreshToken,
         expiresAt: Date.now() + tokens.expiresIn * 1000,
         baseUrl: config.baseUrl,
-        storedAt: Date.now()
+        storedAt: Date.now(),
+        grantedScope: tokens.scope
       })
 
       debug('Login successful')
+
+      // A provider is free to grant less than it was asked for. Saying so once,
+      // here, is what stops the guard above from re-opening a browser on every
+      // subsequent login with nothing to show for it — the design's worst
+      // failure mode, and otherwise entirely silent.
+      const shortfall = scopeSatisfies(tokens.scope, requiredScope)
+        ? undefined
+        : parseScopes(requiredScope)
+            .filter((s) => !parseScopes(tokens.scope).includes(s))
+            .join(' ')
+      if (shortfall) {
+        debug(`Login granted a narrower scope than requested; missing: ${shortfall}`)
+      }
+
       return {
         success: true,
-        tokens
+        tokens,
+        scopeShortfall: shortfall
       }
     } finally {
       server.close()

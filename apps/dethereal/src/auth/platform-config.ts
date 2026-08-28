@@ -24,6 +24,14 @@ export interface PlatformConfig {
   oidcRedirectUri: string
   /** OIDC provider type (e.g., "cognito") */
   oidcProvider: string
+  /**
+   * Space-delimited scope the platform tells clients to request at login.
+   *
+   * Optional, and deliberately not one of the required fields below: a
+   * platform that predates this field, or one that never configured a scope,
+   * must still load. `getRequiredScope` supplies the base scopes in that case.
+   */
+  oidcScope?: string
   /** GraphQL API path (e.g., "/graphql") */
   graphqlUrl: string
   /** GraphQL WebSocket URL for subscriptions */
@@ -145,6 +153,26 @@ export function getOAuthUrls(platformConfig?: PlatformConfig) {
     logout: `https://${domain}/logout`,
     userInfo: `https://${domain}/oauth2/userInfo`
   }
+}
+
+/** Scopes to request when the platform advertises none. */
+export const BASE_SCOPES = 'openid profile email'
+
+/**
+ * The scope this platform wants clients to request.
+ *
+ * The fallback carries real weight. A platform that advertises no scope is one
+ * whose sessions were all minted under the base scopes, so every stored session
+ * still satisfies the requirement and nobody is asked to log in again. Treating
+ * an absent value as "unknown, so re-authenticate" would open a browser for every
+ * operator of every deployment that never configured one.
+ */
+export function getRequiredScope(platformConfig?: PlatformConfig): string {
+  const config = platformConfig || cachedConfig
+  if (!config) {
+    throw new Error('Platform config not loaded. Call fetchPlatformConfig first.')
+  }
+  return config.oidcScope || BASE_SCOPES
 }
 
 /**

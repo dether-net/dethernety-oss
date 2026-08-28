@@ -44,16 +44,25 @@ const server = new Server(
 )
 
 /**
- * Get the idToken to use for authentication
+ * Resolve the session's two tokens: the bearer, and the identity token behind it.
+ *
+ * They are not interchangeable and each is used for exactly one thing:
+ *
+ * - `bearer` is the ACCESS token. Only it carries the `scope` claim, and anything
+ *   sitting behind the platform is entitled to require one — presenting the
+ *   identity token works until a request leaves the platform, then fails opaquely.
+ * - `identity` is the ID token. Only it carries the profile claims (`email`), which
+ *   is what audit attribution records. Reading identity off the bearer would silently
+ *   demote every attributed entry to an opaque subject id.
  *
  * Resolution order:
  * 1. Stored token from local cache (if not expired)
  * 2. Transparent refresh (if access token expired but refresh token valid)
  * 3. undefined (tool will fail if requiresClient=true)
  *
- * @returns idToken or undefined if not available
+ * @returns access token, or undefined if not available
  */
-async function getIdToken(): Promise<string | undefined> {
+async function getSessionTokens(): Promise<{ bearer: string; identity: string } | undefined> {
   const config = getConfig()
   debug(`Loading stored tokens for baseUrl: ${config.baseUrl}`)
   const storedTokens = await loadStoredTokens(config.baseUrl)
@@ -65,8 +74,8 @@ async function getIdToken(): Promise<string | undefined> {
 
   // Valid token: use it directly
   if (!isTokenExpired(storedTokens)) {
-    debug('Using stored idToken for authentication')
-    return storedTokens.idToken
+    debug('Using stored accessToken for authentication')
+    return { bearer: storedTokens.accessToken, identity: storedTokens.idToken }
   }
 
   // Expired but refresh token valid: attempt transparent refresh
@@ -81,10 +90,11 @@ async function getIdToken(): Promise<string | undefined> {
         refreshToken: newTokens.refreshToken,
         expiresAt: Date.now() + newTokens.expiresIn * 1000,
         baseUrl: config.baseUrl,
-        storedAt: Date.now()
+        storedAt: Date.now(),
+        grantedScope: newTokens.scope
       })
       debug('Transparent token refresh succeeded')
-      return newTokens.idToken
+      return { bearer: newTokens.accessToken, identity: newTokens.idToken }
     } catch (error) {
       debug(`Transparent refresh failed: ${error}`)
     }
@@ -125,20 +135,21 @@ async function buildToolContext(): Promise<ToolContext> {
   }
 
   // Get the best available token (stored → transparent refresh → undefined)
-  const idToken = await getIdToken()
-  debug(`Token available: ${idToken ? 'yes' : 'no'}`)
+  const session = await getSessionTokens()
+  const accessToken = session?.bearer
+  debug(`Token available: ${accessToken ? 'yes' : 'no'}`)
 
   // Create Apollo client if we have a token
   let apolloClient = undefined
   let tokenPathFailure: string | undefined
-  if (idToken) {
+  if (accessToken) {
     try {
       // Ensure platform config is loaded before creating Apollo client
       if (!getCachedPlatformConfig()) {
         debug('Platform config not cached, fetching...')
         await fetchPlatformConfig()
       }
-      apolloClient = createApolloClient(idToken)
+      apolloClient = createApolloClient(accessToken)
       debug('Apollo client created successfully')
     } catch (error) {
       debug(`Failed to create Apollo client: ${error}`)
@@ -154,7 +165,8 @@ async function buildToolContext(): Promise<ToolContext> {
 
   return {
     apolloClient,
-    token: idToken,
+    token: accessToken,
+    identityToken: session?.identity,
     debug: config.debug,
     clientUnavailableReason: tokenPathFailure
   }

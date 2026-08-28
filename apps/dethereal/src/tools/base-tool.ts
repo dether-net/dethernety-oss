@@ -21,11 +21,21 @@ export interface ToolContext {
    * is impossible to follow, since `login` answers "No login needed").
    */
   clientUnavailableReason?: string
-  /** JWT token for authentication (for client-dependent tools) */
+  /** The bearer sent to the platform — the OAuth ACCESS token (for client-dependent tools) */
   token?: string
   /**
+   * The OIDC identity token for the same session, read for profile claims ONLY —
+   * never presented as a bearer.
+   *
+   * Kept separate from `token` because the two carry different claims: the access
+   * token has `scope` and no `email`, the identity token the reverse. Attribution
+   * that read the bearer would record an opaque subject id for every operator.
+   */
+  identityToken?: string
+  /**
    * JWT-anchored operator identity. Decoded once per MCP entry from the
-   * `email` (preferred) or `sub` claim of the OIDC token. The audit-log
+   * `email` (preferred) or `sub` claim of the IDENTITY token — not the bearer,
+   * which carries no `email`. The audit-log
    * writer threads this through as `AuditLogEntry.authnOperator` — the
    * platform-anchored truth that complements the spoofable local
    * `operator` field. `undefined` if decode failed (malformed token,
