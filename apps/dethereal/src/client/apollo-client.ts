@@ -3,7 +3,7 @@
  *
  * Creates Apollo Client instances with JWT Bearer authentication for
  * communicating with the Dethernety GraphQL API.
- * Uses idToken from Cognito as the Bearer token.
+ * Uses the OAuth access token as the Bearer token.
  */
 
 import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
@@ -46,17 +46,17 @@ const clientCache = new Map<string, ApolloClientType>()
 /**
  * Create an Apollo Client with optional JWT authentication
  *
- * Uses the idToken from Cognito as the Bearer token.
- * When idToken is omitted (auth-disabled mode), requests are sent without
+ * Uses the OAuth access token as the Bearer token.
+ * When the token is omitted (auth-disabled mode), requests are sent without
  * an Authorization header — the backend creates a mock user automatically.
  * The GraphQL endpoint is derived from the platform config.
  *
- * @param idToken - JWT idToken from Cognito authentication (optional in auth-disabled mode)
+ * @param accessToken - OAuth access token (optional in auth-disabled mode)
  * @returns Configured Apollo Client instance
  */
-export function createApolloClient(idToken?: string): ApolloClientType {
+export function createApolloClient(accessToken?: string): ApolloClientType {
   // Cache key: use token if available, otherwise a sentinel for unauthenticated client
-  const cacheKey = idToken || '__noauth__'
+  const cacheKey = accessToken || '__noauth__'
 
   // Check cache first
   const cached = clientCache.get(cacheKey)
@@ -72,13 +72,13 @@ export function createApolloClient(idToken?: string): ApolloClientType {
   }
 
   const graphqlEndpoint = getGraphQLEndpoint(platformConfig)
-  debug(`Creating Apollo Client for endpoint: ${graphqlEndpoint}${idToken ? '' : ' (no auth)'}`)
+  debug(`Creating Apollo Client for endpoint: ${graphqlEndpoint}${accessToken ? '' : ' (no auth)'}`)
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
-  if (idToken) {
-    headers.Authorization = `Bearer ${idToken}`
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`
   }
 
   const httpLink = new HttpLink({

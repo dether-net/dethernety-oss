@@ -37,6 +37,14 @@ interface LoginOutput {
   tokenStoragePath: string
   /** Status message */
   message: string
+  /**
+   * Scopes the platform asked for that the provider did not grant, if any.
+   *
+   * Present only on an otherwise-successful login. The session still works for
+   * the platform itself; this reports that something behind it may refuse the
+   * token, which is otherwise invisible until a feature quietly stops working.
+   */
+  scopeShortfall?: string
 }
 
 /**
@@ -94,7 +102,11 @@ Tokens are cached at: ~/.dethernety/tokens.json`
           fromCache: result.fromCache,
           refreshed: result.refreshed,
           tokenStoragePath: getTokenStoragePath(),
-          message: 'Authentication successful. Tokens stored securely.'
+          scopeShortfall: result.scopeShortfall,
+          message: result.scopeShortfall
+            ? `Authentication successful, but the provider did not grant: ${result.scopeShortfall}. ` +
+              'Features depending on those scopes will be refused.'
+            : 'Authentication successful. Tokens stored securely.'
         }
       }
     } catch (error) {

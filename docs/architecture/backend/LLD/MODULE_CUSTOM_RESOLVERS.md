@@ -644,12 +644,25 @@ private wrapModuleResolver(
       return result;
     } catch (error) {
       const duration = Date.now() - start;
-      const isTimeout = error?.message?.includes('timeout');
+
+      // A module that calls a service of its own can be refused for a reason the
+      // caller can act on. UPSTREAM_REFUSAL_CODES maps those to a GraphQL code —
+      // it is a narrow, module-scope allowlist keyed on the remote-module wire
+      // vocabulary, not on an error class, and it is a Map because `code` arrives
+      // from module code and a prototype member would read as truthy.
+      // Checked BEFORE isTimeout, which is a substring test on a message the
+      // upstream service controls.
+      const refusalCode =
+        typeof error?.code === 'string'
+          ? UPSTREAM_REFUSAL_CODES.get(error.code)
+          : undefined;
+      const isTimeout = !refusalCode && error?.message?.includes('timeout');
 
       logger.error(`Module resolver ${fieldPath} failed`, {
         error: error?.message,
         duration,
         isTimeout,
+        refusalCode,
       });
 
       // --- Error sanitization ---
@@ -657,12 +670,16 @@ private wrapModuleResolver(
       // In production, formatError will further sanitize.
       // This prevents module errors from carrying unexpected extensions.
       throw new GraphQLError(
-        isTimeout
-          ? 'Operation timed out'
-          : `Module operation failed: ${moduleName}`,
+        refusalCode
+          ? 'Authentication required'
+          : isTimeout
+            ? 'Operation timed out'
+            : `Module operation failed: ${moduleName}`,
         {
           extensions: {
-            code: isTimeout ? 'MODULE_RESOLVER_TIMEOUT' : 'MODULE_RESOLVER_ERROR',
+            code:
+              refusalCode ??
+              (isTimeout ? 'MODULE_RESOLVER_TIMEOUT' : 'MODULE_RESOLVER_ERROR'),
             moduleName,
             ...(process.env.NODE_ENV !== 'production' && {
               originalMessage: error?.message,
@@ -876,6 +893,7 @@ These are pre-existing limitations of the in-process module trust model. See `do
 | SDL validation fails | Startup | Warning logged, all resolvers for that module rejected |
 | Auth check fails | Per request | `GraphQLError` with `UNAUTHENTICATED` code |
 | Resolver times out | Per request | `GraphQLError` with `MODULE_RESOLVER_TIMEOUT` code |
+| Resolver is refused upstream | Per request | `GraphQLError` with `UNAUTHENTICATED` code |
 | Resolver throws | Per request | `GraphQLError` with `MODULE_RESOLVER_ERROR` code |
 
 ### Error Flow

@@ -391,7 +391,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       // from an older entry that pre-dates the field (field absent
       // entirely). Without the sentinel, both look operationally identical.
       if (context.authnOperator === undefined) {
-        context.authnOperator = decodeJwtIdentity(context.token) ?? 'unauthenticated'
+        context.authnOperator = decodeJwtIdentity(context.identityToken) ?? 'unauthenticated'
       }
 
       // ClientDependentTool.run() guarantees apolloClient is set

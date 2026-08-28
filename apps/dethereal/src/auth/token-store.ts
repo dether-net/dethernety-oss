@@ -21,10 +21,18 @@ const TOKENS_FILE = join(CONFIG_DIR, 'tokens.json')
  * Stored token data
  */
 export interface StoredTokens {
-  /** OAuth access token */
+  /** OAuth access token — the bearer sent to the platform and to any resource server behind it */
   accessToken: string
-  /** OIDC identity token (used for API authentication) */
+  /** OIDC identity token — carries the profile claims; not used as a bearer */
   idToken: string
+  /**
+   * The scope actually granted for this session, as the provider reports it.
+   *
+   * Absent on records written before this field existed. Readers must fall back
+   * to the access token's own `scope` claim rather than treating the absence as
+   * a mismatch — see `grantedScopeOf` in ./scope.ts.
+   */
+  grantedScope?: string
   /** OAuth refresh token for obtaining new access tokens */
   refreshToken: string
   /** Unix timestamp when the access token expires */

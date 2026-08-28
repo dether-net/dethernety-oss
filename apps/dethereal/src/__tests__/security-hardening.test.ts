@@ -26,13 +26,35 @@ describe('Security Hardening', () => {
       expect(content).not.toContain('args._token')
     })
 
-    it('should not accept argsToken parameter in getIdToken', async () => {
+    it('should not accept a caller-supplied token parameter in the token accessor', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
       const indexPath = path.join(import.meta.dirname, '..', 'index.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
-      expect(content).toMatch(/async function getIdToken\(\)/)
+      // Parameterless by design: the accessor resolves the credential from the
+      // stored session alone, so no tool argument can inject a bearer.
+      expect(content).toMatch(/async function getSessionTokens\(\)/)
+    })
+
+    it('sends the access token as the bearer, never the identity token', async () => {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+      const indexPath = path.join(import.meta.dirname, '..', 'index.ts')
+      const content = await fs.readFile(indexPath, 'utf-8')
+
+      // The identity token is a valid JWT that the platform's own guard accepts, so
+      // sending it fails only once a request leaves the platform — as an opaque server
+      // error, with nothing local to see. A source assertion is the available pin here:
+      // index.ts is a bin entry with top-level side effects, so the accessor cannot be
+      // invoked in-process without extracting it.
+      //
+      // BOTH return sites, because the refresh arm is the one a future edit misses and
+      // its failure appears an hour after login rather than immediately.
+      expect(content).toMatch(/bearer: storedTokens\.accessToken/)
+      expect(content).toMatch(/bearer: newTokens\.accessToken/)
+      expect(content).not.toMatch(/bearer: storedTokens\.idToken/)
+      expect(content).not.toMatch(/bearer: newTokens\.idToken/)
     })
   })
 

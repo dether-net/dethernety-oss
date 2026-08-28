@@ -84,6 +84,11 @@ Cognito refresh tokens are typically valid for 30 days.`
       await saveTokens({
         accessToken: tokens.accessToken,
         idToken: tokens.idToken,
+        // saveTokens replaces the record wholesale, so omitting this ERASES the
+        // recorded grant. The next login would fall back to the token's own claim
+        // and still decide correctly, but the stored record would be needlessly
+        // less informative than the one it replaced.
+        grantedScope: tokens.scope,
         refreshToken: tokens.refreshToken,
         expiresAt: Date.now() + tokens.expiresIn * 1000,
         baseUrl: config.baseUrl,
