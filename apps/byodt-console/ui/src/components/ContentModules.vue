@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import {
   api,
+  cloudCredential,
   SessionExpired,
   type CatalogPackage,
   type KnowledgeGraphConnection,
@@ -53,9 +54,50 @@ const expanded = ref<Set<string>>(new Set())
 // sticky session reminder: the console cannot observe the operator running the command, so once an action
 // needs a restart it stays until the page is reloaded.
 const restartNeeded = ref(false)
+// The cloud credential the last load() actually asked with, sampled at the moment of that request.
+// cloudCredential() is a plain function over module state and not a ref, so a computed calling it directly
+// would have nothing to track and would cache its first answer for the life of the component — leaving the
+// sentence below and the control beside it free to disagree. Depending on `packages` instead does not work
+// either: load() reassigns it, and reassigning a ref to the same array is not a change.
+const credential = ref(cloudCredential())
+// The daemon's answer to "can this deployment ever read its subscription". It decides that from the
+// deployment's own configuration — the required scope is derived from the content origin, and it holds
+// both — which is the only place the answer exists: a browser holds an opaque token and cannot see what
+// scopes it carries, so the console used to infer this from an EMPTY access token and never found one,
+// because a deployment without the scope still gets a perfectly good token for the scopes it did request.
+const subscriptionUnavailable = ref(false)
+// Which load() is current. Three callers start one — onMounted, the reloadToken watch, and refresh() —
+// and without this the one that FINISHES last wins rather than the one that STARTED last, so a slow read
+// issued before a purchase can land after a fast one issued after it and put "Not subscribed" back over a
+// package the operator just bought. refresh()'s busyKey guard does not cover it: busyKey is this
+// component's, and an artifact install sets the artifact panel's instead, leaving Refresh live for the
+// 180 s the daemon allows that install.
+let loadGen = 0
+// A refresh is in flight. Held apart from busyKey, which names the one module or package currently acting
+// so that only ITS controls disable — a refresh has no key, and the only control it disables is itself.
+const refreshing = ref(false)
 
 function isOpen(key: string): boolean {
   return expanded.value.has(key)
+}
+
+// Re-run both fetches on demand. This is how a subscription change reaches the tab: the catalog call also
+// carries the operator's token and comes back with what they are subscribed to NOW, so a package bought in
+// another tab becomes mountable here without reconnecting — and reconnecting is the destructive path, since
+// a disconnect removes every cloud-provided module and the platform then takes their classes with them.
+//
+// Refused while an action holds busyKey: load() replaces `packages` and `mountedByKey` wholesale, and doing
+// that under an in-flight mount would show a view of neither state. The daemon's own modules lock already
+// makes this safe on disk, so this is about what the operator sees, not about a data race.
+async function refresh() {
+  if (refreshing.value || busyKey.value) return
+  refreshing.value = true
+  message.value = ''
+  try {
+    await load()
+  } finally {
+    refreshing.value = false
+  }
 }
 
 function toggle(key: string) {
@@ -65,9 +107,15 @@ function toggle(key: string) {
 }
 
 async function load() {
+  const gen = ++loadGen
+  credential.value = cloudCredential()
   // Tolerate a partial failure: if the catalog is unreachable but the local inventory loads, still show
   // what is mounted (so it can be unmounted) rather than blanking the whole tab.
   const [cat, mods] = await Promise.allSettled([api.packages(), api.modules()])
+  // Superseded while in flight: drop the whole answer rather than write a view of an older world over a
+  // newer one. Before the SessionExpired check, because a stale rejection is not this render's business
+  // either — the load that superseded it will report its own.
+  if (gen !== loadGen) return
   if ([cat, mods].some((r) => r.status === 'rejected' && r.reason instanceof SessionExpired)) return
 
   if (mods.status === 'fulfilled') {
@@ -82,6 +130,7 @@ async function load() {
 
   if (cat.status === 'fulfilled') {
     packages.value = cat.value.packages
+    subscriptionUnavailable.value = cat.value.subscriptionUnavailable === true
     catalogError.value = ''
   } else {
     packages.value = []
@@ -100,7 +149,9 @@ const view = computed(() =>
       modules,
       mountedCount: modules.filter((m) => m.mounted).length,
       unmountedCount: modules.filter((m) => !m.mounted).length,
-      // Only an explicit false gates; undefined (entitlement undetermined) never blocks.
+      // Only an explicit false gates. Undefined means the console could not ask — see subscriptionUnknown
+      // below — and must never block: an unanswered question is not a refusal, and treating it as one
+      // would grey out a paying subscriber's whole catalog on every page reload.
       notSubscribed: pkg.entitled === false,
     }
   }),
@@ -122,6 +173,51 @@ const isEmpty = computed(
     packages.value.length === 0 &&
     orphans.value.length === 0 &&
     artifacts.value.length === 0,
+)
+
+// The subscription could not be read. `loaded` gates it so nothing is claimed while the first fetch is in
+// flight — the answer being in flight is its own state, and it gates nothing either.
+//
+// `some` rather than `every`: the daemon marks all or none, so today the two agree, but a partial answer
+// should say so rather than pass silently as a complete one.
+const subscriptionUnknown = computed(
+  () => loaded.value && packages.value.some((p) => p.entitled === undefined),
+)
+
+// Why it could not be read, and what to do about it. Three arms because api.ts enumerates three states and
+// says telling the last two apart is the difference between a recovery and a loop — a component with fewer
+// arms than there are states is exactly how one of them became a loop before.
+//
+// This is the ordinary state of a reloaded tab, not an alarm: the operator's tokens live in memory only, so
+// the first catalog load after any reload has nothing to ask with. It is said plainly and gates nothing.
+//
+// Driven by the sampled `credential` ref, for the reason given where it is declared.
+const subscriptionUnknownReason = computed(() => {
+  if (!subscriptionUnknown.value) return ''
+  // The daemon's answer first: it is the only one of the three that is a fact about the DEPLOYMENT rather
+  // than about this browser tab, and it is the one no amount of retrying or signing in will change.
+  if (subscriptionUnavailable.value) {
+    return 'Nothing is restricted, but subscriptions cannot be checked on this deployment: its configuration does not carry the permission the check needs. Regenerating the deployment recipe and reconnecting is what fixes it — see what disconnecting costs before you do.'
+  }
+  switch (credential.value) {
+    case 'no-content-scope':
+      // Permanent. The one arm that must NOT offer a sign-in: signing in returns the same empty token
+      // forever, so the offer would be the loop rather than the remedy.
+      return 'Nothing is restricted, but subscriptions cannot be checked on this deployment: its sign-in returns no credential for the content service. Regenerating the deployment recipe and reconnecting is what fixes it — see what disconnecting costs before you do.'
+    case 'signed-out':
+      return 'Your subscription has not been checked. Signing in again gives this tab the cloud credential it needs — reloading the page clears it. Nothing is restricted meanwhile.'
+    default:
+      return 'Your subscription could not be checked just now. Nothing is restricted; Refresh to try again.'
+  }
+})
+
+// The sign-in is offered in exactly one arm, and it is a control rather than an instruction because the
+// signed-in console has no sign-in control to send anyone to — a reloaded tab is signed in with a live
+// session and no tokens, so the sign-in card is not rendered and telling the operator to find one would be
+// a dead end. The emit is already declared and already wired to the same redirect the sign-in card
+// performs; on return the tab remounts with tokens and re-reads on its own, so there is no Refresh step.
+const signInOffered = computed(
+  () => subscriptionUnknown.value && !subscriptionUnavailable.value && credential.value === 'signed-out',
 )
 
 function chipClass(currency: MountedModule['currency']): string {
@@ -277,6 +373,36 @@ onMounted(load)
 
 <template>
   <div class="dt-card p-6 text-sm">
+    <!-- Re-reads the catalog, this deployment's subscription, and the local inventory. It sits at the top
+         because it refreshes everything below it — artifacts included — and because the alternative an
+         operator would otherwise reach for (disconnect, paste a new recipe, reconnect) removes every
+         cloud-provided module and takes their classes with them. -->
+    <div class="mb-4 flex items-center justify-end">
+      <button
+        type="button"
+        :disabled="refreshing || !!busyKey"
+        class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
+        data-content-refresh
+        @click="refresh"
+      >
+        {{ refreshing ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
+
+    <!-- The subscription could not be read. A muted line and not a Banner, deliberately: the tokens are
+         memory-only, so this is what every reloaded tab sees until the operator signs in again, and an
+         alarm on the ordinary case is one operators learn to ignore. Nothing below it is gated. -->
+    <p v-if="subscriptionUnknown" class="mb-4 text-xs text-dt-text-muted" data-subscription-unknown>
+      {{ subscriptionUnknownReason }}
+      <button
+        v-if="signInOffered"
+        type="button"
+        class="ml-1 text-dt-accent hover:underline"
+        data-subscription-sign-in
+        @click="emit('sign-in-required')"
+      >Sign in</button>
+    </p>
+
     <!-- A mount/unmount is inert until the platform re-scans the modules directory, and nothing in the
          mode view reflects that — so this is the only place the operator learns a restart is owed. -->
     <Banner
@@ -310,6 +436,7 @@ onMounted(load)
       :packages="packages"
       :installed="artifacts"
       :removal-notice="artifactRemovalNotice"
+      :subscription-unavailable="subscriptionUnavailable"
       @changed="onArtifactChanged"
       @sign-in-required="emit('sign-in-required')"
     />
@@ -357,10 +484,13 @@ onMounted(load)
             <!-- A collapsed band still shows how many of its modules are mounted, so the operator can scan
                  without expanding. -->
             <span class="whitespace-nowrap text-xs text-dt-text-muted">{{ row.mountedCount }}/{{ row.pkg.modules.length }} mounted</span>
-            <!-- Not subscribed: mounting is inert (the platform 403s the content), so the package can't be
-                 mounted — only the path to subscribe. Already-mounted modules stay manageable below. -->
+            <!-- Not subscribed, read live from the content service on this load rather than from a key
+                 list frozen into the deployment's configuration — so a package bought since this tab
+                 opened stops saying this after a Refresh, with no reconnect. Mounting is inert while it
+                 does say it (the platform 403s the content), so the package offers only the path to
+                 subscribe. Already-mounted modules stay manageable below. -->
             <template v-if="row.notSubscribed">
-              <span class="rounded-full bg-white/5 px-2 py-0.5 text-xs text-dt-text-muted">Not subscribed</span>
+              <span class="rounded-full bg-white/5 px-2 py-0.5 text-xs text-dt-text-muted" data-not-subscribed>Not subscribed</span>
               <a
                 :href="CATALOG_URL"
                 target="_blank"

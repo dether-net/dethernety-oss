@@ -106,18 +106,19 @@ describe('Artifacts — one row per artifact', () => {
       ],
     })
     expect(w.findAll('[data-artifact-row]')).toHaveLength(1)
-    expect(w.text()).not.toContain('Not subscribed')
+    expect(w.find('[data-artifact-not-subscribed]').exists()).toBe(false)
     expect(w.find('[data-artifact-install]').exists()).toBe(true)
   })
 
   it('is not subscribed only when no granting package is entitled, and undetermined never gates', () => {
     const notSubscribed = render({ packages: [pkg({ key: 'a', entitled: false }), pkg({ key: 'b', entitled: false })] })
-    expect(notSubscribed.text()).toContain('Not subscribed')
+    expect(notSubscribed.find('[data-artifact-not-subscribed]').exists()).toBe(true)
     expect(notSubscribed.find('[data-artifact-install]').exists()).toBe(false)
 
-    // Undetermined (a recipe predating the entitlement variable) must never gate.
+    // Undetermined means the console could not ask the content service, and must never gate: an
+    // unanswered question is not a refusal.
     const undetermined = render({ packages: [pkg({ key: 'a', entitled: undefined })] })
-    expect(undetermined.text()).not.toContain('Not subscribed')
+    expect(undetermined.find('[data-artifact-not-subscribed]').exists()).toBe(false)
     expect(undetermined.find('[data-artifact-install]').exists()).toBe(true)
   })
 

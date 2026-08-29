@@ -166,27 +166,57 @@ func TestCloudModeVarsRejectsAUserinfoRedirect(t *testing.T) {
 	}
 }
 
-func TestCloudModeVarsStripsRetiredCommerceURL(t *testing.T) {
-	// A saved OLDER recipe may still carry COMMERCE_API_BASE_URL. It is retired: tolerated so the paste
-	// still applies, but dropped rather than written — never rejected as a foreign variable, and never
-	// carried into the mode layer.
-	recipe := validRecipeVars()
-	recipe["COMMERCE_API_BASE_URL"] = "https://commerce.example"
-	vars, stripped, err := cloudModeVars(recipe, "https://d.example/auth/callback", "/cache")
-	if err != nil {
-		t.Fatalf("a recipe carrying the retired variable must still apply, got %v", err)
-	}
-	if _, ok := vars["COMMERCE_API_BASE_URL"]; ok {
-		t.Fatal("COMMERCE_API_BASE_URL must not be written to the mode layer")
-	}
-	found := false
-	for _, s := range stripped {
-		if s == "COMMERCE_API_BASE_URL" {
-			found = true
+func TestEveryRetiredNameIsAlsoStripped(t *testing.T) {
+	// retiredRecipeVars is documented as a subset of strippedRecipeVars, and nothing enforced it.
+	// partitionStripped only ever iterates names that already reached the stripped list, so a name in the
+	// retired map alone is invisible — and one dropped from the retired map while staying stripped silently
+	// starts telling the operator the console "kept this deployment's own" value it in fact discarded.
+	for name := range retiredRecipeVars {
+		if !strippedRecipeVars[name] {
+			t.Errorf("%s is retired but not stripped — it would be rejected as a foreign variable, and a "+
+				"saved recipe carrying it would stop applying", name)
 		}
 	}
-	if !found {
-		t.Fatalf("COMMERCE_API_BASE_URL must be reported as stripped, got %v", stripped)
+	// And the split must stay non-trivial in the other direction: the kept side is what the operator's own
+	// exposure declaration rides on, and folding everything into retired would drop that sentence.
+	kept, retired := partitionStripped([]string{"DEPLOYMENT_EXPOSURE", "DEPLOYMENT_PACKAGES"})
+	if len(kept) != 1 || kept[0] != "DEPLOYMENT_EXPOSURE" {
+		t.Fatalf("the operator's own declaration must be reported as kept, got %v", kept)
+	}
+	if len(retired) != 1 || retired[0] != "DEPLOYMENT_PACKAGES" {
+		t.Fatalf("a retired name must be reported as ignored rather than kept, got %v", retired)
+	}
+}
+
+func TestCloudModeVarsStripsRetiredVariables(t *testing.T) {
+	// A saved OLDER recipe may still carry a retired name — and for the second of these, so does every
+	// recipe the producer is still issuing. Retired means tolerated so the paste still applies, dropped
+	// rather than written: never rejected as a foreign variable, and never carried into the mode layer
+	// where something could read it back.
+	for name, value := range map[string]string{
+		"COMMERCE_API_BASE_URL": "https://commerce.example",
+		"DEPLOYMENT_PACKAGES":   "acme-cloud,other-pkg",
+	} {
+		t.Run(name, func(t *testing.T) {
+			recipe := validRecipeVars()
+			recipe[name] = value
+			vars, stripped, err := cloudModeVars(recipe, "https://d.example/auth/callback", "/cache")
+			if err != nil {
+				t.Fatalf("a recipe carrying the retired variable must still apply, got %v", err)
+			}
+			if _, ok := vars[name]; ok {
+				t.Fatalf("%s must not be written to the mode layer", name)
+			}
+			found := false
+			for _, s := range stripped {
+				if s == name {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("%s must be reported as stripped, got %v", name, stripped)
+			}
+		})
 	}
 }
 

@@ -329,12 +329,55 @@ comparison: a mount can be behind the catalog and also not be serving what it re
 second is something the operator has not already been told.
 
 The catalog itself is read **unauthenticated** — it is public, and attaching the operator's credential
-would forward it to a surface that must not receive it. The catalog host is read from the mode file the
-console itself wrote, never from the request, which is what keeps the console from being usable as a
-request-forwarding primitive. If the catalog is unreachable the local inventory still renders, with a
-note explaining why and every mount's currency reported as `unknown` — except where the on-disk checks
-have something to say regardless, since `incomplete` and `diverged` are answered from the volume and need
-no catalog to reach.
+would forward it to a surface that must not receive it. The same route makes a second call which does
+carry one: the console asks the content service which packages this deployment's subscription includes,
+with the operator's own access token on `X-Console-Cloud-Token`, and it is that answer — never the
+catalog — the panel gates on. The two run concurrently — the catalog bounded at 15 s, the subscription at
+5 s — so the response waits on the longer of the two rather than their sum, and a subscription read that
+stalls never holds a catalog that already answered. The host both calls use is read from the mode file the console itself
+wrote, never from the request, which is what keeps the console from being usable as a request-forwarding
+primitive. If the catalog is unreachable the local inventory still renders, with a note explaining why and
+every mount's currency reported as `unknown` — except where the on-disk checks have something to say
+regardless, since `incomplete` and `diverged` are answered from the volume and need no catalog to reach.
+
+**The subscription is read, never configured.** It is asked on every catalog load, which is what makes a
+package bought after the deployment connected mountable without reconnecting, and **Refresh** re-runs both
+fetches for exactly that. What it saves is not a keystroke: the alternative an operator would otherwise
+reach for is a disconnect, which removes every cloud-provided module and has the platform delete the
+classes those modules contributed together with every link to them. Refresh is refused while a mount or
+unmount is in flight — it replaces the whole view, and doing that mid-action would show a state that is
+neither the old one nor the new.
+
+**Not being able to ask gates nothing.** With no operator token on the request — the ordinary state of a
+reloaded tab, since the SPA holds that token in memory only — or with no answer from the content service,
+the subscription is reported as undetermined and nothing is restricted, under a muted line saying which of
+these happened.
+
+**The first is a fact about the DEPLOYMENT and outranks the rest**: its configured `OIDC_SCOPE` carries no
+content scope, so no sign-in it can perform will ever produce a usable token. The daemon decides that
+locally, from the mode file it wrote, and reports it as `subscriptionUnavailable` on the same response.
+It has to be the daemon: a deployment without the scope still receives a perfectly good access token for
+the scopes it *did* request, so the browser holds a credential that looks entirely working and cannot see
+what it lacks. The console inferred this from an empty access token once, and that state is unreachable —
+the permanent case arrived looking transient and the operator was told to retry forever.
+
+Detecting it is a SUFFIX match on the scope list, not the exact scope rebuilt from the deployment's content
+address. Those diverge on a supported configuration — with the edge off the recipe carries the gateway's
+own endpoint while the scope still names the vanity host — and rebuilding it there would declare a capable
+deployment broken and send its operator to a reconnect. The suffix can only be wrong in the direction of
+*able to ask*, which gates nothing.
+
+The rest are facts about this browser tab: no cloud sign-in in it yet, or a check that failed just now.
+Only the first of those carries a sign-in control, and the asymmetry is the point — a reloaded tab is
+signed in with a live session and no tokens, so the sign-in card is not rendered and an instruction to find
+one would be a dead end, while offering the same control on a deployment that cannot ask would be the loop
+rather than the remedy. The artifact panel's install path takes the same precedence, for the same reason. An empty list is not that state — it is an answer, and it means the subscription includes nothing.
+Every failure collapses to undetermined, refusals included. A `401` from the content service is never
+relayed as the console's own, because the SPA reads any `401` as an expired session and would sign an
+operator out of their console over a token minted for a different service; a `404` is ordinary rather than
+a fault, since a content service predating this surface answers exactly that. Where the answer does
+arrive, a package it does not name shows **Not subscribed** and a **Subscribe ↗** link in place of **Mount
+all**, its per-module **Mount** buttons are disabled, and the artifact panel suppresses **Install**.
 
 A mount takes effect when the platform is recreated. If the written stub ends up world-writable — some
 bind-mount backends do not preserve modes — the console says so, because the platform refuses to load a
@@ -380,9 +423,10 @@ reading it as the knowledge graph itself having been installed — when what was
 
 ### Entitled artifacts
 
-A deployment connected to the cloud can also **install** an artifact, which is not a mount. A content
-mount needs no credential — the catalog is public and a mount is a local file write — but installing an
-entitled artifact means asking the content service for bytes it will only hand to a subscriber. What
+A deployment connected to the cloud can also **install** an artifact, which is not a mount. Mounting
+needs no credential — the catalog is public and a mount is a local file write, and the operator's token
+reaches that route only to ask what the subscription includes ([above](#content-mounts)) — but installing
+an entitled artifact means asking the content service for bytes it will only hand to a subscriber. What
 lands is not a stub naming content to fetch later: it is the module's own verified payload tree, in the
 modules mount, and from then on the deployment holds the code.
 
@@ -531,11 +575,11 @@ authentication round trip.
 | `GET /api/state` | yes | The init record plus derived failures |
 | `POST /api/cloud` | yes | Write the cloud mode layer from a pasted recipe |
 | `DELETE /api/cloud` | yes | Revert the mode layer to the local values |
-| `GET /api/packages` | yes | The public content catalog (cloud posture only) |
+| `GET /api/packages` | yes | The public content catalog, marked with what this deployment's subscription includes — read live on every load, never from the mode layer. Also reports whether this deployment is configured to ask at all (cloud posture only) |
 | `GET /api/modules` | yes | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
 | `POST /api/modules` | yes | Mount one module at one pin (cloud posture only) |
 | `DELETE /api/modules/{key}` | yes | Unmount (cloud posture only) |
-| `POST /api/artifacts` | yes | Install one entitled artifact at one version (cloud posture only) — the only route that carries a second credential, the operator's access token on `X-Console-Cloud-Token` |
+| `POST /api/artifacts` | yes | Install one entitled artifact at one version (cloud posture only) |
 | `DELETE /api/artifacts/{key}` | yes | Remove one installed artifact (cloud posture only) |
 
 Everything that carries deployment data is gated. The SPA shell is not, because it holds no data and
@@ -543,6 +587,14 @@ the sign-in page has to load; `GET /api/posture` is not, because the sign-in pag
 sign-in to render *before* a session can exist. That endpoint is a hard five-field projection of the
 mode file rather than a dump of it — the same file also holds the deployment's access list and its
 service URLs, and none of those are returned.
+
+**Two routes carry a second credential**, the operator's access token on `X-Console-Cloud-Token`:
+`GET /api/packages` sends it to ask what the subscription includes, and `POST /api/artifacts` sends it to
+ask for bytes. It is stated here rather than on either row because it is a property of the pair. Each
+attaches it in a request helper of its own rather than through a flag on the one every other call shares,
+on both sides of the wire — so a route that must stay credential-free cannot acquire the token by an edit
+made somewhere else, and the catalog half of `GET /api/packages` carries nothing even though the same
+handler serves it.
 
 Request bodies are capped at 1 MiB and decoded with unknown fields rejected.
 

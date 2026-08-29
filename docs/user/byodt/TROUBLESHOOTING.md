@@ -587,11 +587,20 @@ The console shows a standing reminder in the Content tab after any mount change,
 
 **Fix.** This is a property of how your container engine shares that directory. On a VM-backed runtime, switching the deployment's storage away from host bind mounts where possible, or running on native Linux, avoids it. Confirm after a `./byodt restart platform` whether the module registered — if it did not, the console reports **Fewer Modules Registered**.
 
-### I disconnected and now I cannot unmount anything
+### A cloud module is still in `modules/` after disconnecting
 
-**Cause.** Mount and unmount are both cloud-mode operations. Once disconnected, the console refuses them (`content mounts are available only in cloud mode`), but the markers already on disk remain.
+**Cause.** A disconnect removes every cloud-provided module itself and names what it removed. Two outcomes leave one behind, and the disconnect message says which:
 
-**Fix.** Reconnect, unmount what you no longer want, then disconnect again. To avoid this, unmount before disconnecting — see the warning in [Cloud → Disconnecting](./CLOUD.md#disconnecting).
+- `The cloud modules were left in place because another modules operation was running — disconnect again to remove them`. Another module operation held the modules directory at that moment, and the sweep is skipped rather than waited on, because a revert something else can block is not a recovery path.
+- `These could not be removed and are still in the modules mount: … — disconnect again, or delete them by hand`. The sweep ran, and those directories could not be deleted.
+
+A third message is not this problem: `Warning: a module is gone but its files could not be deleted and remain at …`. That module was moved out of the platform's way before its files were deleted, so it no longer loads. What remains is a staging copy under `modules/.byodt-console-tmp/`, and deleting it recovers disk space and nothing else.
+
+**Fix.** Delete the named directories from `modules/` yourself, then recreate — `./byodt restart` if you have not yet applied the disconnect, `./byodt restart platform` if you have.
+
+The message suggests disconnecting again, and that does re-run the sweep, but there is no button for it once the disconnect is written: the **Cloud** tab offers the recipe form instead, and mount and unmount refuse with `content mounts are available only in cloud mode`. Taking that route means pasting a recipe, recreating the stack, disconnecting again and recreating once more — which the deletion above spares you.
+
+What a disconnect removes, and what it costs the graph, is in [Cloud → Disconnecting](./CLOUD.md#disconnecting).
 
 ---
 

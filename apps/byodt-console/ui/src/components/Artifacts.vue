@@ -21,6 +21,11 @@ const props = defineProps<{
   packages: CatalogPackage[]
   installed: InstalledArtifact[]
   removalNotice: string
+  // This deployment can never obtain a content credential — its configured scope does not include one, as
+  // the daemon reports on the catalog read. Passed down because the SPA cannot see it: a deployment without
+  // the scope still receives a perfectly good token for the scopes it did request, so the token in hand
+  // looks exactly like a working one and every retry looks transient.
+  subscriptionUnavailable?: boolean
 }>()
 const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void }>()
 
@@ -199,6 +204,15 @@ function install(key: string, version: string, allowDowngrade = false) {
   // difference between a recovery and a loop. Both early returns clear `pending` first: this is reachable
   // from confirmDowngrade, only run() clears it, and a return that skips run() would leave the accept card
   // open above a sentence about something else.
+  // Before the token states, because it outranks them: no sign-in this deployment can perform will help,
+  // so offering one is the loop rather than the recovery — the same reason the no-content-scope arm below
+  // does not offer one either. The token in hand is genuine, so nothing below could tell.
+  if (props.subscriptionUnavailable) {
+    pending.value = undefined
+    message.value =
+      'This deployment cannot obtain a credential for the content service: its configuration does not carry the permission an install needs. Regenerate the deployment recipe and reconnect, then try again.'
+    return
+  }
   const cred = cloudCredential()
   if (cred === 'signed-out') {
     // A reloaded tab is signed in with a live session and no tokens at all — both are memory-only and set
@@ -295,6 +309,7 @@ function askRemove(row: Row) {
             <span
               v-if="row.entitled === false"
               class="rounded-full bg-white/5 px-2 py-0.5 text-xs text-dt-text-muted"
+              data-artifact-not-subscribed
             >Not subscribed</span>
 
             <!-- An application is used where its operator runs it; there is nothing on this deployment to

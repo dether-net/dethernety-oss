@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,9 +31,61 @@ type fakePkg struct {
 	noDoc     bool
 }
 
-// fakeContent serves the two public catalog endpoints. If gotAuth is non-nil, every request's
-// Authorization header is appended to it, so a test can prove no token is ever sent.
-func fakeContent(t *testing.T, pkgs []fakePkg, gotAuth *[]string) *httptest.Server {
+// fakeContentOpt registers a further route on the fake. Options exist so the entitlements surface can be
+// ABSENT by default: a mux with no such route answers 404, which is exactly what a content service
+// predating the surface — or one rolled back past it — returns, and that is the case the console has to
+// degrade through rather than the exception.
+type fakeContentOpt func(*http.ServeMux)
+
+// withEntitlements serves the entitlements surface, answering with the given package keys and recording
+// each request's Authorization header into seen.
+//
+// It records into ITS OWN slice and never into fakeContent's gotAuth, which is load-bearing. gotAuth backs
+// "no request to the content service may carry an Authorization header" — true of the catalog and false of
+// this surface, whose whole point is the credential — so folding the two together would widen that
+// assertion into one that cannot hold, and the obvious repair is to weaken it.
+func withEntitlements(status int, keys []string, seen *[]string) fakeContentOpt {
+	return func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /v1/entitlements", func(w http.ResponseWriter, r *http.Request) {
+			if seen != nil {
+				*seen = append(*seen, r.Header.Get("Authorization"))
+			}
+			// Refuses in JSON, as the real service does, and that is load-bearing rather than realism for
+			// its own sake: a plain-text refusal happens to fail json.Unmarshal, so the "a refusal is not
+			// an answer" cases would pass with the status check deleted — held up by the fixture instead
+			// of by the code. A JSON refusal parses into a zero value, so only the check stops it being
+			// read as "entitled to nothing".
+			if status != http.StatusOK {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(status)
+				_, _ = fmt.Fprintf(w, `{"type":"about:blank","title":"refused","status":%d}`, status)
+				return
+			}
+			out := make([]map[string]any, 0, len(keys))
+			for _, k := range keys {
+				out = append(out, map[string]any{"key": k})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"protocol": "1", "packages": out})
+		})
+	}
+}
+
+// withRawEntitlementsBody serves the entitlements surface with a body given verbatim, for the cases where
+// the shape is the thing under test rather than the contents.
+func withRawEntitlementsBody(status int, body string) fakeContentOpt {
+	return func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /v1/entitlements", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, body)
+		})
+	}
+}
+
+// fakeContent serves the two public catalog endpoints, plus whatever the options add. If gotAuth is
+// non-nil, every CATALOG request's Authorization header is appended to it, so a test can prove no token is
+// ever sent there.
+func fakeContent(t *testing.T, pkgs []fakePkg, gotAuth *[]string, opts ...fakeContentOpt) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/catalog/packages", func(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +114,35 @@ func fakeContent(t *testing.T, pkgs []fakePkg, gotAuth *[]string) *httptest.Serv
 		}
 		http.Error(w, "not found", http.StatusNotFound)
 	})
+	for _, opt := range opts {
+		opt(mux)
+	}
 	return httptest.NewServer(mux)
+}
+
+// getEntitledPackages issues a session GET carrying the operator's access token on its own header. The
+// package's get() helper cannot: it predates that header, and widening a helper three files share is
+// precisely how a token reaches a call that must never carry it. A sibling for the same reason
+// artifact_test.go's sendArtifact is one.
+func getEntitledPackages(t *testing.T, base, session, cloudToken string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, base+"/api/packages", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session != "" {
+		req.Header.Set(sessionHeader, session)
+	}
+	if cloudToken != "" {
+		req.Header.Set(cloudTokenHeader, cloudToken)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, b
 }
 
 // seedCloudContentFile writes an applied cloud mode file whose MODULE_CONTENT_BASE_URL points at the
@@ -105,7 +186,10 @@ func TestPackagesAssemblesCatalog(t *testing.T) {
 	defer content.Close()
 
 	base, sid, _ := newContentServer(t, content.URL)
-	code, body := get(t, base, "/api/packages", sid)
+	// The operator's token IS on this request — the handler holds it to ask what the subscription
+	// includes — so the assertion below is about a credential that exists to leak. Sent without one, that
+	// assertion would be proving nothing about a route that now handles a token.
+	code, body := getEntitledPackages(t, base, sid, "the-access-token")
 	if code != http.StatusOK {
 		t.Fatalf("packages must be 200, got %d %s", code, body)
 	}
@@ -114,7 +198,9 @@ func TestPackagesAssemblesCatalog(t *testing.T) {
 			t.Fatalf("catalog must contain %q, got %s", want, body)
 		}
 	}
-	// The catalog is public: no request to the content service may carry an Authorization header.
+	// The CATALOG is public: no request to it may carry an Authorization header — not even now that the
+	// same handler holds the operator's token for the surface beside it. gotAuth is appended by the two
+	// catalog handlers alone, so this is a statement about those routes and not about the entitlements one.
 	for _, a := range gotAuth {
 		if a != "" {
 			t.Fatalf("the console must send no token to the content service, got %q", a)
@@ -126,36 +212,18 @@ func TestPackagesAssemblesCatalog(t *testing.T) {
 }
 
 func TestPackagesMarksEntitlement(t *testing.T) {
+	// Subscribed to acme-cloud and not to other-pkg — the live answer, not a key list frozen into this
+	// deployment's configuration. The distinction is the whole point of the route: a package bought after
+	// the deployment connected shows here on the next load, and the operator never has to reconnect to see
+	// it. Reconnecting removes every cloud-provided module.
+	var seen []string
 	content := fakeContent(t, []fakePkg{
 		{key: "acme-cloud", name: "Acme Cloud", latest: "20260101.1", modules: []catalogModuleEntry{{Key: "acme-compute", ContentHash: pinA}}},
 		{key: "other-pkg", name: "Other", latest: "1", modules: []catalogModuleEntry{{Key: "other-mod", ContentHash: pinB}}},
-	}, nil)
+	}, nil, withEntitlements(http.StatusOK, []string{"acme-cloud"}, &seen))
 	defer content.Close()
 
-	plat := fakePlatform(t, false, nil)
-	t.Cleanup(plat.Close)
-	s := newTestServer(t, plat.URL, filepath.Join(t.TempDir(), "state.json"))
-	s.cfg.ModulesDir = t.TempDir()
-	ts := httptest.NewServer(s.routes())
-	t.Cleanup(ts.Close)
-
-	// writeMode rewrites the cloud mode file with a given DEPLOYMENT_PACKAGES value; packages==nil omits
-	// the key entirely (a recipe predating the variable). Mirrors how a pasted recipe reaches the console.
-	writeMode := func(packages *string) {
-		recipe := validRecipeVars()
-		recipe["MODULE_CONTENT_BASE_URL"] = content.URL
-		if packages != nil {
-			recipe["DEPLOYMENT_PACKAGES"] = *packages
-		}
-		vars, _, err := cloudModeVars(recipe, "https://front.example/auth/callback", "/cache")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := writeModeLayer(s.cfg.ModeLayerPath, vars); err != nil {
-			t.Fatal(err)
-		}
-	}
-	sid := signIn(t, s) // the gate is read from the mode file, not the session
+	base, sid, _ := newContentServer(t, content.URL)
 
 	entitledFor := func(body []byte) map[string]*bool {
 		var resp struct {
@@ -174,10 +242,7 @@ func TestPackagesMarksEntitlement(t *testing.T) {
 		return out
 	}
 
-	// Subscribed to acme-cloud only → it is entitled=true, the other entitled=false.
-	sub := "acme-cloud"
-	writeMode(&sub)
-	code, body := get(t, ts.URL, "/api/packages", sid)
+	code, body := getEntitledPackages(t, base, sid, "the-access-token")
 	if code != http.StatusOK {
 		t.Fatalf("packages must be 200, got %d %s", code, body)
 	}
@@ -189,22 +254,172 @@ func TestPackagesMarksEntitlement(t *testing.T) {
 		t.Fatalf("unsubscribed package must be entitled=false, got %s", body)
 	}
 
-	// Present-empty (a lapsed subscription) is known → every package is entitled=false, not undetermined.
-	empty := ""
-	writeMode(&empty)
-	_, body = get(t, ts.URL, "/api/packages", sid)
-	got = entitledFor(body)
-	for _, k := range []string{"acme-cloud", "other-pkg"} {
-		if got[k] == nil || *got[k] {
-			t.Fatalf("with an empty subscription %q must be entitled=false, got %s", k, body)
-		}
+	// The operator's own token reached the content service, on the standard header. Asserted here and not
+	// only in the transport unit test because this is the seam that has shipped broken before: every SPA
+	// component test mocks the catalog call wholesale, so nothing else on either side reaches the header.
+	if len(seen) != 1 || seen[0] != "Bearer the-access-token" {
+		t.Fatalf("the operator's token must reach the entitlements surface exactly once, got %#v", seen)
 	}
 
-	// Absent (a recipe predating the variable) is undetermined → the flag is omitted, never gated.
-	writeMode(nil)
-	_, body = get(t, ts.URL, "/api/packages", sid)
+	// A LAPSED subscription is an answer, not an absence: an empty list means entitled to nothing, and
+	// every package is marked false rather than left undetermined.
+	empty := fakeContent(t, []fakePkg{
+		{key: "acme-cloud", name: "Acme Cloud", latest: "20260101.1", modules: []catalogModuleEntry{{Key: "acme-compute", ContentHash: pinA}}},
+	}, nil, withEntitlements(http.StatusOK, nil, nil))
+	defer empty.Close()
+	emptyBase, emptySid, _ := newContentServer(t, empty.URL)
+	_, body = getEntitledPackages(t, emptyBase, emptySid, "the-access-token")
+	if e := entitledFor(body)["acme-cloud"]; e == nil || *e {
+		t.Fatalf("an empty subscription must mark every package entitled=false, got %s", body)
+	}
+
+	// No operator token on the request — the ordinary state of a reloaded tab, since the SPA holds the
+	// token in memory only. The console must not ask at all (a bare "Bearer " is a malformed credential,
+	// not a question), and must leave the flag off rather than answer "entitled to nothing".
+	before := len(seen)
+	code, body = get(t, base, "/api/packages", sid)
+	if code != http.StatusOK {
+		t.Fatalf("packages must still be 200 without an operator token, got %d %s", code, body)
+	}
+	if len(seen) != before {
+		t.Fatalf("no token means no call to the entitlements surface, got %#v", seen)
+	}
 	if strings.Contains(string(body), `"entitled"`) {
-		t.Fatalf("undetermined entitlement must omit the flag, got %s", body)
+		t.Fatalf("an unaskable subscription must omit the flag, got %s", body)
+	}
+
+	// And the SERVER still mounts a package the subscription does not include. The gate is a console
+	// affordance; the content service is the control, and it decides when the content is fetched. A
+	// server-side refusal here would make a purchase require a new recipe, which requires a disconnect,
+	// which removes every cloud-provided module — the loop this whole route exists to break. Asserted
+	// against the deployment whose subscription is empty, the strongest "not entitled" there is.
+	mcode, mbody := send(t, http.MethodPost, emptyBase+"/api/modules", emptySid,
+		`{"packageKey":"acme-cloud","moduleKey":"acme-compute","pin":"`+pinA+`"}`)
+	if mcode != http.StatusOK {
+		t.Fatalf("a module from an unentitled package must still mount, got %d %s", mcode, mbody)
+	}
+}
+
+// A deployment whose recipe predates the content scope — or was issued without it — can never mint a
+// usable token, however often the operator retries. The console must say so rather than offer a retry,
+// and it decides that from its own mode file rather than from the shape of a token it cannot read.
+func TestPackagesReportsADeploymentThatCanNeverAsk(t *testing.T) {
+	pkgs := []fakePkg{{key: "acme-cloud", name: "Acme Cloud", latest: "1", modules: []catalogModuleEntry{{Key: "acme-compute", ContentHash: pinA}}}}
+	content := fakeContent(t, pkgs, nil, withEntitlements(http.StatusOK, []string{"acme-cloud"}, nil))
+	defer content.Close()
+
+	plat := fakePlatform(t, false, nil)
+	t.Cleanup(plat.Close)
+	s := newTestServer(t, plat.URL, filepath.Join(t.TempDir(), "state.json"))
+	s.cfg.ModulesDir = t.TempDir()
+	ts := httptest.NewServer(s.routes())
+	t.Cleanup(ts.Close)
+
+	writeScope := func(scope string) {
+		recipe := validRecipeVars()
+		recipe["MODULE_CONTENT_BASE_URL"] = content.URL
+		recipe["OIDC_SCOPE"] = scope
+		vars, _, err := cloudModeVars(recipe, "https://front.example/auth/callback", "/cache")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeModeLayer(s.cfg.ModeLayerPath, vars); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sid := signIn(t, s)
+
+	// A deployment carrying a content scope can ask.
+	writeScope("openid profile email " + content.URL + "/content.access")
+	_, body := getEntitledPackages(t, ts.URL, sid, "the-access-token")
+	if strings.Contains(string(body), `"subscriptionUnavailable"`) {
+		t.Fatalf("a deployment carrying the content scope can ask, got %s", body)
+	}
+
+	// THE CASE THAT BROKE THE FIRST VERSION OF THIS. The scope's identifier is derived from the service's
+	// vanity origin, while the recipe carries whichever address subscribers should dial — and with the edge
+	// off those are different hosts. Rebuilding the scope from the recipe's address, which is what the
+	// first version did, declared this deployment permanently broken and sent the operator to a reconnect
+	// that removes every cloud-provided module. It holds a content scope; it can ask.
+	writeScope("openid profile email https://api.vanity.example/content.access")
+	_, body = getEntitledPackages(t, ts.URL, sid, "the-access-token")
+	if strings.Contains(string(body), `"subscriptionUnavailable"`) {
+		t.Fatalf("a deployment whose scope names a different host than its API address can still ask, got %s", body)
+	}
+
+	// Without any content scope, no sign-in this deployment can perform will produce a usable token.
+	writeScope("openid profile email")
+	_, body = getEntitledPackages(t, ts.URL, sid, "the-access-token")
+	if !strings.Contains(string(body), `"subscriptionUnavailable":true`) {
+		t.Fatalf("a deployment without the content scope must be reported as unable to ask, got %s", body)
+	}
+	// And it is still served its whole catalog: this is an explanation, never a gate.
+	if !strings.Contains(string(body), `"acme-cloud"`) {
+		t.Fatalf("the catalog must still be served, got %s", body)
+	}
+
+	// Matched as a whole field. A scope that merely CONTAINS the text is a different scope, and the join
+	// this used to compare against would have accepted it.
+	writeScope("openid profile email https://api.vanity.example/content.access.other")
+	_, body = getEntitledPackages(t, ts.URL, sid, "the-access-token")
+	if !strings.Contains(string(body), `"subscriptionUnavailable":true`) {
+		t.Fatalf("a scope that merely contains the suffix must not count as holding it, got %s", body)
+	}
+}
+
+// TestPackagesUndeterminedWhenItCannotAsk covers every way the answer fails to arrive. All of them mean
+// the same thing to the operator — UNKNOWN, gating nothing — and none of them may reach the browser as a
+// failure of the catalog itself.
+func TestPackagesUndeterminedWhenItCannotAsk(t *testing.T) {
+	pkgs := []fakePkg{{key: "acme-cloud", name: "Acme Cloud", latest: "20260101.1", modules: []catalogModuleEntry{{Key: "acme-compute", ContentHash: pinA}}}}
+	for _, tc := range []struct {
+		name string
+		opts []fakeContentOpt
+	}{
+		// No option at all: the surface is unregistered, so the mux answers 404 — what a content service
+		// deployed before this surface existed, or rolled back past it, actually returns. Absence must
+		// never be read as "entitled to nothing".
+		{"the surface is absent", nil},
+		// The operator's CONTENT credential lapsed. It says nothing about their console session, and the
+		// SPA answers any 401 by clearing that session — so relaying this one would sign an operator out
+		// of their own console because a token for a different service expired.
+		{"the content credential lapsed", []fakeContentOpt{withEntitlements(http.StatusUnauthorized, nil, nil)}},
+		{"the service failed", []fakeContentOpt{withEntitlements(http.StatusInternalServerError, nil, nil)}},
+		// A 200 that is not this document. It unmarshals into a zero value, and a zero value here would
+		// read as "entitled to nothing" — the one answer the console must never invent. The protocol
+		// marker is what stops it.
+		{"a 200 that is not this document", []fakeContentOpt{withRawEntitlementsBody(http.StatusOK, `{"message":"Not Found"}`)}},
+		// A revision this console does not speak. Trusting its shape would be a guess; not trusting it
+		// gates nothing, which is the safe direction to be wrong in.
+		{"a protocol revision this console does not speak", []fakeContentOpt{withRawEntitlementsBody(http.StatusOK, `{"protocol":"2","packages":[{"key":"acme-cloud"}]}`)}},
+		// The marker is right and the mandatory field is missing. Decoding leaves a nil slice, which reads
+		// as "entitled to nothing" unless it is told apart — and that greys a subscriber's own catalog off
+		// a malformed body. `{"packages":[]}` is a different thing and stays an answer, asserted above.
+		{"a document with the marker but no packages key", []fakeContentOpt{withRawEntitlementsBody(http.StatusOK, `{"protocol":"1"}`)}},
+		// A refusal carrying a perfectly well-formed body — a misrouted or cached response, or a gateway
+		// answering for a service it is refusing on behalf of. The shape check cannot catch this one, so
+		// it is what the status check is for: a document under a refusal is still a refusal, and reading
+		// its empty list as an answer would mark every package unsubscribed.
+		{"a refusal carrying a well-formed body", []fakeContentOpt{withRawEntitlementsBody(http.StatusForbidden, `{"protocol":"1","packages":[]}`)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := fakeContent(t, pkgs, nil, tc.opts...)
+			defer content.Close()
+			base, sid, _ := newContentServer(t, content.URL)
+
+			code, body := getEntitledPackages(t, base, sid, "the-access-token")
+			// One check, and 401 is the failure it is really guarding: the SPA answers any 401 by clearing
+			// the session, so a relayed one signs the operator out of their console mid-browse.
+			if code != http.StatusOK {
+				t.Fatalf("the catalog must still be served and a refusal never relayed, got %d %s", code, body)
+			}
+			if !strings.Contains(string(body), `"acme-cloud"`) {
+				t.Fatalf("the catalog must still list its packages, got %s", body)
+			}
+			if strings.Contains(string(body), `"entitled"`) {
+				t.Fatalf("an unanswered subscription must omit the flag, got %s", body)
+			}
+		})
 	}
 }
 
@@ -1148,6 +1363,11 @@ func TestPublicGetStillSendsNoAuthorization(t *testing.T) {
 	var dst struct{}
 	if err := publicGet(context.Background(), base, "/v1/catalog/packages", &dst); err != nil {
 		t.Fatal(err)
+	}
+	// Length-checked before indexing: publicGet not dialling at all is a real regression, and an index
+	// panic reports it as a crash in the test harness rather than as the failure it is.
+	if len(*seen) != 1 {
+		t.Fatalf("the catalog path must make exactly one request, got %d", len(*seen))
 	}
 	if v := (*seen)[0].Get("Authorization"); v != "" {
 		t.Fatalf("the catalog path must carry no credential, got %q", v)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -50,6 +51,23 @@ const entitledTimeout = 60 * time.Second
 // megabytes of text would otherwise arrive whole in front of whoever asked for the install. The wire
 // protocol's refusal bodies are short JSON, so this is generous rather than tight.
 const maxDenialBytes = 8 << 10
+
+// entitlementsTimeout bounds the subscription read, and is deliberately shorter than contentTimeout. That
+// budget pays for the catalog walk — a list plus one document per package — while this is one item behind
+// one function. They run concurrently, so the catalog no longer sets the response's floor on its own: a
+// hung subscription read would hold a catalog that answered in milliseconds for the whole of the longer
+// budget, turning an optional decoration into the thing the operator waits on.
+//
+// Short is safe here in a way it would not be on the catalog. The outcome of running out is could-not-ask,
+// which gates nothing and which Refresh retries; and a single read that has not answered in five seconds is
+// not going to answer usefully inside an interactive window anyway.
+const entitlementsTimeout = 5 * time.Second
+
+// maxEntitlementsBytes caps the body read back from the entitlements surface. That body is a protocol
+// marker and a list of package keys — tens of bytes each against a catalog already capped at
+// maxCatalogPackages — so this is generous rather than tight. It exists for the reason every other cap
+// here does: how large a response is remains the upstream's choice, not this console's.
+const maxEntitlementsBytes = 64 << 10
 
 // maxStubBytes caps the module file read back when checking which pin it names. The stub the console
 // writes is one rendering of stubTemplate — a few hundred bytes, with the pin on the fifth line — but it
@@ -178,9 +196,11 @@ type catalogPackage struct {
 	Modules     []catalogModuleEntry   `json:"modules"`
 	Artifacts   []catalogArtifactEntry `json:"artifacts"`
 	Error       string                 `json:"error,omitempty"`
-	// Entitled reports whether this deployment is subscribed to the package, from the recipe's
-	// DEPLOYMENT_PACKAGES set. nil means undetermined — the recipe predates the variable (the key is
-	// absent from the mode file), so the UI must not gate on it.
+	// Entitled reports whether the operator's subscription includes this package, read live from the
+	// content service on this request rather than copied out of the deployment's configuration. nil means
+	// the console COULD NOT ASK — no operator token on the request, or the service did not answer — and
+	// the UI must not gate on nil. An unreachable service must never make a subscribed deployment look
+	// unsubscribed, so the undetermined case gates nothing at all.
 	Entitled *bool `json:"entitled,omitempty"`
 }
 
@@ -334,6 +354,112 @@ func resolveCatalog(ctx context.Context, base string) (packages []catalogPackage
 		out = append(out, cp)
 	}
 	return out, truncated, nil
+}
+
+// wireProtocolVersion is the protocol revision this console speaks, and the value the content service
+// stamps on the documents it serves. It is the path prefix on those routes too — /v1.
+const wireProtocolVersion = "1"
+
+// entitlementsDoc is the content service's answer to what the caller's subscription includes. Membership
+// only: a key is present when the caller holds that package, and the document says nothing about when it
+// was bought or what it contains — the console has no use for either, and the read model behind the
+// surface cannot produce them.
+type entitlementsDoc struct {
+	Protocol string `json:"protocol"`
+	Packages []struct {
+		Key string `json:"key"`
+	} `json:"packages"`
+}
+
+// contentScopeSuffix is the tail the content service's required scope always carries: its Terraform builds
+// that scope as `<api origin>/content.access`, so the identifier varies by deployment while the suffix
+// does not.
+const contentScopeSuffix = "/content.access"
+
+// canAskForEntitlements reports whether this deployment's configured OIDC scope includes a content scope
+// at all. False means NO sign-in will ever produce a usable token here — the recipe predates the scope, or
+// was issued without it — and that is a different thing from a read that failed.
+//
+// It exists because the console could not previously tell those apart. The SPA inferred the permanent case
+// from an EMPTY access token, and that state is unreachable: the console requests this same OIDC_SCOPE, so
+// a deployment without the content scope still gets a perfectly good token for the scopes it did ask for.
+// The permanent case therefore arrived looking exactly like a transient one, and the operator was told to
+// retry something that could never succeed.
+//
+// A SUFFIX, and NOT the exact scope rebuilt from MODULE_CONTENT_BASE_URL, which is what the first version
+// of this did and was wrong. The scope's identifier is derived from the service's vanity origin, while the
+// recipe carries whichever address subscribers should actually dial — and those diverge on a supported
+// configuration: with the edge off, the recipe carries the gateway's own endpoint while the scope still
+// names the vanity host. Rebuilding the scope from the recipe's address therefore told a perfectly capable
+// deployment that its configuration was broken, and pointed the operator at a reconnect — which removes
+// every cloud-provided module. Strictly worse than the defect it was added to fix.
+//
+// The suffix cannot fail that way. A deployment that holds a content scope holds one ending in this,
+// whatever host it names; and the only way to be wrong here is to see one that belongs to something else,
+// which yields "able to ask" — the state the console was already in before any of this, and which gates
+// nothing. So the one direction it can be wrong in is the harmless one.
+func canAskForEntitlements(vars map[string]string) bool {
+	// Whole fields, never a substring of the joined string: a scope is one token, and a scope whose value
+	// merely contains this text is a different scope.
+	return slices.ContainsFunc(strings.Fields(vars["OIDC_SCOPE"]), func(scope string) bool {
+		return strings.HasSuffix(scope, contentScopeSuffix)
+	})
+}
+
+// resolveEntitlements asks the content service which packages this operator's subscription includes, and
+// reports whether it got an answer at all. That second return is the whole contract: ok=false means COULD
+// NOT ASK, and it must reach the operator as "unknown" rather than as "entitled to nothing" — the two are
+// one disabled control apart, and the wrong one of them greys out a subscriber's own catalog.
+//
+// EVERY failure collapses to could-not-ask, refusals included, and that is deliberate rather than lazy:
+//
+//   - A 401 is not relayed and not told apart. The operator's CONTENT credential lapsing says nothing
+//     about their console session, and the SPA answers any 401 by clearing the session — so relaying one
+//     would sign an operator out of their own console because a token for a different service expired.
+//   - A 404 is ordinary. There is no catch-all route in front of this surface, so a content service that
+//     predates it — or one rolled back past it — answers exactly that, and the console must degrade to
+//     unknown rather than treat the absence as an answer.
+//
+// The empty token is refused BEFORE the call, not inside it. entitledGet sets its Authorization header
+// unconditionally, so an empty token would dial the content service carrying a bare "Bearer " and no
+// credential. Nothing here needs that request made, and a reloaded tab — where the operator's tokens are
+// gone but the session is not — makes it the common case rather than an edge one.
+func resolveEntitlements(ctx context.Context, base, token string) (keys map[string]struct{}, ok bool) {
+	if base == "" || token == "" {
+		return nil, false
+	}
+	// Its own budget, not the entitled transport's 60 s and not the catalog's 15 s — see entitlementsTimeout
+	// for why it is the shortest of the three.
+	ctx, cancel := context.WithTimeout(ctx, entitlementsTimeout)
+	defer cancel()
+	body, status, err := entitledGet(ctx, base, "/v1/entitlements", token, maxEntitlementsBytes)
+	if err != nil || status != http.StatusOK {
+		return nil, false
+	}
+	// The marker is checked, not merely parsed. A 200 whose body is not this document — a refusal rendered
+	// as JSON, a gateway's own error shape, a future revision — unmarshals happily into a zero value, and a
+	// zero value here reads as "entitled to nothing", which is the one answer this function must never
+	// invent. An unrecognised version is could-not-ask, which gates nothing; that is the safe direction.
+	var doc entitlementsDoc
+	if err := json.Unmarshal(body, &doc); err != nil || doc.Protocol != wireProtocolVersion {
+		return nil, false
+	}
+	// An ABSENT packages key is could-not-ask, not "entitled to nothing". The field is mandatory on this
+	// surface, so a body carrying the marker without it is malformed rather than empty — and the difference
+	// is the whole hazard this function guards: an empty set greys a subscriber's catalog, while
+	// could-not-ask gates nothing.
+	// Absent and present-but-empty are distinguishable here because encoding/json leaves a nil slice for the
+	// first and an empty non-nil one for the second, so `[]` still means what it should.
+	if doc.Packages == nil {
+		return nil, false
+	}
+	keys = make(map[string]struct{}, len(doc.Packages))
+	for _, p := range doc.Packages {
+		if p.Key != "" {
+			keys[p.Key] = struct{}{}
+		}
+	}
+	return keys, true
 }
 
 // latestModule finds a module by key within the package it was mounted from, so pin currency is judged
