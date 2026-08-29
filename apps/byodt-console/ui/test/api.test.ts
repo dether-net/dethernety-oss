@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, cloudAccessToken, clearCloudTokens, clearSession, mintCloud, mintLocal, setCloudTokens } from '@/api'
+import { api, cloudAccessToken, clearCloudTokens, clearSession, mintCloud, mintLocal, setCloudTokens, setSession } from '@/api'
 
 // The content methods are thin wrappers over the request helper; these lock the URL, verb, and body so
 // the wire contract with the daemon cannot drift silently.
@@ -42,16 +42,38 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('api content methods', () => {
-  it('GETs the catalog', async () => {
+  // The catalog is the SECOND route to forward the operator's access token, and it had to be tested here
+  // for the reason the install comment below records: every component test mocks api.packages wholesale,
+  // so nothing anywhere else reaches the header. Without this the token could be dropped and both suites
+  // would stay green while every deployment reported its subscription as unknown.
+  it('GETs the catalog carrying the operator access token, which the subscription half needs', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
     await api.packages()
     expect(lastUrl).toBe('/api/packages')
     expect(lastInit?.method ?? 'GET').toBe('GET')
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBe('the-access-token')
+    // Both, on their own headers: two tokens for two audiences cannot share one.
+    expect(authOf(lastInit)).toBe('Bearer the-id-token')
   })
 
-  it('GETs the mounted-modules inventory', async () => {
+  it('omits the cloud-token header on the catalog, and still asks, when there is no access token', async () => {
+    // The ordinary state of a reloaded tab: the tokens are memory-only and only the session survives. The
+    // call still goes out — the daemon answers with entitlement undetermined rather than refusing, so the
+    // catalog renders and nothing is gated.
+    setCloudTokens({ idToken: 'the-id-token', accessToken: '' })
+    await api.packages()
+    expect(lastUrl).toBe('/api/packages')
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
+  })
+
+  it('GETs the mounted-modules inventory, and carries no access token doing it', async () => {
+    // Its sibling on the same panel forwards the token; this one reads the local modules directory and
+    // must not. Asserted because the two calls sit one line apart in the api object.
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
     await api.modules()
     expect(lastUrl).toBe('/api/modules')
     expect(lastInit?.method ?? 'GET').toBe('GET')
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
   })
 
   it('POSTs a mount carrying packageKey, moduleKey and pin', async () => {
@@ -138,6 +160,18 @@ describe('api sign-in (posture-driven)', () => {
     clearCloudTokens()
     await api.state()
     expect(authOf(lastInit)).toBe('')
+  })
+
+  it('carries the console session header on every gated request', async () => {
+    // Asserted nowhere until now, in a suite whose beforeEach clears the session — so every URL and header
+    // case in this file ran with no session id and the header was never emitted at all. It is the console's
+    // own authentication, so "nothing asserts it" and "it is attached" were indistinguishable.
+    setSession('sess-1')
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    for (const call of [() => api.state(), () => api.packages(), () => api.modules()]) {
+      await call()
+      expect(new Headers(lastInit?.headers).get('X-Console-Session')).toBe('sess-1')
+    }
   })
 
   it('never attaches the access token to a gated request', async () => {

@@ -40,12 +40,6 @@ var acceptedRecipeVars = map[string]bool{
 // they are not required present-and-non-empty. Putting either of these in acceptedRecipeVars instead
 // would reject the whole apply on a case that legitimately occurs.
 //
-// DEPLOYMENT_PACKAGES is the deployment's entitled package keys (comma-separated), which is
-// legitimately EMPTY when the subscription entitles nothing (e.g. it lapsed), and ABSENT from recipes
-// generated before the variable existed. It is copied verbatim so the console can gate the catalog by
-// subscription; a present value (even empty) is authoritative, while its absence means "undetermined"
-// and the console does not gate.
-//
 // MODULE_KG_BASE_URL is the knowledge-graph service, present only for a deployment entitled to one —
 // so it is absent from every recipe issued before it existed and from every recipe without that
 // entitlement. Required, it would break both. Present and non-empty it is held to secureURL like the
@@ -57,9 +51,8 @@ var acceptedRecipeVars = map[string]bool{
 // compares the result to a signature's subject, and nothing ever dials it. It is absent from every
 // recipe issued before it existed, so requiring it would reject all of them; absent it simply means
 // this deployment cannot install artifacts until it reconnects, which is the fail-closed side and the
-// opposite of DEPLOYMENT_PACKAGES, where absent means undetermined because that is a display concern.
+// opposite of an unknown subscription, where nothing is gated because that is a display concern.
 var optionalRecipeVars = map[string]bool{
-	"DEPLOYMENT_PACKAGES":        true,
 	"MODULE_KG_BASE_URL":         true,
 	"DEPLOYMENT_ARTIFACT_SIGNER": true,
 }
@@ -77,9 +70,41 @@ var optionalRecipeVars = map[string]bool{
 // never succeed, and the portal no longer emits the variable. It is tolerated-and-dropped rather than
 // rejected only so a saved OLDER recipe that still carries the line keeps applying instead of failing
 // as a foreign variable; new recipes do not carry it at all.
+//
+// DEPLOYMENT_PACKAGES is RETIRED for a sharper reason: it was a MUTABLE fact written into an immutable
+// place. It carried the deployment's package keys as of the moment its recipe was generated, and the
+// console gated the catalog on that copy — so a package bought afterwards stayed invisible until the
+// operator regenerated the recipe and reconnected, and a disconnect removes every cloud-provided module.
+// The catalog now asks the content service on each read, which is the only copy that can be right. It is
+// dropped rather than rejected so that every recipe already saved, and every one still being issued while
+// the producer catches up, keeps applying.
 var strippedRecipeVars = map[string]bool{
 	"DEPLOYMENT_EXPOSURE":   true,
 	"COMMERCE_API_BASE_URL": true,
+	"DEPLOYMENT_PACKAGES":   true,
+}
+
+// retiredRecipeVars is the subset of the above that is dropped because the name no longer means anything,
+// as opposed to DEPLOYMENT_EXPOSURE, which is dropped because the value is the OPERATOR'S and must not come
+// from a recipe. The apply path treats both identically; only the sentence it tells the operator differs,
+// and it has to: "kept this deployment's own DEPLOYMENT_PACKAGES" would claim the console preserved a
+// setting it in fact discarded — and since recipes still carry that name, every connect would say it.
+var retiredRecipeVars = map[string]bool{
+	"COMMERCE_API_BASE_URL": true,
+	"DEPLOYMENT_PACKAGES":   true,
+}
+
+// partitionStripped splits the stripped names into the ones whose value the console kept as the
+// deployment's own, and the ones it dropped as retired. Order is preserved, so both stay sorted.
+func partitionStripped(stripped []string) (kept, retired []string) {
+	for _, name := range stripped {
+		if retiredRecipeVars[name] {
+			retired = append(retired, name)
+		} else {
+			kept = append(kept, name)
+		}
+	}
+	return kept, retired
 }
 
 // parseRecipe splits a pasted dotenv block into name→value pairs. The recipe is rendered as bare
@@ -216,10 +241,9 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 			return nil, nil, fmt.Errorf("DEPLOYMENT_ARTIFACT_SIGNER %w", err)
 		}
 	}
-	// An empty optional URL is dropped rather than written. DEPLOYMENT_PACKAGES is written empty
-	// because empty MEANS something there (entitled to nothing); an empty service base means nothing
-	// at all, and writing it would make the deployment's behaviour depend on how its reader treats an
-	// empty string. Absent is the state that already means "no service configured".
+	// An empty optional URL is dropped rather than written. An empty service base means nothing at all,
+	// and writing it would make the deployment's behaviour depend on how its reader treats an empty
+	// string. Absent is the state that already means "no service configured".
 	if v, present := vars["MODULE_KG_BASE_URL"]; present && v == "" {
 		delete(vars, "MODULE_KG_BASE_URL")
 	}

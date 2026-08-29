@@ -36,7 +36,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 
         B4  release channel  ──▶  console-init      signature + digest verified
         B5  content service  ──▶  platform          cloud only, per request, caller's token
-        B6  console          ──▶  content service   cloud only, per install, the operator's token
+        B6  console          ──▶  content service   cloud only, two routes, the operator's token
 ```
 
 | Boundary | Enforced by | Notes |
@@ -46,7 +46,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 | **B3** — caller to platform | The platform's own authentication | Disabled, own identity provider, or cloud — decided by the mode layer |
 | **B4** — release channel to deployment | Sigstore signature against a pinned identity, plus digests | Detailed in [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) |
 | **B5** — content service to platform | The caller's own token, per request | Only exists on a cloud-connected deployment; the console never holds that content |
-| **B6** — console to content service | The operator's own OIDC access token, relayed for the duration of one install | Only exists on a cloud-connected deployment. The catalog is read over the same hop with no credential at all; installing an entitled artifact is the one call that carries one. The host comes from the mode layer this console wrote, never from the request |
+| **B6** — console to content service | The operator's own OIDC access token, relayed for the duration of one request | Only exists on a cloud-connected deployment. Two calls carry it: reading what the subscription includes, which the catalog is marked with, and fetching an entitled artifact's bytes. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
 
 Inside the stack network, hops are plain HTTP and Bolt is unencrypted. The isolation is the network,
 not encryption of each hop: no service but the proxy publishes a port, and the database and embedding
@@ -97,7 +97,7 @@ survives the full-page redirect a sign-in performs. A cloud sign-in returns two 
 exchange, and both are held in memory only and never persisted: the ID token, which rides on
 `Authorization` on every gated request so the daemon can forward it to the platform's authenticated
 module query, and an access token, which nothing attaches automatically and which travels on
-`X-Console-Cloud-Token` on the one route that relays it onward. Two tokens for two audiences cannot
+`X-Console-Cloud-Token` on the two routes that relay it onward. Two tokens for two audiences cannot
 share one header — collapsing them would send whichever arrived last to whichever service was called
 next. They are set and cleared together, because they come from one exchange and expire on one clock.
 
@@ -176,17 +176,18 @@ the documentation of what that decision costs.
 | Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only |
 | TLS private key | `tls/key.pem`, mode `0600`, in a `0700` directory | Mounted read-only into the proxy. The control script never widens that directory |
 | Operator ID token (cloud) | Browser memory only | Never persisted, never written to disk by the console, never logged |
-| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from the artifact-install route alone, and is relayed upstream as an ordinary bearer — the console's own header name never travels outbound |
+| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from two routes alone: the catalog read, which asks what the subscription includes, and the artifact install. It is relayed upstream as an ordinary bearer — the console's own header name never travels outbound |
 | Console session id | Daemon memory; browser `sessionStorage` | Random 256-bit value, sent as a header |
 | Mode layer | `mode/mode.env`, mode `0644` | Non-secret configuration by design — identity endpoints and the deployment's access list, no credentials |
 
 Four consequences are worth stating plainly:
 
 - **The console holds no credential of its own.** The authenticated calls it makes on the operator's
-  behalf — the platform's module query, and the content service's entitled surface — carry the
-  operator's own tokens, taken from the request that asked for the work and gone when that request
-  ends. There is no service identity behind the console to steal, and nothing it could replay once the
-  operator's session is over.
+  behalf — the platform's module query, and the two on the content service's entitled surface: what
+  the subscription includes, and an entitled artifact's bytes — carry the operator's own tokens, taken
+  from the request that asked for the work and gone when that request ends. There is no service
+  identity behind the console to steal, and nothing it could replay once the operator's session is
+  over.
 - **The console is never given the database password.** Its service definition passes neither the
   variable nor the secrets file, so a flaw in the console cannot yield database credentials.
 - **A backup is not a secret-bearing file, but it is your whole graph.** Database authentication is
@@ -213,10 +214,9 @@ entire apply** if any name outside it appears.
 | Name | Treatment |
 |---|---|
 | `OIDC_ISSUER`, `OIDC_JWKS_URI`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, `OIDC_SCOPE`, `OIDC_DOMAIN`, `OIDC_SHARED_POOL`, `PORTAL_ORIGIN`, `MODULE_CONTENT_BASE_URL`, `DEPLOYMENT_ALLOWLIST` | Accepted. Each must be **present and non-empty** |
-| `DEPLOYMENT_PACKAGES` | Accepted, copied verbatim; may legitimately be empty or absent |
 | `MODULE_KG_BASE_URL` | Accepted; may legitimately be empty or absent. Present and non-empty it is held to the URL rule below, which is also what stands between a pasted recipe and the console's own outbound request to that host |
 | `DEPLOYMENT_ARTIFACT_SIGNER` | Accepted; may legitimately be empty or absent. It is the certificate-subject prefix an entitled artifact must be signed under — configuration the console composes a per-version ref onto, never a destination it dials — so it is held to its own shape rule below rather than the URL rule. Absent, the deployment cannot install artifacts until it reconnects |
-| `DEPLOYMENT_EXPOSURE` | Recognised and **dropped**. It is the operator's own exposure declaration and must not be taken from a recipe. One further retired name is likewise tolerated-and-dropped, so an older saved recipe still applies rather than failing as a foreign variable |
+| `DEPLOYMENT_EXPOSURE` | Recognised and **dropped**. It is the operator's own exposure declaration and must not be taken from a recipe. Two retired names — `COMMERCE_API_BASE_URL` and `DEPLOYMENT_PACKAGES` — are likewise tolerated-and-dropped, so a saved recipe carrying either still applies rather than failing as a foreign variable |
 | `NODE_ENV`, `OIDC_REDIRECT_URI`, `MODULE_CONTENT_CACHE_DIR`, `ALLOWED_ORIGINS` | Supplied by the console, never taken from the paste |
 | `MODULE_KG_VERSION` | Supplied by the console, never taken from the paste — a recipe that could carry it could pin a deployment to a version of the sender's choosing. Read from a public listing with no credential, and validated as `sha256:` plus 64 hex before it is written |
 | Anything else | The apply is refused, naming every offending variable at once |
@@ -230,11 +230,12 @@ names is in the accepted set — and no plausible shape check would have caught 
 Five further constraints apply to the values:
 
 - **Every required name must be non-empty.** A blank identity value produces the same broken boot a
-  missing one does, so a presence check alone would be hollow. The three names marked above as
+  missing one does, so a presence check alone would be hollow. The two names marked above as
   legitimately empty or absent are exactly the exceptions, and each is one for its own reason. For the
-  first two the empty case is reachable in normal use rather than a sign of a half recipe; the signer is
-  an exception because requiring it would reject every recipe issued before the name existed — and
-  where it is absent the deployment loses its artifact installs rather than running them ungated.
+  knowledge-graph base the empty case is reachable in normal use rather than a sign of a half recipe;
+  the signer is an exception because requiring it would reject every recipe issued before the name
+  existed — and where it is absent the deployment loses its artifact installs rather than running them
+  ungated.
 - **No value may contain a control character.** A newline would split into a second `NAME=value` line
   in the written file — the exact class the fixed name set exists to prevent. It is rejected where the
   values are assembled *and* again in the serializer, which every write passes through.

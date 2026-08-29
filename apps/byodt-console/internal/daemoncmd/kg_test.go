@@ -275,8 +275,8 @@ func TestCloudModeVarsHoldsTheKnowledgeGraphBaseToSecureURL(t *testing.T) {
 
 func TestCloudModeVarsDropsAnEmptyKnowledgeGraphBase(t *testing.T) {
 	// Empty is not URL-checked (secureURL("") fails, which would reject the recipe), and it is not
-	// written either: an empty service base means nothing at all, unlike DEPLOYMENT_PACKAGES where
-	// empty is authoritative.
+	// written either: an empty service base means nothing at all, and writing it would make behaviour
+	// depend on how its reader treats an empty string.
 	recipe := validRecipeVars()
 	recipe["MODULE_KG_BASE_URL"] = ""
 	vars, _, err := cloudModeVars(recipe, "https://front.example/auth/callback", "/cache")

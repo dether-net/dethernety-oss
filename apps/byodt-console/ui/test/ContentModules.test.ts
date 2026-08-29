@@ -47,6 +47,10 @@ const catalog: CatalogPackage[] = [
   },
 ]
 
+// `[data-not-subscribed]` is the PACKAGE chip. The artifact panel renders inside this component and has a
+// chip of its own, namespaced `data-artifact-not-subscribed` for that reason — a shared hook would make
+// every assertion here match whichever rendered first, and silently, since these fixtures carry no
+// artifacts today and would start carrying one the moment a case needed it.
 const btn = (w: ReturnType<typeof mount>, text: string) => w.findAll('button').find((b) => b.text() === text)
 
 // Bands are collapsed by default; expand one to reveal its module rows.
@@ -346,7 +350,7 @@ describe('ContentModules', () => {
     await flushPromises()
 
     // The Not-subscribed chip and Subscribe link sit on the always-visible header.
-    expect(w.text()).toContain('Not subscribed')
+    expect(w.find('[data-not-subscribed]').exists()).toBe(true)
     expect(btn(w, 'Mount all')).toBeUndefined()
     const sub = w.findAll('a').find((a) => a.text().trim() === 'Subscribe ↗')!
     expect(sub.attributes('href')).toBe('https://byodt.dethernety.io/catalog')
@@ -365,11 +369,221 @@ describe('ContentModules', () => {
     const w = mount(ContentModules, { props: { reloadToken: 0 } })
     await flushPromises()
 
-    expect(w.text()).not.toContain('Not subscribed')
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
     await expand(w)
     const mounts = w.findAll('button').filter((b) => b.text() === 'Mount')
     expect(mounts.length).toBeGreaterThan(0)
     expect(mounts.every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    w.unmount()
+  })
+
+  // THE capability this whole route exists for. Buying a package used to require regenerating the recipe
+  // and reconnecting, and a disconnect removes every cloud-provided module — so the cheapest way to see a
+  // new package cost the classes of every module already mounted, and every analysis link into them.
+  it('makes a newly subscribed package mountable on Refresh, with no reconnect', async () => {
+    packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: false }] })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.find('[data-not-subscribed]').exists()).toBe(true)
+    expect(btn(w, 'Mount all')).toBeUndefined()
+
+    // Bought in the portal, in another tab. Nothing about this deployment's configuration changed.
+    packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: true }] })
+    await w.get('[data-content-refresh]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
+    expect(btn(w, 'Mount all')).toBeDefined()
+    expect(btn(w, 'Mount all')!.attributes('disabled')).toBeUndefined()
+    await expand(w)
+    const mounts = w.findAll('button').filter((b) => b.text() === 'Mount')
+    expect(mounts.length).toBeGreaterThan(0)
+    expect(mounts.every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    w.unmount()
+  })
+
+  it('refreshes on demand, and refuses while an action holds the tab', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(packages).toHaveBeenCalledTimes(1)
+
+    await w.get('[data-content-refresh]').trigger('click')
+    await flushPromises()
+    expect(packages).toHaveBeenCalledTimes(2)
+    expect(modules).toHaveBeenCalledTimes(2)
+
+    // While a mount is in flight the refresh is unavailable: load() replaces both collections wholesale,
+    // and doing that mid-action would render a view of neither state.
+    //
+    // Asserted on the attribute and NOT by clicking it: vue-test-utils' trigger() is itself guarded by
+    // `!this.isDisabled()`, so a click on a disabled button is never dispatched and a follow-up call-count
+    // assertion would hold no matter what the component did. The attribute is the whole contract here.
+    await expand(w)
+    let release: (v: { message: string }) => void = () => {}
+    mountModule.mockReturnValue(new Promise((r) => (release = r)))
+    await w.findAll('button').find((b) => b.text() === 'Mount')!.trigger('click')
+    await flushPromises()
+    expect(w.get('[data-content-refresh]').attributes('disabled')).toBeDefined()
+
+    // …and available again once the action settles.
+    release({ message: 'mounted' })
+    await flushPromises()
+    expect(w.get('[data-content-refresh]').attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  // Could-not-ask gates NOTHING, and says why. Three arms, because api.ts enumerates three credential
+  // states and records that a component with fewer arms than there are states is how one of them became a
+  // sign-in loop. The signed-out arm is the ordinary case, not an edge one: the tokens are memory-only, so
+  // every page reload starts here.
+  it.each([
+    ['signed out — a reloaded tab', undefined, 'Signing in again gives this tab', true],
+    ['signed in without the content scope', { idToken: 'id', accessToken: '' }, 'Regenerating the deployment recipe', false],
+    ['signed in, and the service did not answer', { idToken: 'id', accessToken: 'acc' }, 'could not be checked just now', false],
+  ])('explains an unknown subscription (%s) and gates nothing', async (_name, tokens, expected, signInExpected) => {
+    if (tokens) setCloudTokens(tokens)
+    else clearCloudTokens()
+    packages.mockResolvedValue({ packages: catalog }) // no entitled field: the daemon could not ask
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    expect(w.get('[data-subscription-unknown]').text()).toContain(expected)
+    // Every arm says so, including the one that prescribes a reconnect. That arm names the destructive
+    // path, and an operator reading it must not be left to infer that something is being withheld until
+    // they take it.
+    expect(w.get('[data-subscription-unknown]').text()).toMatch(/[Nn]othing is restricted/)
+    // The sign-in is a CONTROL and only in the signed-out arm. Asserted on every arm rather than only the
+    // one that has it, because the failure that matters is the offer appearing where it is a loop: signing
+    // in with no content scope returns the same empty token forever, and where the check merely failed the
+    // credential is fine and another sign-in changes nothing.
+    expect(w.find('[data-subscription-sign-in]').exists()).toBe(signInExpected)
+
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
+    expect(btn(w, 'Mount all')).toBeDefined()
+    expect(btn(w, 'Mount all')!.attributes('disabled')).toBeUndefined()
+    await expand(w)
+    const mounts = w.findAll('button').filter((b) => b.text() === 'Mount')
+    // every() is true of an empty array, so without this the assertion below holds whatever the component
+    // renders — including rendering no Mount buttons at all. Its two sibling gate tests already guard it.
+    expect(mounts.length).toBeGreaterThan(0)
+    expect(mounts.every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    w.unmount()
+  })
+
+  it('asks for a sign-in through the shell, rather than naming a control the console does not have', async () => {
+    // A reloaded tab is signed IN — the session is in sessionStorage and the tokens are not — so the
+    // sign-in card is not rendered and there is nowhere to send the operator. This emit is the way back,
+    // and it is the same one the artifact panel already uses for the identical credential state.
+    clearCloudTokens()
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    await w.get('[data-subscription-sign-in]').trigger('click')
+    expect(w.emitted('sign-in-required')).toHaveLength(1)
+    w.unmount()
+  })
+
+  it('re-reads the credential on every load, rather than freezing the first answer', async () => {
+    // Both the sentence and the control read cloudCredential(), which is a plain function over module
+    // state and not a ref — so each has to hang off something reactive or it caches its first answer for
+    // the life of the component, and the pair can end up disagreeing: the button gone, the sentence still
+    // telling the operator to press it.
+    clearCloudTokens()
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-subscription-unknown]').text()).toContain('Signing in again gives this tab')
+    expect(w.find('[data-subscription-sign-in]').exists()).toBe(true)
+
+    setCloudTokens({ idToken: 'id', accessToken: '' })
+    await w.get('[data-content-refresh]').trigger('click')
+    await flushPromises()
+
+    expect(w.get('[data-subscription-unknown]').text()).toContain('Regenerating the deployment recipe')
+    expect(w.find('[data-subscription-sign-in]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  // A slow read must not land on top of a fast one issued after it. Three callers start load() — the
+  // mount, the reloadToken watch, and Refresh — and the failure this guards is the one this whole route
+  // exists to remove: a package the operator has just bought going back to "Not subscribed" on its own.
+  it('drops a superseded load rather than letting it overwrite a newer one', async () => {
+    let releaseFirst: (v: { packages: CatalogPackage[] }) => void = () => {}
+    packages.mockReturnValueOnce(new Promise((r) => (releaseFirst = r)))
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    // A second load starts and finishes first, reporting the package as bought.
+    packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: true }] })
+    await w.setProps({ reloadToken: 1 })
+    await flushPromises()
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
+
+    // The first, older read now lands — issued before the purchase, so it says the opposite.
+    releaseFirst({ packages: [{ ...catalog[0], entitled: false }] })
+    await flushPromises()
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
+    expect(btn(w, 'Mount all')).toBeDefined()
+    w.unmount()
+  })
+
+  // THE case the old three-arm split could not reach. A deployment whose configuration lacks the required
+  // permission gets a perfectly good token for the scopes it DID request, so the browser sees a normal
+  // credential and every retry looks transient. Only the daemon can tell, and it does so from the
+  // deployment's own configuration.
+  it('names a deployment that can never ask, and offers no sign-in for it', async () => {
+    // 'ready' — a real token in hand. The old check keyed on an empty one and so never fired here.
+    setCloudTokens({ idToken: 'id', accessToken: 'acc' })
+    packages.mockResolvedValue({ packages: catalog, subscriptionUnavailable: true })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    const note = w.get('[data-subscription-unknown]')
+    expect(note.text()).toContain('cannot be checked on this deployment')
+    expect(note.text()).toContain('Regenerating the deployment recipe')
+    expect(w.find('[data-subscription-sign-in]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  // The case above sets a full token pair, so the sign-in would be withheld anyway on the credential term
+  // alone — it cannot see whether `subscriptionUnavailable` is doing anything. This one puts the component
+  // in the ONE state where the two terms disagree: signed out, which normally offers a sign-in, on a
+  // deployment that can never ask, where signing in is the loop.
+  it('withholds the sign-in even when signed out, if the deployment can never ask', async () => {
+    clearCloudTokens()
+    packages.mockResolvedValue({ packages: catalog, subscriptionUnavailable: true })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    const note = w.get('[data-subscription-unknown]')
+    expect(note.text()).toContain('cannot be checked on this deployment')
+    expect(w.find('[data-subscription-sign-in]').exists()).toBe(false)
+    // And it explains rather than gates.
+    expect(note.text()).toMatch(/[Nn]othing is restricted/)
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
+    await expand(w)
+    const mounts = w.findAll('button').filter((b) => b.text() === 'Mount')
+    expect(mounts.length).toBeGreaterThan(0)
+    expect(mounts.every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    w.unmount()
+  })
+
+  it('says nothing about the subscription once it is known', async () => {
+    packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: true }] })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.find('[data-subscription-unknown]').exists()).toBe(false)
     w.unmount()
   })
 

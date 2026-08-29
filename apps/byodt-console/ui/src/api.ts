@@ -117,8 +117,13 @@ export interface CatalogPackage {
   // absence two different ways (an empty module list beside a null artifact list).
   artifacts: CatalogArtifact[]
   error?: string
-  // Whether this deployment is subscribed to the package. Undefined = undetermined (the recipe predates
-  // the DEPLOYMENT_PACKAGES variable) — do not gate; false = not subscribed (mounting is inert).
+  // Whether this deployment's subscription includes the package, read live from the content service on
+  // every catalog load rather than copied out of the deployment's configuration — so a package bought
+  // after this deployment connected shows as subscribed on the next Refresh.
+  //
+  // Undefined means the daemon COULD NOT ASK, and never gate on it: there is no token on the first load
+  // after a page reload (they are memory-only), and a content service that did not answer must not be read
+  // as "entitled to nothing". False is an answer, and mounting is gated on it.
   entitled?: boolean
 }
 
@@ -196,6 +201,12 @@ export interface RemoveArtifactResult {
 
 export interface PackagesResponse {
   packages: CatalogPackage[]
+  // This deployment can NEVER read its subscription: its configured OIDC scope does not include the one
+  // the content service requires, so no sign-in it can perform will produce a usable token. Distinct from
+  // an undetermined `entitled`, which means one attempt did not get through — the remedies are opposite,
+  // retry versus a new recipe, and the daemon is the only party that can tell them apart because it holds
+  // the deployment's own configuration. Absent means the deployment is able to ask.
+  subscriptionUnavailable?: boolean
 }
 
 // The deployment's knowledge-graph connection, when it has one. It is reported apart from the content
@@ -275,7 +286,7 @@ export function hasSession(): boolean {
 // sign-in, and only the derived session id survives a reload). The ID token is attached as a bearer on
 // EVERY gated request, so the daemon can forward it to the platform's authenticated module query. The
 // access token is attached by NOTHING automatically: it belongs to a different audience and rides on
-// its own header, on the one route that forwards it.
+// its own header, on the two routes that forward it.
 //
 // One setter and one clearer over both, deliberately. They come from one token exchange and expire on
 // one clock, so a pair of independent setters would only make it possible to establish one and forget
@@ -368,17 +379,29 @@ function del<T>(path: string): Promise<T> {
 
 const CLOUD_TOKEN_HEADER = 'X-Console-Cloud-Token'
 
-// postEntitled is the ONE call that forwards the operator's access token, and two things about it are
-// deliberate.
+// TWO calls forward the operator's access token — this pair, and no others — and three things about them
+// are deliberate.
 //
-// It is a CALLER of request(), never a bypass of it. The route is session-gated like every other, so
+// They are CALLERS of request(), never bypasses of it. Both routes are session-gated like every other, so
 // skipping request() would drop the session header and earn a 401 — which this file turns into
 // clearSession() and a bounce to the sign-in card, the exact outcome the daemon returns 400 instead of 401
 // to prevent.
 //
-// And it is its own function rather than a header parameter on post(), because a shared parameter is one
-// edit away from attaching this token to a call that must never carry it. The header is omitted rather
-// than sent empty: a caller with no token is expected to have re-signed in before it got here.
+// They are their own functions rather than a header flag on get()/post(), because a shared flag is one
+// edit away from attaching this token to a call that must never carry it. That there are now two of them
+// is the argument rather than against it: the second forwarding route arrived as a second function, and
+// every call that must stay credential-free kept the plain helper it already had.
+//
+// And the header is OMITTED rather than sent empty. On the install a caller with no token is expected to
+// have re-signed in before it got here; on the catalog an absent token is the ordinary state of a reloaded
+// tab, and the daemon answers it by leaving entitlement undetermined rather than by refusing.
+function getEntitled<T>(path: string): Promise<T> {
+  const headers: Record<string, string> = {}
+  const token = cloudAccessToken()
+  if (token) headers[CLOUD_TOKEN_HEADER] = token
+  return request<T>(path, { headers })
+}
+
 function postEntitled<T>(path: string, body: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const token = cloudAccessToken()
@@ -425,15 +448,17 @@ export const api = {
   cloudApply: (recipe: string, redirectUri: string) =>
     post<CloudResult>('/api/cloud', { recipe, redirectUri }),
   cloudDisable: () => del<CloudResult>('/api/cloud'),
-  // Content mounts. No token: the catalog is public and mounting writes a local file — these carry only
-  // the admin session header request() attaches.
-  packages: () => get<PackagesResponse>('/api/packages'),
+  // Content mounts. The catalog half is public, but this route also answers what this deployment is
+  // subscribed to — which the daemon can only learn by asking the content service with the operator's own
+  // token, so this call forwards it. The rest carry only the admin session header request() attaches:
+  // reading the local inventory and writing a mount marker are local file operations.
+  packages: () => getEntitled<PackagesResponse>('/api/packages'),
   modules: () => get<ModulesResponse>('/api/modules'),
   mountModule: (req: MountRequest) => post<MountResult>('/api/modules', req),
   unmountModule: (key: string) => del<MountResult>(`/api/modules/${encodeURIComponent(key)}`),
   // Entitled artifacts. Installing one asks the content service for bytes it hands only to a subscriber,
-  // so it forwards the operator's own access token; removing one is a local file operation and carries no
-  // credential, exactly like an unmount.
+  // so it forwards the operator's own access token — the second of the two routes that do; removing one is
+  // a local file operation and carries no credential, exactly like an unmount.
   installArtifact: (req: InstallArtifactRequest) => postEntitled<InstallArtifactResult>('/api/artifacts', req),
   removeArtifact: (key: string) => del<RemoveArtifactResult>(`/api/artifacts/${encodeURIComponent(key)}`),
 }

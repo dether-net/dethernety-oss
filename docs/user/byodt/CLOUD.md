@@ -124,7 +124,7 @@ The platform itself now requires sign-in too. Open it from **Open platform →**
 
 ## Mounting content packages
 
-The **Content** tab appears only once the platform is actually running in cloud mode. It lists the packages available to you, with your subscribed ones ready to mount.
+The **Content** tab appears only once the platform is actually running in cloud mode. It lists the packages available to you, with your subscribed ones ready to mount. Your subscription is read again each time the console loads, so what you see is what you are subscribed to now — not what you were subscribed to when you connected.
 
 Mounting is not a download. It writes a small marker into the deployment's modules directory naming the module and the exact content version to serve; the content itself is delivered per request. This is why mounting is instant and why it needs a platform recreate to take effect.
 
@@ -153,8 +153,19 @@ Only the platform is recreated. The database, the embedding server, and the cons
 | `up to date` | Mounted at the newest published content version. |
 | `newer available (X.Y.Z)` | A newer content version exists. An **Update** button appears next to it. |
 | `update unknown` | The catalog could not be consulted, so currency could not be judged. The mount itself is fine. |
-| **Not subscribed** + **Subscribe ↗** | Your account is not subscribed to this package. Mounting is disabled, because the platform would refuse to serve the content. |
+| **Not subscribed** + **Subscribe ↗** | Your account is not subscribed to this package. Mounting is disabled, because the platform would refuse to serve the content. This is your subscription as of this moment: subscribe, then click **Refresh** — you do not have to disconnect and reconnect to pick it up. |
+| A muted line above the list: *Your subscription has not been checked. Signing in again gives this tab the cloud credential it needs…* | Reloading the page clears that credential, so this is the normal state of a fresh tab. Nothing is restricted. Click **Sign in** beside the line; the check runs again when you come back. |
+| A muted line above the list, beginning *Nothing is restricted, but subscriptions cannot be checked on this deployment…* | This deployment's configuration does not carry the permission the check needs, so signing in again and pressing **Refresh** will not change it. Get a fresh recipe from the portal, then [disconnect](#disconnecting), apply it, and connect again — read what disconnecting costs first. |
+| A muted line above the list: *Your subscription could not be checked just now.* | The check did not go through this time. Nothing is restricted; click **Refresh** to try again. |
 | **Mounted — not in catalog** | A module you mounted that the catalog no longer lists. Kept visible so you can still unmount it. |
+
+### Refresh
+
+The console reads the catalog, your subscription, and what is mounted when it loads. It does not update on its own after that — switching to another tab and back does not re-read anything.
+
+Click **Refresh**, at the top of the tab, to read all three again. This is how a new subscription reaches the console: subscribe in the portal, come back, click **Refresh**, and the package is mountable straight away — you do not have to disconnect and reconnect for it. See [Disconnecting](#disconnecting) for what that involves.
+
+**Refresh** is unavailable while a mount or unmount is running. Let it finish, then click it.
 
 ### Keep mounts current
 
@@ -182,15 +193,15 @@ If the service cannot be reached at the moment you connect, the console says so 
 
 ## Disconnecting
 
-Disconnecting rewrites the deployment's configuration back to the standalone values. **Your data is untouched.**
+Disconnecting rewrites the deployment's configuration back to the standalone values and removes every module the cloud provided. **Your models and diagrams are not deleted** — what a disconnect costs is the classes those modules contributed, and every link to them.
 
-> **Unmount first.** Content mounts can only be managed while the deployment is connected. If you disconnect with modules still mounted, their markers stay on disk and the console can no longer remove them — you would have to reconnect to unmount them. Take the Content tab down to nothing you want to keep before you disconnect. The knowledge-graph connection is the exception: you never mounted it, and disconnecting removes it for you.
+> **What disconnecting costs.** Every cloud-provided module goes with the connection that justified it — mounted content modules, installed artifacts and the knowledge-graph connection. At the next platform restart the classes those modules provided are deleted, together with every link to them, including the links in analyses you have already run; reconnecting and mounting them again brings the classes back, but not those links. Anything you authored outside those classes is kept. Unmounting first is not a way around this — a module the platform no longer finds loses its classes however it left — and the console states the same cost in the confirmation it asks you to accept. The knowledge-graph connection is the exception: it declares no classes, so nothing follows from removing it.
 
 1. In the console, select the **Cloud** tab. Section **2 · Configuration** now reads:
 
-   > This deployment is configured for the cloud. Disconnect rewrites the configuration back to the pure open-source values; your data is untouched, and the change is applied by recreating the stack.
+   > This deployment is configured for the cloud. Disconnect rewrites the configuration back to the pure open-source values and removes the modules the cloud provided; the change is applied by recreating the stack.
 
-2. Click **Disconnect from cloud**. The console reports:
+2. Click **Disconnect from cloud**. The console asks you to confirm, listing what the disconnect removes; click **Disconnect** to accept. It then reports:
 
    ```
    reverted to pure-OSS; apply it by recreating the stack: byodt restart

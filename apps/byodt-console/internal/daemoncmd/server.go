@@ -138,9 +138,12 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /auth/callback", s.index)
 
 	// Content mounts. Cloud-mode only: the public catalog host arrives with the cloud configuration,
-	// and a mount stub only means anything against a configured content service. None of these carry a
-	// cloud token — the catalog is public, and mounting writes a local file. GET reads the catalog and
+	// and a mount stub only means anything against a configured content service. GET reads the catalog and
 	// the inventory; POST mounts one module at one pin (re-POST advances the pin); DELETE unmounts.
+	//
+	// GET /api/packages is the SECOND route to read the operator's own access token, because the
+	// subscription it marks the catalog with is a fact only that token can ask for. The catalog half still
+	// carries nothing; the rest of these carry no cloud token at all, mounting being a local file write.
 	mux.HandleFunc("GET /api/packages", s.sess.requireSession(s.packages))
 	mux.HandleFunc("GET /api/modules", s.sess.requireSession(s.modulesList))
 	mux.HandleFunc("POST /api/modules", s.sess.requireSession(s.mountModule))
@@ -443,10 +446,17 @@ func (s *server) cloudApply(w http.ResponseWriter, r *http.Request) {
 	// card the new posture cannot yet satisfy. Every other client re-signs in against the new posture.
 	s.sess.keepOnly(r.Header.Get(sessionHeader), postureGraceTTL)
 	msg := "cloud configuration written; apply it by recreating the stack: " + stackRestartCommand
-	if len(stripped) > 0 {
-		// The console keeps the deployment's own exposure declaration; it never takes it from the
-		// recipe. Say so, so the operator knows the recipe's value was not applied.
-		msg += ". Kept this deployment's own " + strings.Join(stripped, ", ") + " (not taken from the recipe)"
+	// Two kinds of dropped name, and one sentence cannot describe both. The console KEEPS the deployment's
+	// own exposure declaration and never takes it from the recipe — the operator needs to know the pasted
+	// value was not applied. A RETIRED name is different: nothing was kept, the name simply no longer means
+	// anything, and saying the console "kept this deployment's own" one would claim it preserved a setting
+	// it discarded. Recipes still carry a retired name, so that sentence would otherwise run on every apply.
+	kept, retired := partitionStripped(stripped)
+	if len(kept) > 0 {
+		msg += ". Kept this deployment's own " + strings.Join(kept, ", ") + " (not taken from the recipe)"
+	}
+	if len(retired) > 0 {
+		msg += ". Ignored " + strings.Join(retired, ", ") + ", which this console no longer uses"
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "applied", "message": msg + kgNote})
 }
@@ -604,8 +614,9 @@ func (s *server) cloudContentBase() (base string, ok bool) {
 // to its neighbour for the same input. Empty means refuse.
 //
 // ABSENT MEANS REFUSE, not "do not gate". A deployment configured before this variable existed cannot
-// install artifacts until it reconnects. That is the right default for a verification anchor and the
-// opposite of DEPLOYMENT_PACKAGES, where absent means undetermined because it is a display concern.
+// install artifacts until it reconnects. That is the right default for a verification anchor, and the
+// opposite of how the catalog treats an unknown subscription — which gates nothing, because it is a
+// display concern and a wrong guess there costs a subscriber their own catalog.
 //
 // The shape is re-checked on read for cloudContentBase's stated reason: a check only on write makes
 // validity a property of "this console wrote this file", and the mode layer is a file on the operator's
@@ -631,18 +642,58 @@ func (s *server) cloudArtifactSigner() string {
 // version's mountable modules.
 type packagesResponse struct {
 	Packages []catalogPackage `json:"packages"`
+	// SubscriptionUnavailable reports that this deployment can NEVER read its subscription, because its
+	// configured OIDC scope does not include the one the content service requires. It is the difference
+	// between "the check failed" and "the check cannot succeed here", which the console previously could
+	// not tell apart — and the remedies are opposite: retry versus a new recipe. Omitted when the
+	// deployment is able to ask, so a console that does not know the field reads the ordinary case.
+	SubscriptionUnavailable bool `json:"subscriptionUnavailable,omitempty"`
 }
 
-// packages returns the public content catalog. Cloud-mode only: the catalog host arrives with the cloud
-// configuration, so in pure-OSS there is no host to call. The host is read from the mode file the
-// console wrote, never the request, and no token is sent — the catalog is public.
+// packages returns the content catalog, marked with what this operator's subscription actually includes.
+// Cloud-mode only: the catalog host arrives with the cloud configuration, so in pure-OSS there is no host
+// to call. The host is read from the mode file the console wrote, never the request.
+//
+// TWO calls, and only the second carries a credential. The catalog is public and attaching the operator's
+// token to it would forward that token to a surface which must not receive it; the subscription is a fact
+// about the operator, which only their own token can ask for.
+//
+// The subscription was once read from the mode file instead — a key list the recipe froze when the
+// deployment connected. That made a purchase invisible until the operator regenerated the recipe and
+// reconnected, and a disconnect removes every cloud-provided module, so the cheapest way to see a new
+// package cost the classes of every module already mounted. The fact is mutable; the file was not.
 func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 	base, ok := s.cloudContentBase()
 	if !ok || base == "" {
 		http.Error(w, "the content catalog is available only in cloud mode — connect this deployment to the cloud first", http.StatusConflict)
 		return
 	}
-	pkgs, truncated, err := resolveCatalog(r.Context(), base)
+	// The subscription runs BESIDE the catalog rather than after it. The catalog is bounded at
+	// contentTimeout and the subscription at its own, shorter entitlementsTimeout, so running them together
+	// holds the response to the longer of the two rather than their sum — and an optional read that stalls
+	// never becomes the thing an operator waits on for a catalog that already answered. The channel is
+	// buffered so this goroutine never blocks against a handler that returned early.
+	// Both read off the request before the goroutine starts, so nothing here touches r after this handler
+	// has returned. The context is still the request's, so an operator who navigates away cancels both.
+	token := cloudAccessToken(r)
+	ctx := r.Context()
+	// Read once, off the file this console wrote. A deployment that cannot ask is still served its whole
+	// catalog — nothing is gated on this — it is only told why retrying will not help.
+	unavailable := false
+	if vars, err := readModeLayer(s.cfg.ModeLayerPath); err == nil {
+		unavailable = !canAskForEntitlements(vars)
+	}
+	type entitlementAnswer struct {
+		keys map[string]struct{}
+		ok   bool
+	}
+	answer := make(chan entitlementAnswer, 1)
+	go func() {
+		keys, ok := resolveEntitlements(ctx, base, token)
+		answer <- entitlementAnswer{keys, ok}
+	}()
+
+	pkgs, truncated, err := resolveCatalog(ctx, base)
 	if err != nil {
 		http.Error(w, "the content catalog is unavailable", http.StatusBadGateway)
 		return
@@ -650,25 +701,18 @@ func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 	if truncated {
 		s.logger.Warn("content catalog exceeded the package cap; the list was truncated")
 	}
-	// Mark each package with the deployment's subscription, delivered in the recipe as DEPLOYMENT_PACKAGES
-	// (a comma-separated key list, like DEPLOYMENT_ALLOWLIST) and read from the console-written mode file.
-	// Present — even empty — is authoritative and gates; absent (a recipe predating the variable) leaves
-	// Entitled nil so the UI treats it as undetermined and does not gate.
-	if vars, err := readModeLayer(s.cfg.ModeLayerPath); err == nil {
-		if raw, present := vars["DEPLOYMENT_PACKAGES"]; present {
-			subscribed := map[string]struct{}{}
-			for _, k := range strings.Split(raw, ",") {
-				if k = strings.TrimSpace(k); k != "" {
-					subscribed[k] = struct{}{}
-				}
-			}
-			for i := range pkgs {
-				_, ok := subscribed[pkgs[i].Key]
-				pkgs[i].Entitled = &ok
-			}
+	// Left nil when there was no answer, which the UI reads as undetermined and does not gate on. That is
+	// the fail-safe direction and the only safe one: an unreachable service must never make a subscribed
+	// deployment look unsubscribed. A key the subscription names but the catalog does not carry is simply
+	// not rendered — the catalog is edge-cached for up to a day and this answer is never cached, so the
+	// two disagreeing is ordinary rather than a fault.
+	if a := <-answer; a.ok {
+		for i := range pkgs {
+			_, held := a.keys[pkgs[i].Key]
+			pkgs[i].Entitled = &held
 		}
 	}
-	writeJSON(w, http.StatusOK, packagesResponse{Packages: pkgs})
+	writeJSON(w, http.StatusOK, packagesResponse{Packages: pkgs, SubscriptionUnavailable: unavailable})
 }
 
 // mountedModuleView is one mounted stub plus its update state relative to the catalog.
