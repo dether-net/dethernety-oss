@@ -525,7 +525,7 @@ export class DtControlLibrary {
       await writeControlFile(modelDir, working);
     }
 
-    // ----- Step C — SUPPORTS edges (idempotent under @neo4j/graphql connect) -----
+    // ----- Step C — SUPPORTS edges (assignControlToElements reads before writing) -----
     if (supportingElementIds.length > 0) {
       const result = await this.dtControl.assignControlToElements({
         controlId: working.id,

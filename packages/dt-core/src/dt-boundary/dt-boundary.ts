@@ -153,19 +153,18 @@ export class DtBoundary {
           // Guard the whole relationship key like the zoning scalars above: an
           // absent field (undefined) omits it entirely, leaving the association
           // untouched — the conduit/import "safe node" passes rely on this to
-          // preserve controls/dataItems. A PRESENT array REPLACEs: `[]` clears via
-          // the bare disconnect-all, a populated list disconnects those not listed.
+          // preserve controls/dataItems. A PRESENT
+          // array REPLACEs, via an unconditional disconnect-all then connect.
+          //
+          // The disconnect MUST stay unconditional. `connect` compiles to a bare
+          // relationship CREATE, so a disconnect that spares the incoming ids
+          // leaves every already-attached pair to be re-created — one extra
+          // parallel edge per element per save. Disconnect-all is safe because
+          // the translator emits disconnect before connect for the same field,
+          // and it also collapses duplicates already on disk.
           ...(updatedNode.data.controls !== undefined && {
             controls: {
-              disconnect: updatedNode.data.controls.length === 0 ? {} : {
-                where: {
-                  NOT: {
-                    OR: updatedNode.data.controls.map((control: Control) => ({
-                      node: { id: { eq: control } },
-                    })),
-                  },
-                },
-              },
+              disconnect: {},
               connect: updatedNode.data.controls.map((control: Control) => ({
                 where: { node: { id: { eq: control } } },
               })),
@@ -173,15 +172,7 @@ export class DtBoundary {
           }),
           ...(updatedNode.data.dataItems !== undefined && {
             dataItems: {
-              disconnect: updatedNode.data.dataItems.length === 0 ? {} : {
-                where: {
-                  NOT: {
-                    OR: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
-                      node: { id: { eq: dataItem } },
-                    })),
-                  },
-                },
-              },
+              disconnect: {},
               connect: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
                 where: { node: { id: { eq: dataItem } } },
               })),

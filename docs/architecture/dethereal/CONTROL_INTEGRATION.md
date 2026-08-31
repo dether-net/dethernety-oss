@@ -874,7 +874,7 @@ Fix the update pipeline, add the batch assignment tool, and surface sync warning
 | P1 | Fix update pipeline | `dt-core/src/dt-update/dt-update.ts` | `updateComponent()`, `updateBoundary()`, `updateDataFlow()` must process `controls[]` from local JSON. Use disconnect/connect semantics on the update mutation — do NOT copy the import pipeline's `associateControlsDirectly` pattern, which sets `dataItems: []` as a side effect. Only touch controls when the incoming JSON includes them (`data.controls !== undefined`). |
 | P3 | ~~Add `assign` action to `manage_controls`~~ | `dethereal/src/tools/manage-controls.tool.ts` | **Done** (#140). Accepts `control_id` + `element_ids[]`, creates SUPPORTS edges. |
 | P3b | ~~Add `findControls()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Dual-path: `controlIdsByElements` Cypher helper for element-based lookup, auto-generated GraphQL for other filters. |
-| P3c | ~~Add `assignControlToElements()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Append-only connect via polymorphic `elements` relationship. Idempotent. |
+| P3c | ~~Add `assignControlToElements()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Append-only connect via the three typed relationships (`supportedComponents`, `supportedBoundaries`, `supportedDataFlows`) — not the polymorphic `elements` field, whose auto-generated resolver is unreliable on Memgraph. Idempotent across sequential calls only: it reads the attached IDs first and connects the difference, because `connect` compiles to a bare relationship CREATE rather than a MERGE. Two concurrent callers can still append a parallel edge. |
 | P6 | Surface unresolved controls at sync | `dethereal/skills/sync/SKILL.md` | Pass through warnings from `resolveControls()`. After first successful sync, write resolved IDs back to local JSON to pin references. |
 
 **Value:** Controls survive re-sync. Post-analysis gap-filling via `/dethereal:surface` works end-to-end. Two-tier reporting has both inferred and formal coverage.
@@ -1056,7 +1056,7 @@ The import pipeline's `associateControlsDirectly` (`dt-import.ts` lines 1060-108
 
 ### Gap 4: No batch assignment API — Resolved
 
-Resolved by the `assign` action on `manage_controls` (#140). Accepts `control_id` + `element_ids[]` array and calls `assignControlToElements` which creates SUPPORTS edges in a single GraphQL mutation. Idempotent (MERGE semantics).
+Resolved by the `assign` action on `manage_controls` (#140). Accepts `control_id` + `element_ids[]` array and calls `assignControlToElements`, which creates the SUPPORTS edges. The method reads the control's currently-attached elements first and connects only the missing ones — a repeat call on an already-attached set issues no mutation at all, and a partially overlapping call connects just the difference. This is **not** MERGE semantics: GraphQL `connect` compiles to a bare relationship CREATE, and no engine-level constraint prevents parallel edges, so the read is what makes repeat calls safe. Idempotent across sequential calls; two concurrent callers that both read "not attached" will both connect.
 
 ### Gap 5: Category 1 auto-inference boundary — Resolved
 
