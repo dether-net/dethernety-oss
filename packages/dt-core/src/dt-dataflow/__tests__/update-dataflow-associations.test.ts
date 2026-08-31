@@ -43,13 +43,14 @@ describe('DtDataflow.updateDataFlow — controls / dataItems REPLACE guards (P0)
     expect(input.dataItems).toEqual({ disconnect: {}, connect: [] })
   })
 
-  it('REPLACEs to the listed set when populated', async () => {
+  it('REPLACEs to the listed set when populated — via an unconditional disconnect-all', async () => {
     const { dtDataflow, performMutation } = make()
     await dtDataflow.updateDataFlow({ edge: edge({ controls: ['c1'], dataItems: ['d1'] }), updates: {} })
     const input = inputOf(performMutation)
-    expect(input.controls.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'c1' } } }] } } })
+    expect(input.controls.disconnect).toEqual({})
     expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'c1' } } } }])
-    expect(input.dataItems.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'd1' } } }] } } })
+    expect(input.dataItems.disconnect).toEqual({})
     expect(input.dataItems.connect).toEqual([{ where: { node: { id: { eq: 'd1' } } } }])
   })
+
 })

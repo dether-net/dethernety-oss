@@ -13,6 +13,7 @@
     "test:integration": "./scripts/test-pgvector.sh",
     "test:memgraph": "./scripts/test-memgraph.sh",
     "test:composer-byte-equality": ". .venv/bin/activate && .venv/bin/python scripts/test_composer_byte_equality.py",
+    "test:pack-idempotency": "python3 scripts/test_pack_relationship_idempotency.py",
     "parsetest": ". .venv/bin/activate && .venv/bin/python parsetest.py"
   }
 }

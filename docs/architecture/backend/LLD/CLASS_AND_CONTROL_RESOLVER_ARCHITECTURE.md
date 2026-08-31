@@ -87,7 +87,7 @@ Every service in this architecture was evaluated against this framework. The res
 | `match_classes` | Yes | Yes | Yes | No | Yes | **Backend** |
 | `get_control_gaps` | Yes | Yes (multi-hop) | Yes | Yes | Yes | **Backend** |
 | `findControls` | Moderate | Yes (SUPPORTS) | Yes | No | Yes | **Backend** (dt-core) |
-| `assignControlToElements` | No | Yes (MERGE) | Yes | No | No | **Backend** (dt-core) |
+| `assignControlToElements` | No | Yes (SUPPORTS write) | Yes | No | No | **Backend** (dt-core) |
 | `compute_control_coverage` | Yes | Partial | Yes | Yes | No | **Hybrid** (MCP + backend) |
 
 ---
@@ -181,7 +181,7 @@ The MCP layer handles input validation and result formatting. The dt-core layer 
 
 Custom resolvers are registered in `CustomResolverModule` (`custom-resolver.module.ts`) which provides shared service injection. The new resolvers follow the established registration pattern described in [GraphQL Module](GRAPHQL_MODULE.md) -- add to the `resolverServiceClasses` array, and the module wires up `AuthorizationService`, `MonitoringService`, and the Bolt driver automatically.
 
-Database access uses the Neo4j Bolt driver injected via `@Inject('NEO4J_DRIVER')` from `DatabaseModule` (there is no `GqlService` wrapper -- resolvers receive the driver directly). Queries use Neo4j v5 transaction patterns (`session.executeRead()` / `session.executeWrite()`). See [Database Module](DATABASE_MODULE.md) for connection pooling, health monitoring, and session management. Read-only queries (`match_classes`, `get_control_gaps`, `controlIdsByElements`) use `executeRead()`. The `assignControlToElements` Cypher fallback (if needed) uses `executeWrite()`.
+Database access uses the Neo4j Bolt driver injected via `@Inject('NEO4J_DRIVER')` from `DatabaseModule` (there is no `GqlService` wrapper -- resolvers receive the driver directly). Queries use Neo4j v5 transaction patterns (`session.executeRead()` / `session.executeWrite()`). See [Database Module](DATABASE_MODULE.md) for connection pooling, health monitoring, and session management. Read-only queries (`match_classes`, `get_control_gaps`, `controlIdsByElements`) use `executeRead()`. The `assignControlToElements` Cypher fallback was not implemented (see Section 4.4) -- the method writes through the auto-generated GraphQL mutation, so there is no resolver-side `executeWrite()` on its behalf.
 
 ---
 
@@ -328,14 +328,15 @@ The brownfield control workflow (finding relevant Controls from the org library)
 
 **Role:** Create `SUPPORTS` edges between a Control and model elements. Append-only -- adds edges without removing existing ones.
 
-**Architecture pattern:** Idempotent MERGE with batch semantics.
+**Architecture pattern:** Read-before-write connect with batch semantics.
 
 **Key characteristics:**
 
 - **Append-only.** Replace semantics (disconnect + reconnect) are handled by the existing `updateControl()`, which already implements this pattern for `controlClasses`.
-- **Idempotent.** `MERGE` (or GraphQL `connect`) ensures duplicate calls do not create duplicate edges.
-- **Batch.** One call handles multiple `elementIds` in a single database transaction.
-- **Polymorphic fallback.** If the auto-generated `ControlUpdateInput` does not correctly handle the polymorphic `elements` connect, fall back to direct Cypher: `MATCH (ctrl:Control {id: $control_id}) MATCH (elem) WHERE elem.id IN $element_ids MERGE (ctrl)-[:SUPPORTS]->(elem)`.
+- **Idempotent across sequential calls -- by read-before-write, not by `connect`.** In `@neo4j/graphql` 7.2.0, `connect` on a `@relationship` field compiles to a **bare relationship `CREATE`**, not a `MERGE`: connecting an already-attached pair appends a *parallel* `SUPPORTS` edge, and nothing below the application layer prevents it -- neither Memgraph 3.x nor Neo4j 5.x can express an endpoint-pair relationship-uniqueness constraint. Idempotency is therefore implemented in `assignControlToElements` itself: it calls `findControls({ controlId })`, unions `supportedComponents`, `supportedBoundaries`, and `supportedDataFlows` into a set of already-attached IDs, dedupes the incoming `elementIds`, and connects only the difference. When every incoming ID is already attached it issues **no mutation at all** and returns the read. **Not idempotent under concurrency** -- two callers that both read "not attached" both connect, and a parallel edge results; closing that needs `MERGE` semantics or a server-side uniqueness constraint, neither of which is available. The engine behaviour is pinned against a real database in the dt-ws integration suite (`relationship-edge-uniqueness.e2e-spec.ts`): an unconditional `connect` on an equivalent relationship goes 1 → 2 → 3 parallel edges across repeat saves.
+- **Read and write coverage must stay paired.** The write connects on exactly `supportedComponents`, `supportedBoundaries`, and `supportedDataFlows`, and the read (`FindControls`) selects exactly those three. Adding a fourth typed connect path without adding it to the read reintroduces duplicate edges on that path. The *typed* fields are deliberate: the auto-generated resolver for the polymorphic `Control.elements` interface field returns results aggregated across Controls on Memgraph, so subtracting from it would skip legitimate connects -- a lost write, strictly worse than a duplicate edge.
+- **Batch.** One mutation connects every remaining `elementIds` entry. The read and the write are separate round trips, so the pair is *not* a single transaction -- which is precisely where the concurrency window above comes from.
+- **Polymorphic fallback -- designed, not taken.** The design allowed falling back to direct Cypher if the auto-generated `ControlUpdateInput` did not correctly handle the polymorphic `elements` connect: `MATCH (ctrl:Control {id: $control_id}) MATCH (elem) WHERE elem.id IN $element_ids MERGE (ctrl)-[:SUPPORTS]->(elem)`. The implementation used the typed `connect` inputs instead, so this fallback does not exist in the code. Worth recording for anyone revisiting the trade-off: that `MERGE` would have been idempotent by construction, including under concurrency, which the `connect` path is not.
 
 ### 4.5 compute_control_coverage -- Hybrid coverage computation (MCP)
 
@@ -588,7 +589,7 @@ New methods are added to existing dt-core classes. No new dt-core classes are in
 |-------|-----------|-------|-------------------|
 | `DtClass` | `matchClasses()` | `matchClasses` GraphQL query | `DtIssue.findIssues()` |
 | `DtControl` | `findControls()` | `FindControls` GraphQL query | `DtIssue.findIssues()` |
-| `DtControl` | `assignControlToElements()` | `AssignControlToElements` GraphQL mutation | `DtControl.updateControl()` |
+| `DtControl` | `assignControlToElements()` | `FindControls` query + `AssignControlToElements` mutation (read-before-write) | `DtControl.updateControl()` |
 | `DtControl` | `controlGaps()` | `controlGaps` GraphQL query | New (complex output) |
 
 All dt-core methods use Apollo Client exclusively. No Bolt driver calls from dt-core -- this is an established constraint (dt-core is a client-side library shared across consumers).

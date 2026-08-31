@@ -19,6 +19,12 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USERNAME", "neo4j")
 NEO4J_PASS = os.getenv("NEO4J_PASSWORD", "password")
 
+# Export wall-clock stamps written by the ontolocy loader. Dropped from the emitted
+# relationships: nothing reads them (the ontology fingerprint excludes them for cause,
+# precisely because they are ingest wall-clock), and they are what made a regenerated
+# pack create parallel edges instead of matching the existing ones.
+PROVENANCE_PROPS = {"ontolocy_created", "ontolocy_merged"}
+
 # Label configurations with their unique key properties
 ATTACK_LABELS = {
     "MitreAttackTactic": "attack_id",
@@ -240,15 +246,37 @@ def export_relationships(driver, output_file) -> int:
             output_file.write(f"MATCH (s:{source_label} {{{source_key}: {source_match}}})\n")
             output_file.write(f"MATCH (t:{target_label} {{{target_key}: {target_match}}})\n")
 
-            if rel_props:
-                props_str = ", ".join(
-                    f"{k}: {escape_cypher_string(v)}"
-                    for k, v in rel_props.items()
-                    if v is not None
+            # A relationship MERGE matches on the whole pattern, so a property inside
+            # the pattern becomes part of the edge's identity. That is legitimate for a
+            # DETERMINISTIC key meant to serve as that identity (elsewhere in the
+            # platform a merge_key is used exactly that way), and fatal for anything
+            # that varies between runs.
+            #
+            # The ontolocy_* stamps are export wall-clock, so they varied on every run:
+            # a regenerated pack matched nothing and created a PARALLEL edge for every
+            # relationship already ingested, doubling the corpus. No engine-level
+            # constraint can catch that — neither Memgraph nor Neo4j can express
+            # endpoint-pair relationship uniqueness.
+            #
+            # Nothing here needs an identity beyond endpoints + type, so: MERGE on those
+            # alone, and write any durable property with a SET afterwards. This mirrors
+            # the node emission above, which has always keyed its MERGE on the
+            # identifier and SET the rest.
+            durable_props = {
+                k: v
+                for k, v in rel_props.items()
+                if v is not None and k not in PROVENANCE_PROPS
+            }
+
+            output_file.write(f"MERGE (s)-[r:{rel_type}]->(t)\n" if durable_props
+                              else f"MERGE (s)-[:{rel_type}]->(t);\n")
+
+            if durable_props:
+                set_str = ", ".join(
+                    f"r.{k} = {escape_cypher_string(v)}"
+                    for k, v in durable_props.items()
                 )
-                output_file.write(f"MERGE (s)-[:{rel_type} {{{props_str}}}]->(t);\n")
-            else:
-                output_file.write(f"MERGE (s)-[:{rel_type}]->(t);\n")
+                output_file.write(f"SET {set_str};\n")
 
             output_file.write("\n")
             count += 1

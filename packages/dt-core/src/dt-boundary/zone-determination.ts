@@ -202,7 +202,7 @@ const isAncestorOf = (
   return false
 }
 
-const conduitEdgeKey = (src: string, tgt: string): string => `${src} ${tgt}`
+const conduitEdgeKey = (src: string, tgt: string): string => `${src}\0${tgt}`
 
 /**
  * A boundary that nests child boundaries is a STRUCTURAL container (a k8s cluster, a VPC, an AWS account,

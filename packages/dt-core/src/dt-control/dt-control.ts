@@ -400,8 +400,15 @@ export class DtControl {
 
   /**
    * Assign a control to elements by creating SUPPORTS edges (append-only).
-   * Uses GraphQL connect on the polymorphic elements relationship.
-   * Idempotent — calling with the same args does not create duplicate edges.
+   * Uses GraphQL connect on the three typed element relationships.
+   *
+   * Idempotent ACROSS SEQUENTIAL CALLS, by reading the currently-attached ids first
+   * and connecting only the difference. It is NOT idempotent under concurrency: two
+   * callers that both read "not attached" will both connect, and a parallel edge
+   * results. Closing that needs MERGE semantics or a relationship-uniqueness
+   * constraint server-side, neither of which the engines can express today — so
+   * `connect` compiles to a bare relationship CREATE and appends unconditionally.
+   *
    * @param controlId - The ID of the control
    * @param elementIds - The IDs of the elements to connect
    * @returns The updated control or null if an error occurs
@@ -416,12 +423,55 @@ export class DtControl {
     if (!controlId || !elementIds || elementIds.length === 0) return null
 
     try {
-      // Broadcast all element IDs to all three typed connect paths.
+      // Read-before-write. `connect` compiles to a bare relationship CREATE, so
+      // connecting an already-attached pair appends a parallel SUPPORTS edge. Read
+      // the current set and connect only the difference.
+      //
+      // COVERAGE PAIRING — the read must see every edge this method can write. The
+      // write connects on exactly supportedComponents / supportedBoundaries /
+      // supportedDataFlows, and FIND_CONTROLS reads exactly those three. Adding a
+      // fourth typed connect path below without adding it to the read reintroduces
+      // duplicates on that path.
+      //
+      // The typed fields are deliberate: the polymorphic `Control.elements` interface
+      // field returns phantom targets aggregated across Controls (schema.graphql), and
+      // a subtraction fed by those would SKIP legitimate connects — a lost write,
+      // strictly worse than a duplicate edge. For the same reason the read must not be
+      // served from cache; `findControls` is network-only.
+      const [current] = await this.findControls({ controlId })
+      const attached = new Set(
+        [
+          ...(current?.supportedComponents ?? []),
+          ...(current?.supportedBoundaries ?? []),
+          ...(current?.supportedDataFlows ?? []),
+        ]
+          .map((element: { id?: string }) => element?.id)
+          .filter((id): id is string => Boolean(id)),
+      )
+
+      // Dedupe the incoming list too: a caller passing the same id twice would
+      // otherwise get two parallel edges from a single call.
+      const toConnect = Array.from(new Set(elementIds)).filter(id => !attached.has(id))
+
+      // Everything already attached — the repeat-call case this read exists for.
+      // Fire no mutation, but do NOT return null: both callers treat null as a
+      // failure (the greenfield push throws and parks the control at
+      // lifecycle=partially-pushed). Return the read, shaped like the mutation.
+      //
+      // Not byte-identical to the mutation's shape: FIND_CONTROLS also selects
+      // `countermeasures`, so this path returns a superset. No caller reads that field
+      // off this return value, and every field the callers DO read is present on both
+      // paths — but do not narrow one selection without checking the other.
+      if (toConnect.length === 0) {
+        return current ? this.withSynthesizedElements(current) : null
+      }
+
+      // Broadcast the remaining element IDs to all three typed connect paths.
       // Each connect's WHERE filter is type-scoped (e.g. supportedComponents
       // only matches Component nodes), so non-matching IDs are silently
       // skipped. This avoids a pre-flight type lookup and works because the
       // SUPPORTS edge is the same regardless of the target node's label.
-      const connects = elementIds.map(id => ({
+      const connects = toConnect.map(id => ({
         where: { node: { id: { eq: id } } },
       }))
 
@@ -439,35 +489,43 @@ export class DtControl {
         variables,
         dataPath: 'updateControls.controls[0]',
         action: 'assignControlToElements',
-        deduplicationKey: `assign-control-${controlId}-${elementIds.slice().sort().join(',')}`
+        deduplicationKey: `assign-control-${controlId}-${toConnect.slice().sort().join(',')}`
       })
 
       if (result) {
-        // Synthesize the polymorphic `elements` array from the typed responses
-        // so existing callers that read `control.elements` keep working.
-        const elements: DtElement[] = [
-          ...(result.supportedComponents ?? []),
-          ...(result.supportedBoundaries ?? []),
-          ...(result.supportedDataFlows ?? []),
-        ]
-
-        return {
-          ...result,
-          elements,
-          folder: result.folder && Array.isArray(result.folder) && result.folder.length > 0
-            ? result.folder[0]
-            : result.folder,
-          controlClasses: result.controlClasses?.map((controlClass: Class) => ({
-            ...controlClass,
-            module: controlClass.module && Array.isArray(controlClass.module) && controlClass.module.length > 0
-              ? controlClass.module[0]
-              : controlClass.module,
-          })),
-        }
+        return this.withSynthesizedElements(result)
       }
       return null
     } catch (error) {
       throw error
+    }
+  }
+
+  /**
+   * Shape a Control from the typed SUPPORTS responses into the form callers expect:
+   * a synthesized polymorphic `elements` array, and folder/module unwrapped from the
+   * single-element arrays @neo4j/graphql returns. Shared by the mutation path and the
+   * already-fully-attached short-circuit above, so both return the same shape.
+   */
+  private withSynthesizedElements = (control: Control): Control => {
+    const elements: DtElement[] = [
+      ...(control.supportedComponents ?? []),
+      ...(control.supportedBoundaries ?? []),
+      ...(control.supportedDataFlows ?? []),
+    ]
+
+    return {
+      ...control,
+      elements,
+      folder: control.folder && Array.isArray(control.folder) && control.folder.length > 0
+        ? control.folder[0]
+        : control.folder,
+      controlClasses: control.controlClasses?.map((controlClass: Class) => ({
+        ...controlClass,
+        module: controlClass.module && Array.isArray(controlClass.module) && controlClass.module.length > 0
+          ? controlClass.module[0]
+          : controlClass.module,
+      })),
     }
   }
 

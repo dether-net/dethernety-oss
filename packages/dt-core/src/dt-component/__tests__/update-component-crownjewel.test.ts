@@ -75,12 +75,17 @@ describe('DtComponent.updateComponent — controls / dataItems REPLACE guards (P
     expect(input.dataItems).toEqual({ disconnect: {}, connect: [] });
   });
 
-  it('REPLACEs to the listed set when populated', async () => {
+  it('REPLACEs to the listed set when populated — via an unconditional disconnect-all', async () => {
     const { dtComponent, performMutation } = makeComponent();
     await dtComponent.updateComponent({ updatedNode: node({ controls: ['c1'], dataItems: ['d1', 'd2'] }) as any, defaultBoundaryId: 'b0' });
     const input = inputOf(performMutation);
-    expect(input.controls.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'c1' } } }] } } });
+    expect(input.controls.disconnect).toEqual({});
     expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'c1' } } } }]);
-    expect(input.dataItems.disconnect).toEqual({ where: { NOT: { OR: [{ node: { id: { eq: 'd1' } } }, { node: { id: { eq: 'd2' } } }] } } });
+    expect(input.dataItems.disconnect).toEqual({});
+    expect(input.dataItems.connect).toEqual([
+      { where: { node: { id: { eq: 'd1' } } } },
+      { where: { node: { id: { eq: 'd2' } } } },
+    ]);
   });
+
 });

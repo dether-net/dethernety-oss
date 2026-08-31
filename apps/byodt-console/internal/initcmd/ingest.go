@@ -21,6 +21,14 @@ import (
 // corpus is unchanged is a no-op. The marker is an optimisation, not the correctness
 // control — every ingest statement is a MERGE, so re-running is a safe no-op — which is
 // why any doubt about the marker resolves toward re-ingesting.
+//
+// That "safe no-op" holds only because no MERGE pattern carries a generated property. A
+// relationship MERGE matches on the whole pattern, so an embedded property becomes part
+// of the edge identity: the pack once emitted export wall-clock stamps inline, and a
+// regenerated corpus therefore matched nothing and created a parallel edge for every
+// relationship already ingested. The marker does not save you there — it keys on the
+// corpus content hash, which changes precisely BECAUSE the stamps changed. The pack side
+// is now guarded by mitre-frameworks' test:pack-idempotency.
 const (
 	markerLabel = "DethernetyIngestMarker"
 	// Keyed by the producing binary, so another deployment type's console can ingest into
