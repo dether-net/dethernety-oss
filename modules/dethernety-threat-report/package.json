@@ -26,9 +26,9 @@
     "neo4j-driver": "^5.28.3",
     "testcontainers": "^12.1.0",
     "typescript": "^5.9.3",
-    "vite": "^8.2.1",
+    "vite": "^8.2.2",
     "vite-plugin-css-injected-by-js": "^5.0.2",
-    "vitest": "^4.1.10",
-    "vue": "^3.5.41"
+    "vitest": "^4.1.11",
+    "vue": "^3.5.42"
   }
 }
