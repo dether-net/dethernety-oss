@@ -1,6 +1,6 @@
 # Backend Services -- Target Architecture
 
-> Target architecture for backend services that support class matching, control gap analysis, element-control assignment, and vector-enhanced semantic search. These services extend the dt-ws backend and dt-core data access layer, serving both the Dethereal plugin and the Dethernety web UI. Status: **draft**.
+> Target architecture for backend services that support class matching, control gap analysis, element-control assignment, and vector-enhanced semantic search. These services extend the dt-ws backend and dt-core data access layer, serving both the Dethereal plugin and the Dethernety web UI. Status: **implemented** — shipped in April 2026, including §4.5's `coverage` action on `validate_model_json`.
 
 ## Table of Contents
 

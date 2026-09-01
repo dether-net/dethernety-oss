@@ -1,6 +1,6 @@
 # Control Integration in the Threat Modeling Workflow
 
-> Design analysis for integrating security controls into the Dethereal plugin's guided threat modeling workflow. Status: **draft** (design concluded, implementation pending).
+> Design analysis for integrating security controls into the Dethereal plugin's guided threat modeling workflow. Status: **implemented** — the six-sprint implementation shipped in April 2026. Two carve-outs survive: governance and procedural controls (§4, Category 4) are still deferred to their own design treatment, and §6.1's timing for greenfield Control creation is superseded by [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) — see the note in that section.
 
 ## Table of Contents
 

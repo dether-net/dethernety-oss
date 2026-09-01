@@ -1,6 +1,6 @@
 # Backend Services Specification
 
-> Detailed specification for new backend services on the Dethernety platform (dt-ws + dt-core). These services support both the Claude Code plugin (Dethereal) and the Dethernety web UI. Implementable independently from plugin changes. Status: **draft**.
+> Detailed specification for new backend services on the Dethernety platform (dt-ws + dt-core). These services support both the Claude Code plugin (Dethereal) and the Dethernety web UI. Implementable independently from plugin changes. Status: **implemented** — all four services and the embedding pipeline shipped in April 2026. The test strategy in §9 did not land as specified; read §9's as-built table for the coverage that exists and the gaps still open.
 
 ## Table of Contents
 
@@ -1082,17 +1082,23 @@ Phase B (independent, parallel with A)
 
 ## 9. Testing Strategy
 
-### Unit tests
+> **Planned coverage — not an inventory.** The two tables below belong to the original
+> specification: they record the tests intended for these services, written before the services
+> existed. The services have since shipped, and what landed is narrower than planned and lives in
+> different files than were predicted here. Read **As-built coverage** for what exists today; read the
+> planned tables for design intent and for the gaps still open.
 
-| Service | Test file | Key cases |
-|---------|----------|-----------|
-| `match_classes` | `match-classes-resolver.service.spec.ts` | Exact name, fuzzy name (substring), no match, componentType filter, module filtering, empty elements array, max batch exceeded |
-| `get_control_gaps` | `control-gaps-resolver.service.spec.ts` | Zero exposures, all mitigated, some unmitigated, unaddressable (no ControlClass), empty model |
-| `findControls` | `dt-control.spec.ts` | Filter by class, by element, by module, combined filters, empty results |
-| `assignControlToElements` | `dt-control.spec.ts` | Single assign, batch assign, idempotent re-assign |
-| `EmbeddingService` | `embedding.service.spec.ts` | Disabled mode, local model, batch embedding, retry on failure, model unavailable after retries |
+### Unit tests — planned
 
-### Integration tests
+| Service | Key cases |
+|---------|-----------|
+| `match_classes` | Exact name, fuzzy name (substring), no match, componentType filter, module filtering, empty elements array, max batch exceeded |
+| `get_control_gaps` | Zero exposures, all mitigated, some unmitigated, unaddressable (no ControlClass), empty model |
+| `findControls` | Filter by class, by element, by module, combined filters, empty results |
+| `assignControlToElements` | Single assign, batch assign, idempotent re-assign |
+| `EmbeddingService` | Disabled mode, local model, batch embedding, retry on failure, model unavailable after retries |
+
+### Integration tests — planned
 
 | Test | Setup | Assertion |
 |------|-------|-----------|
@@ -1101,6 +1107,29 @@ Phase B (independent, parallel with A)
 | Embedding round-trip | Install module with embeddings → query vector search | Classes returned with similarity scores |
 | Module update re-embed | Install module → update class description → verify embedding updated | New similarity scores reflect updated description |
 | Reindex after model change | Install module with model A → change EMBEDDING_MODEL to B → call `reindexClassEmbeddings` | All `embeddingModel` properties updated, vector search returns results consistent with model B |
+
+### As-built coverage
+
+Verified against the tree on 2026-09-01. Each of these files is a targeted regression suite written
+alongside a specific fix, which is why the coverage is deep on one axis and absent on the others.
+
+| Service | Test file | Subject | Planned cases still open |
+|---------|-----------|---------|--------------------------|
+| `match_classes` | `oss/apps/dt-ws/src/gql/resolver-services/__tests__/match-classes-resolver.service.spec.ts` | The componentType filter across all matching tiers (6 cases) | Module filtering, empty elements array, max batch exceeded |
+| `get_control_gaps` | `oss/apps/dt-ws/src/gql/resolver-services/__tests__/control-gaps-resolver.service.spec.ts` (unit, 4 cases) + `oss/apps/dt-ws/test/integration/control-gaps.e2e-spec.ts` (live Memgraph, 4 cases) | Graph-Integer LIMIT binding, bucket accounting summing to `totalExposures`, `configuredCoverage` feeding the Phase-3 pool, empty-scope short-circuit; live: nested boundary/flow exposures, a boundary-less model, the mitigated path | Unaddressable (no ControlClass) |
+| `findControls` | `oss/packages/dt-core/src/dt-control/__tests__/find-controls-intersect.test.ts` | The `controlId` + `elementIds` intersection — notably that a disjoint pair yields an empty id set rather than everything | Filter by class, by module, combined filters |
+| `assignControlToElements` | `oss/packages/dt-core/src/dt-control/__tests__/assign-control-idempotent.test.ts` | Idempotency across sequential calls (8 cases): the connect delta, the three typed paths, dedup of both the incoming list and the read, no-mutation-when-attached, read-failure propagation | — |
+| `EmbeddingService` | `oss/apps/dt-ws/src/gql/services/__tests__/embedding.service.spec.ts` | The disabled paths only — session disable, `embedBatch` returning `null` once disabled, `composeClassText` delegation, `EMBEDDING_ENABLED=false` | Local model, batch embedding on the enabled path, retry on failure, model unavailable after retries |
+
+Of the five planned integration flows, only **gap analysis end-to-end** landed. No integration spec
+exercises `matchClasses`, and the three embedding flows have no coverage at any level —
+`reindexClassEmbeddings` is referenced by no test in the repo.
+
+**Two cautions.** The dt-core suites assert what the writer *emits* against a mocked Apollo client,
+not what a graph ends up holding. And `oss/apps/dt-ws/test/integration/relationship-edge-uniqueness.e2e-spec.ts`
+is **not** `assignControlToElements`' graph-level proof, despite the overlapping subject: it exercises
+the element-side association write path (`Component.controls` with per-entry `id: { eq: }` connects)
+and never the `id: { in: }` broadcast this method uses. Do not cite it as such.
 
 ### Performance benchmarks
 
