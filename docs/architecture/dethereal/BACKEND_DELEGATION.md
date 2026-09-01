@@ -1,13 +1,13 @@
 # Backend Delegation Strategy
 
-> Defines which operations should be server-side (dt-ws backend, exposed via MCP tools) vs client-side (agent logic, local file operations). Applies to classification, enrichment, control integration, and reporting. Status: **draft**.
+> Defines which operations should be server-side (dt-ws backend, exposed via MCP tools) vs client-side (agent logic, local file operations). Applies to classification, enrichment, control integration, and reporting. Status: **implemented** — the services described here shipped in April 2026. The "(current)" and "(proposed)" labels under "What breaks at scale" describe the pre-delegation workflows this design replaced; they are the problem statement, not open work.
 
 ## Table of Contents
 
 - [1. Problem Statement](#1-problem-statement)
 - [2. Decision Framework](#2-decision-framework)
 - [3. Current State](#3-current-state)
-- [4. Proposed Backend Services](#4-proposed-backend-services)
+- [4. Backend Services](#4-backend-services)
 - [5. Impact on Existing Design](#5-impact-on-existing-design)
 - [6. Vector-Enhanced Class Matching](#6-vector-enhanced-class-matching)
 - [7. Implementation Notes](#7-implementation-notes)
@@ -114,7 +114,7 @@ The architecturally consistent choice is evidence-over-guess: derive tactic cove
 
 ---
 
-## 4. Proposed Backend Services
+## 4. Backend Services
 
 ### 4.1 `match_classes` — Class recommendation for elements
 
@@ -202,7 +202,9 @@ The existing `manage_controls` tool already accepts `class_ids` as a filter para
 
 This eliminates a separate backend service and reuses existing infrastructure. The agent's turn cost is 2 tool calls (match + list), not 1, but both return small, pre-filtered payloads.
 
-**Note:** The discovery workflow above finds relevant controls, but **assigning** controls to elements (creating SUPPORTS edges) still requires a new `assign` action on `manage_controls` and a corresponding `assignControlToElements()` method in `DtControl` (dt-core). This uses the same disconnect/reconnect pattern as `updateControl()` for `controlClasses`. See CONTROL_INTEGRATION.md Section 10, Phase 3 (P3/P3b) for details.
+**Note:** The discovery workflow above finds relevant controls; **assigning** them to elements (creating SUPPORTS edges) is a separate path — the `assign` action on `manage_controls`, wrapping `assignControlToElements()` in `DtControl` (dt-core). Both have shipped.
+
+Its write mechanism is **not** the disconnect/reconnect pattern `updateControl()` uses for `controlClasses`, and must not be changed into it. The method is append-only by contract: it may not remove an element some other caller assigned, so it never disconnects. Because `connect` compiles to a bare relationship CREATE rather than a MERGE, idempotency instead comes from reading the currently-attached ids and connecting only the difference — the read is load-bearing, not defensive scaffolding, and its coverage must stay a superset of the write's — [dt-control.ts:430-434](../../../packages/dt-core/src/dt-control/dt-control.ts#L430-L434) states that pairing at the construction site. See CONTROL_INTEGRATION.md Section 10, Phase 3 (P3/P3b) for details.
 
 ### 4.2 `get_control_gaps` — Framework-grounded gap analysis
 
