@@ -11,7 +11,8 @@
     "build:package": "node ../../scripts/package-module.js",
     "dev": "tsc -w",
     "test": "vitest run",
-    "clean": "rm -rf dist frontend/dist"
+    "clean": "rm -rf dist frontend/dist",
+    "test:e2e": "vitest run --config vitest.e2e.config.mjs"
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
@@ -22,6 +23,8 @@
   "devDependencies": {
     "@types/node": "^25.9.5",
     "@vitejs/plugin-vue": "^6.0.8",
+    "neo4j-driver": "^5.28.3",
+    "testcontainers": "^12.1.0",
     "typescript": "^5.9.3",
     "vite": "^8.2.1",
     "vite-plugin-css-injected-by-js": "^5.0.2",
