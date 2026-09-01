@@ -464,6 +464,37 @@ class DethernetyThreatReportModule implements DTModule {
    * scalar fields only (no nodes-in-maps) + labels()-derived type, for
    * Neo4j/Memgraph portability; toString() the timestamp; Integer score is
    * normalized to a JS number below so the doc JSON-stringifies cleanly.
+   *
+   * SHAPE IS LOAD-BEARING — three engine behaviours, each measured on Memgraph
+   * 3.8.1 (see test/compute-ledger.e2e.spec.ts), and each of which silently
+   * returns plausible-but-wrong data rather than erroring:
+   *
+   *  1. DEDUPE ON THE NODE, NOT ON A PROJECTED MAP. `collect(DISTINCT <map>)`
+   *     does not dedupe when any map VALUE is null, and most exposure fields
+   *     are null on an active finding. That inflated `findings` ~8x and, via
+   *     duplicate SUPPORTS edges, `supportingControls` ~6x.
+   *  2. NEVER CARRY A `List<Map>` AS A GROUPING KEY. The previous shape put
+   *     `findings` in the second `WITH`, which failed to collapse and
+   *     multiplied the element rows themselves ~8x.
+   *  3. RE-PROJECT FROM SCALAR TUPLES BY INDEX — never from the collected
+   *     node. A list comprehension whose map performs two or more bare
+   *     property accesses on the loop variable (`[ex IN exs | {id: ex.id,
+   *     name: ex.name}]`) yields the FIRST element repeated N times, dropping
+   *     every other entry. Measured: right count, wrong contents — strictly
+   *     worse than the inflation it replaced. Wrapping each access in a
+   *     function also avoids it, but the tuple form is the one pinned by a
+   *     test, and it preserves nulls where `coalesce` would erase them.
+   *
+   *  4. THE `CASE WHEN … IS NULL` GUARD IS LOAD-BEARING. `collect` skips a
+   *     null, but a TUPLE of nulls is not null — so an element with no
+   *     exposures would collect one phantom finding whose every field is null,
+   *     and the report would render it. The guard is what keeps an
+   *     unexposed element's array empty.
+   *
+   * So: `collect(DISTINCT CASE WHEN … IS NULL THEN NULL ELSE [scalars…] END)`,
+   * then index the tuple. The tuple is the dedupe key, which is why
+   * `toString()` is applied inside the collect — the projection must not
+   * re-touch the node.
    */
   private async computeLedger(modelId: string): Promise<LedgerElement[]> {
     const session = this.session();
@@ -482,19 +513,25 @@ class DethernetyThreatReportModule implements DTModule {
          WITH el WHERE el IS NOT NULL
          WITH el, [lbl IN labels(el) WHERE lbl IN ['Component', 'DataFlow', 'SecurityBoundary', 'Data']][0] AS elType
          OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(ex:Exposure)
-         WITH el, elType, collect(DISTINCT CASE WHEN ex IS NULL THEN NULL ELSE {
-           id: ex.id, name: ex.name, score: ex.score, attackVector: ex.attackVector,
-           description: ex.description, type: ex.type, category: ex.category,
-           references: ex.references, mitigationSuggestions: ex.mitigationSuggestions,
-           detectionMethods: ex.detectionMethods, tags: ex.tags,
-           createdBy: ex.createdBy, authoredBy: ex.authoredBy,
-           dispositionKind: ex.dispositionKind, dispositionReason: ex.dispositionReason,
-           dispositionedBy: ex.dispositionedBy, dispositionedAt: toString(ex.dispositionedAt),
-           dispositionStale: ex.dispositionStale } END) AS findings
          OPTIONAL MATCH (ctrl:Control)-[:SUPPORTS]->(el)
-         WITH el, elType, findings, collect(DISTINCT CASE WHEN ctrl IS NULL THEN NULL ELSE {
-           id: ctrl.id, name: ctrl.name, type: ctrl.type, category: ctrl.category } END) AS controls
-         RETURN collect({ id: el.id, name: el.name, type: elType, findings: findings, supportingControls: controls }) AS ledger`,
+         WITH el, elType,
+           collect(DISTINCT CASE WHEN ex IS NULL THEN NULL ELSE
+             [ex.id, ex.name, ex.score, ex.attackVector, ex.description, ex.type,
+              ex.category, ex.references, ex.mitigationSuggestions,
+              ex.detectionMethods, ex.tags, ex.createdBy, ex.authoredBy,
+              ex.dispositionKind, ex.dispositionReason, ex.dispositionedBy,
+              toString(ex.dispositionedAt), ex.dispositionStale] END) AS exs,
+           collect(DISTINCT CASE WHEN ctrl IS NULL THEN NULL ELSE
+             [ctrl.id, ctrl.name, ctrl.type, ctrl.category] END) AS ctrls
+         RETURN collect({ id: el.id, name: el.name, type: elType,
+           findings: [t IN exs | {
+             id: t[0], name: t[1], score: t[2], attackVector: t[3], description: t[4],
+             type: t[5], category: t[6], references: t[7], mitigationSuggestions: t[8],
+             detectionMethods: t[9], tags: t[10], createdBy: t[11], authoredBy: t[12],
+             dispositionKind: t[13], dispositionReason: t[14], dispositionedBy: t[15],
+             dispositionedAt: t[16], dispositionStale: t[17] }],
+           supportingControls: [u IN ctrls | {
+             id: u[0], name: u[1], type: u[2], category: u[3] }] }) AS ledger`,
         { modelId },
       );
 
