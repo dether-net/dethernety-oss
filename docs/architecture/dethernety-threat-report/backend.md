@@ -73,11 +73,11 @@ sequenceDiagram
 |---|---|---|
 | `id` | `dethernety-threat-report-snapshot` | Stable across deployments. It anchors the `(:Module)-[:HAS_CLASS]->(:AnalysisClass)` edge **and** the document-dispatch lookup, so it must not change. |
 | `name` | `Threat Report` | Display label in the **New Analysis** menu. |
-| `type` | `model_analysis` | The platform contract for a **model-scoped analysis creatable from a model's Analysis tab**. The New Analysis menu fetches only classes of this type, so this is what makes the report appear there. |
+| `type` | `model_analysis` | The platform contract for a **model-scoped analysis creatable from a model's Analyses dialog**. The New Analysis menu fetches only classes of this type, so this is what makes the report appear there. |
 | `category` | `reporting` | Free-form; distinguishes this as a reporting analysis rather than an attack-scenario or threat workflow. |
 | `icon` | `mdi-file-chart-outline` | Menu icon. |
 
-At startup the platform's module reconciler MERGEs the module node and creates the `AnalysisClass` node plus the `HAS_CLASS` edge — so the class surfaces in the model's Analysis tab with no UI code.
+At startup the platform's module reconciler MERGEs the module node and creates the `AnalysisClass` node plus the `HAS_CLASS` edge — so the class surfaces in the model's Analyses dialog with no UI code.
 
 ### Creating an instance stores no document
 
@@ -254,7 +254,7 @@ Two fallbacks keep the page robust:
 
 ## Analysis status
 
-`getAnalysisStatus(...)` returns a static `idle` status. A report is **not a long-running run** — there is no streaming progress to report. The platform's Analysis tab enables its **Results** action when status is `idle`, so returning `idle` keeps Results available. The method is cheap and side-effect-free, which matters because it is called on every analysis listing.
+`getAnalysisStatus(...)` returns a static `idle` status. A report is **not a long-running run** — there is no streaming progress to report. The platform's Analyses dialog enables its **Results** action when status is `idle`, so returning `idle` keeps Results available. The method is cheap and side-effect-free, which matters because it is called on every analysis listing.
 
 ---
 

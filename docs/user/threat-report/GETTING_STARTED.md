@@ -9,7 +9,7 @@ tags: ['threat-report', 'reporting', 'getting-started', 'analysis']
 
 # Getting Started with the Threat Report
 
-The **Threat Report** is a read-only, point-in-time view of the residual risk in one of your threat models. You generate it from a model's **Analysis** tab, read it across a handful of tabs, drill into any element, and export it as a JSON file or a printable HTML page you can save as a PDF. This guide walks you through that first run end to end — from creating the report to sharing it.
+The **Threat Report** is a read-only, point-in-time view of the residual risk in one of your threat models. You generate it from a model's **Analyses** dialog, read it across a handful of tabs, drill into any element, and export it as a JSON file or a printable HTML page you can save as a PDF. This guide walks you through that first run end to end — from creating the report to sharing it.
 
 ---
 
@@ -44,10 +44,10 @@ Before you can generate a useful report, you need:
 
 ## Creating and Running the Report
 
-The Threat Report appears as an analysis class named **Threat Report** in any model's **Analysis** tab. Creating it follows the same flow as any other analysis, with one extra step: you **run** it to compute the snapshot.
+The Threat Report appears as an analysis class named **Threat Report** in any model's **Analyses** dialog. Creating it follows the same flow as any other analysis, with one extra step: you **run** it to compute the snapshot.
 
-1. **Open your model.** Right-click the model in the Browser, or click its name in the editor, to open the model dialog.
-2. **Go to the Analysis tab.** Select the **Analysis** tab in the model dialog.
+1. **Open your model.** Click the model in the Browser to open it in the Data Flow Editor.
+2. **Open the Analyses dialog.** On the canvas toolbar, click the **Analyses** button (the sparkle icon).
 3. **Create the report.** From the **New Analysis** menu, choose the **Threat Report** class. This creates a standing report instance attached to your model. At this point no snapshot exists yet.
 4. **Open the results.** In the report's row, open **Results** (the right-arrow action). The report opens on its scope-and-freshness banner, which reads `No snapshot has been generated yet.` and shows a **Generate** button.
 5. **Generate the snapshot.** Click **Generate**. The banner switches to `Generating snapshot…` while the report reads your model and stores a point-in-time snapshot. When it finishes, the report renders.
