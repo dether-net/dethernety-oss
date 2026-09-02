@@ -63,7 +63,7 @@ Modules define issue types with customizable attributes:
 
 ### Analysis Classes
 
-Modules can provide analysis types that appear in the model dialog's analysis tab. These define the analysis workflow, including what questions to ask, what data to evaluate, and how to structure results.
+Modules can provide analysis types that appear in a model's **Analyses** dialog, opened from the canvas toolbar in the data flow editor. These define the analysis workflow, including what questions to ask, what data to evaluate, and how to structure results.
 
 ## How Module Assignment Works
 

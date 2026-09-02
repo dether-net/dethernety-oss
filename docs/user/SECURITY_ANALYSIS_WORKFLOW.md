@@ -30,11 +30,11 @@ The included Dethernety Module provides basic analysis capabilities. Additional 
 
 ## Running Analysis
 
-### **Starting Analysis from Model Dialog**
+### **Starting Analysis from the Data Flow Editor**
 
 **Access Analysis:**
-1. **Right-click your model** in Browser (or click model name in editor)
-2. **Navigate to "Analysis" tab** in the model dialog
+1. **Open your model** in the data flow editor (click its tile in Browser)
+2. **Click "Analyses"** (sparkle icon) on the canvas toolbar
 3. **Select analysis type** from available options (depends on loaded modules)
 
 **Create Analysis Instance:**
@@ -43,7 +43,7 @@ The included Dethernety Module provides basic analysis capabilities. Additional 
 3. **Configure analysis**:
    - **Name**: "Security Assessment - [Date]"
    - **Description**: Brief description of analysis purpose
-4. **Click creation icon** (star icon) to start analysis
+4. **Click "Run"** in the analysis row to start analysis
 
 ### **Analysis Execution**
 

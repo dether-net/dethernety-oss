@@ -327,10 +327,9 @@ Analyses provide AI-powered security assessment of your threat models. Analysis 
 
 ### Starting an Analysis
 
-1. **Access Analysis Tab**:
-   - Right-click your model in Browser to open model dialog, OR
-   - Click model name (top left) in data flow editor to open model dialog
-   - Click **"Analysis"** tab in the model dialog
+1. **Open the Analyses Dialog**:
+   - Open your model in the data flow editor (click its tile in Browser)
+   - Click the **"Analyses"** button (sparkle icon) on the canvas toolbar
 
 2. **Create Analysis Instance**:
    - **Select analysis type**: Choose from dropdown button (different types provided by loaded modules)
@@ -340,7 +339,7 @@ Analyses provide AI-powered security assessment of your threat models. Analysis 
      - **Description**: "Comprehensive threat analysis of e-commerce platform"
 
 3. **Start Analysis**:
-   - Click the **creation icon** (star icon) in the analysis instance row
+   - Click **"Run"** in the analysis instance row
    - Analysis begins processing your threat model
 
 ### Monitoring Analysis Progress
@@ -539,7 +538,7 @@ Once your model is built, you can export it as a portable ZIP archive for backup
 
 ### Exporting a Model
 
-1. **Open the model dialog**: Right-click your model in Browser, or click the model name in the data flow editor
+1. **Open the model dialog**: Right-click your model in Browser, or click the **"Model settings"** button on the data flow editor's canvas toolbar
 2. **Click "Export"**: The export button downloads a ZIP archive containing your complete model
 3. **File is saved**: The browser downloads `{model-name}-export.zip` automatically
 

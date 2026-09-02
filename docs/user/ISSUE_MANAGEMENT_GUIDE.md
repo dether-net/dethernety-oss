@@ -72,7 +72,7 @@ Issues track security findings, tasks, and incidents related to your threat mode
   - Related data flows and boundaries
 
 **From Model Dialog:**
-- **Right-click model** in Browser or **click model name** in editor
+- **Right-click model** in Browser or **click the "Model settings" button** on the editor's canvas toolbar
 - **Select "Create Issue"** from issue menu
 - **System automatically associates**:
   - The specific model

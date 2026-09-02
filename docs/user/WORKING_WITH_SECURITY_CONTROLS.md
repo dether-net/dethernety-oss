@@ -78,7 +78,7 @@ Dethernety controls can be assigned to any element type. The same control applie
 - Assign controls for zone-wide protection
 
 **From Model Dialog**:
-- Right-click model in Browser OR click model name in editor
+- Right-click model in Browser OR click the **Model settings** button on the editor's canvas toolbar
 - Navigate to **Controls** tab in model dialog
 - Assign controls for model-wide protection
 
