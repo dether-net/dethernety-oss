@@ -1,12 +1,15 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import type { Edge, Node } from '@vue-flow/core'
   import { Background } from '@vue-flow/background'
   import { useFlowStore } from '@/stores/flowStore'
+  import { useAnalysisStore } from '@/stores/analysisStore'
+  import { badgePhaseForElement, PHASE_COLOR } from '@/utils/analysisPhase'
   import { nodeTypes } from '@/utils/dataFlowUtils'
   import PaletteWindow from '@/components/DataFlow/PaletteWindow.vue'
   import SettingsWindow from '@/components/DataFlow/SettingsWindow.vue'
   import BoundaryZoningOverview from '@/components/DataFlow/BoundaryZoning/BoundaryZoningOverview.vue'
+  import ModelAnalysisDialog from '@/components/Dialogs/Analysis/ModelAnalysisDialog.vue'
 
   interface Props {
     openSettings: boolean
@@ -18,6 +21,7 @@
   const itemName = ref('Select an item')
   const flowStore = useFlowStore()
   const showZoningOverview = ref(false)
+  const showAnalyses = ref(false)
   const props = defineProps<Props>()
   const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created'])
   const openSettings = ref(props.openSettings)
@@ -76,6 +80,63 @@
 
   watch(() => props.modelName, newVal => {
     modelName.value = newVal
+  })
+
+  // Ambient analysis state on the rail. The canvas is where a user waits a run
+  // out, so a paused human-in-the-loop interrupt has to be visible without
+  // opening anything — this dot previously lived on the model dialog's Analysis
+  // tab, where you had to already be looking at it to see it.
+  //
+  // Slower than the dialog's 5s cadence, because nothing here is being
+  // interacted with, and idle while the tab is hidden; becoming visible again
+  // refetches at once rather than waiting out the remaining interval.
+  const CANVAS_POLL_MS = 20_000
+  const analysisStore = useAnalysisStore()
+  const analysisPollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+
+  // analysisStore.analyses is a shared global ref that any other poller replaces
+  // wholesale, so scope to this model rather than trusting the last fetch. The
+  // join key belongs to the helper — see badgePhaseForElement for why it is
+  // `element` and not `model`.
+  const badgePhase = computed(() => badgePhaseForElement(analysisStore.analyses, modelId.value))
+
+  // Says why the dot is lit without claiming a count — one poll's view of a
+  // shared list is a weak basis for a number the user would read as exact.
+  const analysesTooltip = computed(() => {
+    switch (badgePhase.value) {
+      case 'paused': return 'Analyses — needs your input'
+      case 'working': return 'Analyses — run in progress'
+      case 'failed': return 'Analyses — a run failed'
+      default: return 'Analyses'
+    }
+  })
+
+  const pollAnalyses = () => {
+    if (!modelId.value || document.hidden) return
+    analysisStore.fetchAnalyses({ elementId: modelId.value })
+  }
+
+  // The rail's model-scoped buttons follow the canvas when it switches models.
+  // Only modelName was tracked before; the id stayed pinned to whatever model
+  // mounted first, which the analysis badge reads as its scope.
+  watch(() => props.modelId, newVal => {
+    modelId.value = newVal
+    showAnalyses.value = false
+    pollAnalyses()
+  })
+
+  onMounted(() => {
+    pollAnalyses()
+    analysisPollTimer.value = setInterval(pollAnalyses, CANVAS_POLL_MS)
+    document.addEventListener('visibilitychange', pollAnalyses)
+  })
+
+  onBeforeUnmount(() => {
+    if (analysisPollTimer.value) {
+      clearInterval(analysisPollTimer.value)
+      analysisPollTimer.value = null
+    }
+    document.removeEventListener('visibilitychange', pollAnalyses)
   })
 
   // Palette starts expanded for a model that opened with no elements — there is
@@ -194,57 +255,118 @@
       </span>
     </div>
 
-    <div
-      v-if="props.modelId"
-      class="model-dialog-toggle pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
-      role="button"
-      tabindex="0"
-      aria-label="Open model settings"
-      title="Model settings"
-      @click="editModel"
-      @keydown.enter.prevent="editModel"
-      @keydown.space.prevent="editModel"
-    >
-      <v-icon
-        color="tertiary"
-        icon="mdi-receipt-text-edit-outline"
-        size="large"
-        variant="outlined"
-      />
-    </div>
+    <!-- Canvas rail. One flex column rather than four hand-positioned boxes:
+         the toggles were each a fixed-position div with its own hardcoded `top`,
+         so the stack could only grow by copy-paste, and the pitch was restated
+         at every step. Order is unchanged from when these were separate. -->
+    <div class="canvas-rail">
+      <v-tooltip v-if="props.modelId" location="right" text="Model settings">
+        <template #activator="{ props: tip }">
+          <div
+            v-bind="tip"
+            aria-label="Open model settings"
+            class="rail-btn pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+            role="button"
+            tabindex="0"
+            @click="editModel"
+            @keydown.enter.prevent="editModel"
+            @keydown.space.prevent="editModel"
+          >
+            <v-icon
+              color="tertiary"
+              icon="mdi-receipt-text-edit-outline"
+              size="large"
+              variant="outlined"
+            />
+          </div>
+        </template>
+      </v-tooltip>
 
-    <div
-      class="edit-mode-toggle pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
-      :title="flowStore.editMode ? 'Edit mode (click to lock)' : 'View mode (click to edit)'"
-      @click="flowStore.editMode = !flowStore.editMode"
-    >
-      <v-icon
-        :color="flowStore.editMode ? 'warning' : 'tertiary'"
-        :icon="flowStore.editMode ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'"
-        size="large"
-        variant="outlined"
-      />
-    </div>
+      <v-tooltip
+        location="right"
+        :text="flowStore.editMode ? 'Edit mode (click to lock)' : 'View mode (click to edit)'"
+      >
+        <template #activator="{ props: tip }">
+          <div
+            v-bind="tip"
+            :aria-label="flowStore.editMode ? 'Lock the canvas (currently editable)' : 'Unlock the canvas for editing'"
+            class="rail-btn pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+            role="button"
+            tabindex="0"
+            @click="flowStore.editMode = !flowStore.editMode"
+            @keydown.enter.prevent="flowStore.editMode = !flowStore.editMode"
+            @keydown.space.prevent="flowStore.editMode = !flowStore.editMode"
+          >
+            <v-icon
+              :color="flowStore.editMode ? 'warning' : 'tertiary'"
+              :icon="flowStore.editMode ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'"
+              size="large"
+              variant="outlined"
+            />
+          </div>
+        </template>
+      </v-tooltip>
 
-    <div
-      class="zoning-overview-toggle pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
-      role="button"
-      tabindex="0"
-      aria-label="Open zoning overview"
-      title="Zoning overview"
-      @click="showZoningOverview = true"
-      @keydown.enter.prevent="showZoningOverview = true"
-      @keydown.space.prevent="showZoningOverview = true"
-    >
-      <v-icon
-        color="tertiary"
-        icon="mdi-shield-lock-outline"
-        size="large"
-        variant="outlined"
-      />
+      <v-tooltip location="right" text="Zoning overview">
+        <template #activator="{ props: tip }">
+          <div
+            v-bind="tip"
+            aria-label="Open zoning overview"
+            class="rail-btn pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+            role="button"
+            tabindex="0"
+            @click="showZoningOverview = true"
+            @keydown.enter.prevent="showZoningOverview = true"
+            @keydown.space.prevent="showZoningOverview = true"
+          >
+            <v-icon
+              color="tertiary"
+              icon="mdi-shield-lock-outline"
+              size="large"
+              variant="outlined"
+            />
+          </div>
+        </template>
+      </v-tooltip>
+
+      <v-tooltip v-if="props.modelId" location="right" :text="analysesTooltip">
+        <template #activator="{ props: tip }">
+          <div
+            v-bind="tip"
+            :aria-label="analysesTooltip"
+            class="rail-btn pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+            role="button"
+            tabindex="0"
+            @click="showAnalyses = true"
+            @keydown.enter.prevent="showAnalyses = true"
+            @keydown.space.prevent="showAnalyses = true"
+          >
+            <v-badge
+              :color="badgePhase ? PHASE_COLOR[badgePhase] : undefined"
+              dot
+              :model-value="badgePhase !== null"
+            >
+              <v-icon
+                color="tertiary"
+                icon="mdi-creation"
+                size="large"
+                variant="outlined"
+              />
+            </v-badge>
+          </div>
+        </template>
+      </v-tooltip>
     </div>
 
     <BoundaryZoningOverview v-model="showZoningOverview" />
+
+    <ModelAnalysisDialog
+      v-if="showAnalyses && props.modelId"
+      :model-id="props.modelId"
+      :model-name="modelName ?? ''"
+      :show="showAnalyses"
+      @analysis:closed="showAnalyses = false"
+    />
 
     <div class="vignette-overlay" />
 
@@ -296,34 +418,33 @@
   max-width: 480px;
 }
 
-.model-dialog-toggle {
+.canvas-rail {
   position: fixed;
   top: 120px;
   left: 80px;
   z-index: 1000;
-  cursor: pointer;
-  background-color: rgb(var(--v-theme-surface));
-  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
+  /* The button box measures 40px (4px padding + 2px border + a 28px large
+     icon, doubled), so 15px reproduces the 55px pitch the three toggles were
+     hand-positioned at and the first three keep their exact former positions. */
+  gap: 15px;
 }
 
-.edit-mode-toggle {
-  position: fixed;
-  top: 175px;
-  left: 80px;
-  z-index: 1000;
+.rail-btn {
   cursor: pointer;
   background-color: rgb(var(--v-theme-surface));
   opacity: 0.9;
-}
-
-.zoning-overview-toggle {
-  position: fixed;
-  top: 230px;
-  left: 80px;
-  z-index: 1000;
-  cursor: pointer;
-  background-color: rgb(var(--v-theme-surface));
-  opacity: 0.9;
+  /* The buttons are content-sized; a column stretches its items by default, so
+     without this the widest one (the badged icon) would set the whole rail. */
+  align-self: flex-start;
+  /* Flex, not the default block: v-badge is inline-block and baseline-aligned,
+     so wrapping an icon in one leaves the parent strut's descender hanging
+     below it and the button measures 43px against the plain buttons' 40px.
+     Removing the line box holds all four to the same height, and stops that
+     depending on how each browser synthesises the badge's baseline. */
+  display: flex;
+  align-items: center;
 }
 
 .model-name {

@@ -4,8 +4,6 @@
   import { useRouter } from 'vue-router'
   import { Class, Control, Model, Module, ModelScopeLocal, RECOMMENDED_COMPLIANCE_DRIVERS, platformScopeToLocal } from '@dethernety/dt-core'
   import { useIssueStore } from '@/stores/issueStore'
-  import { useAnalysisStore } from '@/stores/analysisStore'
-  import { phaseOf } from '@/utils/analysisPhase'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
 
   interface Props {
@@ -28,18 +26,7 @@
   const router = useRouter()
   const modelsStore = useModelsStore()
   const issueStore = useIssueStore()
-  const analysisStore = useAnalysisStore()
   const model = ref<Model | null>(null)
-
-  // Drives the "needs your input" dot on the Analysis tab: count this
-  // model's analyses paused at a human-in-the-loop interrupt. Filtered by model
-  // because analysisStore.analyses is a shared global ref.
-  const analysisPollTimer = ref<ReturnType<typeof setInterval> | null>(null)
-  const pausedCount = computed(() =>
-    analysisStore.analyses.filter(
-      a => a.model?.id === modelId.value && phaseOf(a.status) === 'paused',
-    ).length,
-  )
   const emits = defineEmits(['model:saved', 'model:open', 'model:moved', 'model:deleted', 'model:closed', 'redirect:issue'])
   const showFolderSelectDialog = ref(false)
   const deleteModelDialog = ref(false)
@@ -158,21 +145,6 @@
       controls.value = model.value?.controls || []
       complianceDrivers.value = model.value?.complianceDrivers ?? []
     })
-
-    // Poll this model's analyses for the whole time the dialog is open (any tab),
-    // so the Analysis-tab "needs input" dot stays live even when the Analysis tab
-    // — and its own poll — is unmounted.
-    analysisStore.fetchAnalyses({ elementId: modelId.value })
-    analysisPollTimer.value = setInterval(() => {
-      analysisStore.fetchAnalyses({ elementId: modelId.value })
-    }, 5000)
-  })
-
-  onBeforeUnmount(() => {
-    if (analysisPollTimer.value) {
-      clearInterval(analysisPollTimer.value)
-      analysisPollTimer.value = null
-    }
   })
 
   const onSubmit = async () => {
@@ -288,16 +260,6 @@
                 <v-tabs v-model="tab" color="primary">
                   <v-tab prepend-icon="mdi-cog-outline" value="general">General</v-tab>
                   <v-tab prepend-icon="mdi-shield-sword-outline" value="controls">Controls</v-tab>
-                  <v-tab prepend-icon="mdi-creation" value="analysis">
-                    <v-badge
-                      class="pe-1"
-                      color="warning"
-                      dot
-                      :model-value="pausedCount > 0"
-                    >
-                      Analysis
-                    </v-badge>
-                  </v-tab>
                 </v-tabs>
               </v-row>
 
@@ -393,11 +355,6 @@
                         />
                       </template>
                     </v-data-table>
-                  </v-tabs-window-item>
-
-                  <!-- Analysis Tab -->
-                  <v-tabs-window-item value="analysis">
-                    <AnalysisDialog v-if="modelId" :model-id="modelId" />
                   </v-tabs-window-item>
                 </v-tabs-window>
               </v-row>

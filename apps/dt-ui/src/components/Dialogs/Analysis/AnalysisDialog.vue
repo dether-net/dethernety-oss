@@ -282,7 +282,7 @@
                     min-width="500"
                     variant="outlined"
                     @blur="finishEditingName(item)"
-                    @keyup.enter="finishEditingName(item)"
+                    @keydown.enter.prevent="finishEditingName(item)"
                   />
                   <span v-else>{{ item.name }}</span>
                 </div>

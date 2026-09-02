@@ -9,6 +9,8 @@ import {
   phaseShowsRerun,
   phaseShowsBadge,
   errorReason,
+  badgePhaseOf,
+  badgePhaseForElement,
   type AnalysisPhase,
 } from '../analysisPhase'
 
@@ -156,5 +158,74 @@ describe('errorReason', () => {
     expect(errorReason(undefined)).toBe(generic)
     expect(errorReason(null)).toBe(generic)
     expect(errorReason({ ...status('failed'), metadata: { error: '   ' } })).toBe(generic)
+  })
+})
+
+describe('badgePhaseOf', () => {
+  it('returns null for no analyses at all', () => {
+    expect(badgePhaseOf([])).toBeNull()
+  })
+
+  it('never badges the steady states (ready / done)', () => {
+    expect(badgePhaseOf([status('idle'), status('idle', true)])).toBeNull()
+    expect(badgePhaseOf([undefined, null])).toBeNull()
+  })
+
+  it('badges paused ahead of everything else', () => {
+    // Paused is the only phase blocking on the user, so it wins even when a run
+    // is live and another has failed.
+    expect(badgePhaseOf([status('running'), status('failed'), status('interrupted')])).toBe('paused')
+  })
+
+  it('badges working ahead of failed', () => {
+    expect(badgePhaseOf([status('failed'), status('busy')])).toBe('working')
+  })
+
+  it('badges failed when nothing is paused or running', () => {
+    expect(badgePhaseOf([status('idle', true), status('error')])).toBe('failed')
+  })
+
+  it('pairs with PHASE_COLOR to give the dot the status chip’s colour', () => {
+    expect(PHASE_COLOR[badgePhaseOf([status('interrupted')])!]).toBe('warning')
+    expect(PHASE_COLOR[badgePhaseOf([status('running')])!]).toBe('info')
+    expect(PHASE_COLOR[badgePhaseOf([status('failed')])!]).toBe('error')
+  })
+})
+
+describe('badgePhaseForElement', () => {
+  // Shaped the way dt-core's findAnalyses actually returns a row: `model` stays
+  // the raw relationship LIST the platform sends, and the single `element` is
+  // derived from its first entry. A helper that joined on `model.id` would see
+  // undefined here and match nothing — which is the bug this shape exists to pin.
+  const row = (elementId: string, s: string): any => ({
+    id: `a-${elementId}-${s}`,
+    model: [{ id: elementId, name: 'CloudShop' }],
+    element: { id: elementId, name: 'CloudShop' },
+    status: status(s),
+  })
+
+  it('joins on element, not on the model relationship list', () => {
+    const rows = [row('m1', 'interrupted')]
+    expect(badgePhaseForElement(rows, 'm1')).toBe('paused')
+    // The regression guard: `model` is an array, so `model.id` is undefined and
+    // any join through it would silently return null for a genuinely paused run.
+    expect(rows[0].model.id).toBeUndefined()
+  })
+
+  it('ignores analyses belonging to another element', () => {
+    expect(badgePhaseForElement([row('m2', 'interrupted')], 'm1')).toBeNull()
+  })
+
+  it('applies the precedence across a mixed set for one element', () => {
+    const rows = [row('m1', 'failed'), row('m1', 'running'), row('m2', 'interrupted')]
+    expect(badgePhaseForElement(rows, 'm1')).toBe('working')
+  })
+
+  it('returns null for a missing element id rather than matching undefined ids', () => {
+    expect(badgePhaseForElement([{ id: 'x', status: status('interrupted') } as any], null)).toBeNull()
+  })
+
+  it('returns null for an empty store', () => {
+    expect(badgePhaseForElement([], 'm1')).toBeNull()
   })
 })
