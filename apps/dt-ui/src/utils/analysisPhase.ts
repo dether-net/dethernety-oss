@@ -1,4 +1,4 @@
-import type { AnalysisStatus } from '@dethernety/dt-core'
+import type { Analysis, AnalysisStatus } from '@dethernety/dt-core'
 
 /**
  * The five UI lifecycle phases an analysis row can be in. The phase — not the
@@ -99,4 +99,50 @@ export function errorReason(status?: AnalysisStatus | null): string {
 
   const oneLine = raw.replace(/\s+/g, ' ').trim()
   return oneLine.length > 160 ? `${oneLine.slice(0, 159)}…` : oneLine
+}
+
+/**
+ * Phases that earn the canvas rail's ambient badge, most urgent first.
+ *
+ * `paused` outranks the rest because it is the only phase blocking on the user —
+ * a run has stopped at a human-in-the-loop interrupt and will not progress until
+ * someone answers. `working` is informational, `failed` is already stale by the
+ * time it lands. `ready` and `done` never badge: a dot that never clears stops
+ * being read, and both are steady states the user can discover at their leisure.
+ */
+const BADGE_PRECEDENCE: AnalysisPhase[] = ['paused', 'working', 'failed']
+
+/**
+ * The single phase a set of analyses should badge with, or null for no badge.
+ *
+ * Takes statuses rather than analyses so it stays a pure phase computation; the
+ * caller owns filtering the store's global list down to one model. Colour comes
+ * from PHASE_COLOR, so the rail dot matches the status chip for the same phase.
+ */
+export function badgePhaseOf(statuses: Array<AnalysisStatus | null | undefined>): AnalysisPhase | null {
+  const present = new Set(statuses.map(s => phaseOf(s)))
+  return BADGE_PRECEDENCE.find(phase => present.has(phase)) ?? null
+}
+
+/**
+ * The badge phase for one element's analyses, picked out of the analysis store's
+ * shared global list.
+ *
+ * Joins on `element`, deliberately — NOT on `model`. The platform declares
+ * `model: [Model!]!` on Analysis (a relationship list), and dt-core's
+ * findAnalyses passes that array through untouched, deriving the single
+ * `element` this reads from its first entry. So `analysis.model.id` is
+ * `undefined` on every row and a join through it silently matches nothing.
+ * The Analysis interface types `model` as a lone `Model`, so that wrong join
+ * type-checks clean — which is exactly how it survived on the model dialog's
+ * Analysis tab, where this badge previously (and permanently) failed to light.
+ */
+export function badgePhaseForElement(
+  analyses: Analysis[],
+  elementId: string | null,
+): AnalysisPhase | null {
+  if (!elementId) return null
+  return badgePhaseOf(
+    analyses.filter(analysis => analysis.element?.id === elementId).map(analysis => analysis.status),
+  )
 }
