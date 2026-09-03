@@ -5,6 +5,185 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-03
+
+Two things an operator does often get shorter. A deployment now reads its subscription from the
+cloud on every catalog load rather than from a value frozen into its configuration when it
+connected, so a package bought today reaches a running deployment with a **Refresh** instead of a
+reconnect. And analyses open from a button on the canvas rather than from a tab buried in the model
+dialog. Alongside them: two corrections to numbers the product reports, a plugin that could not
+authenticate against anything sitting behind the platform, and a content mount that could report
+itself current while the platform served something else. Compared against the previous tag,
+`v0.7.0`.
+
+**Upgrading:** take the new bundle, and if you use the plugin, move to `@dether.net/dethereal`
+0.4.4. Nothing in an existing `.env` needs an edit, and no saved recipe needs regenerating — the
+retired `DEPLOYMENT_PACKAGES` value is accepted on paste and dropped, so a recipe you already hold
+keeps applying. One case does need you to act: if the **Content** tab reports that subscriptions
+cannot be checked on this deployment, that deployment's configuration predates the permission the
+check needs, and only a fresh recipe fixes it — read what disconnecting costs before you apply one.
+Reports and counts produced before this release may be inflated; see the first two items under
+*Fixed*.
+
+### Added
+
+- **A deployment reads its subscription from the cloud, not from its own configuration.** The
+  console used to learn which content packages a deployment was entitled to from a value written
+  into its configuration at the moment it connected, and gated the **Content** tab on that copy. A
+  subscription is not a fixed fact. Buying a package stayed invisible until the operator regenerated
+  the recipe and reconnected — and a disconnect removes every cloud-provided module, after which the
+  platform deletes the classes those modules contributed along with every link into them, including
+  links from analyses already run. The cheapest way to see a new package cost the graph.
+  `GET /api/packages` now asks the content service on every catalog load, carrying the operator's own
+  access token on a header of its own; the public catalog half of the same call still carries no
+  credential. Subscribe, come back, click **Refresh** at the top of the tab, and the package is
+  mountable straight away. A lapsed subscription arrives the same way. Not being able to ask
+  restricts nothing: no token — the ordinary state of a reloaded tab, since the browser holds it in
+  memory only — a timeout, a refusal, a malformed answer, or a content service that predates the
+  surface all leave the subscription undetermined, under a line saying which of them happened. An
+  unreachable service must never make a subscriber look unsubscribed. An empty list is different:
+  that is an answer, and it means entitled to nothing. A deployment whose configured scope cannot ask
+  at all is told exactly that, rather than invited to retry something that will never work.
+- **Analyses open from the canvas, not from a tab in the model dialog.** They are now the fourth
+  button on the data flow editor's toolbar — **Analyses**, the sparkle icon, beside **Model
+  settings**. Analyses are the loop you return to while modelling (run, wait, answer, view) and were
+  sitting two clicks behind two tabs you edit once; worse, that tab lived inside the form whose
+  submit saves the model, so pressing Enter while renaming an analysis saved the model and closed the
+  dialog out from under you. The "needs your input" badge moves onto the new button, where a run
+  paused at a human-in-the-loop interrupt is visible on the canvas without opening anything — it
+  never lit before, because it matched on a field the platform returns as a list. There is no route
+  to analyses from the model browser any more: the tile opens the canvas, and the dialog behind
+  right-click carries General and Controls, so the guides route through the editor. The canvas polls
+  every 20 seconds and idles while the tab is hidden, refetching when you come back, in place of the
+  dialog's unconditional 5. Every toolbar button is now keyboard reachable and carries a real
+  tooltip; the lock button had neither.
+
+### Fixed
+
+- **Three write paths were appending duplicate relationship edges, and counts read off them were
+  wrong.** Saving a component, a boundary or a data flow re-created every control and data-item
+  association it already had — one extra edge per element per save, including a save that changed
+  nothing but a position on the canvas. Assigning a control to elements it was already assigned to
+  did the same, and passing one element twice in a single call produced two edges from it. The MITRE
+  pack exporter put export wall-clock inside the relationship `MERGE` pattern, which made the
+  timestamp part of the edge's identity, so every regeneration matched nothing and duplicated the
+  whole set: measured across one regenerate-and-re-ingest cycle, 22,895 edges became 42,972. Nothing
+  underneath deduplicates — neither supported engine can express an endpoint-pair uniqueness
+  constraint on a relationship, and the GraphQL `connect` compiles to a bare `CREATE` — so these
+  accumulated until a downstream aggregation exhausted memory. Element saves are now replace
+  semantics, which is what the comment above each of them already claimed, and they are self-healing:
+  an ordinary save collapses duplicates already on disk for that element. Control assignment reads
+  what is attached and connects only the difference. A second pack ingest is now a no-op, all 123
+  relationship types at a ratio of 1.00. Nothing here sweeps the database, though — edges outside
+  those healing paths stay where they are, and any figure you read off them before this release was
+  too high.
+- **The threat report's ledger over-counted, by a lot.** It reported roughly 7.7× the true element
+  rows, 8.0× the finding entries and 5.8× the supporting-control entries. Three defects in one query,
+  all of them the same underlying thing: the engine's aggregation silently declines to collapse
+  certain shapes and returns plausible-but-wrong data rather than failing. Deduplicating a collection
+  of maps stops working the moment any value in the map is null, and most exposure fields are null on
+  an active finding; a list-valued column was carried as a grouping key, which multiplied the element
+  rows themselves; and the duplicate `SUPPORTS` edges above rode through unchecked, which is where
+  the control count came from. The obvious remedy is worse than the bug — re-projecting from
+  collected nodes gives the right count of the wrong data, where a two-finding element reads as its
+  first finding twice and the second is silently dropped. The shape that shipped deduplicates on a
+  scalar tuple and re-projects by index, which also preserves nulls rather than turning "not scored"
+  into a placeholder score. If you acted on a report produced before this release, its totals were
+  inflated; the duplicate edges behind part of that are still on disk, and the query no longer counts
+  them. The query is now pinned against a real engine rather than against inference, with every
+  assertion comparing identities rather than lengths — the first version of that suite asserted
+  lengths and passed against a ledger reporting one finding twice in place of two.
+- **The plugin could not authenticate against anything behind the platform.** Two refusals, both live
+  at once, and either alone was enough. It presented the OIDC identity token as its bearer; the
+  platform's own guard accepts that, because it validates a signature and an audience rather than a
+  token's use, so nothing looked wrong locally — while a resource server behind the platform does
+  check, refuses anything that is not an access token, and the refusal arrives as an opaque server
+  error. The bearer is the access token now, on both the stored-token and the transparent-refresh
+  path; the second fails an hour later and is the one an edit misses. And the login hardcoded
+  `openid profile email`, so no token it could mint carried a resource-server scope even after the
+  swap. It now requests what the platform advertises, falling back to those base scopes where a
+  platform advertises none, which is what keeps existing stored sessions valid. Requesting more is not
+  enough on its own: a refresh grant carries no scope parameter, so a session minted under the old
+  scope can never widen by refreshing. The plugin records what was actually granted and falls through
+  to a fresh authorization instead of refreshing an under-scoped token forever. Keeping the bearer and
+  the identity token apart is also what keeps audit attribution honest, since only the identity token
+  carries an email address. Separately, a module resolver refused upstream now reports
+  `UNAUTHENTICATED` rather than a generic module failure, which had been sending operators to
+  investigate a platform that was fine.
+- **A content mount could report itself up to date while the platform served the previous version.**
+  The console writes a mount's marker before its module file, deliberately: the other order can leave
+  a loadable module in a directory that both mount and unmount then refuse. The cost landed on a
+  re-mount. A module-file write that failed afterwards — or an abrupt death between the two writes,
+  which no error return can report — left the marker at the new pin and a valid module file at the
+  old one, and the currency check only asked whether that file existed. The row rendered `up to date`
+  while the platform went on serving the previous pin's classes, schemas, guides and evaluation. The
+  check now reads the file back and asks whether it names the pin the marker records. A mismatch gets
+  its own state — **module file mismatched**, rendered in the fault tone rather than the warning tone
+  used for a merely outdated mount — and the row offers **Repair**, which mounts again at the pin
+  already recorded rather than quietly substituting a different version. Publishing a module file now
+  writes a temporary file and renames it into place, closing that window for every failure the
+  temporary write catches.
+- **Icons went missing on the load after signing in.** Coming back from the identity provider
+  rendered every icon as an empty square until a cache-bypassing reload. Icons are a webfont, and the
+  callback page paints one — starting the font download — then navigates away, cancelling it
+  mid-flight and leaving the next document to render without it. That page's two glyphs are inline
+  SVG now, and the font is preloaded from the emitted bundle, which also fixes slow icons on any cold
+  load rather than only after a login.
+- **The settings panel opened on whichever tab the last selection left it on.** Dropping a component
+  or drawing a data flow landed you on Exposures or Controls — two empty tables for an element that
+  has just been created — hiding the name and description you came there to fill in. A newly created
+  element now opens on General, and the panel stays put if you are part-way through editing a
+  different one.
+
+### Changed
+
+- **`@dether.net/dethereal` 0.4.4.** The plugin is versioned and published on its own line; this
+  version carries the authentication fix above and its refreshed dependency ranges.
+- **The browser tab reads "Dethernety | Threat Modeling".** The previous title was a strained
+  portmanteau matching nothing else in the product. A tab, a bookmark and a history entry all read
+  from it, so the brand leads and the rest survives truncation.
+
+### Security
+
+- **The bundle's runtime layout is harder to redirect.** `data/` carries the sticky bit, so a
+  non-owner can no longer replace one of its children between runs — the directories under it are
+  world-writable by necessity, and permissioning each by name follows a symlink planted in place of
+  one. The bit is deliberately not applied to the modules, schema and mode directories, whose entries
+  are written by containers and legitimately replaced under a different user than installed them.
+  Separately, the mode file is refused outright if it is a symlink: an existence test dereferences,
+  so a dangling link there would have had the bundle create the operator's file wherever the link
+  pointed — holding a configuration layer that turns authentication off.
+- **URL-shaped recipe values are refused if they carry userinfo.** A `user@host` prefix is lifted out
+  of the host during parsing, so a value could name one host, pass every other check, and resolve to
+  another. The redirect the console writes, and derives its allowed origins from, is now validated
+  where it is written rather than left to its caller.
+- **Six advisories cleared across three dependencies**, each of which resolved below its fix in this
+  workspace's lockfile: `fast-uri` floored at 3.1.6, `qs` at 6.16.0, and `browserslist` newly pinned
+  at 4.28.7. The `browserslist` pin matters more than the version suggests — the lockfile held three
+  distinct copies, so clearing the advisory on the highest would have left two in range. Also
+  `google.golang.org/grpc` 1.83.1 for a heap-exhaustion advisory reachable by fragmenting HTTP/2 data
+  frames; it is an indirect dependency and nothing here serves gRPC.
+
+### Documentation
+
+- **The guides route through the editor, and drop a click target that never existed.** Every
+  walkthrough that said to open the model dialog and click the Analysis tab now stops at a step the
+  reader cannot perform — worst of them the threat report's getting-started page, where it was step
+  2 of a shipped module's onboarding. Four documents also told you to open the model dialog by
+  clicking the model's name on the canvas; that name plate has never had a click handler, and it is
+  the **Model settings** button beside it that opens the dialog. Two more sent readers hunting for a
+  star icon to start a run, which analysis rows have not carried since they gained labelled buttons.
+- **The operator guide said a disconnect costs nothing, above an operation that deletes data.** It
+  now states what a disconnect removes — every cloud-provided module, and at the next restart the
+  classes those modules contributed together with every link to them, including links in analyses
+  already run — and the console asks you to accept the same list before it proceeds. That correction
+  was owed before this release and would be owed without it.
+- **Two false claims in the architecture set were corrected, and four shipped designs stopped calling
+  themselves drafts.** One document described an append-only method as using a
+  disconnect-and-reconnect pattern it must not use; the other cited a test file that exists nowhere
+  in the repository, above a table formatted as an inventory that was really a pre-implementation
+  plan. The plan is now labelled as one, beside a dated as-built table with measured counts.
+
 ## [0.7.0] - 2026-08-26
 
 Entitled code arrives on the deployment. The console could already mount content packages, whose
@@ -649,6 +828,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.8.0]: https://github.com/dether-net/dethernety-oss/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/dether-net/dethernety-oss/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/dether-net/dethernety-oss/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dether-net/dethernety-oss/compare/v0.5.0...v0.6.0
