@@ -17,8 +17,7 @@
     "types": ["vite/client", "node"],
     "paths": {
       "@/*": ["./src/*"]
-    },
-    "baseUrl": "."
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]

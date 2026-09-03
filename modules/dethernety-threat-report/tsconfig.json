@@ -3,6 +3,7 @@
     "target": "ES2023",
     "module": "commonjs",
     "strict": true,
+    "rootDir": "./src",
     "outDir": "dist/dethernety/dethernety-threat-report",
     "declaration": true,
     "esModuleInterop": true,
