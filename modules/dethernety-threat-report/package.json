@@ -23,7 +23,7 @@
   "devDependencies": {
     "@types/node": "^25.9.5",
     "@vitejs/plugin-vue": "^6.0.8",
-    "neo4j-driver": "^5.28.3",
+    "neo4j-driver": "^6.2.0",
     "testcontainers": "^12.1.0",
     "typescript": "^5.9.3",
     "vite": "^8.2.2",

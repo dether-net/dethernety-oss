@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.5",
-    "neo4j-driver": "^5.28.3",
+    "neo4j-driver": "^6.2.0",
     "prettier": "^3.9.6",
     "tsx": "^4.23.13",
     "turbo": "^2.10.12",
