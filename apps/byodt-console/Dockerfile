@@ -8,7 +8,7 @@
 # Pin the build stage to the native BUILD platform and cross-compile to the target: the whole
 # binary is pure Go with CGO disabled, so cross-compiling on the runner's own arch is correct and
 # turns an arm64 build from minutes of QEMU-emulating the Go toolchain into seconds.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 
 RUN apk add --no-cache ca-certificates
 
