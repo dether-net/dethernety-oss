@@ -57,7 +57,7 @@
     "happy-dom": "^20.13.2",
     "pinia": "^3.0.4",
     "sass": "1.100.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "unplugin-auto-import": "^21.1.0",
     "unplugin-fonts": "^2.0.0",
     "unplugin-vue": "^7.2.0",
