@@ -48,7 +48,22 @@ onMounted(async () => {
       </div>
       
       <div v-else-if="errorMessage" class="error-container">
-        <v-icon color="error" size="64" class="mb-4">mdi-alert-circle</v-icon>
+        <!-- Inline SVG for the same reason as the success glyph below. Built from a
+             circle plus an explicit stroke rather than a single MDI-style path,
+             whose glyph is knocked out of the disc by fill winding — correct by
+             construction here instead of by a rule that is easy to get subtly
+             wrong. The knockout colour is the surface token, so it tracks the theme. -->
+        <svg class="mb-4" height="64" viewBox="0 0 24 24" width="64">
+          <circle cx="12" cy="12" fill="rgb(var(--v-theme-error))" r="10" />
+          <path
+            d="M12 6.75v6.5"
+            fill="none"
+            stroke="rgb(var(--v-theme-surface))"
+            stroke-linecap="round"
+            stroke-width="2.2"
+          />
+          <circle cx="12" cy="16.75" fill="rgb(var(--v-theme-surface))" r="1.2" />
+        </svg>
         <h2 class="text-error mb-4">Authentication Failed</h2>
         <p class="mb-4">{{ errorMessage }}</p>
         <v-btn color="primary" @click="$router.push('/login')">
@@ -57,7 +72,21 @@ onMounted(async () => {
       </div>
       
       <div v-else>
-        <v-icon color="success" size="64" class="mb-4">mdi-check-circle</v-icon>
+        <!-- Inline SVG, not <v-icon>. This page paints a glyph and then navigates
+             away (handleCallback → safeRedirect), which cancels the icon-font
+             download mid-flight and leaves the app's next load without it — the
+             empty-squares-after-login bug. Nothing here may depend on the webfont. -->
+        <svg class="mb-4" height="64" viewBox="0 0 24 24" width="64">
+          <circle cx="12" cy="12" fill="rgb(var(--v-theme-success))" r="10" />
+          <path
+            d="M7.4 12.4l3.1 3.1 6.1-6.1"
+            fill="none"
+            stroke="rgb(var(--v-theme-surface))"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2.2"
+          />
+        </svg>
         <h2 class="text-success mb-4">Authentication Successful</h2>
         <p>Redirecting you to the application...</p>
       </div>
