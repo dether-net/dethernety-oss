@@ -108,6 +108,33 @@
     selectedItem.value?.id != null && selectedItem.value.id === props.freshlyCreatedId,
   )
 
+  // A newly dropped element — or a newly drawn data flow — opens on General.
+  //
+  // The panel otherwise keeps whatever tab the *previous* selection was resting on, so
+  // dropping a component while parked on Exposures or Controls lands the user on a tab
+  // that has nothing to show for a brand-new element, with the name and description they
+  // came to fill in hidden a click away.
+  //
+  // Keyed to the freshly-created id rather than folded into updateForm(): both creation
+  // paths set that id once their store create resolves, which is not ordered against the
+  // selection change, so watching it holds whichever lands first. Firing on the id (not on
+  // isFreshlyCreated) also means re-selecting the still-unsaved element later does not yank
+  // the tab back to General under the user — and isFreshlyCreated is not usable here anyway,
+  // because for a data flow the published id is the client's while the selected edge carries
+  // the server's (dt-dataflow.ts reassigns newEdge.id from the mutation result).
+  //
+  // The !isDirty gate is what keeps this on the element actually on screen. Creating a
+  // component selects an optimistic temp node synchronously, which trips the dirty
+  // navigation guard: the guard snaps the selection back to the element being edited and
+  // raises the discard prompt, and the store's later re-point is skipped because the
+  // selection no longer holds the temp id. The create still resolves and still publishes an
+  // id, so without this gate the tab would jump to General on the element the user never
+  // left — behind the open modal, where the jump isn't even visible. The guard only fires
+  // when dirty, so !isDirty means the selection did land on the new element.
+  watch(() => props.freshlyCreatedId, id => {
+    if (id && !isDirty.value) tab.value = 'general'
+  })
+
   // Type guards
   const isNode = (item: Node | Edge | null): item is Node => {
     return item !== null && typeof item === 'object' && 'type' in item && 'position' in item

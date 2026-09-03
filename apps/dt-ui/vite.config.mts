@@ -10,6 +10,48 @@ import { defineConfig } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
 import path from 'node:path'
 
+// The MDI webfont is reachable only through a CSS @font-face rule, so the browser
+// does not request it until a glyph first paints. In this app that is late: main.ts
+// holds app.mount() behind Apollo init, auth-mode resolution and module loading, so
+// the font download starts only after every module network call has finished.
+//
+// It bites hardest returning from the OIDC provider. /auth/callback paints an icon,
+// which starts the download, then handleCallback redirects to home and cancels it —
+// leaving the next document to render the icons as empty squares until a
+// cache-bypassing reload. Preloading starts the fetch at HTML parse on every
+// document, so it is in flight long before any of that.
+//
+// The filename is content-hashed, so the href has to come from the emitted bundle
+// rather than being written into index.html. Build-only: in dev the font resolves
+// straight from node_modules and there is no hash to look up.
+const preloadIconFont = (base: string) => ({
+  name: 'preload-icon-font',
+  transformIndexHtml: {
+    order: 'post' as const,
+    handler (html: string, ctx: { bundle?: Record<string, unknown> }) {
+      if (!ctx.bundle) return html
+      const woff2 = Object.keys(ctx.bundle).find(f => /materialdesignicons-webfont-[^/]*\.woff2$/.test(f))
+      if (!woff2) return html
+      return {
+        html,
+        tags: [{
+          tag: 'link',
+          attrs: {
+            rel: 'preload',
+            as: 'font',
+            type: 'font/woff2',
+            href: `${base}${woff2}`,
+            // Fonts are fetched in CORS mode even same-origin; without this the
+            // preload is discarded and re-requested, which defeats the point.
+            crossorigin: '',
+          },
+          injectTo: 'head-prepend' as const,
+        }],
+      }
+    },
+  },
+})
+
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -48,6 +90,7 @@ export default defineConfig(({ mode }) => {
       // air-gapped. Roboto is now imported from the bundled roboto-fontface
       // package in plugins/vuetify.ts instead, so the typeface is unchanged.
       Fonts() as any,
+      preloadIconFont(process.env.VITE_BASE_PATH || '/') as any,
     ],
     define: { 'process.env': {} },
     resolve: {
