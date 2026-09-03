@@ -4,11 +4,10 @@
     "target": "ESNext",
     "jsx": "preserve",
     "lib": ["DOM", "ESNext"],
-    "baseUrl": ".",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
     "resolveJsonModule": true,
     "types": [
@@ -22,6 +21,7 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "skipLibCheck": true,
+    "rootDir": "./src",
     "outDir": "./build"
   },
   "include": [
