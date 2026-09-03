@@ -3,7 +3,7 @@
     "dethereal": {
       "type": "stdio",
       "command": "npx",
-      "args": ["@dether.net/dethereal@0.4.3"],
+      "args": ["@dether.net/dethereal@0.4.4"],
       "env": {
         "DETHERNETY_URL": "${DETHERNETY_URL}"
       }
