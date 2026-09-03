@@ -21,7 +21,7 @@
     "graphql-tag": "^2.12.7"
   },
   "devDependencies": {
-    "@types/node": "^25.9.5",
+    "@types/node": "^26.4.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "neo4j-driver": "^5.28.3",
     "testcontainers": "^12.1.0",
