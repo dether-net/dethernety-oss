@@ -59,7 +59,7 @@ Modules define issue types with customizable attributes:
 - **Custom issue types** (security vulnerabilities, compliance violations, configuration errors)
 - **Tailored attributes** (priority levels, assignment categories, SLA tracking)
 - **Issue templates** with pre-filled information
-- **External system integration** for bidirectional sync with tools like Jira, ServiceNow, or GitHub Issues
+- **External system integration**: a module may implement a hook that pulls an issue's attributes from an external tracker. No integration module ships with the platform — see [Issue Class Integration](COMPONENT_CONFIGURATION_GUIDE.md#issue-class-integration)
 
 ### Analysis Classes
 
@@ -148,10 +148,10 @@ The OSS distribution ships with two modules:
 
 ### Dethernety Module
 The default module providing:
-- Base component classes (processes, data stores, external entities)
-- Base boundary and data flow classes
-- AI-assisted class generation for creating custom classes on the fly
-- Core security analysis policies
+- General-purpose component classes for all three component types — processes (web server, API gateway, application service, firewall), data stores (relational database, object storage, cache, message queue), and external entities (end user, administrator, third-party service)
+- Boundary classes (network perimeter, network segment, application layer, data layer, container, host, and more) and data flow classes (HTTP/S request, API call, database query, authentication exchange, and more)
+- Control classes (encryption at rest and in transit, multi-factor authentication, role-based access control, web application firewall rules, and more), data classes, and issue classes
+- Core security analysis policies — every class carries the Rego rules that turn its configured attributes into exposures and countermeasures
 
 ### MITRE Frameworks
 Provides pre-loaded MITRE ATT&CK and D3FEND data:
