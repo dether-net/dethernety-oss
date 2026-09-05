@@ -695,9 +695,20 @@ When you re-run `/dethereal:threat-model` on a model that already has a baseline
 Two operator-facing details:
 
 - **`/dethereal:threat-model --full-scan`** bypasses drift detection entirely and re-runs `/dethereal:discover` end-to-end. Use this when history was rewritten past the baseline (e.g., a force-push or a branch-switch that orphaned the prior reconcile commit), or when you want to re-baseline against the current source tree.
-- **Crown-jewel removal triggers an elevated confirm.** When the drift detector proposes removing an element tagged `crown_jewel: true`, `/dethereal:remove` shows an explicit "this element is tagged as a CROWN JEWEL" prompt before applying. Untagged removals fall through to the standard confirmation.
+- **Crown-jewel removal triggers an elevated confirm.** When the drift detector proposes removing an element tagged as a crown jewel, `/dethereal:remove` shows an explicit "this element is tagged as a CROWN JEWEL" prompt before applying. Untagged removals fall through to the standard confirmation.
 
 For the full mechanism (git-diff substrate, scoped scout invocation, four-way delta routing), see [`oss/docs/architecture/dethereal/DRIFT_DETECTION.md`](../../architecture/dethereal/DRIFT_DETECTION.md).
+
+### Where crown-jewel status lives
+
+That elevated confirm reads two different fields, because the tag itself has two homes:
+
+| Element | Field checked |
+|---|---|
+| Component | `crownJewel: true` on the component in `structure.json` — the single source of truth, written by `/dethereal:classify` |
+| Data flow, data item, boundary | `crown_jewel: true` in that element's attribute file (`attributes/<kind>/<id>.json`) — a local-only mark, since these have no first-class field in `structure.json` |
+
+The two spellings are not interchangeable. The snake_case `crown_jewel` that can appear in a *component's* attribute file is only a derived copy: tagging a component there and nowhere else leaves `structure.json` untouched, so the tier-1 enrichment sweep and the surface report both count zero crown jewels. On a component, always set `crownJewel` in `structure.json`.
 
 ---
 

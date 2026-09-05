@@ -202,7 +202,7 @@ Restarting mid-pull only starts the downloads again.
 ./byodt restart
 ```
 
-The ingest re-runs because the corpus is not yet recorded as loaded. Confirm the console's **Ingest** panel reads `ok` and the statement count is no longer zero.
+The ingest re-runs because the corpus is not yet recorded as loaded. Confirm the console's **Data ingest** panel reads `ok` and the statement count is no longer zero.
 
 ### `the module release channel was unreachable`
 
@@ -445,7 +445,7 @@ If the database is not running, `./byodt up`. If it is running but the probe fai
 
 **Cause.** The database neither produced a new snapshot nor has an existing one to copy — this is effectively an empty or very newly created database.
 
-**Fix.** Confirm the deployment is actually holding data (the console's **Data** figure shows the statement count from the reference ingest). If the graph really is empty, there is nothing to back up yet.
+**Fix.** Confirm the deployment is actually holding data — the console's **Data ingest** panel shows the statement count from the reference ingest beneath its status. If the graph really is empty, there is nothing to back up yet.
 
 ### `That backup was taken on version X; this deployment is Y`
 

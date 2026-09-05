@@ -105,7 +105,10 @@ Route enumeration is **bounded**: routes are simple paths (no node is visited tw
 | `N flow routes found` | The full set fit within the limits — this is all of them. |
 | `Showing X of N routes.` | More routes exist than are shown; X are displayed out of N counted. |
 | `Showing X routes — enumeration capped; more exist.` | The model is dense enough that enumeration stopped early. The exact total is not claimed. |
-| `No modeled flow route connects <origin> → <target>` | No directed route within the hop limit, respecting flow direction. The tab adds that this reflects the modeled topology, not a segmentation assessment. |
+| `No routes within 6 hops connect <origin> → <target> (respecting flow direction) — longer routes are not enumerated.` | Nothing was found inside the hop limit. The tab adds that this reflects the modeled topology, not a segmentation assessment. It is **not** a claim that no path exists — a route longer than the limit would not be enumerated. |
+| `No routes within 6 hops were enumerated between <origin> → <target> — they connect only by longer routes.` | The stronger variant, shown when the choke-point analysis has established that the target *is* reachable: the two are connected, just not within the hop limit. That analysis covers every route, of any length. |
+
+The hop limit is **6**. It bounds enumeration, not reality: read "no routes" as "none within six hops," never as "no connection."
 
 This banner is persistent — it stays on screen and travels into exports. The tab never silently truncates a route list.
 

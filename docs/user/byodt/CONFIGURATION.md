@@ -118,11 +118,8 @@ There is no authentication setting in `.env`, by design. The platform's authenti
 | `NEO4J_USERNAME` | The database user the platform and the one-shot connect as. Not a secret. | `dethernety` | Rarely. Changing it on an existing deployment does not rename the existing database user. |
 | `NEO4J_DATABASE` | The database name. | `memgraph` | Rarely. |
 | `DB_DATA` | Where the database keeps its data — a host path, or the name of the declared volume. | `./data/memgraph` | See below. |
-| `SNAPSHOT_INTERVAL_SEC` | How often, in seconds, the database writes an automatic in-place snapshot for crash recovery. `0` disables them. | `300` | You want more or less frequent crash-recovery points. |
 
 The **password is not here.** It is generated into `.env.secrets` on the first start — see [The generated secret file](#the-generated-secret-file).
-
-Automatic in-place snapshots are **not backups**. They live inside the data directory, are pruned over time by the database's own retention, and are lost with the machine. Use `./byodt backup` for anything you want to keep. See [Backing up and restoring](./OPERATIONS.md#backing-up-and-restoring-the-graph).
 
 ### Embedding
 
@@ -132,6 +129,16 @@ Automatic in-place snapshots are **not backups**. They live inside the data dire
 | `EMBEDDING_SIMILARITY_THRESHOLD` | The similarity cut-off for class matching. | `0.40` | Only alongside a model change — the threshold is model-dependent, and the default is tuned for the default model. |
 
 Changing the model triggers a fresh download inside the `ollama` container on the next start, exactly like the first run.
+
+### Snapshots
+
+| Setting | What it does | Default | Change it when |
+|---|---|---|---|
+| `SNAPSHOT_INTERVAL_SEC` | How often, in seconds, the database writes an automatic in-place snapshot for crash recovery. `0` disables them. | `300` | You want more or less frequent crash-recovery points. |
+
+Applied on `./byodt restart db`.
+
+Automatic in-place snapshots are **not backups**. They live inside the data directory, are pruned over time by the database's own retention, and are lost with the machine. Use `./byodt backup` for anything you want to keep — it captures a snapshot and copies it out to `backups/`. See [Backing up and restoring](./OPERATIONS.md#backing-up-and-restoring-the-graph).
 
 ### Module source
 

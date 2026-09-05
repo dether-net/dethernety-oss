@@ -15,7 +15,7 @@ tags: ['intermediate', 'guide', 'findings', 'exposures', 'countermeasures', 'dis
 
 Modules generate findings for you automatically:
 
-- **Exposures** — security weaknesses detected on a component or data flow.
+- **Exposures** — security weaknesses detected on a component, security boundary, data flow, or data item.
 - **Countermeasures** — defensive controls derived from a control's class.
 
 These are *system-generated*: the platform re-derives them whenever the element's class or attributes change. Often you'll disagree with a specific finding for a specific situation — an exposure that doesn't apply to an internal-only tool, a control you've consciously decided not to implement, a finding the template raised by mistake. Deleting it doesn't help: the next time the model changes, the platform recreates it.
@@ -51,13 +51,13 @@ Pick the kind that matches your reasoning. Every disposition requires a reason.
 
 **Affirmed** is the exception. Every other kind **mutes** the finding — it stops counting toward your live, residual risk. Affirming a finding keeps it **live** while still marking it as triaged: it's the difference between "this doesn't apply" (mute) and "yes, this is real, and I've confirmed it" (keep live, now clearly reviewed). See [Affirming a finding](#affirming-a-finding-confirmed-live-risk).
 
-There is no severity colour-coding on dispositions — the kind and reason carry the meaning. Affirm is shown with an info-blue accent, never green.
+Dispositions carry no severity colour-coding — the kind and the reason carry the meaning, and a disposed row keeps the quiet outlined chip whatever kind it holds. The **Affirm** action button is info-blue for both finding types. What it *produces* is colour-coded, and deliberately not the same for both — see [Reading the lifecycle badges](#reading-the-lifecycle-badges).
 
 ## Disposing an exposure
 
-Exposures live on the component or data flow they were detected on.
+Exposures live on the element they were detected on — a component, a security boundary, a data flow, or a data item.
 
-1. Select the element and open its **settings panel**, then the **Exposures** tab.
+1. Select the element and open its **settings panel**, then the **Exposures** tab. For a data item, open the **Data** dialog instead; it hosts the same panel.
 2. On a system-generated exposure, click the **dispose** action (the shield icon) in the row.
 3. Choose a kind, enter a reason explaining the decision, and **Save**.
 
@@ -82,7 +82,7 @@ Affirm appears alongside the other finding actions (in the **Exposures** tab, th
 - **Confirmed live risk** — for an exposure you've reviewed and accept as a genuine, unmitigated risk, or
 - **Confirmed in place** — for a countermeasure you've verified is actually implemented.
 
-An affirmed finding **stays live**. Unlike the muting kinds, it still counts toward your residual risk — it's just now clearly triaged rather than unreviewed. You'll see a lifecycle cue on the row: a filled **Confirmed risk** badge on affirmed exposures, or an **In place** badge on affirmed countermeasures.
+An affirmed finding **stays live**. Unlike the muting kinds, it still counts toward your residual risk — it's just now clearly triaged rather than unreviewed. You'll see a lifecycle cue on the row: a filled **Confirmed risk** badge on affirmed exposures, or a filled **In place** badge on affirmed countermeasures. They are toned differently on purpose — see [Reading the lifecycle badges](#reading-the-lifecycle-badges).
 
 ### Add a note or review an affirmation
 
@@ -104,6 +104,26 @@ Both **pending** and **confirmed** findings are live — they count toward your 
 
 Each tab shows a **pending count** — for example `Countermeasures (N)` — so you can see at a glance how many findings still need a first look.
 
+### Reading the lifecycle badges
+
+The lifecycle state is shown on the row as a badge. There are three cases, and the middle one is deliberately *not* the same for the two finding types:
+
+| State | Exposure | Countermeasure |
+|---|---|---|
+| **Pending** | No badge | No badge |
+| **Confirmed** | Filled **Confirmed risk** badge, in the error/red tone | Filled **In place** badge, in the success/green tone |
+| **Disposed** | Quiet outlined badge naming the kind | Quiet outlined badge naming the kind |
+
+Three things are worth understanding here.
+
+**Pending shows no badge on purpose.** A model that has just been analyzed is *all* pending. Badging every row would make an untouched model look alarming when nothing is wrong yet. The backlog is surfaced once, as the per-tab pending count, rather than on every row.
+
+**Confirmed is green for countermeasures and red for exposures**, and this asymmetry is the point. Both mean "reviewed and confirmed", but they confirm opposite things: a countermeasure you've verified is in place is *good news*, and an exposure you've confirmed as a live risk is *bad news*. A single neutral colour would flatten that distinction — the one place green is right in this UI is a control you have confirmed exists.
+
+**A confirmed exposure is red, not yellow.** Yellow is reserved for the [stale marker and the **Review** button](#when-a-disposition-goes-stale), so a confirmed risk never reads as "this needs your attention again."
+
+Disposed rows keep the quiet outlined chip whatever kind they carry — that is where the "no severity colour-coding" rule holds. It applies to *dispositions*, not to the lifecycle badge.
+
 > **Subtlety:** an affirmation only counts as **confirmed** when it carries an attributed author. An affirmation with no recorded author is treated as **pending**, not confirmed — a safeguard so that an unattributed affirmation is never mistaken for a reviewed decision.
 
 ## When a disposition goes stale
@@ -122,9 +142,11 @@ Adding or removing a MITRE technique on a finding does *not* make its dispositio
 
 When you want your own editable version of a system-generated finding — to adjust its content, references, or techniques — **Customize** it:
 
-1. On a system-generated finding with no disposition, click the **Customize as an editable copy** action (the duplicate icon).
+1. On any **live** system-generated finding, click the **Customize as an editable copy** action (the duplicate icon).
 2. The platform creates a user-authored copy (named `… (custom)`) attached to the same element, and marks the original as **Superseded** with a reason that references your copy.
 3. Edit the copy freely. The original stays visible, marked Superseded, as a record of where the copy came from.
+
+**Live** means pending *or* affirmed. An affirmed finding carries a disposition and still offers Customize — confirming a finding as real is exactly the moment you may want your own version of it. Only **disposed** findings hide the action: a muted finding has already been ruled out, so there is nothing to supersede.
 
 If creating the copy succeeds but marking the original as superseded fails, you'll see a notice with a **Retry** option — your copy is already saved; retry only re-attempts the disposition.
 

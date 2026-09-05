@@ -22,7 +22,7 @@ Before configuring components, it's important to understand how Dethernety's [mo
 - **Scoped by the element**: what you are actually offered is narrowed by the element you are classifying — a component class written for a **Store** is never offered to a **Process**
 - **Security logic travels with the class**: each module carries the policies that turn a class's configured attributes into exposures
 
-The OSS distribution ships two modules; specialized modules add technology-, compliance-, or industry-specific classes. See [Understanding Modules](UNDERSTANDING_MODULES.md) for what a module contributes and how one is built.
+The OSS distribution ships four modules, but only one of them — `dethernety-general` — contributes classes to the picker; the other three supply framework data, reporting, and coverage facts. Specialized modules add technology-, compliance-, or industry-specific classes. See [Understanding Modules](UNDERSTANDING_MODULES.md) for what each shipped module contributes and how one is built.
 
 ### Class Inheritance
 
@@ -260,7 +260,7 @@ Enable these security headers for web applications:
 
 **How Dethernety Determines Security Exposures**
 
-After configuring component attributes, Dethernety's default module uses OPA/Rego policies to analyze your configuration and identify potential security exposures.
+After configuring component attributes, the **Dethernety General** module (`dethernety-general`) uses OPA/Rego policies to analyze your configuration and identify potential security exposures.
 
 **Exposure Calculation Process:**
 
@@ -597,7 +597,7 @@ Database components store and process sensitive information, making them critica
 - **Description**: Purpose and data types stored
 
 **Class Assignment:**
-1. Select a database class from loaded modules (e.g., "PostgreSQL Database", "MongoDB Collection")
+1. Pick a store class from the catalogue your installed modules provide (e.g., "Relational Database", "Object Storage") — the full workflow is in [How an Element Gets Its Class](#how-an-element-gets-its-class)
 2. The class determines available configuration attributes
 
 **Database Properties (after class assignment):**
@@ -900,7 +900,7 @@ The data dialog has three tabs: **General**, **Attributes**, and **Exposures**.
 
 **Choosing the class:**
 
-The picker lists the data classes provided by the modules installed on your instance. The shipped Dethernety module provides these:
+The picker lists the data classes provided by the modules installed on your instance. The shipped **Dethernety General** module provides these:
 
 ```
 Available Classes:

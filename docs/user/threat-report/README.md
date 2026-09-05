@@ -9,7 +9,7 @@ tags: ['threat-report', 'reporting', 'index', 'overview']
 
 # Threat Report
 
-The **Threat Report** is a read-only, point-in-time snapshot of the residual risk in one of your threat models. You generate it from a model's **Analysis** tab, then read it across five tabs, drill into any element, filter it down to what matters, and export it as machine-readable JSON or a self-contained printable HTML page. It reads your existing model and presents it — it never changes the model and never invents findings. Every tab renders over the same stored snapshot, so the whole report stays internally consistent as you move around it.
+The **Threat Report** is a read-only, point-in-time snapshot of the residual risk in one of your threat models. You generate it from a model's **Analyses** dialog, then read it across five tabs, drill into any element, filter it down to what matters, and export it as machine-readable JSON or a self-contained printable HTML page. It reads your existing model and presents it — it never changes the model and never invents findings. Every tab renders over the same stored snapshot, so the whole report stays internally consistent as you move around it.
 
 This page is the index for the Threat Report documentation set. New to the report? Jump straight to **[Getting Started](./GETTING_STARTED.md)**.
 
@@ -61,7 +61,7 @@ This page is the index for the Threat Report documentation set. New to the repor
 
 - **A threat model with elements.** The report reads your components, data flows, security boundaries, and data. An empty model produces an empty report.
 - **Permission to run an analysis** to generate or recreate a snapshot. Viewing is read-only; recording decisions on findings needs the appropriate permission.
-- **The Coverage Tools module (optional).** It powers the **Coverage & Gaps** tab. When it is not present, that tab simply does not appear and nothing else in the report is affected.
+- **The Coverage Tools module (optional).** It powers the **Coverage & Gaps** tab. The tab is always present; when the module is not deployed, the tab says so (`Coverage facts are unavailable…`) instead of rendering the matrix. Nothing else in the report is affected.
 
 See [Getting Started](./GETTING_STARTED.md) for the full setup walkthrough.
 
