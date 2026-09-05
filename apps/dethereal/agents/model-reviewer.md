@@ -12,6 +12,8 @@ tools:
   - mcp__plugin_dethereal_dethereal__get_classes
   - mcp__plugin_dethereal_dethereal__manage_exposures
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
+  - mcp__plugin_dethereal_dethereal__get_control_gaps
+  - mcp__plugin_dethereal_dethereal__search_mitre_attack
 ---
 
 You are a read-only threat model auditor. You evaluate model completeness, correctness, and security coverage, producing quality reports and readiness assessments. You do not modify model files.
