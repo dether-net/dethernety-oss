@@ -15,19 +15,14 @@ tags: ['advanced', 'reference', 'detailed', 'components', 'configuration', 'tech
 
 Before configuring components, it's important to understand how Dethernety's [module system](UNDERSTANDING_MODULES.md) works:
 
-### Modules and Model Assignment
+### Where classes come from
 
-**Modules** provide the component classes, data flow classes, and security analysis capabilities available in your model:
-- **Module Assignment**: During model creation, you assign modules to make their classes available
-- **Class Availability**: Only classes from assigned modules can be used in that model
-- **Security Logic**: Each module contains the logic for calculating exposures based on component configurations
+**Modules** provide the component classes, data flow classes, boundary classes, data classes, and security analysis logic you configure against:
+- **Installed, not assigned**: the class catalogue is deployment-wide — every class from every module installed on your Dethernety instance is offered to every model
+- **Scoped by the element**: what you are actually offered is narrowed by the element you are classifying — a component class written for a **Store** is never offered to a **Process**
+- **Security logic travels with the class**: each module carries the policies that turn a class's configured attributes into exposures
 
-**Common Module Types:**
-- **Dethernety Module**: Default module that provides basic classes and allows AI-assisted class generation
-- **Web Application Modules**: Provide web server, API, and frontend component classes
-- **Database Modules**: Provide various database and storage component classes
-- **Network Modules**: Provide networking, firewall, and infrastructure classes
-- **Security Modules**: Provide security control and monitoring classes
+The OSS distribution ships two modules; specialized modules add technology-, compliance-, or industry-specific classes. See [Understanding Modules](UNDERSTANDING_MODULES.md) for what a module contributes and how one is built.
 
 ### Class Inheritance
 
@@ -98,120 +93,63 @@ These are **suggestions, not a closed list** — you can type your own labels fo
 
 **Note**: Sensitivity and regulatory flags are the same fields the AI enrichment path populates. Whether you set them here by hand or let the AI workflow classify the data item, they read from one shared list of recommended flags, so the GUI suggestions and the AI output stay aligned.
 
-## AI-Powered Class Generation for All Elements
+## How an Element Gets Its Class
 
-**Universal Class Creation Capability**
+Every element in a model — component, data flow, security boundary, and data item — is classified the same way: you **pick a class** from the catalogue your installed modules provide. You do not author classes in the model editor. If nothing in the catalogue fits, the answer is a module that supplies a class that does — see [Understanding Modules](UNDERSTANDING_MODULES.md).
 
-Dethernety's AI framework can generate custom classes for any element type in your model:
+### Where the class picker lives
 
-- **Component Classes**: For processes, data stores, and external entities
-- **Data Flow Classes**: For connections between components
-- **Security Boundary Classes**: For trust zones and network segments
-- **Data Classes**: For data elements and information types
-- **Issue Classes**: For security issues, vulnerabilities, and external ticketing integration
+| Element | Where the picker appears |
+|---------|--------------------------|
+| Component (Process, Store, External Entity) | **General** tab of the settings panel, right-hand column |
+| Security boundary | **General** tab of the settings panel, right-hand column |
+| Data flow | **General** tab of the settings panel, right-hand column |
+| Data item | **General** tab of the **Data** dialog, right-hand column |
 
-### Universal AI Class Generation Process
+Open a component, boundary, or data flow's settings panel by double-clicking the node or the flow arrow on the canvas. For components and boundaries the picker is shown only while the inheritance switch reads **"Inherited from a Class"**; flipping it to **"Represents a Model"** replaces the picker with the **Represented Model** field.
 
-**Available for All Element Types:**
+A node with no class carries a warning marker on the canvas — hover it for *No class assigned. Open Settings to assign one.*
 
-1. **Access Element Settings**: Open any element's settings dialog (component, data flow, boundary, or data item)
-2. **Navigate to General Tab**: Go to the "General" tab in the settings dialog
-3. **Ensure Detailed Description**: Provide a thorough description of the element's purpose, technology, and security requirements
-4. **Click AI Generation**: Click the **creation icon** (star icon) in the General tab
-5. **AI Analysis**: The AI analyzes the description and creates a tailored class with OPA/Rego policies
+### Picking a class
 
-**Element-Specific Examples:**
+1. **Click the class field.** It is labelled **Component Class**, **Boundary Class**, or **Data Flow Class** on the settings panel, and **Class** on the Data dialog. A dropdown opens.
+2. **Take a suggestion, or search.** With the field empty the dropdown offers **Recently used in this model** and **Suggested for this element**. Type into the field to search the catalogue by name — results update as you type.
+3. **Or browse the whole catalogue.** Click **Browse all classes →** at the foot of the dropdown to open the **Browse classes** drawer. Narrow the list with the **Category** and **Module** facet chips, click a row to read its full description in the preview pane, then click **Select** — or double-click the row.
+4. **Confirm the change.** If the element already has a class (or represents a model), a confirmation appears first: *Changing the class will clear this element's attributes. Threats and exposures will be recomputed on the next analysis run.* When you also have unsaved name or description edits, it offers **Commit & change** and **Discard & change** alongside **Cancel**. An element with no class yet is bound immediately, with no confirmation.
+5. **Check the result.** The bound class appears in a preview card below the field, showing its **Category**, source **Module**, and description. The **Attributes** tab now loads that class's configuration form, and the class's policies start evaluating what you enter there.
 
-**Data Flow Class Generation:**
-```
-Data Flow Description:
-"HTTPS API calls carrying customer payment information between web frontend
-and payment processing service. Includes credit card tokens, transaction amounts,
-and customer identification data. Must comply with PCI DSS Level 1 requirements
-and support OAuth 2.0 authentication with rate limiting."
+### What the picker offers you
 
-Generated Data Flow Class:
-- Payment data transmission policies
-- PCI DSS compliance validation
-- OAuth 2.0 token verification
-- Rate limiting and throttling checks
-- Encryption in transit validation
-```
+- **Component classes are type-scoped.** Every component class is written for exactly one type, so a class written for a **Store** is never offered to a **Process** — not in the suggestions, not in the search results, not in the browse drawer. If a class you expect is missing, check the component's type first.
+- **Suggestions read the element's name and description.** Write a real description before opening the picker. With the description empty the dropdown says *Add a description above to get semantic suggestions* and matches on the name alone.
+- **Semantic matching needs an embedding backend.** On a deployment without one the picker says *Semantic search is unavailable on this deployment — showing name-based matches* and keeps working on names and descriptions.
+- **Every row names its source.** Results and browse rows are subtitled with the class's category and the module that provides it, so you can always tell where a class came from.
 
-**Security Boundary Class Generation:**
-```
-Boundary Description:
-"DMZ network segment hosting public-facing web services with strict ingress/egress
-controls. Includes web servers, load balancers, and CDN endpoints. Requires
-WAF protection, DDoS mitigation, and network segmentation from internal systems."
+### Replacing and removing a class
 
-Generated Security Boundary Class:
-- Network segmentation policies
-- WAF configuration validation
-- Ingress/egress traffic rules
-- DDoS protection verification
-- Internal network isolation checks
-```
+Pick a different class at any time — the new pick replaces the old one, through the same confirmation as above.
 
-**Data Class Generation:**
-```
-Data Description:
-"Customer personal identification information including names, addresses,
-phone numbers, and encrypted payment tokens. Subject to GDPR Article 9
-processing requirements with data retention limits and anonymization procedures."
+To leave a component, boundary, or data flow unclassified, click the **Remove class** button — the broken-link icon at the right of the inheritance-switch row. It confirms first: *Removing the class will delete its auto-generated exposures and clear this element's attributes. Exposures you created yourself are kept.*
 
-Generated Data Class:
-- PII identification and classification
-- GDPR compliance validation
-- Data retention policy checks
-- Encryption at rest requirements
-- Access control and audit logging
-```
+If a module upgrade withdraws a class that is still in use, the element keeps pointing at it and the picker flags the break: the field shows **Unknown class** with a **retired** chip and the prompt *Pick a replacement.* Choose a live class to repair the binding.
 
-**Issue Class Generation:**
-```
-Issue Description:
-"Security vulnerability tracking for web applications with CVE integration,
-CVSS scoring, and automatic sync with Jira. Issues should include affected
-components, remediation timelines, and patch management workflow integration."
+### One class per element, several per control
 
-Generated Issue Class:
-- CVE reference and tracking fields
-- CVSS score calculation and display
-- Affected component linkage
-- Remediation timeline attributes
-- Jira bi-directional sync configuration
-- Patch management workflow integration
-```
+An element carries **one** class at a time, which is why a pick is always a replacement and the browse drawer closes as soon as you select. Controls work differently: a control binds **several** control classes at once, so the same drawer stays open for repeat picks and marks classes already bound with an **Added** chip. See [Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md).
 
-### What AI-generated classes include
+## Issue Class Integration
 
-- Technology-specific OPA/Rego policies based on recognized frameworks and platforms
-- Relevant regulatory requirements (PCI DSS, GDPR, SOC 2, etc.) if mentioned in the description
-- MITRE ATT&CK technique mappings for detected exposures and D3FEND countermeasure links
-- Reusable class definitions that can be applied to multiple similar elements
+> **No integration module ships with Dethernety.** The platform provides the *seam* described below; a module has to implement it before an issue in Dethernety is connected to anything outside it. Out of the box, issues are created and tracked entirely within the platform — see the [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md).
 
-## Issue Class Integration Features
+The module that provides an issue class may also implement a **synchronization hook**. Where it does:
 
-Issue classes can define external system integration. When integration modules are installed, this enables:
+- The module reads the issue's attributes from the external system and returns them to the platform.
+- Those values surface as the issue's **synced attributes** — searchable alongside the issue's own fields, and the source of the severity shown on issue rows.
+- The platform records the time of the last successful sync on the issue, and enforces a timeout so a slow or unreachable external system cannot stall the request.
 
-**Bidirectional Synchronization**:
-- **Status Updates**: Changes in external systems reflect in Dethernety
-- **Assignment Tracking**: Responsibility assignments maintained across platforms
-- **Resolution Verification**: Closure verification and validation workflows
+The hook is a pull: the external system remains the source of truth for the attributes it owns, and the platform does not write back to it. Anything richer — pushing new issues outward, mirroring status changes both ways, escalation on a timer — is up to the module and is not something the platform provides.
 
-**External Systems** (via integration modules):
-- **Jira**: Atlassian workflow management
-- **ServiceNow**: Enterprise service management
-- **Azure DevOps**: Development workflow and backlog
-- **GitHub Issues**: Code repository issue tracking
-- **Custom Systems**: API-based integration with organizational tools
-
-**Issue Template Features**:
-- **Auto-Population**: Technical details, affected components, and exposure information
-- **Consistent Formatting**: Standardized issue descriptions and categorization
-- **Context Preservation**: Links back to threat model components and analysis results
-- **Escalation Rules**: Automatic escalation based on severity and timeframes
+Writing such a module is covered in the [Module Development Guide](../architecture/modules/DEVELOPMENT_GUIDE.md).
 
 ## Component Types Overview
 
@@ -248,119 +186,10 @@ Web applications are the most common entry points into systems and require caref
 Components can be configured in two ways:
 
 **Option 1: Class Assignment**
-1. In the component settings dialog, ensure the toggle is set to **"Uses Class"**
-2. Choose from available component classes provided by **modules assigned to the model**
-3. Select the most appropriate class for your component (e.g., "Web Application Server", "Apache HTTP Server")
+1. In the component's settings panel, leave the switch on **"Inherited from a Class"**
+2. Pick a component class from the catalogue your installed modules provide (e.g., "Web Server", "Relational Database") — the full workflow is in [How an Element Gets Its Class](#how-an-element-gets-its-class)
 
-**Note**: The classes offered for a component depend on two things — which modules were assigned to the model during creation, and the component's own type. Every component class is written for exactly one type, so a class written for a **Store** is never offered to a **Process** component: not in the suggestions, not in the search results, and not in the recently used list. If you don't see a class you expect, check the model's module assignments first, then check whether the class was written for this component's type (**Process**, **Store**, or **External Entity**). A class written for a different type cannot be used on this component — choose one that matches its type instead.
-
-**Option 1a: AI-Generated Class Creation**
-If no existing class fits your specific requirements, you can create a custom class using Dethernety's AI capabilities:
-
-1. In the component settings dialog, navigate to the **"General"** tab
-2. Ensure your component has a **detailed description** that explains its purpose, technology, and security requirements
-3. Click the **creation icon** (star icon) in the General tab
-4. This launches the **AI-powered class generation** process using your component's description as input
-
-**AI Class Generation Process:**
-
-```
-Example Component Description:
-"High-performance Redis cache cluster running in AWS ElastiCache with encryption
-in transit and at rest, used for session storage and application caching.
-Requires VPC endpoint access, supports cluster mode, and needs compliance
-with SOC 2 Type II requirements."
-```
-
-**AI Analysis and Generation:**
-- **AI Agent** analyzes the component description
-- **Technology Detection**: Identifies Redis, AWS ElastiCache, encryption requirements
-- **Security Context**: Recognizes VPC, encryption, compliance needs
-- **Policy Generation**: Creates OPA/Rego policies for exposure detection
-- **Documentation Creation**: Generates implementation guides and best practices
-
-**Generated Component Class Structure:**
-
-```rego
-package _dt_custom.components.redis_elasticache_cluster
-
-_redis_unencrypted_transit_def := {
-    "name": "redis_unencrypted_transit",
-    "description": "Redis cluster communication without TLS encryption allows data interception",
-    "criticality": "high",
-    "type": "Exposure",
-    "category": "Auto generated",
-    "exploited_by": [
-        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1040"},
-        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1557"}
-    ]
-}
-
-redis_unencrypted_transit[_redis_unencrypted_transit_def] if {
-    input.encryption_in_transit == false
-}
-
-redis_unencrypted_transit[_redis_unencrypted_transit_def] if {
-    input.tls_enabled == false
-    input.auth_token_enabled == true
-}
-
-_redis_weak_authentication_def := {
-    "name": "redis_weak_authentication",
-    "description": "Redis authentication relying solely on password without additional security measures",
-    "criticality": "medium",
-    "type": "Exposure",
-    "category": "Auto generated",
-    "exploited_by": [
-        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1110"},
-        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1078"}
-    ]
-}
-
-redis_weak_authentication[_redis_weak_authentication_def] if {
-    input.auth_token_enabled == true
-    input.iam_authentication == false
-    input.vpc_security_groups == false
-}
-
-exposures contains _redis_unencrypted_transit_def if {
-    count(redis_unencrypted_transit) > 0
-}
-
-exposures contains _redis_weak_authentication_def if {
-    count(redis_weak_authentication) > 0
-}
-```
-
-**AI-Generated Class Features:**
-- **Technology-Specific Policies**: Tailored to Redis/ElastiCache security patterns
-- **AWS Integration**: Recognizes AWS-specific security features (VPC, IAM)
-- **Compliance Mapping**: Incorporates SOC 2 Type II requirements
-- **Best Practice Validation**: Includes industry-standard security checks
-- **Multi-Scenario Coverage**: Multiple exposure scenarios and attack vectors
-
-**Interactive Refinement:**
-If the AI needs clarification, it will prompt with specific questions:
-
-```
-AI Agent: "I need to clarify a few details for your Redis ElastiCache cluster:
-
-1. What Redis version are you using (6.x, 7.x)?
-2. Are you using Redis Cluster mode or single-node?
-3. Should the class validate specific AWS security groups?
-4. What data sensitivity levels will be cached (PII, financial, etc.)?
-5. Are there specific compliance frameworks beyond SOC 2?"
-
-User Response: [Provide clarifications in the dialog]
-```
-
-**Automatic Class Assignment:**
-Once generation completes:
-1. **Custom class is created** and automatically assigned to your component
-2. **Configuration template appears** with AI-generated attributes
-3. **Exposure policies activate** and begin evaluating your component
-4. **Documentation becomes available** for implementation guidance
-5. **Class can be reused** for other similar components in the model
+**Note**: The classes offered for a component are narrowed by the component's own type. Every component class is written for exactly one type, so a class written for a **Store** is never offered to a **Process** component: not in the suggestions, not in the search results, not in the browse drawer, and not in the recently used list. If you don't see a class you expect, check whether it was written for this component's type (**Process**, **Store**, or **External Entity**), then whether the module that provides it is installed on your instance. A class written for a different type cannot be used on this component — choose one that matches its type instead.
 
 **Option 2: Model Reference**
 1. In the component settings dialog, toggle to **"Represents a Model"**
@@ -600,34 +429,7 @@ Data items (or entities) represent the types of data that components process, st
 - **Description**: Detailed explanation of the data type and its purpose
 
 **Class Assignment**:
-Similar to other elements, data items can be configured in two ways:
-
-**Option 1: Data Class Assignment**
-1. Select **"Uses Class"** option
-2. Choose from available data classes provided by assigned modules
-3. Select appropriate class (e.g., "Personal Identifiable Information", "Financial Data", "Authentication Credentials")
-
-**Option 2: AI-Generated Data Class Creation**
-1. Ensure detailed description of the data type, sensitivity, and regulatory requirements
-2. Click the **creation icon** (star icon) in the General tab
-3. The AI analyzes the description and creates a custom data class
-4. Generated class is automatically assigned to the data item
-
-**AI Data Class Generation Example**:
-```
-Data Description:
-"Customer credit card information including PAN, expiry dates, and CVV codes.
-Subject to PCI DSS Level 1 compliance requirements with tokenization for storage
-and end-to-end encryption for transmission. Includes cardholder name and
-billing address information."
-
-Generated Data Class:
-- PCI DSS compliance validation policies
-- Tokenization requirement checks
-- Encryption in transit/at rest validation
-- Cardholder data handling rules
-- Data retention and purging policies
-```
+A data item takes a single **data class**, picked from the catalogue your installed modules provide — for example "Customer & Personal Data", "User Credentials", or "Authentication Tokens". The picker sits in the right-hand column of the Data dialog's **General** tab and behaves exactly as it does for every other element; see [How an Element Gets Its Class](#how-an-element-gets-its-class).
 
 ### Data Item Attributes and Exposure Analysis
 
@@ -1089,54 +891,28 @@ To add data items to any element:
 
 #### Data Item Creation Dialog
 
-The data creation dialog provides two tabs for configuration:
+The data dialog has three tabs: **General**, **Attributes**, and **Exposures**.
 
 **General Tab:**
 - **Name**: Descriptive name for the data type (e.g., "Customer Payment Information", "User Authentication Tokens")
 - **Description**: Detailed description of the data structure and purpose
-- **Class Assignment**: Choose from existing Data Classes or create new ones
+- **Class**: the data class this item is an instance of, picked with the class picker in the right-hand column
 
-**Class Assignment Options:**
+**Choosing the class:**
 
-1. **Select Existing Class**: Choose from data classes provided by your assigned modules:
-   ```
-   Available Classes:
-   ├── Personal Identifiable Information (PII)
-   ├── Payment Card Data (PCI DSS)
-   ├── Healthcare Information (PHI)
-   ├── Financial Records
-   ├── Authentication Credentials
-   └── System Logs
-   ```
+The picker lists the data classes provided by the modules installed on your instance. The shipped Dethernety module provides these:
 
-2. **Create New Class with AI**: If no existing class fits your needs:
-   - Leave class selection empty
-   - Provide detailed description of your data type
-   - **AI Integration** will analyze your description and generate:
-     - Custom Data Class with appropriate attributes
-     - Security policies based on data sensitivity
-     - Compliance mappings (GDPR, HIPAA, PCI DSS)
-     - Encryption and access control recommendations
-
-#### AI Data Class Generation
-
-When creating custom Data Classes, the AI analyzes your data description to generate:
-
-**Security Classification:**
 ```
-Data Sensitivity: [Public | Internal | Confidential | Restricted]
-Regulatory Scope: [GDPR | CCPA | HIPAA | PCI DSS | SOX | Custom]
-Encryption Requirements: [At Rest | In Transit | End-to-End]
-Access Controls: [Public | Authenticated | Authorized | Privileged]
+Available Classes:
+├── Authentication Tokens
+├── Customer & Personal Data
+├── Security Logs
+├── System Configuration
+├── User Credentials
+└── User Input
 ```
 
-**Retention and Lifecycle:**
-```
-Data Retention Period: [Days | Months | Years | Indefinite]
-Deletion Requirements: [Secure Wipe | Standard Delete | Archive]
-Backup Policies: [Include | Exclude | Separate Handling]
-Geographic Restrictions: [None | Regional | Country-specific]
-```
+Search, browse, and confirmation work the same as for every other element — see [How an Element Gets Its Class](#how-an-element-gets-its-class). If none of the available classes describes your data, the class you need has to come from a module: see [Understanding Modules](UNDERSTANDING_MODULES.md).
 
 ### Configuring Data Attributes
 

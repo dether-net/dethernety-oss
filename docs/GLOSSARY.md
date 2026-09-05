@@ -32,11 +32,11 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 ## Security elements
 
-**Control** -- A security measure applied to one or more model elements. Controls have a class (from a module) and instantiation attributes. Configuring a control generates countermeasures.
+**Control** -- A reusable security measure, held in the Browser and assigned to any number of model elements (components, data flows, boundaries) or to a whole model. A control binds one or more control classes from modules and carries instantiation attributes for each; only a configured class generates countermeasures. See [Working with Security Controls](user/WORKING_WITH_SECURITY_CONTROLS.md).
 
-**Countermeasure** -- A defensive action generated from a control configuration, mapped to MITRE D3FEND techniques. Countermeasures are computed, not manually created.
+**Countermeasure** -- A defensive action belonging to a control. Most are computed from the control's configured classes; users can also author their own on the Countermeasures tab of the control dialog. Every countermeasure carries identity relations — the ATT&CK [mitigations](#) and D3FEND techniques it implements — and module-generated ones may additionally state what they do to specific ATT&CK techniques: *mitigates*, *protects against*, *detects*, or *isolates*. See [Working with Security Controls](user/WORKING_WITH_SECURITY_CONTROLS.md).
 
-**Exposure** -- A security weakness detected on a component or data flow based on its configuration and class. Exposures are computed by module rules (OPA/Rego policies or custom logic) and map to MITRE ATT&CK techniques.
+**Exposure** -- A security weakness on a component, data flow, security boundary, or data item, based on its configuration and class. Most are computed by module rules (OPA/Rego policies or custom logic); users can also author their own. Exposures map to the MITRE ATT&CK techniques that exploit them.
 
 **Issue** -- A tracked finding from analysis or manual review. Issues reference specific model elements (components, data flows, boundaries) and have a lifecycle (open, in progress, resolved).
 
