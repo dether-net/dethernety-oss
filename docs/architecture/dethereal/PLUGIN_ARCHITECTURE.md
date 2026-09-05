@@ -426,7 +426,7 @@ tools:
 
 **Purpose:** Audits threat models for completeness, correctness, and security coverage. Produces quality reports. Rolls up the advisory zoning-coherence findings via `validate_model_json(action: 'zoning')` at the validation step (see [TRUST_ZONING.md](TRUST_ZONING.md)).
 
-**Tools:** Read, Glob, Grep, `mcp__plugin_dethereal_dethereal__validate_model_json`, `mcp__plugin_dethereal_dethereal__get_classes`, `mcp__plugin_dethereal_dethereal__manage_exposures`, `mcp__plugin_dethereal_dethereal__manage_countermeasures`
+**Tools:** Read, Glob, Grep, `mcp__plugin_dethereal_dethereal__validate_model_json`, `mcp__plugin_dethereal_dethereal__get_classes`, `mcp__plugin_dethereal_dethereal__manage_exposures`, `mcp__plugin_dethereal_dethereal__manage_countermeasures`, `mcp__plugin_dethereal_dethereal__get_control_gaps`, `mcp__plugin_dethereal_dethereal__search_mitre_attack`
 **Disallowed tools:** Write, Edit, Bash (read-only reviewer)
 
 **Frontmatter:**
@@ -446,6 +446,8 @@ tools:
   - mcp__plugin_dethereal_dethereal__get_classes
   - mcp__plugin_dethereal_dethereal__manage_exposures
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
+  - mcp__plugin_dethereal_dethereal__get_control_gaps
+  - mcp__plugin_dethereal_dethereal__search_mitre_attack
 ---
 ```
 
