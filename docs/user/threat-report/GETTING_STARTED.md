@@ -47,14 +47,20 @@ Before you can generate a useful report, you need:
 The Threat Report appears as an analysis class named **Threat Report** in any model's **Analyses** dialog. Creating it follows the same flow as any other analysis, with one extra step: you **run** it to compute the snapshot.
 
 1. **Open your model.** Click the model in the Browser to open it in the Data Flow Editor.
-2. **Open the Analyses dialog.** On the canvas toolbar, click the **Analyses** button (the sparkle icon).
-3. **Create the report.** From the **New Analysis** menu, choose the **Threat Report** class. This creates a standing report instance attached to your model. At this point no snapshot exists yet.
-4. **Open the results.** In the report's row, open **Results** (the right-arrow action). The report opens on its scope-and-freshness banner, which reads `No snapshot has been generated yet.` and shows a **Generate** button.
-5. **Generate the snapshot.** Click **Generate**. The banner switches to `Generating snapshot…` while the report reads your model and stores a point-in-time snapshot. When it finishes, the report renders.
+2. **Open the Analyses dialog.** On the canvas rail down the left of the editor, click the **Analyses** button (the sparkle icon). A dialog titled `Analysis: <your model's name>` opens, listing this model's analyses.
+3. **Create the report.** From the **New Analysis** menu, choose **Threat Report**. A row appears in the analyses table with the status **Ready** and a single **Run** button. That row is a standing report instance attached to your model — it holds no snapshot yet.
+4. **Generate the snapshot.** Click **Run**. The button shows a spinner while the report reads your model and stores a point-in-time snapshot.
+5. **Open the report.** The table refreshes every few seconds; when the snapshot lands the row's status turns **Done** and its button becomes **View results**. Click it to open the report.
 
-When the snapshot lands, you'll see the banner change to read `Reflects the model as of <date and time>` with a green **Fresh** marker, and a summary line such as `12 components · 4 boundaries`. That's your confirmation the report generated successfully.
+> **One action per row, chosen by state.** An analysis row offers exactly one forward action, and which one you get is decided by the row's status: **Ready** → **Run**, **Working** → **View progress**, **Paused** → **Answer**, **Done** → **View results**, **Failed** → **Retry**. There is no separate "open results" action on a report that has never been run — **Run** is how you generate the first snapshot, and **View results** only appears once a snapshot exists.
 
-> **Note:** Generating reads the model but never modifies it. If generation fails, any previous snapshot is left untouched and the banner explains what happened.
+When the report opens, the banner reads `Reflects the model as of <date and time>` with a green **Fresh** marker, and a summary line such as `12 components · 4 boundaries` sits above the tabs. That's your confirmation the report generated successfully.
+
+> **Note:** Generating reads the model but never modifies it. If generation fails, any previous snapshot is left untouched: the row goes to **Failed** (hover its status chip for the reason) and offers **Retry**.
+
+### If you open a report that was never generated
+
+Opening a report by a path that doesn't go through the analyses table — a bookmarked or shared link straight to the results page, for example — can land you on a report whose snapshot has never been generated. There the report shows `No snapshot has been generated for this report yet.`, the banner reads `No snapshot has been generated yet.`, and its button reads **Generate**. Click **Generate** to compute the first snapshot without going back to the analyses table. Following the steps above, you'll never see this state: **Run** generates the snapshot before **View results** ever appears.
 
 ---
 
@@ -70,7 +76,7 @@ There are five tabs, plus a per-element drill-down:
 | **Coverage & Gaps** | Your MITRE ATT&CK coverage and where the gaps are (requires the Coverage Tools module). |
 | **Reachability** | Which crown jewels can be reached over modeled flow routes, and what lies on those routes. |
 | **Boundary Crossings** | Where flows cross security boundaries, what they carry, and how each crossing reads against your declared-zone data-flow policy. |
-| **Residual Risk** | The findings ledger — every finding, open or reviewed, that you can filter and act on. |
+| **Residual Risk** | The findings ledger — every finding, open or dispositioned, that you can filter and act on. |
 
 Clicking any element — in any tab — opens its **Component Profile** as an overlay dialog: that element's findings, supporting controls, the data it handles, links to its neighbors, and — for a security boundary — its declared **trust zoning** (zone, planes, domains, and conduits). Close the dialog (press **Esc**, click the scrim, or use the close button) and you return to exactly where you were.
 
@@ -84,17 +90,19 @@ Each tab has a dedicated guide. Start with [Reading the Report](./READING_THE_RE
 
 The report does not query your model live — it reads the snapshot it stored when you generated it. That's deliberate: it keeps every tab consistent with every other. The trade-off is that the report does **not** auto-update. If you edit the model after generating, the report still shows the older snapshot until you regenerate.
 
-The report detects this for you. When the underlying model has changed since the snapshot was taken, the freshness banner switches from green **Fresh** to an amber `Stale — the model changed since` marker, and a `Snapshot is stale — Recreate to refresh` flag appears. The **Generate** button becomes a **Recreate** button.
+The report detects this for you. When the underlying model has changed since the snapshot was taken, the freshness banner switches from green **Fresh** to an amber `Stale — the model changed since` marker, and a `Snapshot is stale — Recreate to refresh` flag appears. The banner's button reads **Recreate** from the moment a snapshot exists (it reads **Generate** only on a report that has never been run); on a stale report it also picks up a warning accent.
 
 **Regenerate when the banner reads stale** — typically after you:
 
 - add, remove, or rewire components, flows, boundaries, or data;
-- record a decision on a finding (a triage / disposition);
-- reclassify data sensitivity or change which element handles which data.
+- reclassify data sensitivity, change a boundary's declared zoning, or change which element handles which data;
+- record a decision on a finding from somewhere other than this report (the canvas, another session).
 
 To refresh, click **Recreate**. The report recomputes a fresh snapshot over the current model and the banner returns to **Fresh**. A routine save that changes nothing report-relevant will *not* mark the report stale, so you won't be nagged for no reason.
 
-> **Tip:** Recording a decision on a finding opens the platform's own triage dialog and changes the model — which is exactly the kind of change that marks the report stale. Recreate afterward to fold your decision into a fresh snapshot. See [Working with Findings](./WORKING_WITH_FINDINGS.md).
+You can also regenerate from the analyses table without opening the report: on a **Done** row, open the **⋮** overflow menu and choose **Re-run**. It runs the same generation step as **Recreate**.
+
+> **Tip — decisions you record *inside* the report behave differently.** They are written to the model like any other, but the report also patches them onto the rows in front of you straight away, so triaging a run of findings doesn't dim the whole page. Instead of flipping to stale, the report shows a note above the tabs — *Reflecting N changes made since this snapshot was generated* — and disables the export buttons until you **Recreate**. See [Working with Findings](./WORKING_WITH_FINDINGS.md).
 
 ---
 

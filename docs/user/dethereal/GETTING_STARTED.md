@@ -93,16 +93,30 @@ In no-auth mode the platform runs with authentication disabled (`ENABLE_NOAUTH=t
 
 ## Your First Session
 
-When you start Claude Code with the plugin loaded for the first time, you'll see an orientation message:
+When you start Claude Code with the plugin loaded and no models tracked yet, you'll see an orientation message:
 
 ```
-Welcome to Dethereal — threat modeling for Claude Code.
+Dethereal threat modeling plugin is active.
 
-Quick start:
-  /dethereal:create    Create a new threat model
-  /dethereal:status    Check connection and auth
-  /dethereal:help      See all commands
+  /dethereal:create   -- Create or import your first threat model
+  /dethereal:status   -- Check connection and auth status
+  /dethereal:help     -- See all available commands
+
+  Or just describe your system in natural language:
+  "I have a React frontend talking to a Go API with a PostgreSQL database"
 ```
+
+That last block is not decoration. You do not have to start with a command — describing your system in plain language is a first-class entry point, and the plugin turns the description into a model.
+
+If the plugin can't reach a platform, one more line follows:
+
+```
+  Platform: not connected (run /dethereal:login to connect)
+```
+
+You'll see it when `DETHERNETY_URL` is unset *and* nothing is answering on `http://localhost:3003`. It is a hint, not a blocker — you can create and enrich a model entirely offline, and connect later.
+
+Once you have models, this orientation is replaced by a short resume hint. With a single model it names the model, its quality score, and its workflow state; with several it gives the count and points you at `/dethereal:status`.
 
 ### Checking Connection Status
 
@@ -174,6 +188,8 @@ The plugin will:
 ```
 
 Available templates: `web_app`, `api_service`, `microservices`.
+
+Two further example models exist — `simple` (the tool's default) and `database` — but `/dethereal:create` deliberately offers only the three above. Those two are minimal, one- and two-component skeletons; they are reachable through the `get_example_models` tool and are useful as schema references, not as a starting point for a real model.
 
 ### Option 3: Import From Infrastructure Files
 

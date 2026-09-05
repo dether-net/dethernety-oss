@@ -261,20 +261,120 @@ Exposures
   Run /dethereal:sync push to publish.
 ```
 
-### 4. Control Gap Analysis
+### 4. Control Coverage and Gap Analysis
 
-Components without security controls, grouped by enrichment tier:
+This is the longest section of the report, and it is deliberately not a single number. Coverage is reported in up to five parts, because "covered" means different things depending on where the evidence came from.
+
+The two you always get are **inferred** coverage — read from the security attributes you set during enrichment — and **formal** coverage — read from the controls actually assigned to elements. A synced model adds MITRE-grounded gap analysis on top; two further parts appear only when you have the data they describe.
+
+#### 4a. MITRE-grounded gap analysis
+
+**Requires a platform sync.** This part is skipped entirely on a model that has never been pushed — the analysis walks the platform's `Exposure → ATT&CK Technique → ATT&CK Mitigation → Countermeasure → Control` chain, and there are no platform exposures to walk from until you sync.
 
 ```
-Control Gaps
-  Components without controls:
-    Tier 1: payment-db (crown jewel — high priority)
-    Tier 2: api-gateway (cross-boundary)
-    Tier 3: web-frontend (internet-facing)
-    Tier 4: scheduler (internal)
+### MITRE-Grounded Gap Analysis
+  N unmitigated exposures (addressable), M unaddressable (module gap), K with no MITRE chain.
+
+  Unmitigated:
+    api-server: SQL Injection (T1190 → M1016 Vulnerability Scanning)
+    payment-db: Data Manipulation (T1565 → M1041 Encrypt Sensitive Info)
+
+  Recommended Controls:
+    1. WAF Protection — addresses 3 techniques, D3FEND: D3-WSAA
+    2. DB Encryption (PG) — addresses 2 techniques, D3FEND: D3-DENCR
+
+  Unaddressable (module gap — no installed ControlClass):
+    scheduler: Resource Hijacking (T1496 → M1047)
 ```
 
-Each component appears in its **highest-priority tier only** — a crown jewel that is also cross-boundary appears only in Tier 1.
+Read the three counts as three different problems:
+
+| Bucket | What it means | What to do |
+|---|---|---|
+| **Unmitigated (addressable)** | A real gap you can close today — an ATT&CK mitigation exists, and an installed module provides a control class that implements it. | Assign the recommended control. |
+| **Unaddressable (module gap)** | The mitigation exists in ATT&CK, but no installed module supplies a control class for it. | Install a module that covers it, or handle it outside the platform. |
+| **No MITRE chain** | The exposure carries no ATT&CK technique mapping, so it cannot be traced through the framework chain at all. | Judge it manually — the framework has nothing to say about it. |
+
+Two more numbers appear alongside them. **Configured but non-matching** counts controls that *are* assigned to an element but address different techniques — coverage that looks reassuring on the element and does nothing for that exposure. **Recommended controls** are type-compatible candidates, each with its D3FEND links and the number of techniques it would address.
+
+> **Recommendations are per control class, not per control.** Several recommended rows naming related classes for the same mechanism are often satisfied by **one** control carrying several classes — not one control per row. See [Working with Security Controls](../WORKING_WITH_SECURITY_CONTROLS.md).
+
+If the platform call fails — expired auth, network error — the report falls back to what it can read from your local files (4c below).
+
+#### 4b. Inferred coverage (from enrichment attributes)
+
+Computed locally from the attributes you set during enrichment, broken down by protection category:
+
+```
+### Inferred Coverage (from enrichment attributes)
+
+| Protection | Coverage | Missing |
+|------------|----------|---------|
+| Authentication | 10/12 (83%) | scheduler, batch-worker |
+| Encryption in transit | 8/10 cross-boundary flows (80%) | internal→data-tier, worker→queue |
+| Encryption at rest | 3/4 stores (75%) | session-cache |
+| Monitoring | 6/12 (50%) | scheduler, batch-worker, config-svc, ... |
+```
+
+The report labels this honestly, and so should you: it is **sufficient for a security posture review, insufficient as compliance evidence**. An `authentication: oauth2` attribute is your assertion that the component authenticates — it is not a control anyone has assigned, reviewed, or verified. Run `/dethereal:enrich` to fill the gaps it names.
+
+#### 4c. Formal control coverage (from assigned controls)
+
+The same question asked of *assigned controls* rather than attributes, broken down by enrichment tier:
+
+```
+### Formal Control Coverage (from assigned controls)
+
+| Tier | Components | With Controls | Gap |
+|------|------------|---------------|-----|
+| 1 — Crown Jewels | 3 | 2 (67%) | payment-db |
+| 2 — Cross-boundary | 4 | 1 (25%) | api-gw, auth-svc, msg-queue |
+| 3 — Internet-facing | 2 | 2 (100%) | — |
+| 4 — Internal | 3 | 0 (0%) | scheduler, batch-worker, config-svc |
+| **Total** | **12** | **5 (42%)** | **7 components without formal controls** |
+```
+
+The four tiers are:
+
+| Tier | Definition |
+|---|---|
+| **1 — Crown jewels** | Components you tagged `crownJewel` during classification. |
+| **2 — Cross-boundary** | Source or target of a flow that crosses a trust boundary. |
+| **3 — Internet-facing** | Connected to an external entity by a data flow. |
+| **4 — Internal** | Everything else. |
+
+Each component appears in its **highest-priority tier only** — a crown jewel that is also cross-boundary appears in Tier 1 and nowhere else, so the tier totals add up to your component count.
+
+This is the coverage figure that stands up as evidence, which is why the report names the frameworks it serves (SOC 2 CC6.1, ISO 27001 A.8, PCI-DSS 6.x). Close a gap with `/dethereal:enrich --focus controls`.
+
+#### 4d. Control source breakdown
+
+Appears only when your controls carry a `source` field. It separates controls the plugin found evidence for during discovery from controls you asserted yourself:
+
+```
+### Control Verification Status
+
+| Source | Controls | Note |
+|--------|----------|------|
+| Discovered (verified in code/IaC) | 8 | Full confidence — implementation confirmed |
+| Declared (user-asserted) | 5 | Assumed effective, unverified |
+| Both (discovered + declared) | 2 | Highest confidence — governed and verified |
+```
+
+A control that is both discovered and declared is the strongest statement available: someone wrote the policy down, and the implementation was found.
+
+#### 4e. Governance controls
+
+Appears only when you declared governance controls during the enrichment control pass — the organizational measures that protect the system without living in any one component:
+
+```
+### Governance Controls (declared)
+  - Patch management: monthly patching cycle
+  - Access reviews: quarterly
+  - Change control: CAB approval required for production
+```
+
+These are listed, not scored. They have no element to attach to, so they contribute nothing to 4b or 4c — the section exists so a reviewer sees them rather than assuming they don't exist.
 
 ### 5. MITRE ATT&CK Coverage
 
@@ -340,12 +440,16 @@ Understanding which analysis requires platform sync:
 | Analysis | Source | Requires Platform Sync? |
 |----------|--------|------------------------|
 | Quality score, structural validation | Local (`/dethereal:review`) | No |
-| Boundary crossing matrix, control gaps, credential topology | Local (`/dethereal:surface`) | No |
+| Boundary crossing matrix, credential topology, detection coverage | Local (`/dethereal:surface`) | No |
+| Inferred and formal control coverage (`/dethereal:surface` §4b, §4c) | Local (`/dethereal:surface`) | No |
+| MITRE-grounded gap analysis (`/dethereal:surface` §4a) | Platform analysis engine | Yes |
 | MITRE ATT&CK tactic coverage (`/dethereal:surface` §5) | Platform analysis engine | Yes |
 | Exposures, attack paths | Platform analysis engine | Yes |
 | Countermeasure coverage, defense gaps | Platform analysis engine | Yes |
 
-Local analysis runs entirely from model files — you can review quality and most of the attack surface without a platform connection. `/dethereal:surface` still runs offline, but its exposure counts (§3) and MITRE tactic coverage (§5) come from the platform and are reported as unavailable until you push and run an analysis.
+Local analysis runs entirely from model files — you can review quality and most of the attack surface without a platform connection. `/dethereal:surface` still runs offline, but three of its parts come from the platform and are reported as unavailable until you push and run an analysis: exposure counts (§3), MITRE-grounded gap analysis (§4a), and MITRE tactic coverage (§5).
+
+**"Control gaps" is not one thing.** The tier gap table in §4c is computed from your local files and needs no sync. The MITRE-grounded gap analysis in §4a — the one that names techniques, mitigations, and recommended controls — needs one. If you run `/dethereal:surface` offline and see tier gaps but no MITRE chain, that is the reason.
 
 ### Prioritization Guidance
 

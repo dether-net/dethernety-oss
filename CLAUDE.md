@@ -46,8 +46,10 @@ pnpm docker:run           # Run Docker container
 - `packages/typescript-config` — Shared TypeScript configuration
 
 ### Modules
-- `modules/dethernety-general` — Default module with component classes, controls, exposures
-- `modules/mitre-frameworks` — MITRE ATT&CK and D3FEND data + ingestion scripts
+- `modules/dethernety-general` — Component, boundary, data flow, control, data, and issue classes + the Rego policies behind exposures and countermeasures; the only module contributing classes
+- `modules/mitre-frameworks` — MITRE ATT&CK and D3FEND data pack + ingestion scripts; no `main`, no `DTModule` class, contributes no classes
+- `modules/dethernety-threat-report` — The "Threat Report" analysis type and the report UI it renders; no classes, no policies, no AI
+- `modules/dethernety-coverage-tools` — Backend-only; the graded MITRE coverage facts the Threat Report's Coverage & Gaps matrix reads
 
 ### Database
 - Bolt/Cypher compatible (Neo4j or Memgraph)

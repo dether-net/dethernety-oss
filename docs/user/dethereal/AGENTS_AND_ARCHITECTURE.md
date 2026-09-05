@@ -210,7 +210,7 @@ All MITRE data comes from the platform's graph database — the plugin never gen
 | Tool | Purpose |
 |------|---------|
 | `manage_exposures` | Read platform-computed exposures (list/get only — exposures are computed by the analysis engine, not created by users) |
-| `manage_controls` | Multi-action tool for the control library: CRUD (`list`, `get`, `create`, `update`, `delete`), assignment (`assign`), ranking (`rank`), and the control-library workflow (`pull-controls`, `push-greenfield`, `push-brownfield`, `set-local-edited`, `promote-external-edit`, `tombstone`, `inspect-wal`). The control-library actions enforce the two-write rule and the shared-ownership safety check. |
+| `manage_controls` | Multi-action tool for the control library: CRUD (`list`, `get`, `create`, `update`, `delete`), assignment (`assign`), ranking (`rank`), and the control-library workflow (`pull-controls`, `push-greenfield`, `push-brownfield`, `set-local-edited`, `promote-external-edit`, `tombstone`) plus two write-ahead-log repair actions (`inspect-wal`, `clear-wal`). The control-library actions enforce the two-write rule and the shared-ownership safety check. |
 | `manage_countermeasures` | Link security controls to exposures |
 | `get_control_gaps` | Framework-grounded gap analysis. Walks the chain `Exposure → ATT&CK Technique → ATT&CK Mitigation → Countermeasure → Control` in a single Cypher query and returns unmitigated exposures with recommended controls. Used by `/dethereal:surface`. |
 
@@ -230,7 +230,7 @@ Three hooks automate workflow tasks at key moments:
 
 **When:** A new Claude Code session starts with the plugin loaded.
 
-**What it does:** Checks if any local models exist. If this is the user's first session (no `.dethernety/models.json`), shows a welcome message with quick-start commands. If models exist, shows a brief status summary.
+**What it does:** Counts the models in `.dethernety/models.json`. With none — whether the file is missing or simply empty — it prints the orientation block with quick-start commands. With models present it prints a resume hint instead. Either way, if `DETHERNETY_URL` is unset and nothing answers on `http://localhost:3003`, it appends a *Platform: not connected* line. See [Getting Started](GETTING_STARTED.md#your-first-session) for the exact output.
 
 ### PostToolUse — Auto-Validate After Edits
 
@@ -242,7 +242,9 @@ Three hooks automate workflow tasks at key moments:
 
 **When:** Before Claude Code compresses conversation context (approaching context limits).
 
-**What it does:** Generates a summary of the current model state, workflow position, and recent actions. This summary is preserved in the compressed context so the conversation can continue coherently after compaction.
+**What it does:** Writes a structured snapshot of every model in your local registry — its name, path, workflow state, stale-element count, and quality score with its label. That snapshot survives compaction, so the conversation can carry on knowing which model you are working on and how far along it is.
+
+It preserves **state, not history.** No record of what you just did is carried across: no tool calls, no edits, no decisions. If the reasoning behind a change matters after compaction, say it out loud in the conversation or write it into the model — don't assume the hook will remember it for you.
 
 ---
 

@@ -44,16 +44,17 @@ Define what you want to achieve:
 
 ### Create Your Model
 
-**Quick Setup:**
-
-1. **Browser** → **Menu** → **"Create Model"**
-2. **Configure Model**:
+1. **Open the Browser** and select the folder you want the model to live in. New models are created in the folder you have selected.
+2. **Create the model.** Click the **+** button at the top right of the content area and choose the diagram icon from the speed dial — or click the **New model** card in the **Models** row. A model named *New Model* is created immediately and its settings dialog opens on the **General** tab.
+3. **Name and describe it.** Replace the placeholder name and description:
    ```
    Name: "E-commerce Platform Security Model"
    Description: "Comprehensive threat model covering web application, admin panel, and payment processing with PCI DSS compliance"
    ```
-3. **Assign modules** if available (web application, database, payment processing)
-4. **Click "Open Data Flow Editor"** to start building immediately
+4. **Record your compliance drivers** (optional). In the **Compliance drivers** field, pick a recommended framework such as `PCI-DSS` or type your own and press Enter. Each one is added as a chip.
+5. **Open the data flow editor.** Click the diagram button at the bottom right of the dialog. It saves your changes first, then takes you to the canvas. To save without leaving the dialog, use the green save button in the row of buttons on the left.
+
+There is no module step here. The classes you will pick for boundaries, components, and data flows come from the modules installed on the deployment, and are the same in every model — see [Where the classes you can pick come from](UNDERSTANDING_MODULES.md#where-the-classes-you-can-pick-come-from).
 
 ### Set Up Security Boundaries
 
@@ -64,20 +65,20 @@ Security boundaries help organize your model and define trust zones:
    - Highest risk zone
 
 2. **Create DMZ Boundary**:
-   - **Drag boundary**: From the component palette on the right, drag a "Security Boundary" onto the canvas
+   - **Drag boundary**: From the component palette on the right, drag **Boundary** onto the canvas
    - **Configure**: Double-click to open settings dialog
    - **Basic properties**: Name "DMZ Zone" and add description "Demilitarized zone containing public-facing services"
    - **Class assignment**: Select an appropriate boundary class from loaded modules
    - **Configure attributes** (after class assignment): Set security zone properties
 
 3. **Create Internal Network Boundary**:
-   - **Drag boundary**: Add another Security Boundary from the palette
+   - **Drag boundary**: Add another **Boundary** from the palette
    - **Configure**: Name "Internal Network", description "Private network containing application servers and databases"
    - **Class assignment**: Select internal network boundary class
    - **Position**: Below the DMZ boundary
 
 4. **Create Database Boundary (Nested)**:
-   - **Drag boundary**: Add another Security Boundary from the palette
+   - **Drag boundary**: Add another **Boundary** from the palette
    - **Drop into parent**: Drag and drop this boundary **inside** the Internal Network boundary to create nesting
    - **Configure**: Name "Database Zone", description "Secure zone for database servers"
    - **Class assignment**: Select database zone boundary class
@@ -323,59 +324,42 @@ Now connect your components with data flows to show how information moves throug
 
 ## Running Security Analysis
 
-Analyses provide AI-powered security assessment of your threat models. Analysis capabilities are provided by modules and only available if analysis modules are loaded to the system.
+Analysis is provided entirely by **modules** — the core platform runs none of its own. What you can run depends on which modules your deployment has installed.
+
+**On a stock OSS install there is exactly one analysis type: Threat Report.** It is a read-only posture snapshot over your existing model — a set of graph queries, not an AI run. It asks no questions, streams no reasoning, and adds nothing to your model. The `dethernety-general` module contributes no analysis type at all; its policies derive exposures continuously on each element's **Exposures** tab, which is a different mechanism. Additional modules add specialized types — compliance checks, framework-specific assessments, AI-assisted evaluation — and anything below describing AI behavior applies only when such a module is installed.
+
+This section gets you through a first run. [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) is the full treatment.
 
 ### Starting an Analysis
 
-1. **Open the Analyses Dialog**:
-   - Open your model in the data flow editor (click its tile in Browser)
-   - Click the **"Analyses"** button (sparkle icon) on the canvas toolbar
+1. **Open the Analyses dialog.** Open your model in the data flow editor (click its tile in the Browser), then click the **sparkle** button on the canvas toolbar — its tooltip reads **Analyses**.
+2. **Click "New Analysis".** This button *is* the type menu: it opens a list with **one entry per analysis type** your installed modules provide. On a stock OSS install that is a single entry, *Threat Report*.
+3. **Click the type you want.** The analysis is created immediately and appears as a new row.
+4. **Click "Run"** in that row to start it.
 
-2. **Create Analysis Instance**:
-   - **Select analysis type**: Choose from dropdown button (different types provided by loaded modules)
-   - **Add instance**: New analysis instance (run) appears in analyses table
-   - **Configure parameters**: Edit analysis details in the table:
-     - **Name**: "Initial Security Assessment"
-     - **Description**: "Comprehensive threat analysis of e-commerce platform"
+**You are never asked for a name or a description.** The new analysis takes the analysis type's own name for both — a Threat Report analysis is called *Threat Report*. Renaming is a separate, later step: click the **Name** cell and type over it (Enter or click away to save), or use the row's **⋮** menu and choose **Rename** or **Edit description**.
 
-3. **Start Analysis**:
-   - Click **"Run"** in the analysis instance row
-   - Analysis begins processing your threat model
+Do it early. Give the run a name that says what it was for — *Pre-release review, March* — before you accumulate five rows all called *Threat Report*.
 
 ### Monitoring Analysis Progress
 
-**Analysis Flow Dialog**:
-- **Real-time updates**: Shows analysis engine progress and steps
-- **Reopen dialog**: Click **"eye" button** to reopen the flow dialog while analysis is running
-- **Track execution**: See AI reasoning process as it analyzes your model
+Each row shows a **phase**, and the row's single primary button follows it: **Run** when it is ready, **View progress** while it is working, **Answer** when it is paused on a question, **View results** when it is done, **Retry** when it has failed. The full table is in [Watching a run](SECURITY_ANALYSIS_WORKFLOW.md#watching-a-run).
 
-**Interactive Analysis**:
-- **User questions**: Analysis may require your input during execution
-- **Automatic prompts** (flow dialog open): Question dialogs open automatically
-- **Manual access** (flow dialog closed): Click **"chat" icon** to open question dialogs
-- **Example interactions**:
-  - "What is the primary authentication method for admin users?"
-  - "Are payment transactions encrypted at rest?"
-  - "Select applicable compliance requirements: PCI DSS, GDPR, HIPAA"
+**Progress and questions are module capabilities, not platform ones.** **View progress** opens the **Analysis Flow** dialog, which lists the messages the running module streams back — for an AI module that is its reasoning trail; for a module that streams nothing, it reads *Waiting for analysis responses...*. If a module pauses a run to ask you something, the row goes to **Paused** and answering the question resumes it.
+
+Neither surface does anything for the OSS **Threat Report** analysis, which runs to completion without streaming messages or asking questions.
 
 ### Viewing Results
 
-1. **Wait for completion**: Analysis returns to "idle" status in the analyses table when finished
-2. **Open results**: Click **right arrow** in the analysis instance row
+1. **Wait for completion**: the row's phase reads **Done** when the run has finished and produced a result
+2. **Open results**: Click **View results** — the row's primary button on a **Done** analysis. The results open on their own page, rendered by the module that produced them
 3. **Review findings**: Examine security assessment results
 
-**Typical Results Summary**:
-   - **Critical Issues**: 3 found
-   - **High Issues**: 7 found
-   - **Medium Issues**: 12 found
-   - **Low Issues**: 8 found
-
-**Multiple Analysis Types**:
-- Run different analysis types simultaneously
-- Compare results from various analytical approaches
-- Keep historical record of all analysis runs
+Result format and content depend on the module that ran the analysis. Each row holds its own result, so several analyses on one model can be compared side by side — but **Re-run** re-runs *that* analysis and replaces its result. To keep a result for comparison, create a new analysis instead of re-running the old one.
 
 ### Example Analysis Results
+
+The findings below illustrate what an analysis module *can* surface, on the example model built earlier in this guide. They are not the output of any particular module — a module that ships severity-ranked findings with MITRE references would report something in this shape.
 
 **Critical: Unencrypted Payment Data**
 - **Component**: Payment Service → Payment Gateway
@@ -400,90 +384,44 @@ Analyses provide AI-powered security assessment of your threat models. Analysis 
 
 ## Managing Issues from Analysis Results
 
-Once you have analysis results, you can create issues to track findings and coordinate remediation efforts.
+An **issue** is a unit of tracked work in Dethernety. Turning a finding into one gives it an owner, a severity, and a place on a board that survives the next analysis run.
 
-### Creating Issues from Findings
+This section covers just enough to raise your first issue. [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) is the full treatment — filtering and query syntax, merging, the issue card's tabs, and what each creation path links.
 
-**From Analysis Results:**
-1. **Review findings**: Open analysis results by clicking the right arrow in the analyses table
-2. **Select finding**: Choose a specific security finding to track
-3. **Create issue**: Click "Create Issue" or similar option
-4. **Select issue type**: Choose from dropdown (provided by loaded modules):
-   - **Security Incident**: For immediate security concerns
-   - **Remediation Task**: For planned security improvements
-   - **Compliance Issue**: For regulatory requirement violations
-   - **Bug Report**: For technical defects requiring fixes
+### Raising an issue from a finding
 
-### Issue Configuration
+1. **Open the results.** Click **View results** in the analysis row.
+2. **Trigger the issue action** on the finding you want to track.
+3. A dialog opens, titled **Raise an issue from this finding**, naming the finding underneath. Under *Or create an issue:*, **click an issue class**.
+4. The issue is created immediately and its card opens. It is pre-named *`<Finding> Issue on <element>`* and pre-described from the finding's own description.
 
-**Automatic Association:**
-When creating issues from analysis results, relevant elements are automatically associated:
-- **Analysis instance**: The specific analysis run that identified the finding
-- **Affected model**: The threat model being analyzed
-- **Related components**: Components involved in the finding
-- **Associated exposures**: Specific vulnerabilities identified
+**You pick a class, not a type from a dropdown.** The dialog shows one button per issue class your installed modules provide. The OSS `dethernety-general` module ships six — Architecture anti-pattern, Configuration Error, Missing Security Control, Threat Vector, Vulnerability, and Other — and a deployment with more modules installed will offer more. See [Where issue classes come from](ISSUE_MANAGEMENT_GUIDE.md#where-issue-classes-come-from).
 
-**Issue Dialog Configuration:**
-1. **Basic Properties**:
-   - **Name**: "Priority: Unencrypted Payment Data"
-   - **Description**: "Credit card data transmitted without end-to-end encryption between Payment Service and Payment Gateway"
+**What gets linked:** the finding, the element it was raised on, and the model. **Not the analysis run** — nothing records which analysis produced the finding. If you need that traceability, add the analysis by hand from the issue's **Associated Elements** tab. The full table is in [What actually gets associated](ISSUE_MANAGEMENT_GUIDE.md#what-actually-gets-associated).
 
-2. **Attributes Tab** (varies by issue type):
-   - **Priority**: Module-dependent priority levels
-   - **Severity**: Based on impact assessment and module configuration
-   - **Due Date**: Target resolution date
-   - **Assignee**: Person responsible for resolution
-   - **Tags**: PCI DSS, encryption, payment processing
+### Filling in the issue
 
-3. **Associated Elements Tab**:
-   - View automatically linked components and models
-   - Add additional related elements if needed
+The issue card has four tabs. For a first issue, two of them matter:
 
-4. **Comments Tab**:
-   - Add initial analysis details
-   - Document investigation findings
-   - Track resolution progress
+- **General** — rename it to something you'll recognize later, and expand the description.
+- **Attributes** — fill in the fields **the issue's class defines**. There is no fixed set: a Vulnerability carries severity, status, CVE id, CVSS score, affected component, and remediation steps; a Threat Vector carries a different set. Every shipped class defines a **severity** and a **status**.
 
-### Remote System Integration
+> **Two things are called "status."** The **Close Issue** / **Open Issue** button controls the platform's own open/closed flag. The `status` attribute on the **Attributes** tab is module-defined and moves through the class's own values (`confirmed`, `mitigating`, `verified`, …). Setting one does not change the other — see [Status: two different things](ISSUE_MANAGEMENT_GUIDE.md#status-two-different-things).
 
-**External Tracking Systems:**
-If configured with modules for external integration:
-- **Jira**: Issues sync with Jira tickets
-- **ServiceNow**: Integration with ServiceNow incidents
-- **GitHub**: Links to GitHub issues for technical fixes
+### Adding a second finding to the same issue
 
-**Automatic Sync:**
-- **Creation**: Issue created in both Dethernety and external system
-- **Updates**: Changes sync bidirectionally
-- **Status**: Resolution status reflects across systems
-- **Comments**: Discussion threads maintained in sync
+Related findings usually belong on one issue. The same dialog's **Add to Issue board** button copies the finding to Dethernety's clipboard and sends you to the Issues page:
 
-### Adding Elements to Existing Issues
+1. Click **Add to Issue board**. You land on the Issues page.
+2. Find the target issue and click its row to expand the card.
+3. Click **Add from clipboard**. The elements are linked and a timestamped comment records what was added.
+4. Click **Return to `<page>`** to go back where you started.
 
-**Using the Clipboard Workflow:**
-Sometimes you want to add findings or components to existing issues rather than creating new ones:
+**The clipboard holds one item.** Copying a second finding overwrites the first, so build a multi-finding issue by repeating the loop — copy, paste, return, copy the next — rather than copying several and pasting once. It also expires after 30 minutes. See [Adding elements to an existing issue](ISSUE_MANAGEMENT_GUIDE.md#adding-elements-to-an-existing-issue).
 
-1. **From Any Context** (analysis results, component settings, model dialog):
-   - Select element or finding to add
-   - Choose **"Add to Issue"** from issue menu
-   - System copies element to clipboard and **redirects to Issues page**
+### Issues stay in Dethernety
 
-2. **Find Target Issue**:
-   - Use filtering to locate the existing issue
-   - Apply filters like `name:payment` or `severity:critical`
-   - Open the target issue dialog
-
-3. **Complete Association**:
-   - Click **"Add from Clipboard"** button
-   - System automatically associates the element
-   - Automatic comment documents the addition
-
-4. **Navigation**:
-   - Use **Associated Elements tab** to view all linked elements
-   - Click element buttons to navigate back to source locations
-   - **Return functionality** takes you back to original context
-
-This workflow lets you build issues from multiple sources while maintaining traceability.
+Issues are created, tracked, and closed entirely on the platform. **No integration module ships with Dethernety**, so nothing you do here reaches Jira, ServiceNow, GitHub, or any other tracker. The platform provides one seam a module could implement — an inbound-only, pull-on-read hook that reads an issue's attributes from an external system — and no shipped module implements it. See [External system integration](ISSUE_MANAGEMENT_GUIDE.md#external-system-integration).
 
 ## Reviewing and Acting on Results
 

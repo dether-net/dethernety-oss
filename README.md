@@ -20,7 +20,7 @@
 
 Dethernety is a graph-native threat modeling tool. Your models are stored as actual graph structures (Neo4j or Memgraph) -- components, data flows, boundaries, and controls are nodes and relationships, not rows in a table. This is what makes attack path traversal, impact analysis, and dependency mapping across your architecture possible. You build models visually with a drag-and-drop editor, then run security analysis to surface findings mapped to MITRE ATT&CK techniques and D3FEND countermeasures.
 
-Everything domain-specific -- component types, analysis logic, security controls, issue types -- is provided by executable JavaScript modules. The platform ships with two: a default Dethernety Module and a MITRE frameworks module. See [Module system](#module-system) for how to build your own.
+Everything domain-specific -- component types, analysis logic, security controls, issue types -- is provided by executable JavaScript modules. The platform ships with four: the Dethernety General module, which supplies every class you can pick from; a MITRE ATT&CK and D3FEND data pack; the Threat Report, which contributes the one analysis type in a stock deployment; and Coverage Tools, the backend module whose coverage facts that report reads. See [Module system](#module-system) for how to build your own.
 
 ## Quick start
 
@@ -80,11 +80,11 @@ policy engine, and module installation. See the
 
 - **Visual modeling** -- Drag-and-drop data flow editor with components, boundaries, and trust zones
 - **Graph-native storage** -- Models stored as graph structures, enabling attack path traversal and impact analysis
-- **Executable module system** -- Component classes, analysis logic, controls, and integrations are all provided by JavaScript modules loaded at runtime
+- **Executable module system** -- Component classes, analysis logic, controls, issue types, and analysis types are all provided by JavaScript modules loaded at runtime
 - **MITRE ATT&CK / D3FEND** -- Exposure-to-technique mapping and defensive countermeasure recommendations
 - **File-based persistence** -- Export models as JSON files you can version-control alongside your code, edit offline, and re-import
 - **Issue tracking** -- Create issues from findings with automatic element association, filtering, and merge
-- **Dethereal — Claude Code plugin** -- 14 slash commands, 4 specialized AI agents, 22 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
+- **Dethereal — Claude Code plugin** -- 14 slash commands, 5 specialized AI agents, 22 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
 
 ## Architecture
 
@@ -121,7 +121,7 @@ Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego, and TypeScript MCP.
 | [Security Analysis](docs/user/SECURITY_ANALYSIS_WORKFLOW.md) | Running analysis and interpreting results |
 | [Security Controls](docs/user/WORKING_WITH_SECURITY_CONTROLS.md) | Creating, configuring, and assigning controls |
 | [Modules](docs/user/UNDERSTANDING_MODULES.md) | How the module system works |
-| [Issue Management](docs/user/ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, filtering, merging, and integration |
+| [Issue Management](docs/user/ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, element association, filtering, and merging |
 | [Dethereal Plugin](docs/user/dethereal/README.md) | AI-assisted threat modeling with the Claude Code plugin |
 
 ### Architecture
@@ -151,22 +151,24 @@ See the [development guide](docs/architecture/modules/DEVELOPMENT_GUIDE.md) for 
 ```
 dethernety-oss/
 ├── apps/
-│   ├── dt-ui/              Vue 3 frontend (Vuetify + Vue Flow)
-│   ├── dt-ws/              NestJS backend (GraphQL + Bolt/Cypher)
-│   ├── dethereal/          Claude Code plugin (skills, agents, MCP server) for AI-assisted threat modeling
-│   └── byodt-console/      Operator console for the BYODt deployment (Go + Vue 3)
+│   ├── dt-ui/                     Vue 3 frontend (Vuetify + Vue Flow)
+│   ├── dt-ws/                     NestJS backend (GraphQL + Bolt/Cypher)
+│   ├── dethereal/                 Claude Code plugin (skills, agents, MCP server) for AI-assisted threat modeling
+│   └── byodt-console/             Operator console for the BYODt deployment (Go + Vue 3)
 ├── packages/
-│   ├── dt-core/            Shared TypeScript interfaces and utilities
-│   ├── dt-module/          Module system base classes
-│   ├── eslint-config/      Shared ESLint configuration
-│   └── typescript-config/  Shared TypeScript configuration
+│   ├── dt-core/                   Shared TypeScript interfaces and utilities
+│   ├── dt-module/                 Module system base classes
+│   ├── eslint-config/             Shared ESLint configuration
+│   └── typescript-config/         Shared TypeScript configuration
 ├── modules/
-│   ├── dethernety-general/ Default threat modeling module
-│   └── mitre-frameworks/   MITRE ATT&CK and D3FEND data
-├── docs/                   Documentation
-├── deploy/compose/         The BYODt deployment bundle (compose + control script)
-├── pkg/                    Shared Go packages (module verification, extraction)
-└── scripts/                Build scripts and module-manager CLI
+│   ├── dethernety-general/        Default threat modeling module -- the only module contributing classes
+│   ├── mitre-frameworks/          MITRE ATT&CK and D3FEND data pack (no runtime code)
+│   ├── dethernety-threat-report/  The "Threat Report" analysis type and the report it renders
+│   └── dethernety-coverage-tools/ Backend-only; the coverage facts the Threat Report reads
+├── docs/                          Documentation
+├── deploy/compose/                The BYODt deployment bundle (compose + control script)
+├── pkg/                           Shared Go packages (module verification, extraction)
+└── scripts/                       Build scripts and module-manager CLI
 ```
 
 ## Contributing

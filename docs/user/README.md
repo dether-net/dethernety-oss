@@ -34,7 +34,7 @@ For platform overview, installation, and architecture, see the [main README](../
 
 | Guide | Description |
 |-------|-------------|
-| [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, filtering, merging, and external integration |
+| [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) | Raising issues from findings, exposures, and elements, and what each one links; the query syntax for filtering the board; merging duplicates. Issues are tracked entirely on the platform — no external tracker integration ships |
 
 ## Reporting — Threat Report
 
@@ -92,7 +92,7 @@ Everything needed to run Dethernety on your own machine or server. See the
 
 **Going deeper:**
 1. [Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md) -- create and assign controls
-2. [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) -- track findings and coordinate remediation
+2. [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) -- track remediation work and consolidate duplicates
 3. [Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md) -- advanced component setup
 
 **Modules:**

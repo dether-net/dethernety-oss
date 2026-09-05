@@ -11,7 +11,7 @@ tags: ['dethereal', 'plugin', 'claude-code', 'threat-modeling', 'overview']
 
 Dethereal is a Claude Code plugin that guides you through building structured threat models using conversational AI. You describe your system in natural language, and the plugin discovers infrastructure, maps trust boundaries and data flows, places each boundary on a trust gradient with approved channels (see [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md)), enriches security attributes, and publishes the model to the Dethernety platform for analysis.
 
-The plugin provides 14 slash commands, 4 specialized AI agents, 22 MCP tools, and an 11-step guided workflow that takes you from a system description to a fully enriched, analysis-ready threat model. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+The plugin provides 14 slash commands, 5 specialized AI agents, 22 MCP tools, and an 11-step guided workflow that takes you from a system description to a fully enriched, analysis-ready threat model. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 ---
 
@@ -42,7 +42,7 @@ The plugin provides 14 slash commands, 4 specialized AI agents, 22 MCP tools, an
 ## Prerequisites
 
 - **Claude Code** — CLI (`claude`), VS Code extension, or JetBrains plugin
-- **Node.js 18+** and **pnpm** — for running the MCP server
+- **Node.js 20 or later** — for running the MCP server; the plugin will not install or start on Node 18. **pnpm** as well, if you build from source
 - **Dethernety platform** — a running instance for sync and analysis (local or hosted)
 
 ---

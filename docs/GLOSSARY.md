@@ -38,7 +38,7 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Exposure** -- A security weakness on a component, data flow, security boundary, or data item, based on its configuration and class. Most are computed by module rules (OPA/Rego policies or custom logic); users can also author their own. Exposures map to the MITRE ATT&CK techniques that exploit them.
 
-**Issue** -- A tracked finding from analysis or manual review. Issues reference specific model elements (components, data flows, boundaries) and have a lifecycle (open, in progress, resolved).
+**Issue** -- A unit of tracked remediation work, raised from an exposure, a countermeasure, or an analysis finding, or created by hand. Its status is strictly **open** or **closed**; richer lifecycle states (`in-progress`, `verified`, `accepted`) are attributes defined by the issue's class, a separate field that the open/closed flag does not track. An issue links whichever elements it was raised from — which varies by origin, and a model-raised issue links only the model, not its contents. See [Issue Management Guide](user/ISSUE_MANAGEMENT_GUIDE.md).
 
 ---
 

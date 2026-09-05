@@ -267,8 +267,7 @@ Check these, in order:
 |---|---|
 | A green **Healthy** verdict at the top | No failures are being reported. |
 | **Modules** — every module `placed` | The signed module payloads installed. On later starts they read `skipped`, which is equally good: the copy on disk already matches. |
-| **Ingest** — status `ok` | The reference data loaded. On later starts this reads `skipped-unchanged`. |
-| **Data** — a statement count in the thousands | The corpus is in the graph. |
+| **Data ingest** — status `ok`, with a statement count in the thousands beneath it | The reference data loaded and the corpus is in the graph. On later starts the status reads `skipped-unchanged`, which is equally good. |
 | A **Pre-cloud** badge, top right | The deployment is running standalone. |
 | No banners above the tabs | Nothing needs your attention. |
 
