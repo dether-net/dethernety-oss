@@ -62,7 +62,7 @@
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
     "@dethernety/regorus-wasm": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.10.0",
+    "@langchain/langgraph-sdk": "^1.10.2",
     "@nestjs/common": "^11.2.3",
     "graphql": "^16.14.2",
     "graphql-subscriptions": "^3.0.0",
