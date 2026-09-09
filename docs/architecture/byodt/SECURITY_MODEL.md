@@ -216,6 +216,7 @@ entire apply** if any name outside it appears.
 | `OIDC_ISSUER`, `OIDC_JWKS_URI`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, `OIDC_SCOPE`, `OIDC_DOMAIN`, `OIDC_SHARED_POOL`, `PORTAL_ORIGIN`, `MODULE_CONTENT_BASE_URL`, `DEPLOYMENT_ALLOWLIST` | Accepted. Each must be **present and non-empty** |
 | `MODULE_KG_BASE_URL` | Accepted; may legitimately be empty or absent. Present and non-empty it is held to the URL rule below, which is also what stands between a pasted recipe and the console's own outbound request to that host |
 | `DEPLOYMENT_ARTIFACT_SIGNER` | Accepted; may legitimately be empty or absent. It is the certificate-subject prefix an entitled artifact must be signed under — configuration the console composes a per-version ref onto, never a destination it dials — so it is held to its own shape rule below rather than the URL rule. Absent, the deployment cannot install artifacts until it reconnects |
+| `DEPLOYMENT_TEAM_ID` | Accepted; may legitimately be empty or absent. It names the team this deployment belongs to, so the content service can scope what it serves — a person who belongs to two teams must not be served one team's content on the other team's deployment, and the deployment is the only party that knows which team it is. Neither a destination nor a credential, but a value that *leaves* the console again — it rides out as a request header on the entitled calls, beside the operator's own bearer and never without it — so it is held to its own shape rule below. Absent, entitled calls name no team — which the service currently still answers, but only while it is counting how many deployments have not yet been told their team. Once it enforces, an absent value means every entitled call fails |
 | `DEPLOYMENT_EXPOSURE` | Recognised and **dropped**. It is the operator's own exposure declaration and must not be taken from a recipe. Two retired names — `COMMERCE_API_BASE_URL` and `DEPLOYMENT_PACKAGES` — are likewise tolerated-and-dropped, so a saved recipe carrying either still applies rather than failing as a foreign variable |
 | `NODE_ENV`, `OIDC_REDIRECT_URI`, `MODULE_CONTENT_CACHE_DIR`, `ALLOWED_ORIGINS` | Supplied by the console, never taken from the paste |
 | `MODULE_KG_VERSION` | Supplied by the console, never taken from the paste — a recipe that could carry it could pin a deployment to a version of the sender's choosing. Read from a public listing with no credential, and validated as `sha256:` plus 64 hex before it is written |
@@ -227,15 +228,21 @@ is applied *after* the base layer and therefore overrides it, so a recipe smuggl
 a Node option that preloads a module is arbitrary code in the platform process at boot. None of those
 names is in the accepted set — and no plausible shape check would have caught them.
 
-Five further constraints apply to the values:
+Six further constraints apply to the values:
 
 - **Every required name must be non-empty.** A blank identity value produces the same broken boot a
-  missing one does, so a presence check alone would be hollow. The two names marked above as
+  missing one does, so a presence check alone would be hollow. The three names marked above as
   legitimately empty or absent are exactly the exceptions, and each is one for its own reason. For the
   knowledge-graph base the empty case is reachable in normal use rather than a sign of a half recipe;
   the signer is an exception because requiring it would reject every recipe issued before the name
   existed — and where it is absent the deployment loses its artifact installs rather than running them
-  ungated.
+  ungated; the team identifier is an exception for that same historical reason, and where it is absent
+  the deployment names no team and its entitled calls are answered as they were before the name existed
+  — which is the safe direction rather than the intended one, and a **temporary** one. The content
+  service treats an absent team header as a fact to be counted rather than refused only while it
+  establishes that every live deployment sends one; when that changes, an absent value means every
+  entitled call fails, and a deployment in that state is not degraded but broken. The name is optional so
+  that recipes issued earlier still apply, and is meant to become required once every recipe carries it.
 - **No value may contain a control character.** A newline would split into a second `NAME=value` line
   in the written file — the exact class the fixed name set exists to prevent. It is rejected where the
   values are assembled *and* again in the serializer, which every write passes through.
@@ -257,6 +264,27 @@ Five further constraints apply to the values:
   that its shape is re-checked when it is read, so validity is a property of the value rather than of
   which console wrote the file. What the composed subject pins is in
   [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md#verification).
+- **The team identifier is checked for shape because it leaves again.** It is neither a destination nor
+  a credential, and that is exactly why the check matters: the value is written into the mode layer and
+  then sent as a request header on every entitled call, so the shape rule is what stands between a
+  pasted recipe and a second header of the sender's choosing. It must be 1–64 characters of `A-Z`,
+  `a-z`, `0-9`, `-` or `_`, every one of which is already a valid header-value character, because a
+  header is where the value goes. A character class and a bound, deliberately **not** an exact length:
+  pinning the length would tie every console in the field to the issuer's current identifier format, so
+  a change to that format would make deployments refuse a legitimate recipe with no way to learn the new
+  one. An empty value is dropped rather than written, on the same reasoning as the empty service URL
+  above. The shape is re-checked when the value is read, and there the two failures part company — an
+  unusable content base reads as no base and the call is not made, while an unusable team reads as no
+  team and the call still goes out, because turning a hand-edited mode file into an immediate outage is a
+  worse answer than a call that still reaches the service.
+
+  **That argument has a shelf life, and it is worth knowing which part expires.** It rests on an unnamed
+  team being *survivable*, which holds only while the content service still answers such a call. Once the
+  service requires the header, an unusable team identifier produces the outage this reasoning was meant to
+  avoid — later, and with the local file still looking fine. What the degrade still buys at that point is
+  a console that starts, logs which value it rejected, and can be corrected in place; what it no longer
+  buys is a working entitled call. Read this as an argument about *where the failure surfaces*, not about
+  whether there is one.
 - **`ALLOWED_ORIGINS` is derived, not pasted.** It is the origin of the deployment's own front-door
   callback, so it stays in step with the redirect URI by construction.
 

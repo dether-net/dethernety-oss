@@ -31,6 +31,7 @@ import {
 import { ResponseCache, ContentKind, EvalResult, stableStringify } from './remote/response-cache';
 import { buildFallbackGuide, buildFallbackTemplate, sanitizeText } from './remote/fallback';
 import { JsonSchema, stripToSchema } from './remote/strip';
+import { deploymentTeamId } from './remote/team-id';
 
 /** The per-module identity a mount stub supplies: which module, at which pinned
  * (immutable, content-hash) version. */
@@ -39,13 +40,14 @@ export interface RemoteModuleConfig {
   pin: string;
 }
 
-/** Internal construction seam — tests inject an in-process mock and a temp cache
- * directory here. The mount stub never passes it; the deployment reads the base
- * URL and cache directory from the environment. */
+/** Internal construction seam — tests inject an in-process mock, a temp cache
+ * directory and a team here. The mount stub never passes it; the deployment reads
+ * the base URL, the cache directory and its team from the environment. */
 export interface RemoteModuleDeps {
   fetchImpl?: FetchLike;
   baseUrl?: string;
   cacheDir?: string;
+  teamId?: string;
 }
 
 export class DtRemoteModule implements DTModule {
@@ -70,7 +72,11 @@ export class DtRemoteModule implements DTModule {
     // Deployment-global base URL; no baked default, so an unconfigured
     // deployment leaves the module inert rather than pointing at a host.
     const baseUrl = deps?.baseUrl ?? process.env.MODULE_CONTENT_BASE_URL;
-    this.wire = new WireClient({ baseUrl, fetchImpl: deps?.fetchImpl });
+    // Which team this deployment belongs to, so entitled calls can be scoped. Absent leaves them naming
+    // no team — which the content service still answers while it counts how many deployments have not
+    // been told theirs, and will refuse once it stops counting.
+    const teamId = deps?.teamId ?? deploymentTeamId();
+    this.wire = new WireClient({ baseUrl, fetchImpl: deps?.fetchImpl, teamId });
     this.cache = new MetadataCache({
       dir: deps?.cacheDir,
       explicitDir: deps?.cacheDir !== undefined,

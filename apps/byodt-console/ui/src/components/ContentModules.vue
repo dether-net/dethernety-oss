@@ -66,6 +66,7 @@ const credential = ref(cloudCredential())
 // scopes it carries, so the console used to infer this from an EMPTY access token and never found one,
 // because a deployment without the scope still gets a perfectly good token for the scopes it did request.
 const subscriptionUnavailable = ref(false)
+const subscriptionTeamMissing = ref(false)
 // Which load() is current. Three callers start one — onMounted, the reloadToken watch, and refresh() —
 // and without this the one that FINISHES last wins rather than the one that STARTED last, so a slow read
 // issued before a purchase can land after a fast one issued after it and put "Not subscribed" back over a
@@ -131,6 +132,7 @@ async function load() {
   if (cat.status === 'fulfilled') {
     packages.value = cat.value.packages
     subscriptionUnavailable.value = cat.value.subscriptionUnavailable === true
+    subscriptionTeamMissing.value = cat.value.subscriptionTeamMissing === true
     catalogError.value = ''
   } else {
     packages.value = []
@@ -184,9 +186,9 @@ const subscriptionUnknown = computed(
   () => loaded.value && packages.value.some((p) => p.entitled === undefined),
 )
 
-// Why it could not be read, and what to do about it. Three arms because api.ts enumerates three states and
-// says telling the last two apart is the difference between a recovery and a loop — a component with fewer
-// arms than there are states is exactly how one of them became a loop before.
+// Why it could not be read, and what to do about it. One arm per state api.ts enumerates, because telling
+// them apart is the difference between a recovery and a loop — a component with fewer arms than there are
+// states is exactly how one of them became a loop before.
 //
 // This is the ordinary state of a reloaded tab, not an alarm: the operator's tokens live in memory only, so
 // the first catalog load after any reload has nothing to ask with. It is said plainly and gates nothing.
@@ -198,6 +200,14 @@ const subscriptionUnknownReason = computed(() => {
   // than about this browser tab, and it is the one no amount of retrying or signing in will change.
   if (subscriptionUnavailable.value) {
     return 'Nothing is restricted, but subscriptions cannot be checked on this deployment: its configuration does not carry the permission the check needs. Regenerating the deployment recipe and reconnecting is what fixes it — see what disconnecting costs before you do.'
+  }
+  // The second deployment-level fact, and it must come before the credential arms for the same reason the
+  // first does: it is true of the DEPLOYMENT rather than of this browser tab, and no amount of retrying or
+  // signing in will change it. Without this arm the case fell through to the default below — 'could not be
+  // checked just now… Refresh to try again' — which describes a permanent misconfiguration as a transient
+  // hiccup and sends the operator into exactly the retry loop the other arms exist to prevent.
+  if (subscriptionTeamMissing.value) {
+    return 'Nothing is restricted, but subscriptions cannot be checked on this deployment: it has not been told which team it belongs to, so DEPLOYMENT_TEAM_ID is missing from its cloud configuration. Regenerating the deployment recipe and reconnecting is what fixes it — see what disconnecting costs before you do.'
   }
   switch (credential.value) {
     case 'no-content-scope':
@@ -217,7 +227,11 @@ const subscriptionUnknownReason = computed(() => {
 // a dead end. The emit is already declared and already wired to the same redirect the sign-in card
 // performs; on return the tab remounts with tokens and re-reads on its own, so there is no Refresh step.
 const signInOffered = computed(
-  () => subscriptionUnknown.value && !subscriptionUnavailable.value && credential.value === 'signed-out',
+  () =>
+    subscriptionUnknown.value &&
+    !subscriptionUnavailable.value &&
+    !subscriptionTeamMissing.value &&
+    credential.value === 'signed-out',
 )
 
 function chipClass(currency: MountedModule['currency']): string {

@@ -207,6 +207,11 @@ export interface PackagesResponse {
   // retry versus a new recipe, and the daemon is the only party that can tell them apart because it holds
   // the deployment's own configuration. Absent means the deployment is able to ask.
   subscriptionUnavailable?: boolean
+  // This deployment has not been told which team it belongs to, so its entitled calls name none. A
+  // deployment-level fact like the one above and with the same shape of remedy — a new recipe, not a
+  // retry — but a different variable to name, which is why it is its own field rather than folded into
+  // it. Absent means the deployment names its team.
+  subscriptionTeamMissing?: boolean
 }
 
 // The deployment's knowledge-graph connection, when it has one. It is reported apart from the content

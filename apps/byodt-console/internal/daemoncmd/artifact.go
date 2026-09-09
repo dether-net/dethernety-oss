@@ -444,7 +444,7 @@ func (s *server) stageArtifact(ctx context.Context, key, version, token string) 
 	// 4. Configuration, and the identity derived from it plus what was asked for. An unusable or absent
 	// signer refuses BEFORE any request is made: an installer with no configured identity must refuse
 	// rather than fall back to a weaker check, and dialling first would invert that.
-	base, ok := s.cloudContentBase()
+	base, team, ok := s.cloudContentTarget()
 	if !ok || base == "" {
 		return nil, refuse(http.StatusConflict, "this deployment has no content service configured — reconnect to the cloud")
 	}
@@ -466,7 +466,7 @@ func (s *server) stageArtifact(ctx context.Context, key, version, token string) 
 	// comes only from the mode-layer file this console wrote — never from the request — so the set of
 	// hosts this can dial is the set the operator named.
 	descPath := "/v1/artifacts/" + key + "/versions/" + version
-	body, status, err := entitledGet(ctx, base, descPath, token, maxDescriptorBytes)
+	body, status, err := entitledGet(ctx, base, descPath, token, team, maxDescriptorBytes)
 	if ref := s.entitledOutcome(status, body, err, "descriptor"); ref != nil {
 		return nil, ref
 	}
@@ -498,7 +498,7 @@ func (s *server) stageArtifact(ctx context.Context, key, version, token string) 
 	}
 
 	// 8. The archive.
-	archive, status, err := entitledGet(ctx, base, descPath+"/content", token, maxArtifactBytes)
+	archive, status, err := entitledGet(ctx, base, descPath+"/content", token, team, maxArtifactBytes)
 	if ref := s.entitledOutcome(status, archive, err, "archive"); ref != nil {
 		return nil, ref
 	}
@@ -609,6 +609,20 @@ func (s *server) entitledOutcome(status int, body []byte, err error, what string
 			detail += " — superseded by " + p.Recalled.SupersededBy
 		}
 		return refuse(http.StatusGone, detail)
+	case http.StatusBadRequest:
+		// KEYED ON THE PROBLEM DOCUMENT'S CODE, and the only arm here that is. A 400 from the content
+		// service used to fall to the catch-all, so the operator read "the content service answered 400"
+		// — true, useless, and pointing at the service rather than at the one line of local configuration
+		// that actually caused it. `team_required` means this deployment made an entitled call without
+		// naming its team, which is DEPLOYMENT_TEAM_ID missing from the mode layer. It is not transient
+		// and retrying cannot help, so the sentence names the variable and the remedy instead.
+		if p.Code == "team_required" {
+			return refuse(http.StatusBadRequest,
+				"this deployment did not name its team, so the content service refused the request — "+
+					"DEPLOYMENT_TEAM_ID is missing from its cloud configuration. Generate the recipe again "+
+					"from the portal and reconnect this deployment")
+		}
+		return refuse(http.StatusBadGateway, "the content service rejected the request")
 	case http.StatusTooManyRequests:
 		// Its own arm rather than the catch-all: this one is transient and the operator's move is to
 		// wait, which "the content service answered 429" does not say.

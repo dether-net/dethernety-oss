@@ -578,6 +578,60 @@ describe('ContentModules', () => {
     w.unmount()
   })
 
+  // THE SECOND DEPLOYMENT-LEVEL FACT, and the assertion that matters is what the note does NOT say. Before
+  // this arm existed the case fell through to the default — 'could not be checked just now… Refresh to try
+  // again' — which is the sentence for a transient hiccup, on a deployment that will answer the same way
+  // forever. The operator is told which variable is missing instead.
+  it('names the missing team, and does not call it transient', async () => {
+    setCloudTokens({ idToken: 'id', accessToken: 'acc' })
+    packages.mockResolvedValue({ packages: catalog, subscriptionTeamMissing: true })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    const note = w.get('[data-subscription-unknown]')
+    expect(note.text()).toContain('DEPLOYMENT_TEAM_ID')
+    expect(note.text()).toContain('Regenerating the deployment recipe')
+    expect(note.text()).not.toContain('Refresh to try again')
+    expect(note.text()).toMatch(/[Nn]othing is restricted/)
+    w.unmount()
+  })
+
+  // Same reasoning as the sibling case above: signed out is the one state where the credential term would
+  // otherwise offer a sign-in, and signing in cannot supply a team identifier.
+  it('withholds the sign-in when the team is missing, even signed out', async () => {
+    clearCloudTokens()
+    packages.mockResolvedValue({ packages: catalog, subscriptionTeamMissing: true })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    expect(w.get('[data-subscription-unknown]').text()).toContain('DEPLOYMENT_TEAM_ID')
+    expect(w.find('[data-subscription-sign-in]').exists()).toBe(false)
+    // It explains rather than gates: nothing is disabled.
+    expect(w.find('[data-not-subscribed]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  // ORDER, asserted rather than assumed. Both deployment-level facts can be true at once, and the scope
+  // one is named first because it stops the call being made at all, rather than only changing its answer.
+  it('reports the scope fault first when both are true', async () => {
+    setCloudTokens({ idToken: 'id', accessToken: 'acc' })
+    packages.mockResolvedValue({
+      packages: catalog,
+      subscriptionUnavailable: true,
+      subscriptionTeamMissing: true,
+    })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+
+    const note = w.get('[data-subscription-unknown]')
+    expect(note.text()).toContain('the permission the check needs')
+    expect(note.text()).not.toContain('DEPLOYMENT_TEAM_ID')
+    w.unmount()
+  })
+
   it('says nothing about the subscription once it is known', async () => {
     packages.mockResolvedValue({ packages: [{ ...catalog[0], entitled: true }] })
     modules.mockResolvedValue({ modules: [] as MountedModule[] })

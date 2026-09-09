@@ -1237,7 +1237,7 @@ func TestWriteMountUndoesOnlyTheDirectoryItCreated(t *testing.T) {
 }
 
 func TestWriteMountWritesTheMarkerBeforeTheStub(t *testing.T) {
-	// The defect this slice fixes, stated directly: if the marker cannot be written, no loadable
+	// The invariant, stated directly: if the marker cannot be written, no loadable
 	// *Module.js may exist. os.WriteFile onto a path that is a directory returns EISDIR, which fails
 	// the marker write while leaving the stub's own path untouched.
 	dir := filepath.Join(t.TempDir(), "acme-compute")
@@ -1338,7 +1338,7 @@ func entitledUpstream(t *testing.T, status int, body []byte, hdr http.Header) (u
 
 func TestEntitledGetAttachesExactlyOneBearer(t *testing.T) {
 	base, seen := entitledUpstream(t, http.StatusOK, []byte(`{"ok":true}`), nil)
-	body, status, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "the-access-token", 1<<20)
+	body, status, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "the-access-token", "", 1<<20)
 	if err != nil || status != http.StatusOK || string(body) != `{"ok":true}` {
 		t.Fatalf("unexpected result: %q %d %v", body, status, err)
 	}
@@ -1378,7 +1378,7 @@ func TestEntitledGetRefusesARedirect(t *testing.T) {
 	second, secondSeen := entitledUpstream(t, http.StatusOK, []byte("secret"), nil)
 	base, _ := entitledUpstream(t, http.StatusFound, nil, http.Header{"Location": []string{second + "/v1/elsewhere"}})
 
-	body, status, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "tok", 1<<20)
+	body, status, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "tok", "", 1<<20)
 	if err == nil {
 		t.Fatal("a redirect must be an error, not a status a caller can render")
 	}
@@ -1403,7 +1403,7 @@ func TestEntitledGetReturnsEveryStatusWithItsBody(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone} {
 		want := fmt.Sprintf(`{"status":%d}`, status)
 		base, _ := entitledUpstream(t, status, []byte(want), nil)
-		body, got, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "tok", 1<<20)
+		body, got, err := entitledGet(context.Background(), base, "/v1/artifacts/x", "tok", "", 1<<20)
 		if err != nil {
 			t.Fatalf("%d must not be a transport error, got %v", status, err)
 		}
@@ -1419,18 +1419,18 @@ func TestEntitledGetRefusesAnOversizeBody(t *testing.T) {
 	// byte past it.
 	const max = 64
 	atCap, _ := entitledUpstream(t, http.StatusOK, bytes.Repeat([]byte("a"), max), nil)
-	if body, _, err := entitledGet(context.Background(), atCap, "/x", "tok", max); err != nil || len(body) != max {
+	if body, _, err := entitledGet(context.Background(), atCap, "/x", "tok", "", max); err != nil || len(body) != max {
 		t.Fatalf("a body exactly at the cap must be allowed, got %d %v", len(body), err)
 	}
 	over, _ := entitledUpstream(t, http.StatusOK, bytes.Repeat([]byte("a"), max+1), nil)
-	if _, _, err := entitledGet(context.Background(), over, "/x", "tok", max); err == nil {
+	if _, _, err := entitledGet(context.Background(), over, "/x", "tok", "", max); err == nil {
 		t.Fatal("a body one byte over the cap must be refused, not silently truncated")
 	}
 }
 
 func TestEntitledGetCapsARefusalBody(t *testing.T) {
 	base, _ := entitledUpstream(t, http.StatusForbidden, bytes.Repeat([]byte("a"), maxDenialBytes*2), nil)
-	body, status, err := entitledGet(context.Background(), base, "/x", "tok", 1<<20)
+	body, status, err := entitledGet(context.Background(), base, "/x", "tok", "", 1<<20)
 	if err != nil || status != http.StatusForbidden {
 		t.Fatalf("a refusal is not a transport error, got %d %v", status, err)
 	}
@@ -1443,7 +1443,7 @@ func TestEntitledGetSurfacesATransportFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	dead := srv.URL
 	srv.Close()
-	body, status, err := entitledGet(context.Background(), dead, "/x", "tok", 1<<20)
+	body, status, err := entitledGet(context.Background(), dead, "/x", "tok", "", 1<<20)
 	if err == nil {
 		t.Fatal("an unreachable host must be an error")
 	}

@@ -1220,6 +1220,7 @@ export default class MyRemoteModule extends DtRemoteModule {
 |---------|-------|---------|
 | `MODULE_CONTENT_BASE_URL` | Deployment (env) | The content service base URL. **No default** — an unset value leaves the module inert (it registers nothing and reports unavailable). |
 | `MODULE_CONTENT_CACHE_DIR` | Deployment (env) | Where the metadata/content caches live. **Must be co-durable with the graph database** — the caches and the classes they protect have to survive a restart together. An unset or ephemeral directory logs a loud boot warning; see below. |
+| `DEPLOYMENT_TEAM_ID` | Deployment (env) | Which team this deployment belongs to, so the content service can scope what it serves. Sent as a request header **if and only if a bearer token is** — the credential-free catalog calls carry neither — and it is a filter, never a grant: it can only narrow what the caller already holds. **No default**; a malformed value is ignored rather than thrown, and logged. Unset leaves every call naming no team. The content service still answers such a call today, while it establishes that every deployment has been told its team; once it enforces, an unset value fails every entitled call rather than widening one. |
 | `moduleKey` + `pin` | Per module (stub literal) | Which module, at which immutable content-hash version. |
 
 ### Boot, caching, and the pin
@@ -1263,9 +1264,10 @@ export default class KnowledgeGraphModule extends DtRemoteKnowledgeGraphModule {
 |---------|-------|---------|
 | `MODULE_KG_BASE_URL` | Deployment (env) | The knowledge-graph service origin. **No default** — an unset value selects the local mode, so an unconfigured deployment never points itself at a host. |
 | `MODULE_KG_VERSION` | Deployment (env) | The pinned knowledge-graph version: a `sha256:` content digest and nothing else. **No default, and no fallback to "latest"** — see below. |
-| *(none)* | Per module (stub literal) | Nothing. Unlike a content mount, the stub names no module and pins no version; both values are deployment-global. |
+| `DEPLOYMENT_TEAM_ID` | Deployment (env) | Which team this deployment belongs to, so the service can scope what it answers — the knowledge graph is one of the paths that scoping is decided on, not only the content surface, so a deployment that omits it here leaves part of the scoping unable to apply. Sent as a request header **if and only if a bearer token is**: the entitled calls (capability and every query) carry both, the credential-free named-query registry carries neither. It is a filter over what the caller already holds, never a grant. **No default**; a malformed value is ignored rather than thrown, and logged. Unset leaves every call naming no team. The content service still answers such a call today, while it establishes that every deployment has been told its team; once it enforces, an unset value fails every entitled call rather than widening one. |
+| *(none)* | Per module (stub literal) | Nothing. Unlike a content mount, the stub names no module and pins no version; every value above is deployment-global. |
 
-Which implementation a deployment gets follows those two variables alone — the module's resolver context carries a driver, a logger and a database name, and has no view of what else is loaded:
+Which implementation a deployment gets follows `MODULE_KG_BASE_URL` and `MODULE_KG_VERSION` alone — the team identifier scopes what the service answers, never which client is constructed, and the module's resolver context carries a driver, a logger and a database name, and has no view of what else is loaded:
 
 | `MODULE_KG_BASE_URL` | `MODULE_KG_VERSION` | Result |
 |---|---|---|
