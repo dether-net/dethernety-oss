@@ -27,8 +27,15 @@ import (
 //
 // The distinction that made the original sentence true is the one preserved: the console has no
 // credential of its own, then or now. It relays the operator's, for one call, to one configured host,
-// and holds it nowhere. Every other property this file claims is unchanged — no deployment identifier,
-// no request-supplied destination, no redirect followed.
+// and holds it nowhere. No request-supplied destination, and no redirect followed.
+//
+// ONE DEPLOYMENT IDENTIFIER IS NOW SENT, and this sentence used to say none was. An entitled call
+// carries the deployment's team, because the service cannot otherwise avoid serving one customer's
+// content to another customer's deployment — a person in two teams would be served the union on either
+// one. It rides with the credential and only with it (see entitledGet), so the credential-free catalog
+// surfaces still identify nothing. The value is a filter and never a grant: it can only narrow what a
+// caller already holds, so naming a team the caller is not in yields nothing rather than someone else's
+// content.
 //
 // The console reads the public catalog (no credential) to show the operator what exists and at which
 // pin, writes and removes stubs, and reports whether a newer content version is available. The catalog
@@ -204,11 +211,27 @@ type catalogPackage struct {
 	Entitled *bool `json:"entitled,omitempty"`
 }
 
+// deploymentTeamHeader names the team this deployment belongs to, on an entitled request. It is the only
+// header the console adds to an outbound call beyond Accept and Authorization.
+//
+// The name follows the two custom headers this codebase already has — X-Console-Session and
+// X-Console-Cloud-Token — which prefix by SUBJECT. The subject here is the deployment, not the sender:
+// the console is not the only program that sends this header, so naming the sender would be wrong. And
+// it carries an identifier without saying "-Id", exactly as X-Console-Session does.
+//
+// It is deliberately NOT in the X-Console-* family, for that same reason. That prefix would claim the
+// console is the sender, and the platform's own module client sends this header, from this value, on the
+// calls it makes.
+const deploymentTeamHeader = "X-Deployment-Team"
+
 // publicGet performs an UNAUTHENTICATED GET against one of the cloud service's public surfaces — the
 // content catalog, and the knowledge-graph version listing. It sends no Authorization header by design:
 // neither surface needs a credential, and attaching a token would forward the operator's credential to a
-// surface that must not receive it. Non-2xx is an error carrying only the path and status; the body is
-// size-capped like the other probes.
+// surface that must not receive it. It sends no team header either, for the same reason and by the same
+// rule: these responses are publicly cacheable and may be logged by intermediaries, so they must carry
+// nothing that identifies this deployment. Nothing here is conditional — the absence is structural.
+//
+// Non-2xx is an error carrying only the path and status; the body is size-capped like the other probes.
 func publicGet(ctx context.Context, base, path string, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+path, nil)
 	if err != nil {
@@ -264,14 +287,28 @@ var errEntitledTooLarge = errors.New("response exceeds the size this console wil
 // unmapped status would put it in front of the operator.
 //
 // base is the caller's, and callers take it from the console-written mode layer, re-checked on read.
-// Never a request-supplied host.
-func entitledGet(ctx context.Context, base, path, token string, max int64) (body []byte, status int, err error) {
+// Never a request-supplied host. team travels the same way and is optional here: empty means this
+// deployment has not been told which team it belongs to, and the request goes out naming none — which
+// the content service answers only while it is establishing that every deployment has been told, and
+// refuses afterwards. Optional in this signature, not optional in the protocol.
+//
+// THE TEAM HEADER IS SENT IF AND ONLY IF A BEARER TOKEN IS. Written as one condition rather than two
+// because the two must never drift apart. An entitled call names the team so the service can scope what
+// it serves; a call carrying no credential must name nothing, and publicGet's own comment gives the
+// reason that applies here too — the credential-free surfaces are publicly cacheable and may be logged
+// by intermediaries, which is exactly where a tenancy identifier must not end up. Binding the header to
+// the credential also means no entitled route added later can forget it, and no public one can acquire
+// it by accident.
+func entitledGet(ctx context.Context, base, path, token, team string, max int64) (body []byte, status int, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+path, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" && team != "" {
+		req.Header.Set(deploymentTeamHeader, team)
+	}
 	client := &http.Client{
 		Timeout: entitledTimeout,
 		// The same refusal publicGet makes, for the same reason: refusing redirects is what keeps the
@@ -424,7 +461,7 @@ func canAskForEntitlements(vars map[string]string) bool {
 // unconditionally, so an empty token would dial the content service carrying a bare "Bearer " and no
 // credential. Nothing here needs that request made, and a reloaded tab — where the operator's tokens are
 // gone but the session is not — makes it the common case rather than an edge one.
-func resolveEntitlements(ctx context.Context, base, token string) (keys map[string]struct{}, ok bool) {
+func resolveEntitlements(ctx context.Context, base, token, team string) (keys map[string]struct{}, ok bool) {
 	if base == "" || token == "" {
 		return nil, false
 	}
@@ -432,8 +469,13 @@ func resolveEntitlements(ctx context.Context, base, token string) (keys map[stri
 	// for why it is the shortest of the three.
 	ctx, cancel := context.WithTimeout(ctx, entitlementsTimeout)
 	defer cancel()
-	body, status, err := entitledGet(ctx, base, "/v1/entitlements", token, maxEntitlementsBytes)
+	body, status, err := entitledGet(ctx, base, "/v1/entitlements", token, team, maxEntitlementsBytes)
 	if err != nil || status != http.StatusOK {
+		// EVERY non-200 is could-not-ask, and the body is deliberately not parsed to say which. Nothing
+		// is gated on this answer, so no refusal here needs a distinct rendering — and the one refusal
+		// that IS a deployment fault, `400 team_required`, is already reported to the operator from the
+		// mode layer as SubscriptionTeamMissing, which is the better source: it is the same answer
+		// whether or not the content service was reachable at all.
 		return nil, false
 	}
 	// The marker is checked, not merely parsed. A 200 whose body is not this document — a refusal rendered

@@ -28,6 +28,7 @@ import { Logger } from '@nestjs/common';
 import { KgClient } from '../interfaces/kg-client-interface';
 import { FetchLike } from '../remote/wire-client';
 import { CloudKgClient } from './cloud-client';
+import { deploymentTeamId } from '../remote/team-id';
 import { LocalKgClient } from './local-client';
 import { UnavailableKgClient } from './unavailable-client';
 
@@ -42,11 +43,14 @@ export interface KgClientContext {
   databaseName?: string;
 }
 
-/** Test seams. The two configuration values fall back to the environment, mirroring how the
+/** Test seams. The three configuration values fall back to the environment, mirroring how the
  * content client is configured; the transport is injected only by tests. */
 export interface KgClientDeps {
   baseUrl?: string;
   version?: string;
+  /** The deployment's team. Entitled knowledge-graph calls name it so the service can scope what it
+   * answers — it is one of the paths the scoping is decided on, not only the content surface. */
+  teamId?: string;
   /** An in-process transport, so the remote path is exercised with no sockets and no credentials. */
   fetchImpl?: FetchLike;
   timeoutMs?: number;
@@ -55,6 +59,7 @@ export interface KgClientDeps {
 export function createKgClient(ctx: KgClientContext, deps?: KgClientDeps): KgClient {
   const baseUrl = deps?.baseUrl ?? process.env.MODULE_KG_BASE_URL;
   const version = deps?.version ?? process.env.MODULE_KG_VERSION;
+  const teamId = deps?.teamId ?? deploymentTeamId();
 
   if (baseUrl) {
     if (version && VERSION_PATTERN.test(version)) {
@@ -63,6 +68,7 @@ export function createKgClient(ctx: KgClientContext, deps?: KgClientDeps): KgCli
         version,
         fetchImpl: deps?.fetchImpl,
         timeoutMs: deps?.timeoutMs,
+        teamId,
       });
     }
     // Logged once, at construction, because this is the only moment an operator can be told: the

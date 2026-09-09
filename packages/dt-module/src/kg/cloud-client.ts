@@ -53,6 +53,9 @@ export interface CloudKgClientOptions {
   /** Injected in tests; defaults to the Node global `fetch`. */
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  /** The deployment's team, sent on the entitled calls only — capability and query, never the
+   * public registry. */
+  teamId?: string;
 }
 
 export class CloudKgClient implements KgClient {
@@ -69,6 +72,7 @@ export class CloudKgClient implements KgClient {
       baseUrl: opts.baseUrl,
       fetchImpl: opts.fetchImpl,
       timeoutMs: opts.timeoutMs,
+      teamId: opts.teamId,
     });
   }
 

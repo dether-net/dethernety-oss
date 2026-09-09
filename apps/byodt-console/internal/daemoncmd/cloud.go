@@ -37,8 +37,8 @@ var acceptedRecipeVars = map[string]bool{
 }
 
 // optionalRecipeVars are accepted recipe names that MAY be empty or absent — unlike acceptedRecipeVars,
-// they are not required present-and-non-empty. Putting either of these in acceptedRecipeVars instead
-// would reject the whole apply on a case that legitimately occurs.
+// they are not required present-and-non-empty. Putting any of these in acceptedRecipeVars instead would
+// reject the whole apply on a case that legitimately occurs.
 //
 // MODULE_KG_BASE_URL is the knowledge-graph service, present only for a deployment entitled to one —
 // so it is absent from every recipe issued before it existed and from every recipe without that
@@ -52,9 +52,20 @@ var acceptedRecipeVars = map[string]bool{
 // recipe issued before it existed, so requiring it would reject all of them; absent it simply means
 // this deployment cannot install artifacts until it reconnects, which is the fail-closed side and the
 // opposite of an unknown subscription, where nothing is gated because that is a display concern.
+// DEPLOYMENT_TEAM_ID names the team this deployment belongs to. The content service uses it to scope
+// what it serves: a person who belongs to two teams must not be served one team's content on the other
+// team's deployment, and the deployment is the only party that knows which team it is. It is optional in
+// exactly the way the two above are — absent from every recipe issued before it existed, so requiring it
+// would reject all of them. Absent, the header is not sent, and the content service answers such a call
+// only while it is establishing that every deployment has been told its team. That is the safe direction
+// for the console — a recipe that applies beats one that is rejected — and it is deliberately not the
+// permanent one. Once the service enforces, absence is not a degraded deployment but a broken one: every
+// entitled call fails. The name is promoted to required once every recipe carries it, and the window
+// between here and there is the only reason this entry is in this map rather than the one above.
 var optionalRecipeVars = map[string]bool{
 	"MODULE_KG_BASE_URL":         true,
 	"DEPLOYMENT_ARTIFACT_SIGNER": true,
+	"DEPLOYMENT_TEAM_ID":         true,
 }
 
 // strippedRecipeVars are recognised recipe names the console deliberately DROPS rather than writes.
@@ -241,11 +252,23 @@ func cloudModeVars(recipe map[string]string, redirectURI, contentCacheDir string
 			return nil, nil, fmt.Errorf("DEPLOYMENT_ARTIFACT_SIGNER %w", err)
 		}
 	}
-	// An empty optional URL is dropped rather than written. An empty service base means nothing at all,
-	// and writing it would make the deployment's behaviour depend on how its reader treats an empty
-	// string. Absent is the state that already means "no service configured".
-	if v, present := vars["MODULE_KG_BASE_URL"]; present && v == "" {
-		delete(vars, "MODULE_KG_BASE_URL")
+	// Optional, so an absent or empty value has nothing to check. Unlike the signer, this value LEAVES the
+	// console again — it is sent as a request header on every entitled call — so holding it to a shape is
+	// what keeps a hostile recipe from writing a second header rather than a value. The reader re-checks it
+	// too, for the case this path cannot see: a mode layer edited by hand after the console wrote it.
+	if v := vars["DEPLOYMENT_TEAM_ID"]; v != "" {
+		if err := teamID(v); err != nil {
+			return nil, nil, fmt.Errorf("DEPLOYMENT_TEAM_ID %w", err)
+		}
+	}
+	// An optional value that arrived empty is dropped rather than written. Empty means nothing at all for
+	// either of these — no service configured, no team named — and writing it would make the deployment's
+	// behaviour depend on how each reader treats an empty string, a question that absence does not raise.
+	// Absent already means "not configured", so let it be the only state that does.
+	for _, name := range []string{"MODULE_KG_BASE_URL", "DEPLOYMENT_TEAM_ID"} {
+		if v, present := vars[name]; present && v == "" {
+			delete(vars, name)
+		}
 	}
 	sort.Strings(stripped)
 	return vars, stripped, nil
@@ -281,6 +304,25 @@ func bareHost(raw string) error {
 // outright — so a space is the only whitespace that reaches here.
 var artifactSignerPattern = regexp.MustCompile(
 	`^https://[A-Za-z0-9.-]+/[^/@\s]+/[^/@\s]+/\.github/workflows/[^/@\s]+\.ya?ml$`)
+
+// A team identifier is an opaque token minted by the issuer — rendered in base64url, and nothing this
+// console can or should interpret. What it CAN do is hold it to a shape, and
+// the shape is what makes header injection impossible rather than merely unlikely: every character this
+// admits is already a valid HTTP header-value character, because a header is where the value goes.
+//
+// A CHARACTER CLASS AND A BOUND, NOT AN EXACT LENGTH, and the difference is the point. Pinning the length
+// would tie every console in the field to the issuer's current identifier format across a release
+// boundary: change the format and every deployment refuses a legitimate recipe, having no way to learn
+// the new one. The issuer asserts its own exact length on its own side, where a change strands nobody.
+var teamIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// teamID holds the deployment's team identifier to the shape above.
+func teamID(raw string) error {
+	if !teamIDPattern.MatchString(raw) {
+		return fmt.Errorf("must be 1-64 characters of A-Z, a-z, 0-9, '-' or '_'")
+	}
+	return nil
+}
 
 // artifactSignerPrefix holds the signer subject prefix to the shape above. It is a TYPO GUARD, not a
 // security control, and the difference matters: a hostile recipe already names the identity provider,

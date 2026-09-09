@@ -17,6 +17,8 @@ import {
 } from '../testing/fixtures';
 
 const BASE = 'https://svc.local';
+/** A team identifier of the shape the issuer mints: an opaque base64url token. */
+const TEAM_ID = '9Xk2QpLm4RtZaB7cWvNfEg';
 
 /** A fetchImpl that returns one crafted response and records the init it saw. */
 function crafted(status: number, body: unknown, headers: Record<string, string> = {}): { fetchImpl: FetchLike; seen: RequestInit[] } {
@@ -70,6 +72,27 @@ describe('WireClient — status → typed error mapping', () => {
     }
   });
 
+  // THE REASON HAS TO SURVIVE THE MAPPING, which is the whole of this case. Both 400s are
+  // misconfigurations and both raise the same class, so asserting the class proves nothing — what is
+  // asserted here is the `code`, because an operator told "the payload was invalid" when their
+  // deployment simply never named its team looks at the wrong end of the call.
+  it('400 team_required keeps its reason instead of collapsing to payload_invalid', async () => {
+    const { fetchImpl } = crafted(400, { code: 'team_required', title: 'this deployment named no team' });
+    const err = await clientWith(fetchImpl)
+      .evaluate(CLASS_ID, PIN, 'tok', { requestId: 'r', attributes: {} })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(RemoteModuleMisconfiguredError);
+    expect((err as RemoteModuleMisconfiguredError).code).toBe('team_required');
+  });
+
+  it('a 400 with no recognized code still reads as payload_invalid', async () => {
+    const { fetchImpl } = crafted(400, {});
+    const err = await clientWith(fetchImpl)
+      .evaluate(CLASS_ID, PIN, 'tok', { requestId: 'r', attributes: {} })
+      .catch((e) => e);
+    expect((err as RemoteModuleMisconfiguredError).code).toBe('payload_invalid');
+  });
+
   it('410 version_recalled → ContentRecalledError carrying the reason', async () => {
     const { fetchImpl } = crafted(410, { code: 'version_recalled', recalled: { reason: 'known-bad' } });
     const err = await clientWith(fetchImpl).template(CLASS_ID, PIN, 'tok').catch((e) => e);
@@ -98,13 +121,17 @@ describe('WireClient — status → typed error mapping', () => {
 });
 
 describe('WireClient — cross-cutting request rules', () => {
-  it('sets redirect:"error" and a static library User-Agent on every call, no identity headers', async () => {
+  it('sets redirect:"error" and a static library User-Agent on every call, and identifies the deployment on none of the unentitled ones', async () => {
+    // The name of this test used to end "no identity headers", and its body only ever checked the
+    // User-Agent — so it would have stayed green through the change that made its name false. It now
+    // asserts what it claims, on a client that HAS a team to send.
     const { fetchImpl, seen } = crafted(200, { protocol: '1', module: { name: MODULE_KEY } });
-    await clientWith(fetchImpl).moduleDocument(MODULE_KEY, PIN);
+    await new WireClient({ baseUrl: BASE, fetchImpl, teamId: TEAM_ID }).moduleDocument(MODULE_KEY, PIN);
     const init = seen[0];
     expect(init.redirect).toBe('error');
     const headers = new Headers(init.headers as Record<string, string>);
     expect(headers.get('user-agent')).toMatch(/^dt-remote-module\/\d+\.\d+\.\d+$/);
+    expect(headers.get('x-deployment-team')).toBeNull();
   });
 
   it('a 3xx meeting redirect:"error" is a hard failure — the bearer never follows it', async () => {
@@ -159,14 +186,16 @@ describe('WireClient — authorization scoping (against the mock)', () => {
     mock = new MockContentServer();
   });
 
-  it('catalog calls carry no Authorization header', async () => {
-    const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch });
+  it('catalog calls carry neither an Authorization header nor a team', async () => {
+    // Configured WITH a team, so the absence proves the rule rather than the fixture.
+    const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch, teamId: TEAM_ID });
     await client.moduleDocument(MODULE_KEY, PIN);
     await client.embeddings(MODULE_KEY, PIN, MODEL_SLUG);
     expect(mock.requests).toHaveLength(2);
     for (const req of mock.requests) {
       expect(req.headers.get('authorization')).toBeNull();
       expect(req.token).toBeUndefined();
+      expect(req.headers.get('x-deployment-team')).toBeNull();
     }
   });
 

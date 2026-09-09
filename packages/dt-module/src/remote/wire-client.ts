@@ -17,8 +17,16 @@
  *     poisoning a cached module document);
  *   - a bounded per-call timeout, so a slow service degrades to "unavailable"
  *     rather than hanging a resolver;
- *   - a static, library-only `User-Agent`, and no header, query, or body that
- *     identifies the deployment, host, user, or model content;
+ *   - a static, library-only `User-Agent`, and no query or body that identifies
+ *     the deployment, host, user, or model content;
+ *   - ONE header that names the deployment's team, and only alongside a bearer.
+ *     This rule used to read "no header … that identifies the deployment", and the
+ *     exception is deliberate rather than a drift: the content service cannot
+ *     otherwise avoid serving one customer's content to another customer's
+ *     deployment, since a person in two teams would be served the union on either
+ *     one. It is a filter and never a grant — it can only narrow what the caller
+ *     already holds — and it rides with the credential, so the catalog calls below
+ *     still identify nothing;
  *   - `Authorization: Bearer` only on the entitled surfaces; catalog calls carry
  *     no credential (their responses are publicly cacheable and may be logged by
  *     intermediaries).
@@ -27,6 +35,7 @@ import { DTMetadata } from '../interfaces/module-metadata-interface';
 import { Exposure } from '../interfaces/exposure-interface';
 import { Countermeasure } from '../interfaces/countermeasure-interface';
 import { mapStatusToError, ProblemBody, RemoteModuleUnavailableError } from './errors';
+import { DEPLOYMENT_TEAM_HEADER, usableTeamId } from './team-id';
 
 /** The `fetch`-shaped function the client calls. Global `fetch` by default; a
  * test injects an in-process mock here (no sockets). */
@@ -130,12 +139,20 @@ export interface WireClientOptions {
   fetchImpl?: FetchLike;
   /** Per-call timeout. */
   timeoutMs?: number;
+  /** The deployment's team, sent on entitled calls only. Undefined leaves every request naming no team,
+   * which the content service still answers transitionally and will later refuse outright.
+   *
+   * Held to `TEAM_ID_PATTERN` on the way in, whether it was supplied here or read from the environment;
+   * an unusable value is dropped, exactly as an unusable `DEPLOYMENT_TEAM_ID` is. */
+  teamId?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** Static library-version User-Agent. Read from the package root at runtime so it
- * tracks the version bump without a second edit; never identifies the deployment. */
+ * tracks the version bump without a second edit. It names the LIBRARY and nothing
+ * else — the one value that names the deployment is the team header, which is set
+ * only beside a credential (see `request`), never here. */
 function clientUserAgent(): string {
   // Runtime require (not a static import): package.json sits outside rootDir:src,
   // so importing it would break outDir inference. `../../package.json` resolves to
@@ -151,12 +168,20 @@ export class WireClient {
   private readonly baseUrl?: string;
   private readonly fetchImpl: FetchLike;
   private readonly timeoutMs: number;
+  private readonly teamId?: string;
 
   constructor(options: WireClientOptions = {}) {
     this.baseUrl = stripTrailingSlashes(options.baseUrl);
     // Bind so a bare global `fetch` keeps its expected `this`.
     this.fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    // VALIDATED HERE, not only where the environment is read. This is the single point every sender
+    // funnels through — the content client and the knowledge-graph client both — so a value handed in
+    // through `options` is held to the same shape as one read from `DEPLOYMENT_TEAM_ID`. An unusable one
+    // is dropped rather than thrown, matching the reader's own contract; undici would refuse a CR/LF
+    // header anyway, but that is a property of the transport rather than of this client, and relying on
+    // it left the code weaker than the documentation said it was.
+    this.teamId = usableTeamId(options.teamId);
   }
 
   // --- Catalog surface (unauthenticated — no Authorization header) -----------
@@ -253,6 +278,13 @@ export class WireClient {
       Accept: 'application/json',
     };
     if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+    // The team header is sent IF AND ONLY IF a bearer is. One condition rather than two, because the
+    // two must never drift apart: an entitled call names the team so the service can scope what it
+    // serves, and a credential-free call must name nothing — the catalog responses are publicly
+    // cacheable and may be logged by intermediaries, which is the last place a tenancy identifier
+    // belongs. Binding it to the credential also means no entitled surface added later can forget it,
+    // and no public one can acquire it by accident.
+    if (opts.token && this.teamId) headers[DEPLOYMENT_TEAM_HEADER] = this.teamId;
     if (opts.jsonBody !== undefined) headers['Content-Type'] = 'application/json';
 
     const controller = new AbortController();

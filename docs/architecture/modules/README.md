@@ -164,7 +164,7 @@ class KnowledgeGraphModule extends DtRemoteKnowledgeGraphModule {
 }
 ```
 
-Configuration is deployment-global: `MODULE_KG_BASE_URL` (the knowledge-graph service; no default, so an unset value selects the local mode) and `MODULE_KG_VERSION` (the pinned `sha256:` version digest). Neither has a default and **a missing pin never falls back to "latest"** — a base URL with no usable pin leaves the module exactly as inert as an unconfigured one, logged once as a misconfiguration. See the [DtRemoteKnowledgeGraphModule reference](./DT_MODULE_INTERFACE.md#remote-knowledge-graph-modules-dtremoteknowledgegraphmodule).
+Configuration is deployment-global: `MODULE_KG_BASE_URL` (the knowledge-graph service; no default, so an unset value selects the local mode), `MODULE_KG_VERSION` (the pinned `sha256:` version digest), and `DEPLOYMENT_TEAM_ID` (which team this deployment belongs to, so the service can scope what it answers — sent as a request header **if and only if** a bearer token is, so the entitled calls carry it and the credential-free registry call does not). None of the three has a default, and **a missing pin never falls back to "latest"** — a base URL with no usable pin leaves the module exactly as inert as an unconfigured one, logged once as a misconfiguration. See the [DtRemoteKnowledgeGraphModule reference](./DT_MODULE_INTERFACE.md#remote-knowledge-graph-modules-dtremoteknowledgegraphmodule).
 
 **Use Cases:**
 - Querying a centrally-maintained knowledge graph without ingesting it into the deployment's own database

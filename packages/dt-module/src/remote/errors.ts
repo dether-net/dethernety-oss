@@ -17,6 +17,7 @@ export type WireErrorCode =
   | 'invalid_token'
   | 'token_expired'
   | 'not_entitled'
+  | 'team_required'
   | 'module_not_found'
   | 'version_not_found'
   | 'class_not_found'
@@ -145,7 +146,15 @@ export function mapStatusToError(
         (code as WireErrorCode) ?? 'module_not_found',
       );
     case 400:
-      return new RemoteModuleMisconfiguredError(body?.title, 'payload_invalid');
+      // KEYED ON THE BODY'S CODE, like 404 above, because 400 is no longer one thing. `team_required`
+      // says this deployment did not name its team — a configuration fault in `DEPLOYMENT_TEAM_ID`, not
+      // a malformed payload — and collapsing it to `payload_invalid` sent an operator looking at the
+      // wrong end of the call. Both remain misconfigurations, so the class does not change; what changes
+      // is that the reason survives to whoever has to fix it.
+      return new RemoteModuleMisconfiguredError(
+        body?.title,
+        code === 'team_required' ? 'team_required' : 'payload_invalid',
+      );
     case 413:
       return new RemoteModuleMisconfiguredError(body?.title, 'payload_too_large');
     case 410:

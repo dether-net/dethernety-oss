@@ -353,25 +353,43 @@ reloaded tab, since the SPA holds that token in memory only — or with no answe
 the subscription is reported as undetermined and nothing is restricted, under a muted line saying which of
 these happened.
 
-**The first is a fact about the DEPLOYMENT and outranks the rest**: its configured `OIDC_SCOPE` carries no
-content scope, so no sign-in it can perform will ever produce a usable token. The daemon decides that
-locally, from the mode file it wrote, and reports it as `subscriptionUnavailable` on the same response.
-It has to be the daemon: a deployment without the scope still receives a perfectly good access token for
-the scopes it *did* request, so the browser holds a credential that looks entirely working and cannot see
-what it lacks. The console inferred this from an empty access token once, and that state is unreachable —
-the permanent case arrived looking transient and the operator was told to retry forever.
+**Two of the reasons are facts about the DEPLOYMENT, and both outrank the rest.** The first is scope: the
+deployment's configured `OIDC_SCOPE` carries no content scope, so no sign-in it can perform will ever
+produce a usable token, and the response carries `subscriptionUnavailable`. The second is team: the
+deployment has not been told which one it belongs to, so `DEPLOYMENT_TEAM_ID` is absent — or present and
+malformed, which `cloudContentTarget` blanks and logs, since from the operator's side those are one fault
+in one file — and its entitled calls therefore name no team. That is reported as `subscriptionTeamMissing`,
+and the content service answers a team-less entitled call only while it establishes that every deployment
+has been told its team; once it enforces, every entitled call this deployment makes fails with
+`400 team_required`. Both end in the same instruction — regenerate the recipe and reconnect — and they are
+two fields rather than one cause with two texts because the sentence the operator acts on names a
+different variable, and being sent to the wrong line of the same file is what merging them would cost.
 
-Detecting it is a SUFFIX match on the scope list, not the exact scope rebuilt from the deployment's content
-address. Those diverge on a supported configuration — with the edge off the recipe carries the gateway's
-own endpoint while the scope still names the vanity host — and rebuilding it there would declare a capable
-deployment broken and send its operator to a reconnect. The suffix can only be wrong in the direction of
-*able to ask*, which gates nothing.
+**When both are true the scope fault is reported first**, and a test asserts that rather than trusting the
+order the arms happen to be written in: the missing scope stops the call being made at all, while the
+missing team only changes what the call is answered with.
+
+Both are decided by the daemon, locally, from the mode file it wrote, and it has to be the daemon in each
+case. A deployment without the scope still receives a perfectly good access token for the scopes it *did*
+request, so the browser holds a credential that looks entirely working and cannot see what it lacks — the
+console inferred this from an empty access token once, and that state is unreachable, so the permanent case
+arrived looking transient and the operator was told to retry forever. The team fault is the same argument
+reached from the other side: the browser could only learn it from a refusal, and no refusal arrives when
+the content service is unreachable, while the deployment's own configuration answers the same whether or
+not the service could be reached at all.
+
+Detecting the scope fault is a SUFFIX match on the scope list, not the exact scope rebuilt from the
+deployment's content address. Those diverge on a supported configuration — with the edge off the recipe
+carries the gateway's own endpoint while the scope still names the vanity host — and rebuilding it there
+would declare a capable deployment broken and send its operator to a reconnect. The suffix can only be
+wrong in the direction of *able to ask*, which gates nothing.
 
 The rest are facts about this browser tab: no cloud sign-in in it yet, or a check that failed just now.
 Only the first of those carries a sign-in control, and the asymmetry is the point — a reloaded tab is
 signed in with a live session and no tokens, so the sign-in card is not rendered and an instruction to find
-one would be a dead end, while offering the same control on a deployment that cannot ask would be the loop
-rather than the remedy. The artifact panel's install path takes the same precedence, for the same reason. An empty list is not that state — it is an answer, and it means the subscription includes nothing.
+one would be a dead end, while offering the same control for either deployment-level fact would be the loop
+rather than the remedy — a sign-in supplies neither a scope nor a team. The artifact panel's install path
+takes the scope fault at that same precedence, for the same reason. An empty list is not that state — it is an answer, and it means the subscription includes nothing.
 Every failure collapses to undetermined, refusals included. A `401` from the content service is never
 relayed as the console's own, because the SPA reads any `401` as an expired session and would sign an
 operator out of their console over a token minted for a different service; a `404` is ordinary rather than

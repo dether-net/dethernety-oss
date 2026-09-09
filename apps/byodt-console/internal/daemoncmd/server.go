@@ -298,9 +298,9 @@ func (s *server) mode(w http.ResponseWriter, r *http.Request) {
 // postureView is the ungated read the sign-in page needs before it can hold a session: which sign-in
 // to render, and — in cloud — the public OIDC discovery values the PKCE flow runs against. It is a
 // HARD, five-field projection of the console-written mode file. That projection is the leak guard: the
-// same file also holds DEPLOYMENT_ALLOWLIST (member subject ids), the commerce/content service URLs,
-// and the JWKS URI / audience — none of which are returned. Never marshal the parsed map; only the
-// named fields below.
+// same file also holds DEPLOYMENT_ALLOWLIST (member subject ids), DEPLOYMENT_TEAM_ID (the team this
+// deployment belongs to), the commerce/content service URLs, and the JWKS URI / audience — none of which
+// are returned. Never marshal the parsed map; only the named fields below.
 type postureView struct {
 	Posture      string `json:"posture"` // "cloud" | "local"
 	AuthDisabled bool   `json:"authDisabled"`
@@ -581,25 +581,60 @@ func (s *server) cloudModeFile() (vars map[string]string, ok bool) {
 // cloudContentBase returns the content service base URL from the cloud mode file. One read serves both
 // the cloud-mode gate and the base.
 //
-// The value is re-checked with secureURL on the way out. The write path already checks it, so this looks
-// redundant — but a check only on write makes https-or-loopback a property of "this console wrote this
-// file", and the mode layer is a file on the operator's host, not console-private state. Re-checking on
-// read makes it a property of the value actually being dialled, which is the one that matters. An
-// unusable value reads as no base at all: refusing to call it is the right answer, and the callers
-// already render an absent base as a deployment that cannot reach the catalog.
+// It is the base-only half of cloudContentTarget, for the callers that make no entitled request and so
+// have no use for a team: naming one would suggest they send it.
 func (s *server) cloudContentBase() (base string, ok bool) {
+	base, _, ok = s.cloudContentTarget()
+	return base, ok
+}
+
+// cloudContentTarget answers both halves of "where do I call, and as whom" from ONE read: the content
+// service base, and the team this deployment belongs to.
+//
+// ONE read is the whole reason this exists rather than a second accessor beside cloudContentBase. Two
+// accessors means two reads of a file the operator can edit between them, and a caller that dialled the
+// base from the first while naming the team from the second could send one team's identifier to a
+// service the deployment had already been reconnected away from. Reading both together makes that
+// unrepresentable rather than unlikely.
+//
+// Both values are re-checked on the way out. The write path already checks them, so this looks
+// redundant — but a check only on write makes validity a property of "this console wrote this file", and
+// the mode layer is a file on the operator's host, not console-private state. Re-checking on read makes
+// it a property of the value actually being used, which is the one that matters.
+//
+// The two failures differ, and deliberately. An unusable BASE reads as no base at all: refusing to dial
+// it is the right answer, and the callers already render an absent base as a deployment that cannot
+// reach the catalog. An unusable TEAM reads as no team, and the call still goes out, exactly as it does
+// from a deployment that never named one. Refusing here would turn a malformed local file into an
+// immediate outage, and a console that will not start is a worse place to discover a typo than a console
+// that starts and says which value it rejected.
+//
+// WHAT THE DEGRADE BUYS HAS NARROWED, and the argument should not be read as broader than it is. It once
+// meant the call still succeeded. The content service answers a team-less entitled call only while it
+// establishes that every deployment has been told its team; after that, an unusable value here means
+// every entitled call fails. So the degrade no longer avoids the outage — it decides where the outage
+// surfaces, and it keeps the console running, the log line written, and the value correctable in place.
+// The packages handler reports the same fact to the operator through SubscriptionTeamMissing, so this is
+// not the only place it is visible.
+func (s *server) cloudContentTarget() (base, team string, ok bool) {
 	vars, ok := s.cloudModeFile()
 	if !ok {
-		return "", false
+		return "", "", false
 	}
 	base = vars["MODULE_CONTENT_BASE_URL"]
 	if base != "" {
 		if err := secureURL(base); err != nil {
 			s.logger.Error("the cloud mode layer holds an unusable content base URL; refusing to call it", "err", err)
-			return "", true
+			return "", "", true
 		}
 	}
-	return base, true
+	if team = vars["DEPLOYMENT_TEAM_ID"]; team != "" {
+		if err := teamID(team); err != nil {
+			s.logger.Error("the cloud mode layer holds an unusable team identifier; entitled calls will not name a team", "err", err)
+			team = ""
+		}
+	}
+	return base, team, true
 }
 
 // cloudArtifactSigner returns the certificate-subject PREFIX the entitled publishing workflow signs
@@ -648,6 +683,18 @@ type packagesResponse struct {
 	// not tell apart — and the remedies are opposite: retry versus a new recipe. Omitted when the
 	// deployment is able to ask, so a console that does not know the field reads the ordinary case.
 	SubscriptionUnavailable bool `json:"subscriptionUnavailable,omitempty"`
+	// SubscriptionTeamMissing reports the same KIND of fact for a different cause: this deployment has
+	// not been told which team it belongs to, so its entitled calls name none. Its own field rather than
+	// a second cause folded into the one above, because the remedy sentence names a different variable
+	// and an operator reading "the permission the check needs" while DEPLOYMENT_TEAM_ID is what is
+	// actually missing looks at the wrong line of the same file.
+	//
+	// Read from the mode layer rather than inferred from a refusal, for the reason the field above is:
+	// only this console holds the deployment's own configuration, and the answer must be the same whether
+	// or not the content service happened to be reachable. It is currently the milder of the two — the
+	// service still answers a team-less call while it establishes that every deployment has been told its
+	// team — and it becomes the harder one when that changes.
+	SubscriptionTeamMissing bool `json:"subscriptionTeamMissing,omitempty"`
 }
 
 // packages returns the content catalog, marked with what this operator's subscription actually includes.
@@ -663,7 +710,7 @@ type packagesResponse struct {
 // reconnected, and a disconnect removes every cloud-provided module, so the cheapest way to see a new
 // package cost the classes of every module already mounted. The fact is mutable; the file was not.
 func (s *server) packages(w http.ResponseWriter, r *http.Request) {
-	base, ok := s.cloudContentBase()
+	base, team, ok := s.cloudContentTarget()
 	if !ok || base == "" {
 		http.Error(w, "the content catalog is available only in cloud mode — connect this deployment to the cloud first", http.StatusConflict)
 		return
@@ -683,13 +730,17 @@ func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 	if vars, err := readModeLayer(s.cfg.ModeLayerPath); err == nil {
 		unavailable = !canAskForEntitlements(vars)
 	}
+	// `team` is already the VALIDATED value: cloudContentTarget blanks an unusable one and logs it. So
+	// this covers both an absent variable and a present-but-malformed one, which is right — from the
+	// operator's side they are the same fault in the same file, and the log line says which.
+	teamMissing := team == ""
 	type entitlementAnswer struct {
 		keys map[string]struct{}
 		ok   bool
 	}
 	answer := make(chan entitlementAnswer, 1)
 	go func() {
-		keys, ok := resolveEntitlements(ctx, base, token)
+		keys, ok := resolveEntitlements(ctx, base, token, team)
 		answer <- entitlementAnswer{keys, ok}
 	}()
 
@@ -712,7 +763,11 @@ func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 			pkgs[i].Entitled = &held
 		}
 	}
-	writeJSON(w, http.StatusOK, packagesResponse{Packages: pkgs, SubscriptionUnavailable: unavailable})
+	writeJSON(w, http.StatusOK, packagesResponse{
+		Packages:                pkgs,
+		SubscriptionUnavailable: unavailable,
+		SubscriptionTeamMissing: teamMissing,
+	})
 }
 
 // mountedModuleView is one mounted stub plus its update state relative to the catalog.
