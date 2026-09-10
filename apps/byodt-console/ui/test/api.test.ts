@@ -87,10 +87,12 @@ describe('api content methods', () => {
     })
   })
 
-  it('DELETEs a mount by its encoded key', async () => {
+  it('DELETEs a mount by its encoded key, carrying the token its admin gate asks with', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
     await api.unmountModule('acme-compute')
     expect(lastUrl).toBe('/api/modules/acme-compute')
     expect(lastInit?.method).toBe('DELETE')
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBe('the-access-token')
   })
 
   // postEntitled is the ONE call that forwards the operator's access token, and until these two cases it
@@ -115,11 +117,61 @@ describe('api content methods', () => {
     expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
   })
 
-  it('DELETEs an artifact without the access token — removal is a local file operation', async () => {
+  // THIS ASSERTION USED TO BE ITS OWN OPPOSITE, and the reason it flipped is the whole of the admin gate.
+  // Removing an artifact is still a local file operation that needs no credential to DO — the token is not
+  // for the work, it is for the permission. The daemon asks the cloud whether this operator administers
+  // the team the deployment belongs to before it runs any operation that changes the deployment, and it
+  // can only ask with the operator's own token. Dropping the header here does not make the call
+  // credential-free; it makes it refused.
+  it('DELETEs an artifact carrying the operator access token, which the admin gate asks with', async () => {
     setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
     await api.removeArtifact('acme-risk')
     expect(lastUrl).toBe('/api/artifacts/acme-risk')
     expect(lastInit?.method).toBe('DELETE')
+    expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBe('the-access-token')
+  })
+})
+
+// EVERY DEPLOYMENT-CHANGING CALL FORWARDS THE TOKEN, AND THE ONE THAT MUST NOT, DOES NOT.
+//
+// These belong in this file and nowhere else. Every component test mocks the `api` object wholesale, so a
+// dropped header leaves the entire rest of the suite green while every gated operation in production is
+// refused with "your cloud sign-in is not available in this tab" — a failure that looks like a sign-in bug
+// and is actually one deleted line.
+describe('api admin-gated calls carry the operator access token', () => {
+  const gated: [string, () => Promise<unknown>][] = [
+    ['mount', () => api.mountModule({ packageKey: 'acme-cloud', moduleKey: 'acme-compute', pin: 'sha256:' + 'a'.repeat(64) })],
+    ['unmount', () => api.unmountModule('acme-compute')],
+    ['install', () => api.installArtifact({ artifactKey: 'acme-risk', version: '1.3.0' })],
+    ['remove', () => api.removeArtifact('acme-risk')],
+    ['disconnect', () => api.cloudDisable()],
+  ]
+
+  for (const [name, call] of gated) {
+    it(`${name} carries it`, async () => {
+      setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+      await call()
+      expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBe('the-access-token')
+      // Both, on their own headers: two tokens for two audiences cannot share one.
+      expect(authOf(lastInit)).toBe('Bearer the-id-token')
+    })
+
+    it(`${name} omits it rather than sending it empty`, async () => {
+      setCloudTokens({ idToken: 'the-id-token', accessToken: '' })
+      await call()
+      expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
+    })
+  }
+
+  // CONNECT IS THE EXCEPTION AND MUST STAY ONE. It is the pre-cloud paste path: it runs before the
+  // deployment has a cloud identity, so there is no subject to check and nothing to gate. Attaching the
+  // token here would forward the operator's credential on a call that has no use for it, which is exactly
+  // what keeping these as named functions rather than a flag on the plain helpers exists to prevent.
+  it('connect does NOT carry it — the paste path has no authenticated subject', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    await api.cloudApply('OIDC_ISSUER=https://issuer.example\n', 'https://front.example/auth/callback')
+    expect(lastUrl).toBe('/api/cloud')
+    expect(lastInit?.method).toBe('POST')
     expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
   })
 })

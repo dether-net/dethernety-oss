@@ -123,15 +123,26 @@ func (s *server) routes() http.Handler {
 	// Everything else requires a live session.
 	mux.HandleFunc("GET /api/mode", s.sess.requireSession(s.mode))
 	mux.HandleFunc("GET /api/state", s.sess.requireSession(s.state))
-	// The cloud phase. Every route is session-gated like the rest of /api. POST (paste)
-	// and DELETE (disconnect) carry no cloud identity — the paste path has no authenticated subject,
-	// and disconnect is the recovery path that must never require the cloud.
-	// Entitled artifacts. Installing one fetches signed bytes with the OPERATOR's own credential, which
-	// is why this route reads a second header the others do not; everything it places is local.
-	mux.HandleFunc("POST /api/artifacts", s.sess.requireSession(s.installArtifact))
-	mux.HandleFunc("DELETE /api/artifacts/{key}", s.sess.requireSession(s.removeArtifact))
+	// THE FIVE ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, and every read below is not — a member
+	// who cannot see what their deployment has is worse served than one who cannot change it. See admin.go
+	// for what the gate decides and in which order; the wrapper composes OVER the session check, so a
+	// caller holds a session first and then administers the team.
+	//
+	// POST /api/cloud — connect — is the exception, and it needs no gate. It is the pre-cloud paste path
+	// and has NO AUTHENTICATED SUBJECT: it runs before the deployment is connected, when there is no cloud
+	// identity, no team and no projection to ask. There is nobody to check. It also cannot be used to
+	// reconfigure a connected deployment — applying to one that has already written its cloud file is
+	// refused — so to change a connected deployment you must disconnect first, and disconnect IS gated.
+	// The control holds through the route that has a subject to check.
+	//
+	// DELETE /api/cloud takes the recovery variant: it is the operation an operator reaches for to fix a
+	// bad recipe, so it alone proceeds on a deployment that can never make the check.
 	mux.HandleFunc("POST /api/cloud", s.sess.requireSession(s.cloudApply))
-	mux.HandleFunc("DELETE /api/cloud", s.sess.requireSession(s.cloudDisable))
+	mux.HandleFunc("DELETE /api/cloud", s.sess.requireSession(s.requireAdminOrRecovery(s.cloudDisable)))
+	// Entitled artifacts. Installing one fetches signed bytes with the OPERATOR's own credential, which
+	// is why this route read a second header before the gate existed; everything it places is local.
+	mux.HandleFunc("POST /api/artifacts", s.sess.requireSession(s.requireAdmin(s.installArtifact)))
+	mux.HandleFunc("DELETE /api/artifacts/{key}", s.sess.requireSession(s.requireAdmin(s.removeArtifact)))
 	// GET /auth/callback is the PKCE landing page: it serves the same SPA shell, which reads the code
 	// from the query and completes the cloud sign-in exchange — its query string must never be logged,
 	// so no request-URL logging goes on this (or any) route.
@@ -141,13 +152,17 @@ func (s *server) routes() http.Handler {
 	// and a mount stub only means anything against a configured content service. GET reads the catalog and
 	// the inventory; POST mounts one module at one pin (re-POST advances the pin); DELETE unmounts.
 	//
-	// GET /api/packages is the SECOND route to read the operator's own access token, because the
-	// subscription it marks the catalog with is a fact only that token can ask for. The catalog half still
-	// carries nothing; the rest of these carry no cloud token at all, mounting being a local file write.
+	// GET /api/packages reads the operator's own access token, because the subscription it marks the
+	// catalog with is a fact only that token can ask for. The catalog half still carries nothing.
+	//
+	// SIX ROUTES NOW READ THAT TOKEN, not two: the gate asks the cloud with it on each of the five it
+	// wraps, so mounting and unmounting carry it even though what they do is a local file write. That is
+	// the difference between a gate that asks the cloud and one that trusts a local session record, and
+	// only the first is worth building.
 	mux.HandleFunc("GET /api/packages", s.sess.requireSession(s.packages))
 	mux.HandleFunc("GET /api/modules", s.sess.requireSession(s.modulesList))
-	mux.HandleFunc("POST /api/modules", s.sess.requireSession(s.mountModule))
-	mux.HandleFunc("DELETE /api/modules/{key}", s.sess.requireSession(s.unmountModule))
+	mux.HandleFunc("POST /api/modules", s.sess.requireSession(s.requireAdmin(s.mountModule)))
+	mux.HandleFunc("DELETE /api/modules/{key}", s.sess.requireSession(s.requireAdmin(s.unmountModule)))
 
 	return mux
 }
@@ -393,13 +408,33 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-// cloudApply writes a pasted recipe into the mode layer. It is the pre-cloud paste path: gated by
-// session-gated but carrying no cloud identity. The write-guard reads the file (unlike the phase,
-// which reads the platform) to refuse reconfiguring a cloud deployment during the restart window the
-// console itself opens, when /config is briefly unreachable and the phase would otherwise read
-// pre-cloud. The paste path has no authenticated subject, so it cannot carry the
-// allowlist-self-exclusion guard a fetched apply does; the compensating control is that disconnect
-// never needs the cloud.
+// cloudApply writes a pasted recipe into the mode layer. It is the pre-cloud paste path: session-gated
+// but carrying no cloud identity. The write-guard reads the file (unlike the phase, which reads the
+// platform) to refuse reconfiguring a cloud deployment during the restart window the console itself
+// opens, when /config is briefly unreachable and the phase would otherwise read pre-cloud.
+//
+// IT IS NOT ADMIN-GATED, and cannot usefully be: it runs before the deployment is connected, when there
+// is no cloud identity, no team and no projection to ask. There is nobody to check. What keeps that from
+// being a hole is the write guard below — applying to a deployment that has already written its cloud
+// file is refused, so reconfiguring a connected deployment means disconnecting first, and disconnect IS
+// gated. The control holds through the route that has a subject to check.
+//
+// THE ALLOWLIST SELF-EXCLUSION GUARD, AND TWO CORRECTIONS TO WHAT THIS COMMENT USED TO SAY. The paste
+// path has no authenticated subject, so it cannot refuse a recipe whose DEPLOYMENT_ALLOWLIST omits the
+// operator submitting it. That much still stands. Two things around it did not:
+//
+//   - "a fetched apply does" — nothing does. The fetched apply (PUT /api/cloud) was retired because the
+//     console's deployment-scoped token has the wrong audience for the commerce API, so the guard this
+//     compared itself against has had no implementation for as long as this comment has existed.
+//   - "the compensating control is that disconnect never needs the cloud" — disconnect was never the
+//     recovery from THAT state. A cloud console session is minted by delegating to the platform, which
+//     validates the allowlist along with everything else, so an operator the allowlist excludes cannot
+//     obtain a session at all and never reaches disconnect, gated or not. Their recovery is another
+//     operator who is on the list, or the mode file on the host.
+//
+// What disconnect does still guarantee is narrower and real: an operator who ALREADY HOLDS a session
+// keeps the ability to revert while the platform is down, and on a deployment that can never obtain a
+// content credential the admin gate steps aside for it. See cloudDisable and admin.go.
 func (s *server) cloudApply(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Recipe      string `json:"recipe"`
@@ -518,8 +553,25 @@ func (s *server) applyKgMount(vars map[string]string) string {
 }
 
 // cloudDisable reverts the deployment to pure-OSS. It rewrites the same mode-layer file with the
-// development values — never deletes it — and never contacts the cloud, because this is the recovery
-// path from a mis-scoped allowlist, the one state in which no cloud call can succeed.
+// development values and never deletes it — both podman's --env-file and systemd's EnvironmentFile fail
+// on a missing file, which would break the very recovery this route is.
+//
+// IT NOW CONTACTS THE CLOUD, AND THE SENTENCE THIS REPLACED SAID IT NEVER WOULD. Disconnect removes every
+// cloud-provided module and, at the next platform start, the classes those modules declare and every link
+// those classes are in. That is the irreversible act the admin role exists to put behind someone, so this
+// route is gated like the other four that change the deployment.
+//
+// WHAT THE OLD SENTENCE GOT RIGHT IS KEPT AS A CARVE-OUT. A gate that refused forever in exactly the
+// state disconnect exists to undo would be a lockout rather than a control, so this route alone proceeds
+// on a deployment that can never obtain a content credential — see requireAdminOrRecovery. Its premise
+// was wrong in the other direction, though, and the correction is recorded on cloudApply above: an
+// operator excluded by the allowlist cannot mint a console session in the first place, so this was never
+// their recovery path.
+//
+// A TRANSIENT OUTAGE DOES REFUSE THIS ROUTE, deliberately. The remedy is to wait, the refusal says so,
+// and the alternative — proceeding when the authority cannot be reached — is fail-open on the one
+// operation that destroys data. An attacker who can interrupt this deployment's network can therefore
+// DENY a disconnect, which is the safe direction for a destructive act to fail in.
 func (s *server) cloudDisable(w http.ResponseWriter, r *http.Request) {
 	// Every cloud-provided module goes with the connection that justified it — the content mounts, the
 	// installed artifacts and the knowledge-graph connection alike, all three told apart by the marker the
@@ -621,20 +673,44 @@ func (s *server) cloudContentTarget() (base, team string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
+	base, team, _ = s.contentTargetFrom(vars)
+	return base, team, true
+}
+
+// contentTargetFrom is cloudContentTarget's validation, split out so a caller that has ALREADY read the
+// mode file can derive the same two values from the same map rather than reading it a second time. The
+// admin gate is that caller: it needs the base, the team and the OIDC scope together, and the whole
+// argument above is that two reads of an operator-editable file can disagree with each other.
+//
+// It takes the map rather than returning one because the cloud-mode check belongs to cloudModeFile, and a
+// caller holding vars has already passed it.
+// THE TWO VALUES ARE DERIVED INDEPENDENTLY, and must stay that way. Returning early on an unusable base
+// would blank the team with it — a coupling that is invisible while a consumer uses both together for one
+// call, and a hole the moment one of them reads the team to decide whether a question is even well-formed.
+// "This deployment names no team" and "this deployment's content host is unusable" are different facts with
+// opposite remedies, and folding the second into the first answers the gentler one.
+// THE THIRD RETURN TELLS "ABSENT" FROM "MALFORMED", and only the gate needs it. For DISPLAY the two are the
+// same fault in the same file and the log line says which — that fold is deliberate and stays. For the GATE
+// they are opposites: absent means this deployment predates the team identifier and must behave exactly as
+// it did before the gate existed, while malformed means somebody wrote a value this console will not use.
+// Folded together, one mistyped character turns the gate OFF and looks identical to the supported pre-team
+// state, with nothing but a log line to say so.
+func (s *server) contentTargetFrom(vars map[string]string) (base, team string, teamMalformed bool) {
 	base = vars["MODULE_CONTENT_BASE_URL"]
 	if base != "" {
 		if err := secureURL(base); err != nil {
 			s.logger.Error("the cloud mode layer holds an unusable content base URL; refusing to call it", "err", err)
-			return "", "", true
+			base = ""
 		}
 	}
 	if team = vars["DEPLOYMENT_TEAM_ID"]; team != "" {
 		if err := teamID(team); err != nil {
 			s.logger.Error("the cloud mode layer holds an unusable team identifier; entitled calls will not name a team", "err", err)
 			team = ""
+			teamMalformed = true
 		}
 	}
-	return base, team, true
+	return base, team, teamMalformed
 }
 
 // cloudArtifactSigner returns the certificate-subject PREFIX the entitled publishing workflow signs
@@ -695,6 +771,21 @@ type packagesResponse struct {
 	// service still answers a team-less call while it establishes that every deployment has been told its
 	// team — and it becomes the harder one when that changes.
 	SubscriptionTeamMissing bool `json:"subscriptionTeamMissing,omitempty"`
+	// Admin reports whether this operator may take deployment-changing actions on the team this deployment
+	// belongs to. It rides here because the SPA needs it to decide which controls to OFFER, and this is a
+	// call the console already makes — so display costs no second round trip, and the alternative, a short
+	// cached authorization answer, was retired for buying nothing at that price.
+	//
+	// A POINTER, and the two other fields here are not. They are facts this console reads off its own disk
+	// and always knows; this one comes from the cloud and has a third state. Nil is "could not ask", which
+	// the SPA must render as undetermined and must NOT gate on — the same rule catalogPackage.Entitled
+	// follows one struct away, and for the same reason: an unreachable service must never make a
+	// subscribed deployment look unsubscribed, nor an administrator look like an ordinary member.
+	//
+	// IT IS NOT THE GATE. Nothing is enforced from this value; it is advisory, and the enforcement re-asks
+	// on the request that carries the operation. Anything that gated on it would be trusting a snapshot the
+	// browser holds for as long as the tab is open.
+	Admin *bool `json:"admin,omitempty"`
 }
 
 // packages returns the content catalog, marked with what this operator's subscription actually includes.
@@ -734,14 +825,14 @@ func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 	// this covers both an absent variable and a present-but-malformed one, which is right — from the
 	// operator's side they are the same fault in the same file, and the log line says which.
 	teamMissing := team == ""
-	type entitlementAnswer struct {
-		keys map[string]struct{}
-		ok   bool
+	type resolved struct {
+		answer entitlementAnswer
+		ok     bool
 	}
-	answer := make(chan entitlementAnswer, 1)
+	answer := make(chan resolved, 1)
 	go func() {
-		keys, ok := resolveEntitlements(ctx, base, token, team)
-		answer <- entitlementAnswer{keys, ok}
+		ent, ok := resolveEntitlements(ctx, base, token, team)
+		answer <- resolved{ent, ok}
 	}()
 
 	pkgs, truncated, err := resolveCatalog(ctx, base)
@@ -757,16 +848,40 @@ func (s *server) packages(w http.ResponseWriter, r *http.Request) {
 	// deployment look unsubscribed. A key the subscription names but the catalog does not carry is simply
 	// not rendered — the catalog is edge-cached for up to a day and this answer is never cached, so the
 	// two disagreeing is ordinary rather than a fault.
+	//
+	// `admin` rides the same read and is left nil on the same condition, for the same reason one step
+	// further on: this value decides whether the SPA renders a deployment-changing control as available,
+	// and an unreachable service must not make an administrator look like an ordinary member. Nil is
+	// "undetermined", the SPA gates on an explicit false only, and NOTHING is enforced from this value —
+	// the gate re-asks on the request itself. Display reads this answer; enforcement asks its own.
+	var admin *bool
 	if a := <-answer; a.ok {
 		for i := range pkgs {
-			_, held := a.keys[pkgs[i].Key]
+			_, held := a.answer.packages[pkgs[i].Key]
 			pkgs[i].Entitled = &held
+		}
+		// AND LEFT NIL AGAIN WHEN THIS DEPLOYMENT NAMED NO TEAM, which is a second condition and not a
+		// redundant one. The read SUCCEEDS in that case: the service answers a team-less caller with the
+		// union of their packages and no `admin` key at all, because it cannot scope that field to a team
+		// the request did not name. An absent field unmarshals to false, and false here is a lie — it would
+		// disable every deployment-changing control on every deployment whose recipe predates the team
+		// identifier, which is currently all of them, for owners included.
+		//
+		// The gate already declines to ask this question for exactly this reason, and the rule has to hold on
+		// BOTH halves: enforcing it without the display leaves an interface that says "you may not" about a
+		// deployment nobody is stopping anyone from changing.
+		//
+		// `teamMissing` rather than a second read, so the two answers cannot disagree.
+		if !teamMissing {
+			isAdmin := a.answer.admin
+			admin = &isAdmin
 		}
 	}
 	writeJSON(w, http.StatusOK, packagesResponse{
 		Packages:                pkgs,
 		SubscriptionUnavailable: unavailable,
 		SubscriptionTeamMissing: teamMissing,
+		Admin:                   admin,
 	})
 }
 

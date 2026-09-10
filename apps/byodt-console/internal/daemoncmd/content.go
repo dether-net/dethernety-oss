@@ -397,15 +397,39 @@ func resolveCatalog(ctx context.Context, base string) (packages []catalogPackage
 // stamps on the documents it serves. It is the path prefix on those routes too — /v1.
 const wireProtocolVersion = "1"
 
-// entitlementsDoc is the content service's answer to what the caller's subscription includes. Membership
-// only: a key is present when the caller holds that package, and the document says nothing about when it
-// was bought or what it contains — the console has no use for either, and the read model behind the
-// surface cannot produce them.
+// entitlementsDoc is the content service's answer to what the caller's subscription includes, and whether
+// the caller may administer the deployment asking. Membership only for the first half: a key is present
+// when the caller holds that package, and the document says nothing about when it was bought or what it
+// contains — the console has no use for either, and the read model behind the surface cannot produce them.
+//
+// TWO ABSENT FIELDS, TWO OPPOSITE MEANINGS, ONE LINE APART. `packages` is mandatory on this surface, so a
+// body carrying the protocol marker without it is MALFORMED and collapses to could-not-ask — see the nil
+// check in resolveEntitlements. `admin` is additive and OPTIONAL, so absent is an ANSWER, and the answer
+// is false: the service omits it rather than unioning it whenever it cannot scope the field to one team,
+// and false is the only direction a field gating destructive operations may be wrong in.
+//
+// That is why this is a plain bool and not a *bool. A pointer would offer a third state the protocol does
+// not have, and the first reader to treat nil as "unknown, so allow" would open the gate on exactly the
+// response the service emits when it declines to guess.
 type entitlementsDoc struct {
 	Protocol string `json:"protocol"`
 	Packages []struct {
 		Key string `json:"key"`
 	} `json:"packages"`
+	Admin bool `json:"admin"`
+}
+
+// entitlementAnswer is what one /v1/entitlements read yielded. It exists so that resolveEntitlements can
+// grow a second fact without growing a second bare bool beside `ok` — `(keys, admin, ok)` reads fine at the
+// declaration and is a coin toss at the call site, on a path where one transposition ungates every
+// deployment-changing route.
+type entitlementAnswer struct {
+	packages map[string]struct{}
+	// admin answers "may this caller take deployment-changing actions on the team this deployment named".
+	// It is a fact about the caller that the service confirms, never a capability the service grants — the
+	// authority for the operation is whatever this console itself holds. It is meaningful ONLY when the
+	// read succeeded; on could-not-ask it is the zero value and says nothing.
+	admin bool
 }
 
 // contentScopeSuffix is the tail the content service's required scope always carries: its Terraform builds
@@ -443,10 +467,20 @@ func canAskForEntitlements(vars map[string]string) bool {
 	})
 }
 
-// resolveEntitlements asks the content service which packages this operator's subscription includes, and
-// reports whether it got an answer at all. That second return is the whole contract: ok=false means COULD
-// NOT ASK, and it must reach the operator as "unknown" rather than as "entitled to nothing" — the two are
-// one disabled control apart, and the wrong one of them greys out a subscriber's own catalog.
+// resolveEntitlements asks the content service which packages this operator's subscription includes and
+// whether they administer the team this deployment named, and reports whether it got an answer at all.
+// That second return is the whole contract: ok=false means COULD NOT ASK, and it must reach the operator as
+// "unknown" rather than as "entitled to nothing" — the two are one disabled control apart, and the wrong
+// one of them greys out a subscriber's own catalog.
+//
+// THE ADMIN GATE READS THE SAME TWO RETURNS, and they are already the distinction it owes the operator:
+// (answer, true) with admin false is "you are not an administrator — ask someone who is", and (_, false) is
+// "I could not check — retry". Those two must never be collapsed into one sentence, because their remedies
+// are opposite, and this function has kept them apart since before anything gated on it.
+//
+// It is called FRESH on every gated request and its result is never stored. The wire protocol requires the
+// response be treated as no-store, and an authorization answer honoured past the moment it was given is an
+// unbounded grant to whoever can interrupt this deployment's network.
 //
 // EVERY failure collapses to could-not-ask, refusals included, and that is deliberate rather than lazy:
 //
@@ -461,9 +495,9 @@ func canAskForEntitlements(vars map[string]string) bool {
 // unconditionally, so an empty token would dial the content service carrying a bare "Bearer " and no
 // credential. Nothing here needs that request made, and a reloaded tab — where the operator's tokens are
 // gone but the session is not — makes it the common case rather than an edge one.
-func resolveEntitlements(ctx context.Context, base, token, team string) (keys map[string]struct{}, ok bool) {
+func resolveEntitlements(ctx context.Context, base, token, team string) (entitlementAnswer, bool) {
 	if base == "" || token == "" {
-		return nil, false
+		return entitlementAnswer{}, false
 	}
 	// Its own budget, not the entitled transport's 60 s and not the catalog's 15 s — see entitlementsTimeout
 	// for why it is the shortest of the three.
@@ -471,12 +505,14 @@ func resolveEntitlements(ctx context.Context, base, token, team string) (keys ma
 	defer cancel()
 	body, status, err := entitledGet(ctx, base, "/v1/entitlements", token, team, maxEntitlementsBytes)
 	if err != nil || status != http.StatusOK {
-		// EVERY non-200 is could-not-ask, and the body is deliberately not parsed to say which. Nothing
-		// is gated on this answer, so no refusal here needs a distinct rendering — and the one refusal
-		// that IS a deployment fault, `400 team_required`, is already reported to the operator from the
-		// mode layer as SubscriptionTeamMissing, which is the better source: it is the same answer
-		// whether or not the content service was reachable at all.
-		return nil, false
+		// EVERY non-200 is could-not-ask, and the body is deliberately not parsed to say which. The gate
+		// needs the two arms this function already has and no third one: what it must tell an operator is
+		// "you are not an administrator" against "I could not check", and every refusal on this route
+		// belongs to the second. The one refusal that IS a deployment fault, `400 team_required`, never
+		// reaches here — the gate declines to ask at all when this deployment names no team, and the mode
+		// layer reports that as SubscriptionTeamMissing, which is the better source because it is the same
+		// answer whether or not the content service was reachable at all.
+		return entitlementAnswer{}, false
 	}
 	// The marker is checked, not merely parsed. A 200 whose body is not this document — a refusal rendered
 	// as JSON, a gateway's own error shape, a future revision — unmarshals happily into a zero value, and a
@@ -484,7 +520,7 @@ func resolveEntitlements(ctx context.Context, base, token, team string) (keys ma
 	// invent. An unrecognised version is could-not-ask, which gates nothing; that is the safe direction.
 	var doc entitlementsDoc
 	if err := json.Unmarshal(body, &doc); err != nil || doc.Protocol != wireProtocolVersion {
-		return nil, false
+		return entitlementAnswer{}, false
 	}
 	// An ABSENT packages key is could-not-ask, not "entitled to nothing". The field is mandatory on this
 	// surface, so a body carrying the marker without it is malformed rather than empty — and the difference
@@ -493,15 +529,17 @@ func resolveEntitlements(ctx context.Context, base, token, team string) (keys ma
 	// Absent and present-but-empty are distinguishable here because encoding/json leaves a nil slice for the
 	// first and an empty non-nil one for the second, so `[]` still means what it should.
 	if doc.Packages == nil {
-		return nil, false
+		return entitlementAnswer{}, false
 	}
-	keys = make(map[string]struct{}, len(doc.Packages))
+	keys := make(map[string]struct{}, len(doc.Packages))
 	for _, p := range doc.Packages {
 		if p.Key != "" {
 			keys[p.Key] = struct{}{}
 		}
 	}
-	return keys, true
+	// `admin` gets no nil check of its own, and that asymmetry with the line above is the protocol's, not an
+	// oversight: it is an optional field whose absence MEANS false. See entitlementsDoc.
+	return entitlementAnswer{packages: keys, admin: doc.Admin}, true
 }
 
 // latestModule finds a module by key within the package it was mounted from, so pin currency is judged

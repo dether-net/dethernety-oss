@@ -204,7 +204,10 @@ would break the very recovery path a disconnect is.
 
 **Disconnect asks first, and it takes the cloud's modules with it.** The control opens a confirmation
 before anything happens, because a revert that recreates the stack should not be one click from anywhere
-in the panel — and because what it costs has to be a decision rather than a discovery.
+in the panel — and because what it costs has to be a decision rather than a discovery. The confirmation is
+not the only thing in front of it: disconnect changes the deployment, so it is admin-gated, and the check
+is made on the request itself rather than on what the panel decided to offer
+([below](#authentication-posture)).
 
 A cloud connection puts three kinds of module into the modules mount, each told apart by the marker the
 console wrote beside it: a content mount from the catalog, an installed artifact, and the knowledge-graph
@@ -262,8 +265,21 @@ copies from their account — is refused outright if a cloud file already exists
 go through a disconnect. The variable names the console will copy out of it are a closed set,
 which is the subject of
 [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#the-mode-layer-is-a-closed-variable-allowlist). Reverting
-rewrites the same file with the local values and contacts nothing: it is the recovery path, and a
-recovery path that depended on the thing it recovers from would be useless.
+rewrites the same file with the local values.
+
+**Reverting now contacts the cloud, and the sentence this replaces said it never would.** What stood here
+was that a disconnect contacts nothing, because a recovery path that depended on the thing it recovers from
+would be useless. Disconnect removes every cloud-provided module and, at the next platform start, the
+classes those modules declare and every link those classes are in — the irreversible act the admin role
+exists to put behind someone — so it is gated like the other four routes that change the deployment
+([below](#authentication-posture)), and the gate asks the cloud. What the old sentence got right is kept as
+a carve-out: a deployment that can never obtain a content credential is let through rather than refused
+forever, because a gate that refused in exactly the state disconnect exists to undo would be a lockout
+rather than a control. Its premise was wrong in the other direction, though. A cloud session is minted by
+delegating to the platform, which validates the deployment's access list along with everything else, so an
+operator that list excludes cannot obtain a session at all and never reaches disconnect, gated or not —
+this was never *their* recovery. Theirs is another operator who is on the list, or the mode file on the
+host.
 
 Either write drops every live session but the one that made the change, which is kept on a short grace
 deadline. A posture change must not leave a session minted under the old posture usable under the new
@@ -441,12 +457,13 @@ reading it as the knowledge graph itself having been installed — when what was
 
 ### Entitled artifacts
 
-A deployment connected to the cloud can also **install** an artifact, which is not a mount. Mounting
-needs no credential — the catalog is public and a mount is a local file write, and the operator's token
-reaches that route only to ask what the subscription includes ([above](#content-mounts)) — but installing
-an entitled artifact means asking the content service for bytes it will only hand to a subscriber. What
-lands is not a stub naming content to fetch later: it is the module's own verified payload tree, in the
-modules mount, and from then on the deployment holds the code.
+A deployment connected to the cloud can also **install** an artifact, which is not a mount. Mounting needs
+no credential *of its own* — the catalog is public and a mount is a local file write; the operator's token
+reaches those routes to ask what the subscription includes ([above](#content-mounts)) and to let the admin
+gate ask who is acting ([below](#authentication-posture)), never for the mount itself. Installing an
+entitled artifact is the other thing: it means asking the content service for bytes it will only hand to a
+subscriber. What lands is not a stub naming content to fetch later: it is the module's own verified payload
+tree, in the modules mount, and from then on the deployment holds the code.
 
 Only one kind of artifact is installed onto a deployment, a code module. The other kind the content
 service publishes is an application, which is not something a deployment hosts — it runs wherever
@@ -464,7 +481,9 @@ because `Authorization` already carries the ID token the daemon forwards to the 
 query — why the two cannot be collapsed is in [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#sessions). An
 install attempted without it is `400` and "a cloud sign-in is required" — deliberately not `401`, which
 the SPA reads as an expired session and would answer by returning the operator to the sign-in card
-mid-install.
+mid-install. On a deployment the admin gate covers, that refusal is now reached only where the gate does not
+run: the gate reads a missing token as *no credential to ask with* and refuses `412` before the handler is entered
+([below](#authentication-posture)). Both stay clear of `401`, and for the same reason.
 
 **Nothing is placed until the signature verifies.** The archive is checked against a Sigstore bundle
 pinned to a certificate subject derived from the request — the signer the cloud connection names, plus a
@@ -525,6 +544,12 @@ what is shown.
 | `502` the content service could not be reached | A dial failure, or a redirect the console refuses to follow because following it would dial a host the operator never named. It takes up to a minute to arrive — an entitled fetch is bounded at 60 s |
 | `409` no content service, or no artifact signer, is configured | The cloud connection carries neither the host to ask nor the identity to verify against. Reconnect |
 
+Every one of those is the *handler's*. Install and remove are admin-gated, so the gate's own three refusals
+come first ([below](#authentication-posture)) and are answered before the artifact key is read at all. Two
+of them share a status with a row above: the gate's `403` says the caller is not an administrator and the
+handler's says the subscription does not include the artifact, and the gate's `409` says this deployment can
+never check who is asking. The sentence is what tells them apart, and the sentence is what is shown.
+
 **An install can run for minutes, which is why two timeouts are set the way they are.** Two entitled
 fetches bounded at 60 s each, plus a verification, an extraction and a digest recompute, do not fit the
 server-wide 30 s write deadline — past it the install still completed on disk while the `200` could no
@@ -542,7 +567,8 @@ so.
 
 ### Authentication posture
 
-How a session is minted tracks the deployment's posture; how it is *carried* never changes.
+How a session is minted tracks the deployment's posture; how it is *carried* never changes — and on the
+five routes that change the deployment, holding one is not enough on its own.
 
 | Posture | Mint | Lifetime |
 |---|---|---|
@@ -579,26 +605,123 @@ which re-checks the platform's access list. There is no silent re-mint. Concurre
 capped at four in flight, because the mint route is ungated and each one costs the platform an
 authentication round trip.
 
+**Changing the deployment takes more than a session.** Five routes are admin-gated — `DELETE /api/cloud`,
+`POST /api/modules`, `DELETE /api/modules/{key}`, `POST /api/artifacts`, `DELETE /api/artifacts/{key}` — and
+every read beside them is not. Until this landed a session was the whole authority, so any member of a team
+who could reach the console could disconnect the deployment, taking every cloud-provided module and the
+classes those modules declare with it. That is the irreversible act a role is being introduced to put behind
+someone. The reads stay open because a member who cannot *see* what their deployment holds is worse served
+than one who cannot change it. The gate composes *over* the session check rather than replacing it: a caller
+holds a session first, and then administers the team.
+
+**The question names one team, and only one is the right one.** A person may administer one team and merely
+belong to another, so "is this person an administrator" is not a well-formed question; "do they administer
+the team *this deployment* belongs to" is. The deployment names its own team in `DEPLOYMENT_TEAM_ID`, the
+entitled call is scoped to that name, and the answer read is about that team alone and never a union across
+the caller's memberships — a union would hand an administrator of one team power over another's deployment.
+
+**It is not tamper-resistance, and nothing here should be read as claiming to be.** The console is open
+source, it runs on the operator's own machine, and whoever administers that machine can edit the mode layer
+directly. The gate exists so that a *team* can control its own deployment, and it is honest at that job: the
+answer it reads is a fact the cloud confirms about the caller, never a capability the cloud grants.
+
+**Three decisions are local and cost no round trip**, and each is a case where asking would produce a worse
+answer than not asking. They are taken in this order, before anything is dialled — and the order carries
+weight where the cases overlap: a deployment that names no team passes through *before* a configuration
+fault can refuse it, so "behaves exactly as before the gate existed" holds for the whole fleet and is not
+quietly withdrawn by an unrelated fault in the same file.
+
+| Local state | Decision |
+|---|---|
+| Not cloud posture | No gate. A local session carries no identity at all — it is minted with no credential, on single-user host trust, so there is no subject, no team and no cloud to ask. A role check where no roles exist would lock an operator out of their own console before they had anything to lose |
+| The deployment names no team | No gate, and the deployment behaves exactly as it did before the gate existed. `DEPLOYMENT_TEAM_ID` is an optional recipe variable and absent means "as today". Asking anyway would refuse with the *wrong sentence*: the content service cannot scope `admin` to a team the request did not name, so it omits the field, an omitted field reads as false, and the operator would be told they are not an administrator when what is missing is a line in their recipe. It closes on its own — the gate switches itself on per deployment as team identifiers arrive |
+| The configured `OIDC_SCOPE` carries no content scope, **or** the configured content host is missing or unusable | The check can never succeed here, and only the deployment's own configuration can say so. Two causes with one remedy — fix the configuration — and both look transient from the wire: a deployment without the scope still obtains a perfectly good token for the scopes it *did* ask for, and a deployment with no usable host has nowhere to send the question at all. Left to the call, the second would answer "retry in a moment" every moment, forever. Disconnect proceeds; the other four are refused permanently |
+
+**Past those three the cloud is asked, live, and nothing is cached** — unless no operator access token
+arrived at all, which is refused *before* the call rather than inside it, so a tab whose tokens are gone
+never dials the content service carrying a bare bearer and no credential. The answer is an `admin` field on
+the same `/v1/entitlements` read the catalog already makes, scoped to this deployment's team; an omitted field
+is false rather than "unknown, so allow", because the service omits it precisely when it declines to scope
+it to one team. The gate asks on every gated request and never honours an earlier answer: an authorization
+decision honoured while the authority cannot be reached is an unbounded grant to whoever can interrupt this
+deployment's network — the same defect that ruled out carrying the role in the deployment's own
+configuration, except that here the event is an attacker's to produce at will. And a cache would buy
+nothing. These are occasional operator clicks rather than a request path, so there is no latency to trade,
+and what the *interface* needs in order to know which controls to offer already arrives with the catalog
+read. The no-cache rule and the disconnect carve-out below ship together, or neither is safe.
+
+**Refusals use four statuses so the SPA can branch without matching text.** A remedy that only a sentence
+tells apart is a remedy no interface can act on differently — and these four situations are genuinely
+different, because each wants a different control: a link, a wait, a sign-in, a new recipe.
+
+| Status | Situation | Remedy |
+|---|---|---|
+| `403` | You are not an administrator of the team this deployment belongs to | Ask someone who is; retrying changes nothing. The sentence names the role and who can grant it |
+| `503` | The check could not be made — the content service was unreachable, refused, or answered a body this console does not recognise | Wait and retry. Nothing was changed: the console refuses rather than guessing |
+| `412` | No operator access token arrived in this tab, so there was no credential to ask with. The ordinary state of a reload, since the token is held in memory only | Sign in to the cloud again — waiting cannot help. This is the one refusal the interface answers by **acting**: it performs the sign-in rather than printing the sentence. It is also why the client must react to this status rather than predict it, since whether the token is needed at all depends on the deployment naming a team, which is the daemon's rule and not the interface's |
+| `409` | This deployment can never make the check | Regenerate the recipe and reconnect. Retrying is futile, and saying "retry" here would say it forever |
+
+**And never `401`**, for the same reason the mint route never returns one: the SPA answers any `401` by
+clearing the session and dropping into its session-expired path, so a gate refusal returned as `401` would
+sign an operator out of their own console for not being an administrator — or for a passing outage.
+
+**Connect is not gated, and cannot usefully be.** `POST /api/cloud` is the pre-cloud paste path: it runs
+before the deployment is connected, when there is no cloud identity, no team and nothing to ask. There is
+nobody to check. What keeps that from being a hole is the write guard it already had — applying to a
+deployment that has already written its cloud file is refused, so reconfiguring a connected deployment means
+disconnecting first, and disconnect *is* gated. The control holds through the route that has a subject to
+check.
+
+**Disconnect alone has a carve-out**, and it is what makes failing closed acceptable. An outage that ends is
+something an operator waits out; an outage that *cannot* end — a deployment configured without permission to
+ask at all — would be a lockout, and disconnect is the operation an operator reaches for to fix a bad
+recipe. So on that one deployment state, that one route proceeds. It is disconnect's alone: the predicate is
+a property of the whole deployment, so written over every gated route it would ungate mount, unmount,
+install and remove on any mis-scoped deployment, which is a blanket bypass rather than a recovery. A
+*transient* outage does refuse disconnect, deliberately — an attacker who can interrupt this deployment's
+network can therefore deny a disconnect, which is the safe direction for a destructive act to fail in.
+
+**Display is not enforcement.** `GET /api/packages` carries the same `admin` answer so the SPA knows which
+controls to offer, and knowing it costs no second round trip because that call is already being made — which
+is what let a short cached authorization answer be retired rather than resized. Nothing is enforced from it.
+It is undefined when the console could not ask, and undefined must not gate anything: an unreachable service
+must never make an administrator look like an ordinary member, the same rule a package's `entitled` follows
+one field away. An explicit `false` *disables* a control rather than hiding it, because a control that
+vanishes teaches an operator that the console is broken rather than that they need a role. Enforcement
+re-asks, on the request that carries the operation.
+
+**Disconnect is disabled like the rest, and it is the one where that matters most.** The mode panel makes no
+entitled call of its own, which looks at first like a reason to leave the control live and let the daemon
+refuse it. It is not: the content panel is mounted whenever the deployment is post-cloud, because the tab
+switch hides it rather than unmounting it, so the answer is already in the browser and is handed to the mode
+panel. Nothing is asked for twice.
+
+The alternative is worse here than anywhere else in the console. Disconnect is the irreversible one, so a
+refusal that arrived only at the accept step would land *after* the operator had read four bullet points
+about permanent deletion and agreed to them — turning a non-event into something people escalate from, and
+suspending the disabled-and-explained rule on precisely the control that most needs it. The refusal happens
+at the click, with the sentence where the confirmation card would have opened.
+
 ### HTTP surface
 
-| Route | Session required | Purpose |
-|---|---|---|
-| `GET /healthz` | no | Liveness |
-| `GET /` | no | The console SPA shell |
-| `GET /assets/…` | no | The hashed SPA bundle |
-| `GET /auth/callback` | no | The sign-in landing page — serves the same shell, which completes the exchange |
-| `POST /api/session` | no | Mint a session, by posture |
-| `GET /api/posture` | no | Which sign-in to render, plus the public discovery values it needs |
-| `GET /api/mode` | yes | Phase, restart-pending, and the signed-in subject |
-| `GET /api/state` | yes | The init record plus derived failures |
-| `POST /api/cloud` | yes | Write the cloud mode layer from a pasted recipe |
-| `DELETE /api/cloud` | yes | Revert the mode layer to the local values |
-| `GET /api/packages` | yes | The public content catalog, marked with what this deployment's subscription includes — read live on every load, never from the mode layer. Also reports whether this deployment is configured to ask at all (cloud posture only) |
-| `GET /api/modules` | yes | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
-| `POST /api/modules` | yes | Mount one module at one pin (cloud posture only) |
-| `DELETE /api/modules/{key}` | yes | Unmount (cloud posture only) |
-| `POST /api/artifacts` | yes | Install one entitled artifact at one version (cloud posture only) |
-| `DELETE /api/artifacts/{key}` | yes | Remove one installed artifact (cloud posture only) |
+| Route | Session required | Admin required | Purpose |
+|---|---|---|---|
+| `GET /healthz` | no | no | Liveness |
+| `GET /` | no | no | The console SPA shell |
+| `GET /assets/…` | no | no | The hashed SPA bundle |
+| `GET /auth/callback` | no | no | The sign-in landing page — serves the same shell, which completes the exchange |
+| `POST /api/session` | no | no | Mint a session, by posture |
+| `GET /api/posture` | no | no | Which sign-in to render, plus the public discovery values it needs |
+| `GET /api/mode` | yes | no | Phase, restart-pending, and the signed-in subject |
+| `GET /api/state` | yes | no | The init record plus derived failures |
+| `POST /api/cloud` | yes | no — there is no subject to check | Write the cloud mode layer from a pasted recipe |
+| `DELETE /api/cloud` | yes | yes, with the recovery carve-out | Revert the mode layer to the local values, removing every cloud-provided module |
+| `GET /api/packages` | yes | no | The public content catalog, marked with what this deployment's subscription includes — read live on every load, never from the mode layer. Also reports whether this deployment is configured to ask at all, and whether this operator administers it (cloud posture only) |
+| `GET /api/modules` | yes | no | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
+| `POST /api/modules` | yes | yes | Mount one module at one pin (cloud posture only) |
+| `DELETE /api/modules/{key}` | yes | yes | Unmount (cloud posture only) |
+| `POST /api/artifacts` | yes | yes | Install one entitled artifact at one version (cloud posture only) |
+| `DELETE /api/artifacts/{key}` | yes | yes | Remove one installed artifact (cloud posture only) |
 
 Everything that carries deployment data is gated. The SPA shell is not, because it holds no data and
 the sign-in page has to load; `GET /api/posture` is not, because the sign-in page needs to know which
@@ -606,13 +729,23 @@ sign-in to render *before* a session can exist. That endpoint is a hard five-fie
 mode file rather than a dump of it — the same file also holds the deployment's access list and its
 service URLs, and none of those are returned.
 
-**Two routes carry a second credential**, the operator's access token on `X-Console-Cloud-Token`:
-`GET /api/packages` sends it to ask what the subscription includes, and `POST /api/artifacts` sends it to
-ask for bytes. It is stated here rather than on either row because it is a property of the pair. Each
-attaches it in a request helper of its own rather than through a flag on the one every other call shares,
-on both sides of the wire — so a route that must stay credential-free cannot acquire the token by an edit
-made somewhere else, and the catalog half of `GET /api/packages` carries nothing even though the same
-handler serves it.
+**Every route in the admin column is gated on the request itself**, never on what the panel offered. The
+gate's own decision order, its three refusal statuses, and why connect is absent from that column while
+disconnect carries a carve-out are [above](#authentication-posture).
+
+**Six routes carry a second credential**, the operator's access token on `X-Console-Cloud-Token` — **and
+this said two until the admin gate landed.** Two of them forward it because the daemon needs it to answer:
+`GET /api/packages` asks what the subscription includes, `POST /api/artifacts` asks for bytes. The other
+four forward it because the gate asks the cloud with it before a deployment-changing operation runs at all,
+so mounting and unmounting now carry a credential even though what they do is write a file on this host.
+That is the difference between a gate that asks the cloud and one that trusts a local session record, and
+only the first is worth building. It is stated here rather than on the rows because it is a property of the
+set. Each attaches it in a request helper of its own rather than through a flag on the one every other call
+shares, on both sides of the wire — and growing from two to six is the argument for that shape rather than
+against it: every forwarding route arrived as a named function, while the one call that must stay
+credential-free, the pre-cloud paste path with no authenticated subject to forward, kept the plain helper it
+already had. The catalog half of `GET /api/packages` still carries nothing even though the same handler
+serves it.
 
 Request bodies are capped at 1 MiB and decoded with unknown fields rejected.
 

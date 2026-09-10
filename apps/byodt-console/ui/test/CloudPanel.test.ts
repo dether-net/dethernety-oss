@@ -157,3 +157,46 @@ describe('CloudPanel', () => {
     w.unmount()
   })
 })
+
+// DISCONNECT IS REFUSED AT THE CLICK, NOT AFTER THE CONFIRMATION.
+//
+// This panel makes no entitled call of its own, so the answer is handed down: the content panel is mounted
+// whenever the deployment is post-cloud, and already holds it. Leaving the control live because this panel
+// cannot ask would mean the console's most destructive operation refusing a member only AFTER they had read
+// four bullet points about irreversible deletion and accepted them.
+describe('CloudPanel — the admin gate', () => {
+  it('disables disconnect for a member, and says who can grant the role', async () => {
+    const w = mount(CloudPanel, { props: { mode: cloudWritten, admin: false } })
+    const b = button(w, 'Disconnect from cloud')!
+    expect(b.attributes('disabled')).toBeDefined()
+    // Visible and explained, never hidden — and the sentence sits where the confirmation card would open.
+    expect(w.find('[data-cloud-disconnect-not-admin]').exists()).toBe(true)
+    expect(w.find('[data-cloud-disconnect-not-admin]').text()).toContain('administrator role')
+    // And the confirmation must never be reachable: refusing after it is the failure this prevents.
+    await b.trigger('click')
+    await flushPromises()
+    expect(w.find('[data-cloud-disconnect-confirm]').exists()).toBe(false)
+    expect(cloudDisable).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('leaves disconnect available to an administrator', async () => {
+    const w = mount(CloudPanel, { props: { mode: cloudWritten, admin: true } })
+    expect(button(w, 'Disconnect from cloud')!.attributes('disabled')).toBeUndefined()
+    expect(w.find('[data-cloud-disconnect-not-admin]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  // COULD-NOT-ASK MUST NOT DISABLE, and Vue would have made this fail on its own: it applies boolean
+  // casting to a prop it infers as Boolean, so an absent `admin` arrives as `false` unless the default is
+  // stated explicitly. That collapses the three-valued answer into the one value allowed to gate — and
+  // every parent not yet passing it would disable disconnect for everybody.
+  it('leaves disconnect available when the answer is unknown, including when the prop is absent', async () => {
+    for (const props of [{ mode: cloudWritten, admin: undefined }, { mode: cloudWritten }]) {
+      const w = mount(CloudPanel, { props })
+      expect(button(w, 'Disconnect from cloud')!.attributes('disabled')).toBeUndefined()
+      expect(w.find('[data-cloud-disconnect-not-admin]').exists()).toBe(false)
+      w.unmount()
+    }
+  })
+})

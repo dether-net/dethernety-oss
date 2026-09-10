@@ -212,6 +212,21 @@ export interface PackagesResponse {
   // retry — but a different variable to name, which is why it is its own field rather than folded into
   // it. Absent means the deployment names its team.
   subscriptionTeamMissing?: boolean
+  // Whether this operator may take deployment-changing actions on the team this deployment belongs to.
+  //
+  // UNDEFINED IS "COULD NOT ASK" AND MUST NOT GATE ANYTHING — the same rule CatalogPackage.entitled
+  // follows, and for the same reason one step further on: an unreachable service must never make an
+  // administrator look like an ordinary member. Only an explicit `false` may disable a control.
+  //
+  // AND FALSE MUST NOT HIDE ONE EITHER. This decides what the interface OFFERS, never what it is allowed
+  // to do — the daemon re-asks the cloud on the request itself, so nothing here is a security boundary,
+  // and a control that vanishes teaches an operator that the console is broken rather than that they need
+  // a role. Disable it and say who can grant the role.
+  //
+  // It arrives on this response because the daemon already makes this call for the catalog, so knowing it
+  // costs no extra round trip. That is what let the short cached authorization answer be retired rather
+  // than resized: there was never any latency to save.
+  admin?: boolean
 }
 
 // The deployment's knowledge-graph connection, when it has one. It is reported apart from the content
@@ -378,28 +393,31 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, init)
 }
 
-function del<T>(path: string): Promise<T> {
-  return request<T>(path, { method: 'DELETE' })
-}
-
 const CLOUD_TOKEN_HEADER = 'X-Console-Cloud-Token'
 
-// TWO calls forward the operator's access token — this pair, and no others — and three things about them
-// are deliberate.
+// SIX calls forward the operator's access token, and three things about them are deliberate.
 //
-// They are CALLERS of request(), never bypasses of it. Both routes are session-gated like every other, so
+// WHY SIX RATHER THAN TWO. Two of them forward it because the DAEMON needs it to answer — the subscription
+// on the catalog, the signed bytes on an install. The other four forward it because the daemon's admin
+// gate asks the cloud with it before letting a deployment-changing operation run at all, and that gate is
+// the whole point: a check that asked nothing and read a local session record instead would be trusting
+// exactly the thing that carries no authority. So mounting forwards a credential even though what it does
+// is write a file on this host.
+//
+// They are CALLERS of request(), never bypasses of it. Every route is session-gated like the rest, so
 // skipping request() would drop the session header and earn a 401 — which this file turns into
-// clearSession() and a bounce to the sign-in card, the exact outcome the daemon returns 400 instead of 401
-// to prevent.
+// clearSession() and a bounce to the sign-in card, the exact outcome the daemon returns 400 and 503
+// instead of 401 to prevent.
 //
-// They are their own functions rather than a header flag on get()/post(), because a shared flag is one
-// edit away from attaching this token to a call that must never carry it. That there are now two of them
-// is the argument rather than against it: the second forwarding route arrived as a second function, and
-// every call that must stay credential-free kept the plain helper it already had.
+// They are their own functions rather than a header flag on get()/post()/del(), because a shared flag is
+// one edit away from attaching this token to a call that must never carry it. Growing from two to six is
+// the argument for that shape rather than against it: every new forwarding route arrived as a named
+// function, and the one call that must stay credential-free — cloudApply, the pre-cloud paste path, which
+// has no authenticated subject to forward — kept the plain helper it already had.
 //
-// And the header is OMITTED rather than sent empty. On the install a caller with no token is expected to
-// have re-signed in before it got here; on the catalog an absent token is the ordinary state of a reloaded
-// tab, and the daemon answers it by leaving entitlement undetermined rather than by refusing.
+// And the header is OMITTED rather than sent empty. On a gated call the daemon reads an absent token as
+// "cannot check" and refuses without dialling the cloud; on the catalog an absent token is the ordinary
+// state of a reloaded tab, and the daemon answers it by leaving entitlement undetermined.
 function getEntitled<T>(path: string): Promise<T> {
   const headers: Record<string, string> = {}
   const token = cloudAccessToken()
@@ -412,6 +430,13 @@ function postEntitled<T>(path: string, body: unknown): Promise<T> {
   const token = cloudAccessToken()
   if (token) headers[CLOUD_TOKEN_HEADER] = token
   return request<T>(path, { method: 'POST', body: JSON.stringify(body), headers })
+}
+
+function delEntitled<T>(path: string): Promise<T> {
+  const headers: Record<string, string> = {}
+  const token = cloudAccessToken()
+  if (token) headers[CLOUD_TOKEN_HEADER] = token
+  return request<T>(path, { method: 'DELETE', headers })
 }
 
 // The mint helpers are deliberately not routed through request(): a non-2xx here is a sign-in outcome
@@ -452,18 +477,25 @@ export const api = {
   state: () => get<StateView>('/api/state'),
   cloudApply: (recipe: string, redirectUri: string) =>
     post<CloudResult>('/api/cloud', { recipe, redirectUri }),
-  cloudDisable: () => del<CloudResult>('/api/cloud'),
+  // Disconnect is a deployment-changing operation and is admin-gated, so it forwards the token the gate
+  // asks with. It is also the one gated call the daemon still answers on a deployment that can never make
+  // the check — it is what an operator reaches for to fix a bad recipe, and a gate that refused it forever
+  // would be a lockout rather than a control.
+  cloudDisable: () => delEntitled<CloudResult>('/api/cloud'),
   // Content mounts. The catalog half is public, but this route also answers what this deployment is
-  // subscribed to — which the daemon can only learn by asking the content service with the operator's own
-  // token, so this call forwards it. The rest carry only the admin session header request() attaches:
-  // reading the local inventory and writing a mount marker are local file operations.
+  // subscribed to and whether this operator administers it — which the daemon can only learn by asking the
+  // content service with the operator's own token, so this call forwards it. Reading the local inventory
+  // does not change the deployment and carries only the session header.
   packages: () => getEntitled<PackagesResponse>('/api/packages'),
   modules: () => get<ModulesResponse>('/api/modules'),
-  mountModule: (req: MountRequest) => post<MountResult>('/api/modules', req),
-  unmountModule: (key: string) => del<MountResult>(`/api/modules/${encodeURIComponent(key)}`),
+  // Mounting and unmounting are local file operations that need no credential of their own, and forward
+  // one anyway: they change what the deployment provides, so the daemon checks who is asking before it
+  // runs them.
+  mountModule: (req: MountRequest) => postEntitled<MountResult>('/api/modules', req),
+  unmountModule: (key: string) => delEntitled<MountResult>(`/api/modules/${encodeURIComponent(key)}`),
   // Entitled artifacts. Installing one asks the content service for bytes it hands only to a subscriber,
-  // so it forwards the operator's own access token — the second of the two routes that do; removing one is
-  // a local file operation and carries no credential, exactly like an unmount.
+  // so it forwarded the operator's token before the gate existed; removing one is a local file operation
+  // and forwards one now for the same reason an unmount does.
   installArtifact: (req: InstallArtifactRequest) => postEntitled<InstallArtifactResult>('/api/artifacts', req),
-  removeArtifact: (key: string) => del<RemoveArtifactResult>(`/api/artifacts/${encodeURIComponent(key)}`),
+  removeArtifact: (key: string) => delEntitled<RemoveArtifactResult>(`/api/artifacts/${encodeURIComponent(key)}`),
 }

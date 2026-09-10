@@ -40,6 +40,13 @@ const cloudNotice = ref<CloudNoticeData | null>(null) // an actionable cloud-pha
 // Bumped after any content mount change so the two content panels reload in step, and paired with a
 // dashboard refresh so the pending-restart banner reflects the owed stack recreate.
 const contentReload = ref(0)
+// Whether this operator administers the deployment's team, as the content panel last learned it.
+//
+// THREE-VALUED, and undefined must never gate: it means the console could not ask, which is the ordinary
+// state of a reloaded tab. Held here only so the cloud panel can read it — that panel makes no entitled
+// call of its own, and the content panel is mounted whenever the deployment is post-cloud, so this costs
+// no request at all.
+const contentAdmin = ref<boolean | undefined>(undefined)
 let timer: ReturnType<typeof setInterval> | undefined
 // Bounds the local auto-remint recovery: a healthy re-mint is honored by the next poll (which resets
 // this to 0), so >2 consecutive failures means the session keeps being rejected — stop rather than spin.
@@ -367,7 +374,7 @@ onUnmounted(() => {
 
         <!-- Cloud -->
         <section v-show="activeTab === 'cloud'">
-          <CloudPanel v-if="mode" :mode="mode" @changed="refresh" />
+          <CloudPanel v-if="mode" :mode="mode" :admin="contentAdmin" @changed="refresh" />
         </section>
 
         <!-- Content — exists only once the platform is running in cloud mode. -->
@@ -377,6 +384,7 @@ onUnmounted(() => {
               :reload-token="contentReload"
               @changed="onContentChanged"
               @sign-in-required="onSignInRequired"
+              @admin="contentAdmin = $event"
             />
           </section>
         </template>
