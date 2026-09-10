@@ -169,9 +169,27 @@ describe('parity with the console, the other sender', () => {
   // The sharper half. A drifted NAME means neither sender is read and the failure is loud; a drifted
   // SHAPE means one sender accepts an identifier the other rejects, so half a deployment's calls are
   // scoped and half are not — and "some content is scoped" is a far harder symptom to read.
+  //
+  // THE SCAN TOLERATES gofmt's LINE WRAP, and that is not hypothetical tidiness. gofmt moves a long
+  // MustCompile argument onto its own line, and it has already done so to a sibling declaration two
+  // above this one in the same file (artifactSignerPattern). The earlier form of this regex required the
+  // backtick to open on the same line as `var`, so the day this pattern grew past the line budget the
+  // scan would have stopped matching — and, because a non-match is asserted separately below, it would
+  // have failed loudly rather than passing silently. Loud is the right failure, but it is still a failure
+  // caused by formatting rather than by drift, on a test whose whole job is to detect drift.
   it('agrees on the accepted shape', () => {
-    const m = /^var teamIDPattern = regexp\.MustCompile\(`([^`]+)`\)/m.exec(consoleSource('cloud.go'));
+    const m = /^var teamIDPattern = regexp\.MustCompile\(\s*`([^`]+)`\s*\)/m.exec(consoleSource('cloud.go'));
     expect(m, 'the console no longer declares teamIDPattern in the form this scan reads').not.toBeNull();
     expect(m![1]).toBe(TEAM_ID_PATTERN.source);
+  });
+
+  // The scan above must keep failing loudly if the declaration stops being findable at all: a parity test
+  // that silently matches nothing asserts nothing. This pins the distinction the `.not.toBeNull()` above
+  // depends on — that a MISSING declaration and a DRIFTED one are told apart.
+  it('reports a declaration it can no longer find, rather than passing', () => {
+    const gone = /^var teamIDPattern = regexp\.MustCompile\(\s*`([^`]+)`\s*\)/m.exec(
+      'var somethingElse = regexp.MustCompile(`^x$`)\n',
+    );
+    expect(gone).toBeNull();
   });
 });

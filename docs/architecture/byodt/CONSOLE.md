@@ -261,8 +261,10 @@ deployment answers or how it is laid out, and the knowledge-graph pin, which the
 public listing at connect time (see [below](#the-knowledge-graph-connection)).
 
 **Writing the layer** is guarded. A pasted **recipe** — the block of `NAME=value` lines an operator
-copies from their account — is refused outright if a cloud file already exists, so reconfiguring must
-go through a disconnect. The variable names the console will copy out of it are a closed set,
+copies from their account — is refused outright if a cloud file already exists, so reconfiguring a
+connected deployment means disconnecting first. That is now true of every variable **except one**: the
+deployment's access list has a narrow writer of its own ([below](#changing-who-may-sign-in)), and a
+pasted recipe is still refused. The variable names the console will copy out of it are a closed set,
 which is the subject of
 [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#the-mode-layer-is-a-closed-variable-allowlist). Reverting
 rewrites the same file with the local values.
@@ -279,13 +281,119 @@ rather than a control. Its premise was wrong in the other direction, though. A c
 delegating to the platform, which validates the deployment's access list along with everything else, so an
 operator that list excludes cannot obtain a session at all and never reaches disconnect, gated or not —
 this was never *their* recovery. Theirs is another operator who is on the list, or the mode file on the
-host.
+host — and the first of those is no longer the expensive one it was, because an operator the list still
+admits can now correct it in place, on its own route, without disconnecting anything
+([below](#changing-who-may-sign-in)).
 
 Either write drops every live session but the one that made the change, which is kept on a short grace
 deadline. A posture change must not leave a session minted under the old posture usable under the new
 one — but the caller performing it is being handed an instruction to act on, so signing it out in the
 same response would hide the instruction and strand the operator on a sign-in screen the new posture
 cannot yet satisfy. See [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#sessions).
+
+### Changing who may sign in
+
+`POST /api/cloud/allowlist` rewrites **exactly one** variable in the mode layer — `DEPLOYMENT_ALLOWLIST`,
+the set of subjects this deployment admits at sign-in — on a deployment that is already connected, and
+leaves every other line as it found it. It is the only variable that can be changed that way.
+
+**It exists because the discoverable way to do this destroyed data.** A connected deployment refuses a
+second recipe, so removing one person from the list meant a disconnect and a reconnect — and a disconnect
+removes every cloud-provided module, taking at the next platform start the classes those modules declare
+and every link those classes are in ([above](#the-mode-layer)). The way that costs nothing — editing the
+env file on the host — was nowhere in the console's vocabulary. This route is that edit, named and gated.
+
+**It applies a value; it never fetches one.** The membership list lives in the operator's account, and the
+console's deployment-scoped credential has the wrong audience to ask for it — which is why an earlier route
+that tried to re-fetch a whole configuration was retired rather than repaired. The operator copies the list
+out of their account, where they are already signed in with a credential that works, and this route writes
+it. Nothing here reads the cloud's idea of who a member is.
+
+**It is admin-gated like every other route that changes the deployment**, wired the same way — the gate
+composed over the session check, asked live, never cached ([below](#authentication-posture)) — so the
+gate's own refusals are answered before the handler is entered, and the operator's access token is spent
+asking the cloud who is acting. On a deployment that names no team the gate stands aside, as it does on
+every gated route, and the self-exclusion guard below is then the only thing standing between the caller
+and the write. That is the gate's own rollout property rather than something this route relaxes, and the
+caller still had to hold a cloud session — which means the list in force already admitted them.
+
+**The self-exclusion guard, and why the session is what it trusts.** A list that does not admit the subject
+the caller's own session was minted for is refused. That subject is trustworthy for a reason nothing else
+the console holds can claim: a cloud session exists only because the platform accepted the operator's ID
+token, and the platform validates the deployment's access list alongside the signature, the expiry, the
+issuer and the audience ([below](#authentication-posture)). A live cloud session is therefore proof that
+its subject passed the *current* list — which is exactly the question the guard asks about the next one.
+The access token on the request is not used for it: that credential is minted for the content service,
+which has never heard of this variable, and its subject has been checked against nothing relevant here.
+Where the session carries no subject at all, the guard cannot run, and the route refuses rather than
+proceeding without it.
+
+**An empty list is refused unconditionally, and that is not a required-field check wearing a guard's
+clothes.** The platform reads an empty list as *no restriction* rather than "nobody", and a shared-pool
+deployment reachable over the network refuses to start with one at all. The console cannot tell which of
+those it would produce: `DEPLOYMENT_EXPOSURE` is the operator's own base-layer declaration and deliberately
+never written into the mode layer, so the exposure the platform will judge is invisible from here. Both
+outcomes are bad in different ways, and the value is refused either way, with a sentence naming the way
+out — a list containing only your own subject. Emptiness is decided on the *parsed* list rather than the
+submitted string, because the platform splits on commas and drops the blanks: `,,,` is an empty list
+wearing a non-empty string, and a check on the string would pass it straight through.
+
+**What it accepts is wider than what it writes.** Entries may be separated by commas or by whitespace, and
+are de-duplicated, sorted and written back in the single comma-joined form the platform parses — so a list
+copied out of an account that renders its members one per line applies on the first attempt, instead of
+failing over a separator the operator never chose. Nothing is loosened at the platform by that, since the
+canonical form is what gets written. The guard's own comparison is exact: the platform compares the `sub`
+claim exactly, so a trimmed or case-insensitive match here would claim an admission the platform will not
+make.
+
+**The file it writes has to be one the connect path would have accepted.** This route does not go through
+the recipe writer, so the present-and-non-empty rule over the accepted variable set does not cover it for
+free; it re-runs that rule over the map it is about to write, which makes it a checked property rather than
+an intention — and the difference is between refusing and leaving a deployment that cannot start. The read
+and the write are one critical section under the mode-layer lock, because a disconnect landing between them
+would be overwritten by the cloud configuration it had just replaced.
+
+**It is not a posture change, so it drops no sessions.** Connect and disconnect drop every live session but
+the one that made the change, because a session minted under the old posture must not be usable under the
+new one ([above](#the-mode-layer)). Nothing about the posture moves here — the identity provider, the
+audience, and the validation the platform performs are all untouched — and every live session was minted
+under rules that still hold. A person this list removes keeps their console session until it expires, and
+keeps their platform access until the restart. That is what the notice below says out loud rather than
+leaves to be discovered.
+
+**It takes effect at the next platform start, and the console names which restart.** The platform reads its
+access list once, at process start, so the write is inert until `byodt restart platform` — and someone
+removed by it can still sign in until then. Saying that plainly is part of the control rather than a caveat
+on it: a revocation the operator believes has already happened is worse than one they know is pending. The
+same sentence also says that this restart removes no module, and therefore carries none of the consequences
+for classes and links that a restart finding a module missing does — left unsaid, the warning attached to
+that other restart attaches itself to this one, and the operator never runs it. It is one constant in the
+daemon, surfaced in two places: `GET /api/mode` carries it as `allowlistNotice` on a cloud deployment, so
+the panel can state the consequence *before* anything is submitted, and the change's own answer repeats it.
+Two copies of a sentence drift; one constant read twice cannot. It is a standing statement about what the
+control does and never a claim that a restart is owed — nothing the platform reports says which access list
+it started with, so `restartPending` stays what it was.
+
+**The answer reports a count and never the subjects.** Nothing in this console surfaces the access list —
+the ungated posture read is a hard field projection precisely so the list and the service URLs stay off the
+wire — so the operator cannot see what they replaced, and the count is the only confirmation they get that
+the value parsed the way they meant. It catches the failure that actually happens, a paste that lost half
+its lines, without printing back the ids that are kept out of every other response. The log record has the
+same shape: how many subjects, and which session subject asked for it, never the list.
+
+**The refusals an operator actually meets**, on top of the gate's own:
+
+| Refusal | What it means |
+|---|---|
+| `409` this deployment is not connected to the cloud | There is no access list to change. The mirror of the connect path's write guard: that route refuses a deployment that *is* cloud-configured, this one refuses a deployment that is not |
+| `412` the console could not tell which account this session belongs to | The guard cannot run, so it refuses rather than proceeding. Deliberately its own sentence and not the gate's `412`, which says the tab holds no credential to ask the cloud with; this says the console cannot tell whose the session is. Same status because the remedy is the same one the SPA answers by *acting* — it performs the sign-in |
+| `400` an empty access list | Above. The refusal names the value that does what the operator meant: a list containing only their own subject |
+| `400` a character that cannot appear in a subject | A control character. A newline would split the written file into a second `NAME=value` line, the exact class the closed variable set exists to prevent — so it is refused where the value is accepted as well as at the writer every write passes through |
+| `409` the list does not include the account you are signed in as | The self-exclusion guard. A conflict rather than a bad request: the value is perfectly well formed, and what is wrong is its relationship to the person submitting it. A `400` would read as "you typed it wrong" and send the operator back to re-copy a list that was already correct |
+| `409` this deployment's configuration is incomplete | The mode layer is missing a required variable, so the console will not rewrite it. Reachable by hand-editing the file on the host, which is the same way every other incomplete-configuration state is reached |
+
+Every one of those changes nothing, and says so. And never `401`, for the reason the mint route and the
+admin gate never return one: the SPA reads any `401` as an expired session.
 
 ### Content mounts
 
@@ -568,7 +676,7 @@ so.
 ### Authentication posture
 
 How a session is minted tracks the deployment's posture; how it is *carried* never changes — and on the
-five routes that change the deployment, holding one is not enough on its own.
+six routes that change the deployment, holding one is not enough on its own.
 
 | Posture | Mint | Lifetime |
 |---|---|---|
@@ -605,9 +713,10 @@ which re-checks the platform's access list. There is no silent re-mint. Concurre
 capped at four in flight, because the mint route is ungated and each one costs the platform an
 authentication round trip.
 
-**Changing the deployment takes more than a session.** Five routes are admin-gated — `DELETE /api/cloud`,
-`POST /api/modules`, `DELETE /api/modules/{key}`, `POST /api/artifacts`, `DELETE /api/artifacts/{key}` — and
-every read beside them is not. Until this landed a session was the whole authority, so any member of a team
+**Changing the deployment takes more than a session.** The gated set is these, and it is stated by naming
+them rather than by counting them — `DELETE /api/cloud`, `POST /api/cloud/allowlist`, `POST /api/modules`,
+`DELETE /api/modules/{key}`, `POST /api/artifacts`, `DELETE /api/artifacts/{key}` — and every read beside
+them is not. Until this landed a session was the whole authority, so any member of a team
 who could reach the console could disconnect the deployment, taking every cloud-provided module and the
 classes those modules declare with it. That is the irreversible act a role is being introduced to put behind
 someone. The reads stay open because a member who cannot *see* what their deployment holds is worse served
@@ -668,16 +777,19 @@ sign an operator out of their own console for not being an administrator — or 
 **Connect is not gated, and cannot usefully be.** `POST /api/cloud` is the pre-cloud paste path: it runs
 before the deployment is connected, when there is no cloud identity, no team and nothing to ask. There is
 nobody to check. What keeps that from being a hole is the write guard it already had — applying to a
-deployment that has already written its cloud file is refused, so reconfiguring a connected deployment means
-disconnecting first, and disconnect *is* gated. The control holds through the route that has a subject to
-check.
+deployment that has already written its cloud file is refused, so changing **any other** variable on a
+connected deployment means disconnecting first, and disconnect *is* gated. The control holds through the
+route that has a subject to check. "Any other" is load-bearing: the one variable that can be changed without
+a disconnect goes through a gated route of its own, which has a subject to check and uses it — it refuses a
+list that would lock its caller out ([above](#changing-who-may-sign-in)).
 
 **Disconnect alone has a carve-out**, and it is what makes failing closed acceptable. An outage that ends is
 something an operator waits out; an outage that *cannot* end — a deployment configured without permission to
 ask at all — would be a lockout, and disconnect is the operation an operator reaches for to fix a bad
 recipe. So on that one deployment state, that one route proceeds. It is disconnect's alone: the predicate is
 a property of the whole deployment, so written over every gated route it would ungate mount, unmount,
-install and remove on any mis-scoped deployment, which is a blanket bypass rather than a recovery. A
+install, remove and the access-list apply on any mis-scoped deployment, which is a blanket bypass rather
+than a recovery. A
 *transient* outage does refuse disconnect, deliberately — an attacker who can interrupt this deployment's
 network can therefore deny a disconnect, which is the safe direction for a destructive act to fail in.
 
@@ -712,10 +824,11 @@ at the click, with the sentence where the confirmation card would have opened.
 | `GET /auth/callback` | no | no | The sign-in landing page — serves the same shell, which completes the exchange |
 | `POST /api/session` | no | no | Mint a session, by posture |
 | `GET /api/posture` | no | no | Which sign-in to render, plus the public discovery values it needs |
-| `GET /api/mode` | yes | no | Phase, restart-pending, and the signed-in subject |
+| `GET /api/mode` | yes | no | Phase, restart-pending, and the signed-in subject — plus, on a cloud deployment, when a change to who may sign in takes effect, so the panel can say it before one is submitted |
 | `GET /api/state` | yes | no | The init record plus derived failures |
 | `POST /api/cloud` | yes | no — there is no subject to check | Write the cloud mode layer from a pasted recipe |
 | `DELETE /api/cloud` | yes | yes, with the recovery carve-out | Revert the mode layer to the local values, removing every cloud-provided module |
+| `POST /api/cloud/allowlist` | yes | yes | Replace who may sign in — one variable of the mode layer, on a connected deployment, without a disconnect (cloud posture only) |
 | `GET /api/packages` | yes | no | The public content catalog, marked with what this deployment's subscription includes — read live on every load, never from the mode layer. Also reports whether this deployment is configured to ask at all, and whether this operator administers it (cloud posture only) |
 | `GET /api/modules` | yes | no | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
 | `POST /api/modules` | yes | yes | Mount one module at one pin (cloud posture only) |
@@ -733,16 +846,17 @@ service URLs, and none of those are returned.
 gate's own decision order, its three refusal statuses, and why connect is absent from that column while
 disconnect carries a carve-out are [above](#authentication-posture).
 
-**Six routes carry a second credential**, the operator's access token on `X-Console-Cloud-Token` — **and
+**Seven routes carry a second credential**, the operator's access token on `X-Console-Cloud-Token` — **and
 this said two until the admin gate landed.** Two of them forward it because the daemon needs it to answer:
 `GET /api/packages` asks what the subscription includes, `POST /api/artifacts` asks for bytes. The other
-four forward it because the gate asks the cloud with it before a deployment-changing operation runs at all,
-so mounting and unmounting now carry a credential even though what they do is write a file on this host.
+five forward it because the gate asks the cloud with it before a deployment-changing operation runs at all,
+so mounting, unmounting and rewriting the access list now carry a credential even though what they do is
+write a file on this host.
 That is the difference between a gate that asks the cloud and one that trusts a local session record, and
 only the first is worth building. It is stated here rather than on the rows because it is a property of the
 set. Each attaches it in a request helper of its own rather than through a flag on the one every other call
-shares, on both sides of the wire — and growing from two to six is the argument for that shape rather than
-against it: every forwarding route arrived as a named function, while the one call that must stay
+shares, on both sides of the wire — and growing from two to seven is the argument for that shape rather
+than against it: every forwarding route arrived as a named function, while the one call that must stay
 credential-free, the pre-cloud paste path with no authenticated subject to forward, kept the plain helper it
 already had. The catalog half of `GET /api/packages` still carries nothing even though the same handler
 serves it.
@@ -768,10 +882,12 @@ not all apply at the same scope:
 | Change | Command the console names | Why that scope |
 |---|---|---|
 | Connect to or disconnect from the cloud | `byodt restart` | The mode layer is read by more than one service, so all of them must come up in the new mode |
+| Change who may sign in | `byodt restart platform` | The access list lives in the mode layer, but it is one of the values only the platform reads — and the answer says so, because the restart an operator has been taught to fear is the one that finds a module missing, and this is not that one |
 | Mount or unmount a content module | `byodt restart platform` | The stub lands in the modules mount, which only the platform reads at startup |
 | Install or remove an entitled artifact | `byodt restart platform` | A whole verified payload tree is swapped into that same mount. A removed module stays loaded until that boot, which is also when its graph consequences fire |
 
-All three are recreates rather than restarts, because a container's environment is fixed at creation.
+Every one of them is a recreate rather than a restart, because a container's environment is fixed at
+creation.
 
 ---
 

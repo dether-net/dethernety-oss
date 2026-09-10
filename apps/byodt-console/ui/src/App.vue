@@ -374,7 +374,7 @@ onUnmounted(() => {
 
         <!-- Cloud -->
         <section v-show="activeTab === 'cloud'">
-          <CloudPanel v-if="mode" :mode="mode" :admin="contentAdmin" @changed="refresh" />
+          <CloudPanel v-if="mode" :mode="mode" :admin="contentAdmin" @changed="refresh" @sign-in-required="onSignInRequired" />
         </section>
 
         <!-- Content — exists only once the platform is running in cloud mode. -->

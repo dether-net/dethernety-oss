@@ -57,6 +57,12 @@ func gatedRoutes() []gatedRoute {
 		// Disconnect actually disconnects when admitted. Every fixture owns its own mode file, so that is
 		// contained — and it is the honest probe, since a disconnect that is admitted is the whole hazard.
 		{"disconnect", http.MethodDelete, "/api/cloud", "", http.StatusOK, http.StatusOK},
+		// The allowlist-only apply, with an empty body. It decodes cleanly, so the gate runs first and the
+		// handler then refuses the empty list — a HANDLER status, reached only if the gate admitted, and
+		// independent of whether the session carries a subject (which the fixtures' sessions do not).
+		// Adding it here rather than giving it a gate test of its own is what makes "the sixth gated route"
+		// a fact: every case below now runs against it too.
+		{"change the access list", http.MethodPost, "/api/cloud/allowlist", `{}`, http.StatusBadRequest, http.StatusConflict},
 	}
 }
 

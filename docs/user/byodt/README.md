@@ -112,7 +112,7 @@ The first start creates the rest — `.env`, `.env.secrets`, `mode/`, `modules/`
 
 **Standalone** is the default and needs nothing external. The platform runs unauthenticated for a single operator on a trusted machine, with the reference data and the modules that ship with the release.
 
-**Cloud-connected** is opt-in. You connect the deployment from the console to add sign-in for your team and to mount curated content packages. Nothing is sent anywhere until you do it, and disconnecting never depends on the cloud being reachable. See [Cloud](./CLOUD.md).
+**Cloud-connected** is opt-in. You connect the deployment from the console to add sign-in for your team and to mount curated content packages. Nothing is sent anywhere until you do it, and it is reversible — though once connected, the controls that change the deployment, disconnect included, belong to an administrator of the deployment's team. See [Cloud](./CLOUD.md).
 
 Your data never moves either way: the graph stays in your database in both modes.
 

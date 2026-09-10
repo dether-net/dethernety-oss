@@ -218,15 +218,21 @@ NODE_ENV=development
 
 That is the unauthenticated single-operator posture. Security headers and the platform's query-depth guard apply in every mode regardless.
 
-When you connect the deployment to the cloud, the console rewrites this same file with the identity settings from your deployment recipe. When you disconnect, it rewrites it back to the two values above. It is always rewritten, **never deleted** — a missing file would break the very recovery path disconnecting is.
+Three console controls write this file, and nothing else does. Two of them replace it whole; the third rewrites a single line.
 
-**Do not hand-edit this file.** The console is its author, it validates everything it writes, and it refuses values that do not belong there. Connect and disconnect from the console instead; see [Cloud](./CLOUD.md).
+| Control | What it writes | What applies it |
+|---|---|---|
+| **Apply cloud configuration**, on the Cloud tab | The whole file, replaced with the identity settings from your deployment recipe | `./byodt restart` |
+| **Disconnect from cloud**, on the Cloud tab | The whole file, replaced with the two standalone values above | `./byodt restart` |
+| **Apply access list**, under **Who may sign in** on the Cloud tab | One line, `DEPLOYMENT_ALLOWLIST`. Every other value is left exactly as it was | `./byodt restart platform` |
 
-Either change takes effect when the stack is recreated:
+It is always rewritten, **never deleted** — a missing file would break the very recovery path disconnecting is.
 
-```sh
-./byodt restart
-```
+**Which restart follows from which value moved, not from which file was written.** Connecting and disconnecting change values that several services read, so the whole stack has to come back up in the new mode. The access list is read only by the platform, so only the platform is recreated — and that restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does. See [Cloud → Changing who may sign in](./CLOUD.md#changing-who-may-sign-in).
+
+**Do not hand-edit this file — reading it is fine.** The console is its author, it validates everything it writes, and it refuses values that do not belong there; a hand edit gets none of those checks, and a connect or a disconnect replaces the file whole, so it would not survive one anyway. Make changes from the console instead; see [Cloud](./CLOUD.md).
+
+There is one good reason to open it. Nothing in the console shows you who may currently sign in, so the `DEPLOYMENT_ALLOWLIST` line here is the only place to check whether an apply dropped somebody — see [Troubleshooting → I need to see who is on the access list](./TROUBLESHOOTING.md#i-need-to-see-who-is-on-the-access-list).
 
 ---
 
