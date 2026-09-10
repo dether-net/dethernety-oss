@@ -3,8 +3,28 @@ import { ref, computed } from 'vue'
 import { api, SessionExpired, type ModeView } from '@/api'
 import { consoleRedirectUri } from '@/auth'
 import { DEPLOYMENT_URL } from '@/links'
+import { ADMIN_ONLY } from '@/messages'
 
-const props = defineProps<{ mode: ModeView }>()
+const props = withDefaults(
+  defineProps<{
+    mode: ModeView
+    // Whether this operator administers the deployment's team, as the content panel last learned it.
+    //
+    // UNDEFINED IS "COULD NOT ASK" AND MUST NOT GATE — the rule every other consumer of this answer
+    // follows. Only an explicit false stops the control, and even then the daemon re-asks on the request
+    // itself: nothing here is the authorization, only what the interface offers.
+    admin?: boolean
+  }>(),
+  // WITHDEFAULTS EXISTS HERE FOR ONE REASON, and a test caught it. Vue applies BOOLEAN CASTING to a prop it
+  // infers as Boolean, so an absent `admin` arrives as `false` rather than `undefined` — silently
+  // collapsing the three-valued answer into the one value that is allowed to disable a control. Every
+  // parent that had not yet been taught to pass it would have disabled disconnect for everybody.
+  //
+  // It is the same hazard the daemon guards on the wire and the catalog panel guards in its computed,
+  // arriving through the framework rather than through the data. An explicit undefined default turns the
+  // casting off.
+  { admin: undefined },
+)
 const emit = defineEmits<{ (e: 'changed'): void }>()
 
 const recipe = ref('')
@@ -67,6 +87,14 @@ async function apply() {
 // The wording tracks artifactRemovalConsequence, which the artifact panel already shows before a single
 // removal. Same event, same sentence: one confirmation should not describe it more gently than the other.
 const confirming = ref(false)
+
+// REFUSE AT THE CLICK, NEVER AFTER THE CONFIRMATION. Disconnect is the irreversible one — it removes every
+// cloud-provided module and, at the next platform start, the classes those modules declare and every link
+// they are in. Letting a member read four bullet points about that, accept them, and only then be told they
+// were never permitted turns a non-event into something people escalate: their recollection is "I asked for
+// permanent destruction and something went wrong". It also inverts the rule the rest of this console
+// follows — controls are disabled and explained, and the destructive one is the one that most needs it.
+const notAdmin = computed(() => props.admin === false)
 
 function askDisconnect() {
   message.value = ''
@@ -190,12 +218,25 @@ async function confirmDisconnect() {
         <div class="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            :disabled="busy || confirming"
+            :disabled="busy || confirming || notAdmin"
+            :title="notAdmin ? ADMIN_ONLY : undefined"
+            data-cloud-disconnect
             class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
             @click="askDisconnect"
           >
             Disconnect from cloud
           </button>
+        </div>
+
+        <!-- The sentence sits where the confirmation card would have opened, so the operator's eye lands
+             where it was already going. A disabled destructive control with no explanation beside it is the
+             failure this rule exists to prevent. -->
+        <div
+          v-if="notAdmin"
+          data-cloud-disconnect-not-admin
+          class="mt-3 rounded-r-md border-l-4 border-dt-border bg-white/5 px-3 py-2 text-sm text-dt-text-muted"
+        >
+          {{ ADMIN_ONLY }}
         </div>
 
         <!-- The confirmation. What a disconnect costs is said HERE, before the operator accepts — not

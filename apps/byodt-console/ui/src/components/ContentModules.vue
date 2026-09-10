@@ -3,12 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   api,
   cloudCredential,
+  ApiError,
   SessionExpired,
   type CatalogPackage,
   type KnowledgeGraphConnection,
   type MountedModule,
 } from '@/api'
 import type { InstalledArtifact } from '@/api'
+import { ADMIN_ONLY } from '@/messages'
 import { CATALOG_URL } from '@/links'
 import Banner from '@/components/Banner.vue'
 import Artifacts from '@/components/Artifacts.vue'
@@ -24,7 +26,7 @@ const props = defineProps<{ reloadToken: number }>()
 // 'sign-in-required' is re-emitted from the artifact panel: App owns sign-in — it builds the OIDC config
 // and completes the callback — so the request travels up to it rather than the config travelling down
 // through a component with no use for it.
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void }>()
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void; (e: 'admin', value: boolean | undefined): void }>()
 
 const packages = ref<CatalogPackage[]>([])
 // Keyed by moduleKey alone: only one directory per module key can exist on disk, and a module's content
@@ -67,6 +69,10 @@ const credential = ref(cloudCredential())
 // because a deployment without the scope still gets a perfectly good token for the scopes it did request.
 const subscriptionUnavailable = ref(false)
 const subscriptionTeamMissing = ref(false)
+// Whether this operator administers the team this deployment belongs to. THREE-VALUED on purpose:
+// undefined is "the console could not ask", and only an explicit false may disable anything — the same
+// rule `entitled` follows, for the same reason. See notAdmin.
+const admin = ref<boolean | undefined>(undefined)
 // Which load() is current. Three callers start one — onMounted, the reloadToken watch, and refresh() —
 // and without this the one that FINISHES last wins rather than the one that STARTED last, so a slow read
 // issued before a purchase can land after a fast one issued after it and put "Not subscribed" back over a
@@ -133,12 +139,22 @@ async function load() {
     packages.value = cat.value.packages
     subscriptionUnavailable.value = cat.value.subscriptionUnavailable === true
     subscriptionTeamMissing.value = cat.value.subscriptionTeamMissing === true
+    admin.value = cat.value.admin
     catalogError.value = ''
   } else {
     packages.value = []
+    // The catalog read is also how this tab learns whether the operator administers the deployment, so a
+    // failed read must clear that answer rather than leave the last one standing. Undefined disables
+    // nothing, which is the safe direction: the daemon re-asks on every gated request anyway.
+    admin.value = undefined
     catalogError.value = cat.reason instanceof Error ? cat.reason.message : 'could not load the catalog'
   }
   loaded.value = true
+  // LIFTED TO THE PARENT so the disconnect panel can read it, and it costs nothing: this component is
+  // mounted whenever the deployment is post-cloud — the tab switch is v-show, not v-if — so this load has
+  // already run whether or not the operator ever opened the Content tab. Telling that panel therefore costs
+  // no request at all, which is what lets the destructive control be disabled rather than refused.
+  emit('admin', admin.value)
 }
 
 // Each package decorated with its modules' mount state and its mounted/unmounted counts (which drive the
@@ -158,6 +174,26 @@ const view = computed(() =>
     }
   }),
 )
+
+// This operator may not change the deployment, and the console has been told so rather than having failed
+// to ask. It disables the controls that would change it and says who can grant the role.
+//
+// ONLY AN EXPLICIT FALSE. Undefined is could-not-ask, and treating that as a refusal would grey out an
+// administrator's own controls on every reloaded tab — the same mistake `notSubscribed` above exists to
+// avoid, on the field where making it also teaches the operator that the console is broken.
+//
+// DISABLED, NEVER HIDDEN. A control that vanishes produces a support ticket; one that is visible and
+// explains itself produces a conversation with whoever can grant the role. It is also what the protocol
+// requires of a client here: an operator whose team's subscription has lapsed still administers the
+// deployment, and rendering their authority as absent is the lockout the projection keeps a row to prevent.
+//
+// AND IT IS NOT THE CONTROL. Nothing here decides what is allowed — the daemon asks the cloud on the
+// request itself, and this only decides what to offer. Re-enabling these buttons in a browser changes
+// nothing about what the deployment will do.
+const notAdmin = computed(() => admin.value === false)
+
+// The sentence lives in one place — see @/messages for why that is a file rather than a constant here.
+const adminOnlyHint = ADMIN_ONLY
 
 // Mounted modules the catalog no longer lists (removed upstream, or a package errored). They must still
 // be shown so they can be unmounted.
@@ -275,6 +311,19 @@ async function run(fn: () => Promise<{ message: string }>, fallback: string) {
     emit('changed')
   } catch (e) {
     if (e instanceof SessionExpired) return
+    // THE ONE REFUSAL AN INTERFACE ANSWERS BY ACTING RATHER THAN BY REPORTING. The admin gate needs the
+    // operator's access token to ask the cloud who is acting, and that token is memory-only — so a reloaded
+    // tab is signed in, shows the operator's name, and holds nothing to ask with. Reporting "sign in again"
+    // in grey text below a list, in a console whose only sign-in control is hidden while signed in, is a
+    // dead end. The parent performs the redirect.
+    //
+    // REACTED TO, NEVER PREDICTED. Whether the token is needed at all depends on the deployment naming a
+    // team, which is the daemon's rule; pre-flighting it here would demand a sign-in on every deployment
+    // whose recipe predates the team identifier, where mounting needs no credential and never has.
+    if (e instanceof ApiError && e.status === 412) {
+      emit('sign-in-required')
+      return
+    }
     message.value = e instanceof Error ? e.message : fallback
   } finally {
     busyKey.value = ''
@@ -417,6 +466,15 @@ onMounted(load)
       >Sign in</button>
     </p>
 
+    <!-- Not an administrator of this deployment's team. An info Banner rather than a muted line, unlike
+         the could-not-ask case above: that one is the ordinary state of a reloaded tab and gates nothing,
+         while this one explains why every control below it is disabled, and an unexplained disabled
+         button is the support ticket. Info rather than warn — nothing is wrong, and being a member is not
+         a fault. Reads stay open: what a deployment HAS is visible to everyone who can sign in. -->
+    <Banner v-if="notAdmin" class="mb-4" tone="info" title="You can see this deployment, but not change it" data-not-admin>
+      {{ adminOnlyHint }}
+    </Banner>
+
     <!-- A mount/unmount is inert until the platform re-scans the modules directory, and nothing in the
          mode view reflects that — so this is the only place the operator learns a restart is owed. -->
     <Banner
@@ -451,6 +509,7 @@ onMounted(load)
       :installed="artifacts"
       :removal-notice="artifactRemovalNotice"
       :subscription-unavailable="subscriptionUnavailable"
+      :not-admin="notAdmin"
       @changed="onArtifactChanged"
       @sign-in-required="emit('sign-in-required')"
     />
@@ -515,7 +574,8 @@ onMounted(load)
             <button
               v-else-if="row.unmountedCount"
               type="button"
-              :disabled="busyKey === row.pkg.key"
+              :disabled="busyKey === row.pkg.key || notAdmin"
+              :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg bg-dt-secondary px-3 py-1.5 font-heading text-sm text-dt-surface hover:bg-dt-secondary/80 disabled:opacity-50"
               @click="mountAll(row.pkg)"
             >
@@ -524,7 +584,8 @@ onMounted(load)
             <button
               v-if="row.mountedCount"
               type="button"
-              :disabled="busyKey === row.pkg.key"
+              :disabled="busyKey === row.pkg.key || notAdmin"
+              :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="unmountAll(row.pkg)"
             >
@@ -558,7 +619,8 @@ onMounted(load)
               <button
                 v-if="offersRemount(m.mounted.currency)"
                 type="button"
-                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key"
+                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || notAdmin"
+                :title="notAdmin ? adminOnlyHint : undefined"
                 class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
                 @click="update(m.mounted)"
               >
@@ -566,7 +628,8 @@ onMounted(load)
               </button>
               <button
                 type="button"
-                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key"
+                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || notAdmin"
+                :title="notAdmin ? adminOnlyHint : undefined"
                 class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
                 @click="unmountOne(m.cat.key)"
               >
@@ -576,8 +639,8 @@ onMounted(load)
             <button
               v-else
               type="button"
-              :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || row.notSubscribed"
-              :title="row.notSubscribed ? 'Not subscribed to this package' : undefined"
+              :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || row.notSubscribed || notAdmin"
+              :title="row.notSubscribed ? 'Not subscribed to this package' : notAdmin ? adminOnlyHint : undefined"
               class="shrink-0 rounded-lg bg-dt-secondary px-3 py-1.5 font-heading text-sm text-dt-surface hover:bg-dt-secondary/80 disabled:opacity-50"
               @click="mountOne(row.pkg.key, m.cat)"
             >
@@ -609,7 +672,8 @@ onMounted(load)
             <button
               v-if="offersRemount(m.currency)"
               type="button"
-              :disabled="busyKey === m.moduleKey"
+              :disabled="busyKey === m.moduleKey || notAdmin"
+              :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="update(m)"
             >
@@ -617,7 +681,8 @@ onMounted(load)
             </button>
             <button
               type="button"
-              :disabled="busyKey === m.moduleKey"
+              :disabled="busyKey === m.moduleKey || notAdmin"
+              :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="unmountOne(m.moduleKey)"
             >

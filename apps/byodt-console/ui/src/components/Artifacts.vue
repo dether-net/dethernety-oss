@@ -9,6 +9,7 @@ import {
   type InstalledArtifact,
 } from '@/api'
 import { DEPLOYMENT_URL } from '@/links'
+import { ADMIN_ONLY } from '@/messages'
 
 // The entitled-artifact panel. An artifact is not a content mount: a mount writes a stub that fetches its
 // content per request, while an artifact is signed bytes verified and placed on this deployment. It sits
@@ -26,8 +27,15 @@ const props = defineProps<{
   // the scope still receives a perfectly good token for the scopes it did request, so the token in hand
   // looks exactly like a working one and every retry looks transient.
   subscriptionUnavailable?: boolean
+  // This operator does not administer the team this deployment belongs to, so installing and removing are
+  // refused by the daemon. Passed down already resolved to a boolean rather than as the three-valued
+  // answer: the parent owns the "only an explicit false gates" rule, and duplicating that judgement here
+  // is how one of the two copies eventually disagrees.
+  notAdmin?: boolean
 }>()
 const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void }>()
+
+
 
 // Mirrors the daemon's artifact version pattern exactly, leading-zero and width bounds included. A looser
 // one here would send a version the daemon answers 400 to, and the operator would read a rejection where
@@ -207,6 +215,13 @@ function install(key: string, version: string, allowDowngrade = false) {
   // Before the token states, because it outranks them: no sign-in this deployment can perform will help,
   // so offering one is the loop rather than the recovery — the same reason the no-content-scope arm below
   // does not offer one either. The token in hand is genuine, so nothing below could tell.
+  // Ahead of every credential arm, because it is not a credential problem: this operator's sign-in is
+  // working perfectly and the answer would still be no. Offering a sign-in here would be the loop.
+  if (props.notAdmin) {
+    pending.value = undefined
+    message.value = ADMIN_ONLY
+    return
+  }
   if (props.subscriptionUnavailable) {
     pending.value = undefined
     message.value =
@@ -262,7 +277,16 @@ function confirmDowngrade() {
   return install(p.artifactKey, p.version, true)
 }
 
+// The accept button behind a confirmation card is a mutating control like any other, and it was the one the
+// sweep missed: the Remove button that OPENS this card is disabled for a member, but the card can already be
+// open when the answer arrives — the next catalog load is enough. Then the control behind it greys out and
+// the one inside it does not, and the operator meets the daemon's raw refusal on the destructive step.
 function confirmRemove() {
+  if (props.notAdmin) {
+    pending.value = undefined
+    message.value = ADMIN_ONLY
+    return
+  }
   const p = pending.value
   if (p?.kind !== 'remove') return
   return run(p.artifactKey, () => api.removeArtifact(p.artifactKey), 'could not remove the artifact')
@@ -326,7 +350,8 @@ function askRemove(row: Row) {
             <button
               v-if="installable(row) && offered(row)"
               type="button"
-              :disabled="busyKey === row.key"
+              :disabled="busyKey === row.key || notAdmin"
+              :title="notAdmin ? ADMIN_ONLY : undefined"
               class="rounded-lg bg-dt-secondary px-3 py-1.5 font-heading text-sm text-dt-surface hover:bg-dt-secondary/80 disabled:opacity-50"
               data-artifact-install
               @click="install(row.key, offered(row))"
@@ -337,7 +362,8 @@ function askRemove(row: Row) {
             <button
               v-if="row.installed"
               type="button"
-              :disabled="busyKey === row.key"
+              :disabled="busyKey === row.key || notAdmin"
+              :title="notAdmin ? ADMIN_ONLY : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               data-artifact-remove
               @click="askRemove(row)"
@@ -362,7 +388,8 @@ function askRemove(row: Row) {
           />
           <button
             type="button"
-            :disabled="busyKey === row.key"
+            :disabled="busyKey === row.key || notAdmin"
+            :title="notAdmin ? ADMIN_ONLY : undefined"
             class="rounded-lg border border-dt-border px-3 py-1 text-xs text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
             data-artifact-install-typed
             @click="installTyped(row)"
@@ -389,6 +416,8 @@ function askRemove(row: Row) {
         <button
           type="button"
           class="rounded-lg bg-dt-secondary px-3 py-1.5 font-heading text-sm text-dt-surface hover:bg-dt-secondary/80"
+          :disabled="notAdmin"
+          :title="notAdmin ? ADMIN_ONLY : undefined"
           data-artifact-downgrade-accept
           @click="confirmDowngrade()"
         >
@@ -420,6 +449,8 @@ function askRemove(row: Row) {
         <button
           type="button"
           class="rounded-lg border border-dt-quinary/60 px-3 py-1.5 text-sm text-dt-quinary hover:bg-white/5"
+          :disabled="notAdmin"
+          :title="notAdmin ? ADMIN_ONLY : undefined"
           data-artifact-remove-accept
           @click="confirmRemove()"
         >

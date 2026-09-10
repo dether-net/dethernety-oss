@@ -36,7 +36,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 
         B4  release channel  ──▶  console-init      signature + digest verified
         B5  content service  ──▶  platform          cloud only, per request, caller's token
-        B6  console          ──▶  content service   cloud only, two routes, the operator's token
+        B6  console          ──▶  content service   cloud only, six routes, the operator's token
 ```
 
 | Boundary | Enforced by | Notes |
@@ -46,7 +46,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 | **B3** — caller to platform | The platform's own authentication | Disabled, own identity provider, or cloud — decided by the mode layer |
 | **B4** — release channel to deployment | Sigstore signature against a pinned identity, plus digests | Detailed in [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) |
 | **B5** — content service to platform | The caller's own token, per request | Only exists on a cloud-connected deployment; the console never holds that content |
-| **B6** — console to content service | The operator's own OIDC access token, relayed for the duration of one request | Only exists on a cloud-connected deployment. Two calls carry it: reading what the subscription includes, which the catalog is marked with, and fetching an entitled artifact's bytes. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
+| **B6** — console to content service | The operator's own OIDC access token, held for the duration of one request | Only exists on a cloud-connected deployment. Six calls carry it, in two kinds: two where the operation needs it — reading what the subscription includes, which the catalog is marked with, and fetching an entitled artifact's bytes — and four where the **admin gate** needs it, because every route that changes the deployment asks the content service who is acting before it runs. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
 
 Inside the stack network, hops are plain HTTP and Bolt is unencrypted. The isolation is the network,
 not encryption of each hop: no service but the proxy publishes a port, and the database and embedding
@@ -97,9 +97,18 @@ survives the full-page redirect a sign-in performs. A cloud sign-in returns two 
 exchange, and both are held in memory only and never persisted: the ID token, which rides on
 `Authorization` on every gated request so the daemon can forward it to the platform's authenticated
 module query, and an access token, which nothing attaches automatically and which travels on
-`X-Console-Cloud-Token` on the two routes that relay it onward. Two tokens for two audiences cannot
+`X-Console-Cloud-Token` on the six routes that need it. Two tokens for two audiences cannot
 share one header — collapsing them would send whichever arrived last to whichever service was called
 next. They are set and cleared together, because they come from one exchange and expire on one clock.
+
+**Six, and this said two until the admin gate landed.** Two of those routes forward the access token
+because the *operation* needs it — the catalog read, which asks what the subscription includes, and the
+artifact install, which asks for bytes the content service hands only to a subscriber. The other four
+forward it because the *authorization* needs it: every route that changes the deployment is admin-gated,
+and the gate asks the content service who is acting. So an unmount carries a credential even though what it
+does is delete a file on this host. The distinction matters when reading the sentence below about relaying:
+on those four the token is not passed along as part of the work, it is spent asking whether the work may
+happen at all.
 
 ---
 
@@ -176,7 +185,7 @@ the documentation of what that decision costs.
 | Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only |
 | TLS private key | `tls/key.pem`, mode `0600`, in a `0700` directory | Mounted read-only into the proxy. The control script never widens that directory |
 | Operator ID token (cloud) | Browser memory only | Never persisted, never written to disk by the console, never logged |
-| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from two routes alone: the catalog read, which asks what the subscription includes, and the artifact install. It is relayed upstream as an ordinary bearer — the console's own header name never travels outbound |
+| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from six routes: the catalog read, which asks what the subscription includes; the artifact install, which asks for entitled bytes; and the five that change the deployment, where the admin gate spends it asking who is acting. It is sent upstream as an ordinary bearer — the console's own header name never travels outbound |
 | Console session id | Daemon memory; browser `sessionStorage` | Random 256-bit value, sent as a header |
 | Mode layer | `mode/mode.env`, mode `0644` | Non-secret configuration by design — identity endpoints and the deployment's access list, no credentials |
 

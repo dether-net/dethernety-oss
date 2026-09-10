@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ContentModules from '@/components/ContentModules.vue'
-import { clearCloudTokens, setCloudTokens, type CatalogPackage, type MountedModule } from '@/api'
+import { ApiError, clearCloudTokens, setCloudTokens, type CatalogPackage, type MountedModule } from '@/api'
 
 const packages = vi.fn()
 const modules = vi.fn()
@@ -746,5 +746,136 @@ describe('ContentModules empty state with an artifact', () => {
     const w = mount(ContentModules, { props: { reloadToken: 0 } })
     await flushPromises()
     expect(w.find('[data-empty]').exists()).toBe(true)
+  })
+})
+
+// THE ADMIN GATE, AS THE INTERFACE RENDERS IT.
+//
+// Three values and three renderings, and the middle one is the whole point: `undefined` means the console
+// could not ask, and treating that as a refusal would grey out an administrator's own controls on every
+// reloaded tab — the tokens are memory-only, so an unanswered question is the ORDINARY state, not a
+// verdict. Only an explicit false disables anything.
+//
+// Nothing here is a security boundary. The daemon asks the cloud on the request itself, so re-enabling
+// these buttons in a browser changes nothing about what the deployment will do; what this decides is
+// whether the operator is told why, or left clicking a control that always fails.
+describe('ContentModules — the admin gate', () => {
+  const load = async (admin: boolean | undefined) => {
+    packages.mockResolvedValue({ packages: catalog, admin })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await expand(w)
+    return w
+  }
+
+  it('disables the controls that change the deployment, and says who can grant the role', async () => {
+    const w = await load(false)
+    const notice = w.find('[data-not-admin]')
+    expect(notice.exists()).toBe(true)
+    // The remedy, not just the refusal: an operation that returns a bare "forbidden" is the version of
+    // this feature that generates support tickets instead of preventing damage.
+    expect(notice.text()).toContain('grant you the administrator role')
+    expect(btn(w, 'Mount')!.attributes('disabled')).toBeDefined()
+    expect(btn(w, 'Mount all')!.attributes('disabled')).toBeDefined()
+    // "Disabled AND explained" is two claims, and a tooltip is the second one on every control that is not
+    // adjacent to the banner. Nothing asserted it before.
+    expect(btn(w, 'Mount')!.attributes('title')).toContain('administrator')
+    w.unmount()
+  })
+
+  // DISABLED, NEVER HIDDEN. A control that vanishes teaches an operator that the console is broken; one
+  // that is visible and explains itself sends them to whoever can grant the role. It is also what the
+  // protocol requires of a client: an administrator whose team's subscription has lapsed still administers
+  // the deployment, and hiding their controls reproduces the lockout the kept row exists to prevent.
+  it('does not hide them — the control is visible and explains itself', async () => {
+    const w = await load(false)
+    expect(btn(w, 'Mount')).toBeDefined()
+    expect(btn(w, 'Mount all')).toBeDefined()
+    w.unmount()
+  })
+
+  // Reads stay open. A member who cannot see what their deployment has is worse served than one who
+  // cannot change it, and the console is where that is visible.
+  it('leaves the catalog readable', async () => {
+    const w = await load(false)
+    expect(w.text()).toContain('Acme Cloud')
+    expect(w.text()).toContain('Acme Compute')
+    w.unmount()
+  })
+
+  it('enables them for an administrator, and raises no notice', async () => {
+    const w = await load(true)
+    expect(w.find('[data-not-admin]').exists()).toBe(false)
+    expect(btn(w, 'Mount')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('enables them when the console COULD NOT ASK — an unanswered question is not a refusal', async () => {
+    const w = await load(undefined)
+    expect(w.find('[data-not-admin]').exists()).toBe(false)
+    expect(btn(w, 'Mount')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  // A failed catalog read must CLEAR the answer rather than leave the last one standing: a tab that was
+  // told "not an administrator" once must not keep every control disabled through an outage that might
+  // have been resolved by a role grant in the meantime.
+  it('clears the answer when the catalog read fails', async () => {
+    packages.mockResolvedValue({ packages: catalog, admin: false })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.find('[data-not-admin]').exists()).toBe(true)
+
+    packages.mockRejectedValue(new Error('the content catalog is unavailable'))
+    await w.setProps({ reloadToken: 1 })
+    await flushPromises()
+    expect(w.find('[data-not-admin]').exists()).toBe(false)
+    w.unmount()
+  })
+})
+
+// THE RELOADED TAB, which is the state the admin gate makes reachable and nothing handled.
+//
+// Mount and unmount need no credential to DO — they write files on this host — but the gate asks the cloud
+// who is acting before running them, and the operator's token is memory-only. So after a reload the console
+// shows the operator's name, holds a live session, and has nothing to ask with. The daemon answers 412, and
+// the console must respond by offering the sign-in rather than by printing "sign in again" in grey text
+// below a list, in a UI whose sign-in control is hidden precisely because the operator is signed in.
+describe('ContentModules — a reloaded tab', () => {
+  it('asks the parent for a sign-in when the daemon says this tab holds no cloud credential', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    mountModule.mockRejectedValue(new ApiError(412, 'This tab no longer holds your cloud sign-in'))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await expand(w)
+
+    await btn(w, 'Mount')!.trigger('click')
+    await flushPromises()
+
+    expect(w.emitted('sign-in-required')).toHaveLength(1)
+    // And it must not ALSO print the refusal: the operator is being redirected, not informed.
+    expect(w.text()).not.toContain('no longer holds your cloud sign-in')
+    w.unmount()
+  })
+
+  // Every other refusal is reported, not acted on — a 403 is not a sign-in problem and offering one is the
+  // loop this console has been bitten by before.
+  it('reports a refusal it cannot act on, and does not ask for a sign-in', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue({ modules: [] as MountedModule[] })
+    mountModule.mockRejectedValue(new ApiError(403, 'You are not an administrator of the team'))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await expand(w)
+
+    await btn(w, 'Mount')!.trigger('click')
+    await flushPromises()
+
+    expect(w.emitted('sign-in-required')).toBeUndefined()
+    expect(w.text()).toContain('You are not an administrator of the team')
+    w.unmount()
   })
 })

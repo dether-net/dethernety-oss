@@ -126,8 +126,20 @@ func TestCloudApplyRejectsForeignKeyAndWritesNothing(t *testing.T) {
 	}
 }
 
+// WHAT THIS TEST ACTUALLY PROVES, now that disconnect is admin-gated. It is not "disconnect never needs
+// the cloud" — it does, on a deployment that names a team and can ask about it. Two narrower properties
+// survive, and both are the ones worth keeping:
+//
+//   - a session ALREADY HELD keeps its ability to revert while the PLATFORM is down. The platform and the
+//     content service are different dependencies, and the gate asks only the second.
+//   - this deployment names no team, so the gate stands aside entirely and the route behaves exactly as it
+//     did before the gate existed. That is the whole rollout guarantee, exercised here incidentally and
+//     deliberately on purpose in TestAdminGateDoesNotApplyWhenTheDeploymentNamesNoTeam.
+//
+// The permanent-lockout carve-out — a deployment that can never obtain a content credential — is proved
+// in TestOnlyDisconnectProceedsWhenTheDeploymentCanNeverCheck, which is where it belongs.
 func TestCloudDisableRevertsWithoutTheCloud(t *testing.T) {
-	// A platform that is DOWN: disable must still succeed, proving the recovery path needs no cloud.
+	// A platform that is DOWN: disable must still succeed for a session already held.
 	plat := fakePlatform(t, false, nil)
 	plat.Close()
 	s := newTestServer(t, plat.URL, filepath.Join(t.TempDir(), "state.json"))
