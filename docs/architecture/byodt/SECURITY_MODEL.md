@@ -36,7 +36,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 
         B4  release channel  ──▶  console-init      signature + digest verified
         B5  content service  ──▶  platform          cloud only, per request, caller's token
-        B6  console          ──▶  content service   cloud only, six routes, the operator's token
+        B6  console          ──▶  content service   cloud only, seven routes, the operator's token
 ```
 
 | Boundary | Enforced by | Notes |
@@ -46,7 +46,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 | **B3** — caller to platform | The platform's own authentication | Disabled, own identity provider, or cloud — decided by the mode layer |
 | **B4** — release channel to deployment | Sigstore signature against a pinned identity, plus digests | Detailed in [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) |
 | **B5** — content service to platform | The caller's own token, per request | Only exists on a cloud-connected deployment; the console never holds that content |
-| **B6** — console to content service | The operator's own OIDC access token, held for the duration of one request | Only exists on a cloud-connected deployment. Six calls carry it, in two kinds: two where the operation needs it — reading what the subscription includes, which the catalog is marked with, and fetching an entitled artifact's bytes — and four where the **admin gate** needs it, because every route that changes the deployment asks the content service who is acting before it runs. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
+| **B6** — console to content service | The operator's own OIDC access token, held for the duration of one request | Only exists on a cloud-connected deployment. Seven calls carry it, in two kinds: two where the operation needs it — reading what the subscription includes, which the catalog is marked with, and fetching an entitled artifact's bytes — and five where the **admin gate** needs it, because every route that changes the deployment asks the content service who is acting before it runs. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
 
 Inside the stack network, hops are plain HTTP and Bolt is unencrypted. The isolation is the network,
 not encryption of each hop: no service but the proxy publishes a port, and the database and embedding
@@ -97,18 +97,18 @@ survives the full-page redirect a sign-in performs. A cloud sign-in returns two 
 exchange, and both are held in memory only and never persisted: the ID token, which rides on
 `Authorization` on every gated request so the daemon can forward it to the platform's authenticated
 module query, and an access token, which nothing attaches automatically and which travels on
-`X-Console-Cloud-Token` on the six routes that need it. Two tokens for two audiences cannot
+`X-Console-Cloud-Token` on the seven routes that need it. Two tokens for two audiences cannot
 share one header — collapsing them would send whichever arrived last to whichever service was called
 next. They are set and cleared together, because they come from one exchange and expire on one clock.
 
-**Six, and this said two until the admin gate landed.** Two of those routes forward the access token
+**Seven, and this said two until the admin gate landed.** Two of those routes forward the access token
 because the *operation* needs it — the catalog read, which asks what the subscription includes, and the
-artifact install, which asks for bytes the content service hands only to a subscriber. The other four
+artifact install, which asks for bytes the content service hands only to a subscriber. The other five
 forward it because the *authorization* needs it: every route that changes the deployment is admin-gated,
 and the gate asks the content service who is acting. So an unmount carries a credential even though what it
-does is delete a file on this host. The distinction matters when reading the sentence below about relaying:
-on those four the token is not passed along as part of the work, it is spent asking whether the work may
-happen at all.
+does is delete a file on this host, and so does the route that rewrites this deployment's access list. The
+distinction matters when reading the sentence below about relaying: on those five the token is not passed
+along as part of the work, it is spent asking whether the work may happen at all.
 
 ---
 
@@ -185,7 +185,7 @@ the documentation of what that decision costs.
 | Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only |
 | TLS private key | `tls/key.pem`, mode `0600`, in a `0700` directory | Mounted read-only into the proxy. The control script never widens that directory |
 | Operator ID token (cloud) | Browser memory only | Never persisted, never written to disk by the console, never logged |
-| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from six routes: the catalog read, which asks what the subscription includes; the artifact install, which asks for entitled bytes; and the five that change the deployment, where the admin gate spends it asking who is acting. It is sent upstream as an ordinary bearer — the console's own header name never travels outbound |
+| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from seven routes: the catalog read, which asks what the subscription includes; the artifact install, which asks for entitled bytes; and the six that change the deployment, where the admin gate spends it asking who is acting. It is sent upstream as an ordinary bearer — the console's own header name never travels outbound |
 | Console session id | Daemon memory; browser `sessionStorage` | Random 256-bit value, sent as a header |
 | Mode layer | `mode/mode.env`, mode `0644` | Non-secret configuration by design — identity endpoints and the deployment's access list, no credentials |
 
@@ -297,11 +297,51 @@ Six further constraints apply to the values:
 - **`ALLOWED_ORIGINS` is derived, not pasted.** It is the origin of the deployment's own front-door
   callback, so it stays in step with the redirect URI by construction.
 
-Two write-path rules complete it: a recipe cannot be applied over an existing cloud configuration
-(disconnect first, so reconfiguration is never a silent overwrite), and the file is **rewritten, never
-deleted** — a missing env-file breaks the container runtime's own file reading, which would break the
-recovery path itself. Reverting contacts nothing, because it is the recovery path from a configuration
-that no longer lets anyone in.
+**`DEPLOYMENT_ALLOWLIST` has a second, narrower write path, and it is the only name that does.** One
+route rewrites that variable alone on a connected deployment and leaves every other line as it found it
+([`CONSOLE.md`](./CONSOLE.md#changing-who-may-sign-in)), so changing who may sign in no longer requires a
+disconnect — an act that removes every cloud-provided module and, at the next platform start, the classes
+those modules declare and every link those classes are in. It is admin-gated like every other route that
+changes the deployment, and it adds two rules the paste path has no way to apply. It refuses a list that
+does not admit the subject the caller's own session was minted for: a live cloud session is proof that its
+subject passed the deployment's *current* list, because the platform validates that list when it verifies
+the ID token the session was minted from, so the session is the one thing the console holds that can answer
+"would this new list still admit you". And it refuses an empty list outright, decided on the parsed list
+rather than the submitted string — the platform reads empty as *unrestricted* rather than "nobody", and a
+shared-pool deployment reachable over the network refuses to start with one at all. The console cannot tell
+which of those it would produce, because `DEPLOYMENT_EXPOSURE` is base-layer only and never written here,
+so it refuses either way.
+
+**Beyond those two, it refuses exactly what the recipe path refuses — and that ceiling is a design
+constraint rather than an omission.** It rejects a control character on the same reasoning, and before
+writing it re-runs the present-and-non-empty rule over the whole variable set, so the file it leaves is one
+the connect path would have accepted — a checked property rather than an intention, and the difference
+between refusing and leaving a deployment that cannot start. It invents no shape rule the connect path lacks, and must not: a value
+that connects successfully but this route rejects would leave the operator with only the
+disconnect-and-reconnect this route exists to remove, which is the data-losing act. Its one divergence runs
+the other way — whitespace-separated entries are accepted and normalised into the comma-joined form the
+platform parses, so a list copied from an account that renders its members one per line applies rather than
+failing on a separator nobody chose.
+
+**And one limit of the whole arrangement, stated because the paragraphs above could otherwise be read as
+claiming more.** This route is strictly safer than the reconfiguration it replaces *for graph data* — it
+removes no module, so nothing declares a class that then disappears. It is not safer for access
+governance, and in one respect it is looser: the console is not the authority on who belongs to a team. It
+writes the list it is given, and nothing afterwards compares that list against the team's actual
+membership. A deployment's admitted set can therefore drift from the roster — an account removed from the
+team keeps its sign-in until somebody applies a fresh list, and an account that was never on the team can
+be added to the deployment by anyone who administers it. Both were already true of the recipe path, which
+also writes the value unchecked; what changed is that doing it now costs a click instead of a disconnect,
+and is correspondingly quieter. The reconciling authority is the account portal, which derives the list
+from the membership at the moment it is copied, and the operator is the one who carries it across.
+
+Two write-path rules complete it: a **recipe** cannot be applied over an existing cloud configuration
+(disconnect first, so reconfiguration is never a silent overwrite — the single-variable write above is the
+one exception, and it is a gated route with a subject to check rather than a paste), and the file is
+**rewritten, never deleted** — a missing env-file breaks the container runtime's own file reading, which
+would break the recovery path itself. Reverting contacts the cloud for one thing only — the admin check
+its gate makes — and proceeds without it on a deployment that could never make that check, because a
+recovery path may not depend on the configuration it recovers from.
 
 ---
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { api, SessionExpired, type ModeView } from '@/api'
+import { ref, computed, onMounted } from 'vue'
+import { api, ApiError, SessionExpired, type ModeView } from '@/api'
 import { consoleRedirectUri } from '@/auth'
 import { DEPLOYMENT_URL } from '@/links'
 import { ADMIN_ONLY } from '@/messages'
@@ -25,7 +25,7 @@ const props = withDefaults(
   // casting off.
   { admin: undefined },
 )
-const emit = defineEmits<{ (e: 'changed'): void }>()
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void }>()
 
 const recipe = ref('')
 // The platform's front-door OIDC callback: origin + /auth/callback. The console shares the front door's
@@ -35,6 +35,12 @@ const recipe = ref('')
 const redirectUri = window.location.origin + '/auth/callback'
 const message = ref('')
 const busy = ref(false)
+// The access list gets its OWN message ref rather than sharing the one above. Until this panel grew a
+// second control the two could never be on screen together, so one ref was right; now a failed access
+// change and a disconnect receipt can coexist, and sharing would silently wipe whichever spoke first.
+const allowlist = ref('')
+const allowlistMessage = ref('')
+const allowlistBusy = ref(false)
 
 // The two callbacks cloud sign-in uses — the platform's front door and this console's own — one per
 // line, in the shape the account's "Callback URLs" field takes (one per line). Both must be registered
@@ -68,7 +74,18 @@ async function apply() {
     recipe.value = ''
     emit('changed')
   } catch (e) {
-    if (e instanceof SessionExpired) return
+    // CLEAR THE IN-FLIGHT LABEL BEFORE EVERY EARLY RETURN. "Applying…" is the only feedback this control
+    // has, so a return that leaves it on screen leaves the operator watching a message that will never
+    // resolve. The session-expired path is about to hand them the sign-in card; it must not hand them a
+    // stale progress line with it.
+    if (e instanceof SessionExpired) {
+      message.value = ''
+      return
+    }
+    // NO 412 BRANCH HERE, and its absence is deliberate. Connect is the one deployment-changing route the
+    // gate does not wrap — the paste path has no authenticated subject — so it cannot answer 412, and a
+    // branch for it would be dead code implying this route is gated when the whole design turns on it not
+    // being. The two routes below do carry it.
     message.value = e instanceof Error ? e.message : 'failed'
   } finally {
     busy.value = false
@@ -96,6 +113,77 @@ const confirming = ref(false)
 // follows — controls are disabled and explained, and the destructive one is the one that most needs it.
 const notAdmin = computed(() => props.admin === false)
 
+// THE PASTED LIST SURVIVES THE SIGN-IN REDIRECT, and without this it did not.
+//
+// A 412 is answered by ACTING: the parent performs a full-page navigation to the identity provider. That is
+// the right response to a missing credential, and it was inherited from panels whose gated controls are
+// BUTTONS — a mount, an install, a disconnect carry nothing the operator composed. This one holds a list
+// they assembled, and the redirect threw it away silently: they returned to a reloaded console, empty box,
+// no message, which reads as "it worked and signed me in again".
+//
+// sessionStorage because it is the same store the sign-in exchange already uses to cross that redirect, and
+// because this must NOT outlive the tab: a stale draft restored days later would be a list composed against
+// a roster that has moved. Every access is guarded — a private window or blocked site data throws rather
+// than returning null, and losing the draft is worse than a broken panel only if the panel still works.
+const ALLOWLIST_DRAFT_KEY = 'byodt.console.allowlist.draft'
+
+function stashAllowlistDraft(value: string) {
+  try {
+    sessionStorage.setItem(ALLOWLIST_DRAFT_KEY, value)
+  } catch {
+    // No session storage. The draft is lost, which is what happened before this existed.
+  }
+}
+
+onMounted(() => {
+  let draft: string | null = null
+  try {
+    draft = sessionStorage.getItem(ALLOWLIST_DRAFT_KEY)
+    sessionStorage.removeItem(ALLOWLIST_DRAFT_KEY)
+  } catch {
+    return
+  }
+  if (!draft) return
+  allowlist.value = draft
+  // SAY WHAT DID NOT HAPPEN. Restoring the box silently is better than losing it and still not enough: the
+  // operator pressed Apply and the deployment did not change, and nothing else on the page says so.
+  allowlistMessage.value =
+    'You were signed in again before this could be applied, so nothing was changed. Your list is below — check it and apply again.'
+})
+
+async function applyAllowlist() {
+  allowlistBusy.value = true
+  allowlistMessage.value = 'Applying…'
+  try {
+    const r = await api.changeAllowlist(allowlist.value)
+    // The count first, because it is the only check the operator has that their paste was read the way
+    // they meant it — the console cannot show them the list they replaced.
+    allowlistMessage.value = `${r.subjects} ${r.subjects === 1 ? 'account' : 'accounts'} written. ${r.message}`
+    allowlist.value = ''
+  } catch (e) {
+    // See apply(): an early return must not leave "Applying…" standing.
+    if (e instanceof SessionExpired) {
+      allowlistMessage.value = ''
+      return
+    }
+    // 412 IS ANSWERED BY ACTING, NEVER BY REPORTING. The operator's access token is memory-only, so a
+    // reloaded tab is signed in, shows their name, and holds nothing to ask the cloud with. Printing
+    // "sign in again" in grey text, in a console whose only sign-in control is hidden while signed in, is
+    // a dead end — the same one the content panel already answers this way.
+    if (e instanceof ApiError && e.status === 412) {
+      // Stash BEFORE emitting: the parent answers this by navigating away, and nothing after the emit is
+      // guaranteed to run.
+      stashAllowlistDraft(allowlist.value)
+      emit('sign-in-required')
+      allowlistMessage.value = ''
+      return
+    }
+    allowlistMessage.value = e instanceof Error ? e.message : 'Could not change the access list.'
+  } finally {
+    allowlistBusy.value = false
+  }
+}
+
 function askDisconnect() {
   message.value = ''
   confirming.value = true
@@ -114,7 +202,20 @@ async function confirmDisconnect() {
     message.value = r.message
     emit('changed')
   } catch (e) {
-    if (e instanceof SessionExpired) return
+    // See apply(): an early return must not leave "Reverting…" standing.
+    if (e instanceof SessionExpired) {
+      message.value = ''
+      return
+    }
+    // The gate answers 412 on disconnect too, and for the same reason: a reloaded tab holds no cloud
+    // token. This branch was missing while disconnect was the only gated control on this panel, so that
+    // refusal landed as grey text telling the operator to sign in, in a console whose only sign-in control
+    // is hidden while they are signed in. The content panel has answered it correctly all along.
+    if (e instanceof ApiError && e.status === 412) {
+      emit('sign-in-required')
+      message.value = ''
+      return
+    }
     message.value = e instanceof Error ? e.message : 'failed'
   } finally {
     busy.value = false
@@ -208,8 +309,94 @@ async function confirmDisconnect() {
         <span class="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-dt-accent text-xs text-dt-accent" aria-hidden="true" data-step="2">2</span> Configuration
       </h3>
 
-      <!-- A cloud file exists: offer disconnect. -->
+      <!-- A cloud file exists: offer the access list, then disconnect. -->
       <template v-if="props.mode.cloudFileWritten">
+        <!--
+             WHO MAY SIGN IN COMES FIRST, ABOVE DISCONNECT, and the order is the argument rather than the
+             layout. Until this existed the connected state offered exactly one control and it was the
+             destructive one, so an operator looking for "change who has access" found Disconnect — which
+             removes every cloud module and, at the next platform start, the classes they declare and every
+             link those classes are in. That is the journey this section exists to end. It must not be the
+             second thing on the page.
+
+             NO STEP BADGE, deliberately. The numerals above pair with twins on the account portal's
+             deployment page and are agreed by convention, not shared code (see the note on step 1), so
+             numbering this would silently oblige a change over there. It is not part of the connect
+             sequence; it is something you do afterwards, repeatedly.
+        -->
+        <section aria-label="Who may sign in" data-section="allowlist">
+          <h4 class="mb-2 font-heading text-sm text-dt-text">Who may sign in</h4>
+          <p class="mb-2 text-dt-text-muted">
+            Paste the access list from your account portal's
+            <span class="text-dt-text">Who may sign in</span> card. This
+            <span class="text-dt-text">replaces</span> the list — anyone not in the box loses access to this
+            deployment. One account per line, or separated by commas.
+          </p>
+          <!-- The one thing the daemon's own sentence cannot say, because it is about what the console
+               CANNOT do rather than about what the change does: there is no way to show the current list.
+               Nothing surfaces it — the ungated posture read is a fixed field projection precisely so the
+               member ids never reach the wire — so an operator composing a replacement has to get the
+               value from the place that can name people, which is the portal. Saying so here is what stops
+               them typing from memory and dropping colleagues they could not see. -->
+          <p class="mb-2 text-xs text-dt-text-muted">
+            The console cannot show you the current list, so copy the whole list rather than editing from
+            memory.
+          </p>
+          <!-- WHEN IT TAKES EFFECT, STATED BEFORE THE BOX AND NOT UNDER THE BUTTON. It was a footnote below
+               the submit control, which is the position a reader skips — and it is the sentence that stops
+               an operator concluding the console failed and reaching for Disconnect instead.
+
+               The sentence is the daemon's, carried on the mode read, so this panel holds no copy that
+               could drift from the one the change itself returns. It is HIDDEN once a receipt is showing,
+               because the receipt repeats it verbatim and two identical grey blocks stacked is how the
+               count in front of it stops being noticed. -->
+          <p
+            v-if="props.mode.allowlistNotice && !allowlistMessage"
+            data-cloud-allowlist-notice
+            class="mb-2 text-xs text-dt-text-muted"
+          >
+            {{ props.mode.allowlistNotice }}
+          </p>
+          <textarea
+            v-model="allowlist"
+            class="w-full rounded border border-dt-border bg-dt-background px-2 py-1 font-mono text-xs text-dt-text"
+            rows="3"
+            :disabled="allowlistBusy || notAdmin"
+            aria-label="access list"
+            data-cloud-allowlist-input
+          ></textarea>
+          <div class="mt-2 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              :disabled="allowlistBusy || notAdmin || allowlist.trim() === ''"
+              :title="notAdmin ? ADMIN_ONLY : undefined"
+              data-cloud-allowlist-apply
+              class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
+              @click="applyAllowlist"
+            >
+              {{ allowlistBusy ? 'Applying…' : 'Apply access list' }}
+            </button>
+          </div>
+          <!-- The same rule disconnect follows: a control that is disabled says why, beside itself. -->
+          <div
+            v-if="notAdmin"
+            data-cloud-allowlist-not-admin
+            class="mt-3 rounded-r-md border-l-4 border-dt-border bg-white/5 px-3 py-2 text-sm text-dt-text-muted"
+          >
+            {{ ADMIN_ONLY }}
+          </div>
+          <p
+            v-if="allowlistMessage"
+            data-cloud-allowlist-message
+            class="mt-3 rounded-r-md border-l-4 border-dt-border bg-white/5 px-3 py-2 text-sm text-dt-text-muted"
+            aria-live="polite"
+          >
+            {{ allowlistMessage }}
+          </p>
+        </section>
+
+        <hr class="my-6 border-dt-border" />
+
         <p class="text-dt-text-muted">
           This deployment is configured for the cloud. Disconnect rewrites the configuration back to the
           pure open-source values and removes the modules the cloud provided; the change is applied by

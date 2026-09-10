@@ -123,7 +123,7 @@ func (s *server) routes() http.Handler {
 	// Everything else requires a live session.
 	mux.HandleFunc("GET /api/mode", s.sess.requireSession(s.mode))
 	mux.HandleFunc("GET /api/state", s.sess.requireSession(s.state))
-	// THE FIVE ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, and every read below is not — a member
+	// THE SIX ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, and every read below is not — a member
 	// who cannot see what their deployment has is worse served than one who cannot change it. See admin.go
 	// for what the gate decides and in which order; the wrapper composes OVER the session check, so a
 	// caller holds a session first and then administers the team.
@@ -132,13 +132,22 @@ func (s *server) routes() http.Handler {
 	// and has NO AUTHENTICATED SUBJECT: it runs before the deployment is connected, when there is no cloud
 	// identity, no team and no projection to ask. There is nobody to check. It also cannot be used to
 	// reconfigure a connected deployment — applying to one that has already written its cloud file is
-	// refused — so to change a connected deployment you must disconnect first, and disconnect IS gated.
-	// The control holds through the route that has a subject to check.
+	// refused — so to change ANY OTHER variable on a connected deployment you must disconnect first, and
+	// disconnect IS gated. The control holds through the route that has a subject to check.
+	//
+	// "ANY OTHER" is load-bearing, and this sentence said "any" until the allowlist apply existed. Exactly
+	// one variable can now be changed on a connected deployment without disconnecting, on its own gated
+	// route, and it carries the self-exclusion guard this one cannot.
 	//
 	// DELETE /api/cloud takes the recovery variant: it is the operation an operator reaches for to fix a
 	// bad recipe, so it alone proceeds on a deployment that can never make the check.
 	mux.HandleFunc("POST /api/cloud", s.sess.requireSession(s.cloudApply))
 	mux.HandleFunc("DELETE /api/cloud", s.sess.requireSession(s.requireAdminOrRecovery(s.cloudDisable)))
+	// POST /api/cloud/allowlist — the allowlist-only apply. It is the sixth gated route, and the one whose
+	// absence from a list phrased as a COUNT is how it would get dropped. It changes who may sign in to a
+	// connected deployment without disconnecting, which is the whole reason it exists: the reconfiguration
+	// it replaces costs every cloud module and the classes they declare. See allowlist.go.
+	mux.HandleFunc("POST /api/cloud/allowlist", s.sess.requireSession(s.requireAdmin(s.cloudAllowlist)))
 	// Entitled artifacts. Installing one fetches signed bytes with the OPERATOR's own credential, which
 	// is why this route read a second header before the gate existed; everything it places is local.
 	mux.HandleFunc("POST /api/artifacts", s.sess.requireSession(s.requireAdmin(s.installArtifact)))
@@ -228,9 +237,28 @@ func (s *server) session(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not verify sign-in — the platform may be starting or busy; retry", http.StatusServiceUnavailable)
 		return
 	}
-	// The platform verified the token above; read its display claims (unverified is fine — the platform
-	// is the authority) so the console can show who is signed in.
-	id, err := s.sess.mintWithIdentity(cloudSessionTTL, identityFromJWT(idToken))
+	// THE PLATFORM IS ONLY THE AUTHORITY WHEN IT IS ENFORCING, and this branch keys on the console's own
+	// FILE rather than on what the platform is running. Between a connect and the operator recreating the
+	// stack, the file says cloud while the platform is still the pre-cloud one: no OIDC, ENABLE_NOAUTH set,
+	// and a module query that answers cleanly for ANY bearer — registeredModules says so itself. In that
+	// window a delegation "success" proves nothing about the token, so recording claims out of it would
+	// mint a session whose subject was validated by nobody.
+	//
+	// That matters beyond the display, now that one decision reads this value: the allowlist apply refuses
+	// a list that omits the session's subject, and a forged subject would let the operator submitting it
+	// walk past their own guard — and would put an unvalidated name in the only record of who changed a
+	// deployment's access list. So the identity is recorded ONLY when the platform reports authentication
+	// on. Otherwise the session is minted with none, which is the truthful answer: the console cannot say
+	// who this is, and every consumer already treats an absent subject as unknown and refuses rather than
+	// guesses.
+	//
+	// The cost is that the header shows no name during the restart window — the window in which the
+	// operator has just been told to restart.
+	ident := identityFromJWT(idToken)
+	if cfg, err := s.plat.config(r.Context()); err != nil || cfg.AuthDisabled {
+		ident = identity{}
+	}
+	id, err := s.sess.mintWithIdentity(cloudSessionTTL, ident)
 	if err != nil {
 		http.Error(w, "minting session", http.StatusInternalServerError)
 		return
@@ -251,6 +279,16 @@ type modeView struct {
 	CloudFileWritten bool      `json:"cloudFileWritten"`
 	RestartPending   bool      `json:"restartPending"`
 	User             *userView `json:"user,omitempty"` // the signed-in subject (cloud only; display-only)
+	// AllowlistNotice is when a change to who may sign in takes effect, present only on a cloud
+	// deployment, where the control that makes such a change exists. It is the artifact-removal notice's
+	// pattern: prose on a READ, so the panel can state the consequence BEFORE anything is submitted,
+	// carried from the same constant the change's own answer returns so the two cannot drift into two
+	// sentences. See allowlistRestartConsequence.
+	//
+	// It is a standing statement about what the control does, never a claim that a restart is pending —
+	// the console cannot make the second claim truthfully, because nothing the platform reports says
+	// which access list it started with. RestartPending stays what it was.
+	AllowlistNotice string `json:"allowlistNotice,omitempty"`
 }
 
 // userView is the display identity of the requesting session, shown in the console header.
@@ -276,6 +314,18 @@ const (
 	phaseUnreachable   = "platform-unreachable"
 )
 
+// allowlistNoticeFor returns the access-list notice for a mode-file intent, or "" where there is no such
+// control to describe. One definition, because the mode read has two exits and an omission on either is
+// invisible: omitempty makes an unset field and an absent one identical on the wire.
+func allowlistNoticeFor(intent modeIntent) string {
+	// On a pre-cloud deployment there is no access list to change, and prose about one would describe a
+	// control the panel does not offer.
+	if intent != intentCloud {
+		return ""
+	}
+	return allowlistRestartConsequence
+}
+
 func (s *server) mode(w http.ResponseWriter, r *http.Request) {
 	// The display/intent split: the phase comes from the platform, but the file's intent comes from
 	// disk. The two together distinguish cloud from the operator's own IdP (both have
@@ -289,7 +339,15 @@ func (s *server) mode(w http.ResponseWriter, r *http.Request) {
 		// Unreachable: the intent cannot be compared to the platform's actual mode, so no restart
 		// is asserted — the unreachable phase already tells the operator the platform is not
 		// answering. CloudFileWritten is still reported so the panel can offer disconnect.
-		writeJSON(w, http.StatusOK, modeView{Phase: phaseUnreachable, CloudFileWritten: cloudWritten, User: user})
+		//
+		// AND THE ACCESS-LIST NOTICE IS REPORTED WITH IT, because it is a property of the FILE and not of
+		// the platform. The panel renders that control on cloudFileWritten alone, so omitting the notice
+		// here left the one state where it matters most — the platform is already not running — showing
+		// the control with nothing saying when a change would take effect.
+		writeJSON(w, http.StatusOK, modeView{
+			Phase: phaseUnreachable, CloudFileWritten: cloudWritten, User: user,
+			AllowlistNotice: allowlistNoticeFor(intent),
+		})
 		return
 	}
 	v := modeView{AuthDisabled: cfg.AuthDisabled, OIDCIssuer: cfg.OIDCIssuer, CloudFileWritten: cloudWritten, User: user}
@@ -307,6 +365,7 @@ func (s *server) mode(w http.ResponseWriter, r *http.Request) {
 	// cloud file while the platform is still noauth (connect not yet applied), or the pure-OSS file
 	// while the platform is still authenticated (disconnect not yet applied).
 	v.RestartPending = (intent == intentCloud && cfg.AuthDisabled) || (intent == intentPureOSS && !cfg.AuthDisabled)
+	v.AllowlistNotice = allowlistNoticeFor(intent)
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -421,11 +480,15 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 //
 // THE ALLOWLIST SELF-EXCLUSION GUARD, AND TWO CORRECTIONS TO WHAT THIS COMMENT USED TO SAY. The paste
 // path has no authenticated subject, so it cannot refuse a recipe whose DEPLOYMENT_ALLOWLIST omits the
-// operator submitting it. That much still stands. Two things around it did not:
+// operator submitting it. That much still stands, and is why this route is not the one that guards it.
+// Two things around it did not:
 //
-//   - "a fetched apply does" — nothing does. The fetched apply (PUT /api/cloud) was retired because the
-//     console's deployment-scoped token has the wrong audience for the commerce API, so the guard this
-//     compared itself against has had no implementation for as long as this comment has existed.
+//   - "a fetched apply does" — nothing did, for as long as that sentence stood. The fetched apply
+//     (PUT /api/cloud) was retired because the console's deployment-scoped token has the wrong audience
+//     for the commerce API, so the guard this compared itself against had no implementation at all.
+//     SOMETHING DOES NOW: POST /api/cloud/allowlist, which runs in cloud posture where the session
+//     carries an identity, and refuses a list that omits the subject that session was minted for. The
+//     comparison is honest again, and the difference between the two routes is exactly the identity.
 //   - "the compensating control is that disconnect never needs the cloud" — disconnect was never the
 //     recovery from THAT state. A cloud console session is minted by delegating to the platform, which
 //     validates the allowlist along with everything else, so an operator the allowlist excludes cannot

@@ -121,9 +121,10 @@ func (s *server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 // carve-out ship together, or neither is safe.
 //
 // AND IT IS DISCONNECT'S ALONE. The predicate is a property of the whole deployment, so written over every
-// gated route it would ungate mount, unmount, install and remove on any deployment whose recipe lacks the
-// content scope — turning a recovery carve-out into a blanket bypass. What justifies it here is
-// specifically that disconnect is the recovery path; nothing else on the list is, and nothing else gets it.
+// gated route it would ungate mount, unmount, install, remove and the allowlist apply on any deployment
+// whose recipe lacks the content scope — turning a recovery carve-out into a blanket bypass. What justifies
+// it here is specifically that disconnect is the recovery path; nothing else on the list is, and nothing
+// else gets it.
 func (s *server) requireAdminOrRecovery(next http.HandlerFunc) http.HandlerFunc {
 	return s.gate(next, true)
 }
@@ -173,8 +174,8 @@ func (s *server) gate(next http.HandlerFunc, recoveryPath bool) http.HandlerFunc
 		// THIS ARM IS A FAIL-OPEN AND IS ACCEPTED AS ONE, said plainly so the next reader does not have to
 		// work it out. cloudModeFile reports false for a mode file it cannot READ as well as for one that
 		// is genuinely local, and both land here. Reaching it needs a filesystem fault or host access, which
-		// the threat model above already concedes; and four of the five gated handlers re-check posture for
-		// themselves and refuse, while the fifth is disconnect, where proceeding is the recovery rather than
+		// the threat model above already concedes; and five of the six gated handlers re-check posture for
+		// themselves and refuse, while the sixth is disconnect, where proceeding is the recovery rather than
 		// the hazard. If this file ever grows a caller for which neither is true, the read error needs its
 		// own arm.
 		vars, cloud := s.cloudModeFile()

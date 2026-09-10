@@ -122,6 +122,34 @@ The platform itself now requires sign-in too. Open it from **Open platform →**
 
 ---
 
+## Who can change a connected deployment
+
+Signing in gets you the console. **Changing** the deployment needs one thing more: you must be an administrator of the team the deployment belongs to. Reading is not restricted — anyone who can sign in sees the deployment's state, the catalog, what is mounted, and what is installed.
+
+These are the controls that need the role:
+
+| Control | Where |
+|---|---|
+| **Mount**, **Mount all**, **Update**, **Unmount**, **Unmount all** | Content tab |
+| **Install** and **Remove**, for entitled artifacts | Content tab |
+| **Apply access list** | Cloud tab |
+| **Disconnect from cloud** | Cloud tab |
+
+The console does not hide them from you. It disables them and says why beside them:
+
+> Only an administrator of this deployment's team can change what it provides. An owner or administrator of that team can grant you the administrator role in the portal.
+
+The Content tab says the same as a banner across the top: **You can see this deployment, but not change it**.
+
+Four things are worth knowing about how the check runs:
+
+- **It is asked of the cloud every time, and never remembered.** A role granted or withdrawn in the portal takes effect on your next attempt. You do not have to sign in again for it — though the Content tab only learns which controls to offer when it reads the catalog, so click **Refresh** there to see the buttons change.
+- **It uses the cloud credential this browser tab holds**, which lives only in memory. Reloading the page clears it while leaving you signed in to the console, so the console may send you to sign in again when you use one of these controls. That is the ordinary state of a reloaded tab, not a fault.
+- **A refusal always means nothing was changed.** The four ways it can refuse, and what each one calls for, are in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in).
+- **A deployment connected with a recipe that names no team is not checked at all**, and every control behaves as it did before the check existed. The check turns itself on for a deployment when it is next connected with a recipe that names one.
+
+---
+
 ## Mounting content packages
 
 The **Content** tab appears only once the platform is actually running in cloud mode. It lists the packages available to you, with your subscribed ones ready to mount. Your subscription is read again each time the console loads, so what you see is what you are subscribed to now — not what you were subscribed to when you connected.
@@ -158,6 +186,7 @@ Only the platform is recreated. The database, the embedding server, and the cons
 | A muted line above the list, beginning *Nothing is restricted, but subscriptions cannot be checked on this deployment…* | This deployment's configuration does not carry the permission the check needs, so signing in again and pressing **Refresh** will not change it. Get a fresh recipe from the portal, then [disconnect](#disconnecting), apply it, and connect again — read what disconnecting costs first. |
 | A muted line above the list: *Your subscription could not be checked just now.* | The check did not go through this time. Nothing is restricted; click **Refresh** to try again. |
 | **Mounted — not in catalog** | A module you mounted that the catalog no longer lists. Kept visible so you can still unmount it. |
+| A banner: **You can see this deployment, but not change it** | You are signed in, but you do not administer the team this deployment belongs to, so **Mount**, **Unmount**, **Install** and **Remove** are disabled. Nothing you can read is affected. See [Who can change a connected deployment](#who-can-change-a-connected-deployment). |
 
 ### Refresh
 
@@ -191,6 +220,58 @@ If the service cannot be reached at the moment you connect, the console says so 
 
 ---
 
+## Changing who may sign in
+
+Who may sign in to a connected deployment is a list of accounts held in the deployment's configuration. You can replace that list from the console, on a running deployment, without disconnecting.
+
+If your browser tab has been reloaded since you signed in, the console sends you to sign in again at the moment you apply. That interrupts the change rather than making it: your pasted list is put back in the box when you return, with a line saying nothing was changed.
+
+**Reach for this rather than disconnecting.** Disconnecting also ends everyone's access, but it takes every cloud-provided module with it — and at the next platform start, the classes those modules provide and every link to them. Changing the list costs none of that. See [What disconnecting costs](#disconnecting).
+
+### Before you start
+
+| Prerequisite | Why |
+|---|---|
+| A connected deployment | The control appears only once a cloud configuration is written. A deployment that is not connected admits whoever its own configuration admits, and has no access list to change. |
+| The administrator role | This changes the deployment, so it needs an administrator of the deployment's team — see [Who can change a connected deployment](#who-can-change-a-connected-deployment). |
+| The **whole** list, copied from the portal | The console cannot show you the current list, so this is not something to edit from memory. The portal's **Who may sign in** card is a copyable field with a **Copy** button beside it. |
+
+Some of the console's messages call these accounts *subjects*. They are the identifiers your identity provider issues, and they are what the portal's card gives you.
+
+### Replace the list
+
+1. In the console, select the **Cloud** tab. Section **2 · Configuration** opens with a **Who may sign in** section, above the disconnect control.
+2. In the portal, open this deployment's **Who may sign in** card. Its heading carries the number of accounts — `Who may sign in (12 accounts)` — so note that number, then click **Copy**.
+3. Paste it into the box. One account per line, or separated by commas.
+4. Click **Apply access list**. The box clears, and the console reports how many accounts it wrote and when the change takes effect — for example:
+
+   > `12 accounts written. Who may sign in changes at the next platform start, not now: the platform reads this list once, when it starts, so until then it goes on admitting exactly who it admits today — including anyone you just removed. Apply it by restarting the platform: byodt restart platform. That restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does.`
+
+5. Apply it:
+
+   ```sh
+   ./byodt restart platform
+   ```
+
+   Only the platform is recreated, and this restart removes no module — so it does not touch your classes or the links to them.
+
+**Check the count against the portal's.** The two numbers are meant to be the same one: the portal's card says `(12 accounts)` in its heading, and a successful apply answers `12 accounts written`. That comparison is the only confirmation you get that the paste was read the way you meant it — the console reports the number and never the accounts themselves, it cannot show you the list you replaced, and it clears the box on success, so there is nothing left on screen to check against. If the console's number is lower than the portal's, the paste lost lines: copy the list again and apply it again **before** you restart. Nothing has taken effect until you do.
+
+### What the console will and will not accept
+
+- **It replaces the whole list.** Anyone not in the box loses access at the next platform start. There is no add-one or remove-one.
+- **It cannot show you the current list.** Nothing in the console surfaces it, deliberately. Copy the whole list from the portal rather than editing from memory — what you cannot see is what you drop. If you need to check what is actually configured, it is readable on the host: [Troubleshooting → I need to see who is on the access list](./TROUBLESHOOTING.md#i-need-to-see-who-is-on-the-access-list).
+- **It refuses a list that leaves you out**, because applying it would lock you out of your own deployment at the next platform start. Copy the whole list from the portal again rather than adding yourself back to what is in the box — if your own account went missing from it, others may have too. An administrator who is on the new list can also apply it for you.
+- **It refuses an empty list.** An empty list does not mean "nobody": the platform reads it as *no restriction*, and on a deployment reachable over the network it refuses to start at all. A box that looks filled can still name none — separators on their own, such as `,,,`, are not accounts. To narrow access to one person, submit a list naming that one account. If that person is not you, the console refuses that list too, for the reason in the bullet above: keep your own account on it as well, or ask an administrator who *is* on the new list to apply it.
+- **It changes nothing else.** Only who may sign in. Every other value in the deployment's configuration is left exactly as it was.
+- **A refusal changes nothing.** The message names which refusal it is; each one, and what to do about it, is in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in).
+
+### Until you restart
+
+The change is written, and it is inert. The platform reads its access list once, when it starts, so until you run `./byodt restart platform` the deployment goes on admitting exactly who it admitted before — including anyone you just removed. The console states this before you submit anything, and again in the answer. If access has to end now, restart the platform now.
+
+---
+
 ## Disconnecting
 
 Disconnecting rewrites the deployment's configuration back to the standalone values and removes every module the cloud provided. **Your models and diagrams are not deleted** — what a disconnect costs is the classes those modules contributed, and every link to them.
@@ -217,7 +298,12 @@ Until you do, the console shows a banner reading **Revert to pure open-source no
 
 The console signs you out here too, but this direction is smoother: the posture is now standalone, so the console re-establishes its own session and opens straight to the dashboard. After the recreate, the badge reads **Pre-cloud** again and the **Content** tab is gone.
 
-> **Disconnecting never contacts the cloud.** It is deliberately a local, self-sufficient operation, so it still works when nothing about the cloud is reachable or when your access has changed. It is always available to you.
+> **Disconnecting contacts the cloud, and can be refused.** It changes the deployment, so it is administrator-only like the other controls in [Who can change a connected deployment](#who-can-change-a-connected-deployment), and the check is made live on the attempt — which means a disconnect is refused while the check cannot be made. That is deliberate on the one operation that costs you classes and links: it fails by declining, never by proceeding.
+>
+> Two narrower guarantees do hold, and they are the ones to rely on:
+>
+> - **A session you already hold keeps the ability to revert while the platform is down.** The platform and the content service are separate dependencies, and this check asks only the second — so a platform that will not come up does not take disconnect with it.
+> - **A deployment whose configuration can never obtain the credential the check needs is not locked in.** Disconnect alone proceeds there, because disconnect is what you reach for to fix a bad configuration. Nothing else on the list gets that carve-out.
 
 ---
 
@@ -229,14 +315,14 @@ Worth knowing, because it explains the messages you may see.
 - **It requires every expected variable to be present and non-empty.** A half-applied recipe would boot the deployment into a broken state, so it is refused outright.
 - **It keeps your deployment's own exposure declaration** rather than taking the recipe's, and says so when it does.
 - **It supplies the values a recipe cannot know** — the callback address of your front door, and where cached content lives.
-- **It refuses to reconfigure a deployment that is already connected.** Disconnect first, then apply the new recipe.
+- **It refuses to reconfigure a deployment that is already connected.** Disconnect first, then apply the new recipe. There is exactly one exception, and it is not a recipe: [who may sign in](#changing-who-may-sign-in) can be replaced in place on a connected deployment. No other value can.
 - **It will not write a plaintext identity endpoint or a non-local plaintext callback.** Those must be HTTPS, or `localhost`.
 
 ---
 
 ## Troubleshooting
 
-Cloud-specific symptoms — a rejected callback, a sign-in that will not complete, an unreachable catalog — are covered in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in) and [Content mounts](./TROUBLESHOOTING.md#content-mounts).
+Cloud-specific symptoms — a rejected callback, a sign-in that will not complete, a refused administrator check, a rejected access list, an unreachable catalog — are covered in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in) and [Content mounts](./TROUBLESHOOTING.md#content-mounts).
 
 ## Related
 

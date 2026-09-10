@@ -145,6 +145,7 @@ describe('api admin-gated calls carry the operator access token', () => {
     ['install', () => api.installArtifact({ artifactKey: 'acme-risk', version: '1.3.0' })],
     ['remove', () => api.removeArtifact('acme-risk')],
     ['disconnect', () => api.cloudDisable()],
+    ['change the access list', () => api.changeAllowlist('sub-a,sub-b')],
   ]
 
   for (const [name, call] of gated) {
@@ -162,6 +163,17 @@ describe('api admin-gated calls carry the operator access token', () => {
       expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
     })
   }
+
+  it('the access-list change posts the pasted value to its own route', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    await api.changeAllowlist('sub-a,sub-b')
+    expect(lastUrl).toBe('/api/cloud/allowlist')
+    expect(lastInit?.method).toBe('POST')
+    // The value goes up as the operator pasted it. Every normalisation — the separators, the trimming, the
+    // de-duplication — is the daemon's, because the daemon is what has to agree with the platform about
+    // what the value means; a client-side tidy-up would be a second opinion on that question.
+    expect(JSON.parse(String(lastInit?.body))).toEqual({ allowlist: 'sub-a,sub-b' })
+  })
 
   // CONNECT IS THE EXCEPTION AND MUST STAY ONE. It is the pre-cloud paste path: it runs before the
   // deployment has a cloud identity, so there is no subject to check and nothing to gate. Attaching the

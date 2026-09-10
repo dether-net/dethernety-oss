@@ -8,11 +8,18 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // The mode layer is a single env-file the console owns. Cloud mode fills it with the recipe's fixed
 // variable set plus the values only the console can supply; pure-OSS mode fills the same file with
-// the two development values. It is rewritten, never deleted: both podman's --env-file and systemd's
+// the two development values. A third, much narrower writer rewrites exactly one of those variables on a
+// connected deployment and preserves every other VALUE — see allowlist.go.
+//
+// Every writer rewrites the whole file from a parsed map, so none of them preserves the file's TEXT: a
+// comment or a blank line an operator added does not survive the next write, and the names come back
+// sorted. That is true of connect and disconnect too and always has been; it is stated here because the
+// narrow writer is the first one an operator might expect to leave the rest of the file alone literally. It is rewritten, never deleted: both podman's --env-file and systemd's
 // EnvironmentFile (without a leading `-`) fail on a missing file, which would break the very recovery
 // path DELETE /api/cloud is.
 
@@ -78,7 +85,9 @@ var optionalRecipeVars = map[string]bool{
 //
 // COMMERCE_API_BASE_URL is RETIRED. It fed the live re-fetch (PUT /api/cloud), which is gone: the
 // console's deployment-scoped token has the wrong audience for the commerce API, so that call could
-// never succeed, and the portal no longer emits the variable. It is tolerated-and-dropped rather than
+// never succeed, and the portal no longer emits the variable. The allowlist apply is NOT that route
+// returning: it fetches nothing and asks nobody, applying a value the operator supplies from the portal,
+// which is the half the retired route could not do. It is tolerated-and-dropped rather than
 // rejected only so a saved OLDER recipe that still carries the line keeps applying instead of failing
 // as a foreign variable; new recipes do not carry it at all.
 //
@@ -451,11 +460,43 @@ func pureOSSModeVars() map[string]string {
 	}
 }
 
-// writeModeLayer serialises vars into path atomically (temp file + rename in the same directory),
-// one NAME=value line each, sorted for a stable diff — mirroring initcmd's writeState. Mode 0644:
+// modeLayerMu serialises every write to the mode-layer file, and the one read-modify-write over it.
+//
+// WHY A LOCK OVER A FILE ONE PROCESS OWNS. The daemon serves requests concurrently, and three routes now
+// write this file: connect, disconnect, and the allowlist apply. Two of them racing produced two distinct
+// faults, and the second is the reason this is a package-level lock rather than a per-write one.
+//
+// A TORN MODE FILE TURNS THE ADMIN GATE OFF. An unparseable file makes modeFileIntent report intentNone,
+// so the deployment reads as not-cloud, so the gate takes its fail-open arm and calls through with no
+// check at all (see admin.go). That arm is documented as needing a filesystem fault to reach; two writers
+// interleaving is a way to cause one from inside the process.
+//
+// AND A READ-MODIFY-WRITE MUST NOT STRADDLE A POSTURE CHANGE. The allowlist apply reads the cloud vars,
+// swaps one value and writes the map back. A disconnect landing in between writes the pure-OSS values and
+// is then overwritten with the whole cloud map — re-cloudifying a deployment whose modules the teardown
+// has already deleted. Holding this across the read AND the write is what makes that impossible, which is
+// why writeModeLayerLocked exists as a separate entry point.
+var modeLayerMu sync.Mutex
+
+// writeModeLayer serialises vars into path atomically. It takes modeLayerMu; a caller already holding it
+// for a read-modify-write must call writeModeLayerLocked instead, or it will deadlock.
+func writeModeLayer(path string, vars map[string]string) error {
+	modeLayerMu.Lock()
+	defer modeLayerMu.Unlock()
+	return writeModeLayerLocked(path, vars)
+}
+
+// writeModeLayerLocked is writeModeLayer's body, for a caller that already holds modeLayerMu.
+//
+// One NAME=value line each, sorted for a stable diff — mirroring initcmd's writeState. Mode 0644:
 // the mode layer is non-secret configuration that both the container runtime and the platform read;
 // the secrets live in .env.secrets, never here.
-func writeModeLayer(path string, vars map[string]string) error {
+//
+// THE TEMP FILE IS UNIQUELY NAMED. It used to be path+".tmp" — one name shared by every writer, so two
+// concurrent writes wrote into the same file and both renamed it, which is precisely how the torn file
+// above gets made. The lock alone would fix that inside this process; the unique name also survives a
+// second console, and costs nothing.
+func writeModeLayerLocked(path string, vars map[string]string) error {
 	names := make([]string, 0, len(vars))
 	for n := range vars {
 		names = append(names, n)
@@ -474,11 +515,55 @@ func writeModeLayer(path string, vars map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating mode-layer directory: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), ".mode-*.env.tmp")
+	if err != nil {
 		return fmt.Errorf("writing mode layer: %w", err)
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	// Any failure past this point leaves a temp file the rename would otherwise have consumed; remove it
+	// rather than leaving the mode-layer directory to accumulate them across failed applies.
+	defer func() { _ = os.Remove(tmp) }()
+	if _, err := f.WriteString(b.String()); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("writing mode layer: %w", err)
+	}
+	// 0644 BY FCHMOD, ON THE HANDLE RATHER THAN THE PATH. CreateTemp makes the file 0600 and the mode layer
+	// is read by the container runtime and the platform, so it has to widen. Doing it through the open file
+	// leaves no window in which a name in this directory could be swapped between the check and the change.
+	//
+	// It is also NOT the same 0644 the fixed-name write produced, and this comment used to claim it was:
+	// os.WriteFile's mode is masked by umask, fchmod is not. Under a restrictive umask the old code wrote
+	// 0600 and this writes 0644 — the intended mode, arrived at deliberately rather than by inheritance.
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("writing mode layer: %w", err)
+	}
+	// FSYNC BEFORE THE RENAME, because the failure this guards is the one the lock above cannot reach. A
+	// rename is atomic against other writers; it is not durable against a power loss, and an unflushed
+	// rename can survive as a truncated or empty file. That file still PARSES — it is an env file, so a
+	// missing tail is just a smaller map — and the tail is where OIDC_SHARED_POOL sorts, which is the sole
+	// marker that makes this deployment read as cloud. Lose it and modeFileIntent says intentNone, the
+	// admin gate takes its fail-open arm, and every deployment-changing route runs unchecked. That is the
+	// exact outcome modeLayerMu exists to prevent, arriving by crash instead of by race.
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("writing mode layer: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("writing mode layer: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// And the directory entry itself: the rename is what makes the new file reachable, so a crash between
+	// the rename and the directory's own flush can leave the old name pointing at nothing. Best-effort —
+	// not every platform supports it, and failing the whole apply over an unsyncable directory would be a
+	// worse answer than a write that already landed.
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
+	}
+	return nil
 }
 
 // readModeLayer parses the mode-layer file the console wrote. A missing file returns the underlying

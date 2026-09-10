@@ -19,6 +19,11 @@ export interface ModeView {
   // The signed-in subject, for display in the header. Present only in cloud posture (a local session
   // mints with no credential, so there is no user); either field may be empty depending on token claims.
   user?: { email?: string; name?: string }
+  // When a change to who may sign in takes effect. Present only on a cloud deployment, where the control
+  // that makes such a change exists. It arrives on a READ so the panel can state the consequence before
+  // anything is submitted, and it is the same sentence the change's own answer returns — one definition in
+  // the daemon rather than a copy here that could drift out of step with it.
+  allowlistNotice?: string
 }
 
 // PostureView is the ungated read the sign-in surface needs before any session exists: which sign-in
@@ -35,6 +40,19 @@ export interface PostureView {
 
 export interface CloudResult {
   status: string
+  message: string
+}
+
+export interface AllowlistResult {
+  status: string
+  // How many subjects the daemon read out of the submitted value, parsed the way the PLATFORM will parse
+  // it. The console never shows the current list — the ungated posture read projects a fixed field set
+  // precisely to keep the member ids off the wire — so this count is the only check the operator has that
+  // their paste was understood as five people rather than as one. It catches the failure that actually
+  // happens: half a list, or a separator the value did not use.
+  subjects: number
+  // When the change takes effect, and which restart applies it. The same sentence ModeView.allowlistNotice
+  // carries, from one constant in the daemon.
   message: string
 }
 
@@ -395,10 +413,10 @@ function post<T>(path: string, body?: unknown): Promise<T> {
 
 const CLOUD_TOKEN_HEADER = 'X-Console-Cloud-Token'
 
-// SIX calls forward the operator's access token, and three things about them are deliberate.
+// SEVEN calls forward the operator's access token, and three things about them are deliberate.
 //
-// WHY SIX RATHER THAN TWO. Two of them forward it because the DAEMON needs it to answer — the subscription
-// on the catalog, the signed bytes on an install. The other four forward it because the daemon's admin
+// WHY SEVEN RATHER THAN TWO. Two of them forward it because the DAEMON needs it to answer — the
+// subscription on the catalog, the signed bytes on an install. The other five forward it because the daemon's admin
 // gate asks the cloud with it before letting a deployment-changing operation run at all, and that gate is
 // the whole point: a check that asked nothing and read a local session record instead would be trusting
 // exactly the thing that carries no authority. So mounting forwards a credential even though what it does
@@ -410,7 +428,7 @@ const CLOUD_TOKEN_HEADER = 'X-Console-Cloud-Token'
 // instead of 401 to prevent.
 //
 // They are their own functions rather than a header flag on get()/post()/del(), because a shared flag is
-// one edit away from attaching this token to a call that must never carry it. Growing from two to six is
+// one edit away from attaching this token to a call that must never carry it. Growing from two to seven is
 // the argument for that shape rather than against it: every new forwarding route arrived as a named
 // function, and the one call that must stay credential-free — cloudApply, the pre-cloud paste path, which
 // has no authenticated subject to forward — kept the plain helper it already had.
@@ -482,6 +500,13 @@ export const api = {
   // the check — it is what an operator reaches for to fix a bad recipe, and a gate that refused it forever
   // would be a lockout rather than a control.
   cloudDisable: () => delEntitled<CloudResult>('/api/cloud'),
+  // Changing who may sign in. It is a deployment-changing operation like the rest, so it is admin-gated and
+  // forwards the token the gate asks with — even though what it does is rewrite one line of a file on this
+  // host. It is deliberately NOT the pre-cloud paste path's plain helper: that route has no authenticated
+  // subject, and having one is the entire difference between them, because it is what lets the daemon
+  // refuse a list that would lock the submitter out.
+  changeAllowlist: (allowlist: string) =>
+    postEntitled<AllowlistResult>('/api/cloud/allowlist', { allowlist }),
   // Content mounts. The catalog half is public, but this route also answers what this deployment is
   // subscribed to and whether this operator administers it — which the daemon can only learn by asking the
   // content service with the operator's own token, so this call forwards it. Reading the local inventory
