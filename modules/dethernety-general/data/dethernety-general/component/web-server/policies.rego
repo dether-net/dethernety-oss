@@ -21,7 +21,7 @@ _weak_tls_termination_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "Accepting SSLv3/TLS1.0/1.1 enables protocol downgrade to a broken cipher/protocol."
             }
@@ -373,13 +373,7 @@ _inadequate_access_error_logging_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {}
         },
         {

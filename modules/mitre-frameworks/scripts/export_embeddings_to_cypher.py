@@ -58,18 +58,30 @@ UNWIND_CHUNK_SIZE = 200        # max rows per emitted UNWIND statement
 # ---------------------------------------------------------------------------
 # Cypher queries (mirrored from the deterministic-tactic projection)
 # ---------------------------------------------------------------------------
-# The deterministic-tactic guarantee comes from `ORDER BY tac.name ASC` inside
-# the inner WITH, which fixes the order of names BEFORE collect(DISTINCT). The
-# outer key (n.attack_id / n.d3fendId here vs n.id in the runtime resolver) is a partition
-# hint — both forms yield byte-equal `tactics[0]` selection because the per-n
-# tactic ordering is what drives the pick. The build script uses the user-visible id
-# (attack_id/d3fendId) so the queries are more semantically honest standalone;
-# the runtime resolver uses the internal n.id because it had no need to be operator-readable.
+# The deterministic-tactic guarantee comes from the ORDER BY inside the inner WITH,
+# which fixes the order of names BEFORE collect(DISTINCT). The outer key
+# (n.attack_id / n.d3fendId here vs n.id in the runtime resolver) is a partition hint —
+# both forms yield the same `tactics[0]` selection because the per-n tactic ordering is
+# what drives the pick. The build script uses the user-visible id (attack_id/d3fendId)
+# so the queries are more semantically honest standalone; the runtime resolver uses the
+# internal n.id because it had no need to be operator-readable.
+#
+# ATT&CK techniques order by MATRIX POSITION, not by name. A multi-tactic technique's
+# embedded `Tactic:` should be the earliest kill-chain stage it belongs to, which is a
+# real property of the technique; alphabetical order is an accident of the names. v19
+# made the difference impossible to ignore: renaming Defense Evasion to Stealth moved
+# 185 of 674 techniques' alphabetical pick, and for 66 of them the new pick is an
+# unrelated tactic (Privilege Escalation, Execution, …) chosen by nothing but spelling.
+# `matrix_order` is stamped at ingest from the bundle's own ordered `tactic_refs`, so
+# this needs no transcribed copy of the sequence and follows MITRE when it changes.
+#
+# D3FEND keeps name ordering: its tactics carry no matrix_order (D3FEND has its own
+# ordering concept, and v19 did not restructure it), so there is nothing better to key on.
 
 ATTACK_TECHNIQUE_QUERY = """
 MATCH (n:MitreAttackTechnique)
 OPTIONAL MATCH (n)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
-WITH n, tac ORDER BY n.attack_id ASC, tac.name ASC
+WITH n, tac ORDER BY n.attack_id ASC, tac.matrix_order ASC, tac.name ASC
 WITH n, collect(DISTINCT tac.name) AS tactics
 RETURN n.attack_id AS mitre_id, n.name AS name, n.description AS description,
        CASE WHEN size(tactics)=0 THEN null ELSE tactics[0] END AS tactic

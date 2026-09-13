@@ -345,7 +345,7 @@ _missing_encryption_audit_logging_gaps_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {
                 "justification": "Absent off-host audit-log streaming, short retention, and missing anomaly alerting impair defensive telemetry, letting repository access abuse proceed undetected."
             }

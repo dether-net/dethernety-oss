@@ -307,7 +307,7 @@ _insufficient_logging_undetected_exfiltration_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {
                 "justification": "Absent or co-located, deletable cloud logs (no separate tamper-resistant log store) leave the same blind spot an adversary achieves by disabling cloud logs."
             }

@@ -385,10 +385,11 @@ When exposures are available, their techniques are aggregated and deduplicated t
 ```
 MITRE ATT&CK Coverage (platform-derived)
   Techniques mapped: 12
-  Tactics covered (5/14): Initial Access, Credential Access, Lateral Movement,
+  Tactics covered (5/15): Initial Access, Credential Access, Lateral Movement,
     Collection, Exfiltration
   Tactics not covered: Reconnaissance, Resource Development, Execution, Persistence,
-    Privilege Escalation, Defense Evasion, Discovery, Command and Control, Impact
+    Privilege Escalation, Stealth, Defense Impairment, Discovery, Command and Control,
+    Impact
 ```
 
 Two cases produce no coverage instead:

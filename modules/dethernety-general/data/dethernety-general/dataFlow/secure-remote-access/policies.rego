@@ -91,7 +91,7 @@ _weak_or_legacy_vpn_protocol_and_cipher_suite_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {}
         }
     ],

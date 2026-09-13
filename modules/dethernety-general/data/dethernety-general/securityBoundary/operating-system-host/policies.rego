@@ -285,7 +285,7 @@ _host_integrity_boot_chain_tamper_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.001",
+            "value": "T1685",
             "attributes": {}
         }
     ],

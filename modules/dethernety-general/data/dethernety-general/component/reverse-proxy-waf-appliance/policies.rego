@@ -367,7 +367,7 @@ _logging_gaps_blinded_detection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {
                 "justification": "Disabled nginx access logging and ModSecurity SecAuditEngine Off, with no off-host shipping or alerting, impair the appliance's own defensive visibility (Impair Defenses) so attacks against protected apps go unseen."
             }

@@ -415,7 +415,7 @@ _logging_change_audit_and_ntp_gaps_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.006",
+            "value": "T1685",
             "attributes": {}
         },
         {

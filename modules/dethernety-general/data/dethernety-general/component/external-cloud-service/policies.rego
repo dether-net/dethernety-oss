@@ -252,7 +252,7 @@ _unmonitored_access_exfiltration_over_the_trusted_service_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {}
         },
         {

@@ -13,7 +13,7 @@ _weak_legacy_tls_termination_on_the_client_edge_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {}
         },
         {

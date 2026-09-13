@@ -221,7 +221,7 @@ _perimeter_crossings_unmonitored_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {}
         },
         {

@@ -378,7 +378,7 @@ _disabled_or_non_attributable_issuance_auditing_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.002",
+            "value": "T1685.001",
             "attributes": {
                 "justification": "Disable Windows Event Logging \u2014 AD CS AuditFilter off / OS object-access policy off means CA issuance events are never written."
             }
@@ -386,7 +386,7 @@ _disabled_or_non_attributable_issuance_auditing_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1070.001",
+            "value": "T1685.005",
             "attributes": {
                 "justification": "Indicator Removal: Clear Windows Event Logs \u2014 without tamper-resistant, SIEM-forwarded retention, local issuance/admin logs can be cleared to hide rogue-cert minting."
             }

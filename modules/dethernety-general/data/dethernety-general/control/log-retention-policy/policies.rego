@@ -58,7 +58,7 @@ _off_box_centralized_aggregation_enforced_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1070.001",
+            "value": "T1685.005",
             "attributes": {
                 "justification": "Off-box centralized retention in a separate trust domain preserves a copy of host event logs that an adversary clearing/deleting Windows Event Logs on the compromised host cannot reach (ATT&CK Mitigation M1029 Remote Data Storage)."
             }
@@ -66,7 +66,7 @@ _off_box_centralized_aggregation_enforced_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {
                 "justification": "Centralized aggregation across assets means logs forwarded off-box before a local logging service is disabled or modified survive in the central store, defeating attempts to blind defenders by tampering with logging at the source."
             }
@@ -111,7 +111,7 @@ _log_integrity_tamper_evidence_enforced_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {
                 "justification": "Immutable retention-lock plus integrity-protected, authenticated off-box forwarding mean an adversary who disables or modifies logging at the source cannot alter or delete the retained, tamper-evident copies in the central store within the retention window."
             }
@@ -157,7 +157,7 @@ _audit_data_access_and_management_restricted_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {
                 "justification": "Restricting management of audit-logging functionality (retention/forwarding/deletion) to a privileged subset under least-privilege RBAC (AU-9(4)), with alerting on unauthorized modification, prevents an unauthorized principal from disabling, deleting, or altering cloud logging."
             }
