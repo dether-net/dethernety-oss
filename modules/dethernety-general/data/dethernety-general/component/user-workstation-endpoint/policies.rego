@@ -73,17 +73,9 @@ _malware_execution_with_disabled_or_stale_endpoint_protection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {
                 "justification": "Disabled AV/EDR, missing tamper protection, and disabled real-time/behavior monitoring are the conditions an Impair Defenses actor either exploits or creates to run malware undetected."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.001",
-            "attributes": {
-                "justification": "Absent tamper protection lets a local actor disable or modify the AV/EDR tools, the sub-technique most directly enabled by edr_tamper_protection_enabled=false."
             }
         },
         {
@@ -333,7 +325,7 @@ _unmanaged_unmonitored_endpoint_with_network_exposure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.013",
+            "value": "T1686.002",
             "attributes": {}
         },
         {

@@ -39,19 +39,9 @@ _edr_agent_present_on_all_endpoints_with_tamper_protection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.001",
+            "value": "T1685",
             "attributes": {
                 "justification": "Agent self-/tamper-protection prevents users, admins, or malware from disabling or modifying the security tool, mitigating Impair Defenses: Disable or Modify Tools (T1562.001)."
-            }
-        }
-    ],
-    "protects_against": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.001",
-            "attributes": {
-                "justification": "Tamper protection hardens the endpoint defensive tooling against disablement/modification (D3FEND Harden facet) \u2014 protects against Impair Defenses (T1562.001)."
             }
         }
     ],

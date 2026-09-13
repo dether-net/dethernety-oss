@@ -18,7 +18,7 @@ _logs_not_tamper_evident_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1070.001"
+            "value": "T1685.005"
         },
         {
             "label": "MitreAttackTechnique",
@@ -57,7 +57,7 @@ _logs_stored_only_locally_erased_on_host_compromise_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1070.001"
+            "value": "T1685.005"
         }
     ],
     "attack_vector": "LOCAL"
@@ -91,7 +91,7 @@ _over_broad_read_modify_delete_access_to_logs_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008"
+            "value": "T1685.002"
         }
     ],
     "attack_vector": "NETWORK"

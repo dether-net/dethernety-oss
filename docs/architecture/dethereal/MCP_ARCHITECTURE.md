@@ -842,7 +842,7 @@ Search and browse ATT&CK techniques, tactics, and mitigations (D26).
 | Action | dt-core Method | Required Params | Notes |
 |--------|---------------|-----------------|-------|
 | `search` | `findMitreAttackTechniques` | `search` | Free-text translated to GraphQL name filter. Results capped at 20. Client-side filtering. |
-| `tactics` | `getMitreAttackTactics` | -- | Returns all 14 tactics. |
+| `tactics` | `getMitreAttackTactics` | -- | Returns all 15 tactics. |
 | `techniques_by_tactic` | `getMitreAttackTechniquesByTactic` | `tactic_id` (e.g., "TA0001") | |
 | `technique` | `getMitreAttackTechnique` | `attack_id` (e.g., "T1190") | Anti-hallucination guardrail: validates technique exists before annotating. |
 | `mitigations` | `getMitreAttackMitigations` | -- | Returns all mitigations. |

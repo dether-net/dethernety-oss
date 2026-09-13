@@ -158,7 +158,7 @@ _weak_cryptography_downgrade_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {}
         },
         {

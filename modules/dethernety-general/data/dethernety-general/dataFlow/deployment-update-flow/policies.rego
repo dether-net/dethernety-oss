@@ -230,7 +230,7 @@ _no_central_audit_of_deploy_events_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {}
         },
         {
@@ -272,7 +272,7 @@ _out_of_band_drift_in_running_config_undetected_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {}
         }
     ],

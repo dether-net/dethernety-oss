@@ -358,7 +358,7 @@ _audit_logging_gaps_unpatched_engine_residency_drift_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {
                 "justification": "Missing pgAudit/audit plugin, log_connections off, and logs retained only on-host (deletable by the DB account) impair the defender's ability to detect and reconstruct malicious database access (Impair Defenses: Indicator Blocking / Disable or Modify Tools)."
             }

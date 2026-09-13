@@ -89,7 +89,7 @@ _forged_or_unverified_webhook_events_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1656",
+            "value": "T1684.001",
             "attributes": {
                 "justification": "An unsigned/unverified event lets the attacker impersonate the PSP (Stripe) as the trusted event source."
             }

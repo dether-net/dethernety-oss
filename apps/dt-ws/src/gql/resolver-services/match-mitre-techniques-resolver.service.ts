@@ -543,7 +543,7 @@ export class MatchMitreTechniquesResolverService {
                   WHERE n.attack_id IS NOT NULL
                   OPTIONAL MATCH (n)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
                   WITH n, tac
-                  ORDER BY n.id ASC, tac.name ASC
+                  ORDER BY n.id ASC, coalesce(tac.matrix_order, 999) ASC, tac.name ASC
                   WITH n, collect(DISTINCT tac.name) AS tactics
                   RETURN n.attack_id AS mitreId,
                          n.name AS name,
@@ -640,9 +640,15 @@ export class MatchMitreTechniquesResolverService {
     topN: number,
   ): string {
     // The `WITH node, similarity` separator between YIELD and WHERE is
-    // required by the Memgraph parser. The explicit `ORDER BY tac.name ASC`
-    // before `collect()` makes tactic selection deterministic when a
-    // technique has multiple tactics.
+    // required by the Memgraph parser. The explicit ORDER BY before `collect()`
+    // makes tactic selection deterministic when a technique has multiple tactics.
+    //
+    // ATT&CK keys on `matrix_order` (stamped at ingest from the bundle's ordered
+    // tactic_refs) so the reported tactic is the earliest kill-chain stage rather than
+    // the alphabetically first name, matching what the build embedded. `coalesce(…, 999)`
+    // keeps a corpus ingested before that stamp existed working: unstamped tactics tie
+    // at the end and fall back to name order, the previous behaviour. D3FEND keys on
+    // name — its tactics carry no matrix_order.
     if (kind === 'ATTACK_TECHNIQUE') {
       return `
         CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
@@ -651,7 +657,7 @@ export class MatchMitreTechniquesResolverService {
         WHERE similarity >= $threshold
         OPTIONAL MATCH (node)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
         WITH node, similarity, tac
-        ORDER BY tac.name ASC
+        ORDER BY coalesce(tac.matrix_order, 999) ASC, tac.name ASC
         WITH node, similarity, collect(DISTINCT tac.name) AS tactics
         RETURN node.attack_id AS mitreId,
                node.name AS name,

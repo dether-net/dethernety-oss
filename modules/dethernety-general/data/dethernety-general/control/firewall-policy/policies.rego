@@ -363,7 +363,7 @@ _management_plane_not_internet_reachable_and_patch_current_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.013",
+            "value": "T1686.002",
             "attributes": {
                 "justification": "Disable or Modify Network Device Firewall \u2014 an unreachable, patch-current management plane denies the attacker the access and the pre-auth exploit needed to alter or disable the firewall's own ruleset."
             }

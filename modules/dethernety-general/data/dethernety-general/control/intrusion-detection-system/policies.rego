@@ -318,19 +318,9 @@ _sensor_integrity_and_fail_safe_behavior_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.013",
+            "value": "T1686.002",
             "attributes": {
                 "justification": "Sensor-health/heartbeat monitoring (D3-PM Platform Monitoring) detects when the IDPS sensor is disabled or impaired \u2014 the platform-monitoring facet surfaces a silently-dead or attacker-killed sensor, the network-device-defense-impairment pattern of T1562.013."
-            }
-        }
-    ],
-    "mitigates": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1562.013",
-            "attributes": {
-                "justification": "Auditing the hardened/patched sensor and its defined fail behavior (M1047 Audit) reduces the chance an adversary can quietly disable or modify the inline network-defense device (T1562.013) without the impairment being recorded and reviewed."
             }
         }
     ],

@@ -63,7 +63,7 @@ _management_plane_authentication_bypass_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.013",
+            "value": "T1686.002",
             "attributes": {
                 "justification": "Once authenticated as administrator via the bypass, the attacker rewrites the firewall ruleset and disables enforcement \u2014 disabling/modifying the network device firewall."
             }
@@ -348,7 +348,7 @@ _inspection_disabled_stale_signatures_enabling_evasion_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {
                 "justification": "Disabled IPS/threat-prevention, missing security profiles on allow rules, and stale signatures all impair the defensive enforcement the NGFW is meant to provide (Impair Defenses)."
             }

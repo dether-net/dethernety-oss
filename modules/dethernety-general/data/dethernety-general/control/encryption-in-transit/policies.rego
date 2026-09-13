@@ -82,7 +82,7 @@ _minimum_tls_version_enforced_tls_1_2_floor_1_3_preferred_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "Enforcing a TLS 1.2 floor with 1.3 preferred and refusing SSLv3/TLS 1.0/1.1 defeats protocol-downgrade attacks (POODLE/BEAST) that force negotiation to a deprecated, breakable version."
             }
@@ -142,7 +142,7 @@ _strong_forward_secret_aead_cipher_suites_only_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "Disabling legacy/weak (RC4/3DES/NULL/EXPORT/static-RSA) suites and offering only strong forward-secret AEAD suites denies the attacker any acceptable weakened-cipher landing point, hardening the channel against cipher-downgrade negotiation (FREAK/Logjam-class)."
             }
@@ -275,7 +275,7 @@ _downgrade_renegotiation_protection_hsts_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "Downgrade Attack \u2014 honouring TLS_FALLBACK_SCSV, permitting only secure (RFC 5746) renegotiation, and sending HSTS prevents an on-path attacker from forcing negotiation down to a weak protocol/cipher or to cleartext HTTP."
             }

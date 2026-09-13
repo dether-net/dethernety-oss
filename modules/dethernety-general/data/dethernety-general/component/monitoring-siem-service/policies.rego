@@ -19,7 +19,7 @@ _log_tampering_deletion_to_blind_detection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {}
         }
     ],
@@ -88,7 +88,7 @@ _spoofed_injected_or_unencrypted_log_ingestion_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.006",
+            "value": "T1685",
             "attributes": {
                 "justification": "Unauthenticated/spoofed log injection floods or forges events to obstruct and poison detection so real indicators never surface \u2014 Indicator Blocking."
             }
@@ -271,7 +271,7 @@ _log_flood_index_flooding_denial_of_service_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.006",
+            "value": "T1685",
             "attributes": {}
         }
     ],

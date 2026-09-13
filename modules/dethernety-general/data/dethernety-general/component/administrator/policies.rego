@@ -291,7 +291,7 @@ _non_attributable_unlogged_privileged_actions_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {}
         },
         {

@@ -63,7 +63,7 @@ _cleartext_transport_interception_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {}
         },
         {

@@ -165,7 +165,7 @@ _telemetry_tampering_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {}
         },
         {

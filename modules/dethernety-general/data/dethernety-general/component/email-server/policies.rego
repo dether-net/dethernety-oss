@@ -13,7 +13,7 @@ _domain_spoofing_via_missing_or_weak_email_authentication_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1672",
+            "value": "T1684.002",
             "attributes": {}
         },
         {
@@ -53,7 +53,7 @@ _cleartext_transport_starttls_stripping_mitm_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {}
         },
         {

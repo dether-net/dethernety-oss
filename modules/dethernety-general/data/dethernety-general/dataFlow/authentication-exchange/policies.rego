@@ -55,7 +55,7 @@ _pkce_downgrade_attack_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "The downgrade itself is a defense impairment \u2014 the client/IdP is coerced off the S256-only enforcement that would have bound the code to a verifier the attacker cannot derive."
             }

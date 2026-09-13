@@ -286,7 +286,7 @@ _agent_config_tamper_siem_blinding_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.001",
+            "value": "T1685",
             "attributes": {}
         },
         {

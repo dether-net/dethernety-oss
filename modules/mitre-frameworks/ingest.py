@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import os
+import json
 import rdflib # type: ignore
 import argparse
+import requests # type: ignore
 
 from rdflib import Namespace, RDF, RDFS, OWL # type: ignore
 from neo4j import GraphDatabase # type: ignore
@@ -21,7 +23,13 @@ NEO4J_PASS = os.getenv("NEO4J_PASSWORD")
 if not NEO4J_PASS:
     raise SystemExit("Error: NEO4J_PASSWORD environment variable is required")
 
-D3FEND_OWL_FILE = "https://d3fend.mitre.org/ontologies/d3fend.owl"
+# PINNED, for the same reason the ATT&CK bundle is. The unversioned
+# `ontologies/d3fend.owl` is a moving target: re-running the ingest months apart pulled a
+# different D3FEND (6 URIs gone, 13 new) into what was meant to be an ATT&CK-only change,
+# and made the ingest unreproducible. The OWL declares its own versionIRI, which resolves,
+# so the version can be pinned and recorded in the module manifest instead of "unknown".
+D3FEND_VERSION = "1.6.0"
+D3FEND_OWL_FILE = f"https://d3fend.mitre.org/ontologies/d3fend/{D3FEND_VERSION}/d3fend.owl"
 D3F = Namespace("http://d3fend.mitre.org/ontologies/d3fend.owl#")
 
 # OBJ_PROPERTY_TO_REL_TYPE = {
@@ -140,6 +148,82 @@ def merge_attack_id(tx, label, name, rel_label, attack_id):
     tx.run(query, name=name, attack_id=attack_id)
 
 # ------------------------------------------------
+# ATT&CK SOURCE PIN + v19 PARSER COMPATIBILITY
+# ------------------------------------------------
+ATTACK_STIX_BUNDLE_URL = (
+    "https://github.com/mitre-attack/attack-stix-data/raw/master/"
+    "enterprise-attack/enterprise-attack-19.2.json"
+)
+
+# ontolocy 0.9.3 (the latest release) cannot parse a v19 bundle unaided.
+#
+# It builds each node DataFrame from the union of keys present, then drops
+# `x_mitre_data_source_ref` from the data-component frame UNCONDITIONALLY
+# (ontolocy/tools/mitre_attack.py, no errors="ignore"). ATT&CK finished removing that
+# field in v19 — the 18.1 bundle still had it on 7 of 109 components, 19.2 has it on
+# none, components now hanging off the detection-strategy/analytic objects — so the
+# column does not exist and the parse dies with
+#   KeyError: "['x_mitre_data_source_ref'] not found in axis".
+#
+# There is no upgrade to take. Materialise the absent optional field as null so the
+# library's own drop is a no-op. This adds no data (the field genuinely has no value in
+# v19) and is far narrower than forking the library's 150-line _parse.
+_ontolocy_stix_objects_to_df = MitreAttackParser._stix_objects_to_df
+
+
+def _stix_objects_to_df_v19_compatible(self, stix_data, stix_types):
+    df = _ontolocy_stix_objects_to_df(self, stix_data, stix_types)
+    if (
+        "x-mitre-data-component" in stix_types
+        and not df.empty
+        and "x_mitre_data_source_ref" not in df.columns
+    ):
+        df["x_mitre_data_source_ref"] = None
+    return df
+
+
+MitreAttackParser._stix_objects_to_df = _stix_objects_to_df_v19_compatible
+
+
+def _matrix_tactic_order(stix_json):
+    """
+    ATT&CK id -> 0-based position in the Enterprise matrix, read from the bundle's own
+    `x-mitre-matrix.tactic_refs` (which is an ORDERED list).
+
+    Every consumer that needs kill-chain order otherwise has to carry its own copy of
+    the sequence, and the sequence changes: v19 inserted Defense Impairment (TA0112)
+    between Stealth and Credential Access. ontolocy preserves no index on the tactic
+    node or the matrix edge, so the order is present in the source and lost at ingest.
+    Reading it here and storing it on the node keeps one definition, derived from MITRE
+    rather than transcribed, and lets query code just ORDER BY it.
+    """
+    objects = stix_json["objects"]
+    by_stix_id = {o["id"]: o for o in objects if o["type"] == "x-mitre-tactic"}
+    matrices = [o for o in objects if o["type"] == "x-mitre-matrix"]
+    if len(matrices) != 1:
+        raise SystemExit(
+            f"Error: expected exactly one x-mitre-matrix in the bundle, found {len(matrices)}"
+        )
+    order = {}
+    for position, ref in enumerate(matrices[0]["tactic_refs"]):
+        tactic = by_stix_id.get(ref)
+        if tactic is None:
+            raise SystemExit(f"Error: matrix references unknown tactic {ref}")
+        attack_id = next(
+            (
+                r["external_id"]
+                for r in tactic.get("external_references", [])
+                if r.get("source_name") == "mitre-attack"
+            ),
+            None,
+        )
+        if attack_id is None:
+            raise SystemExit(f"Error: tactic {ref} carries no mitre-attack external id")
+        order[attack_id] = position
+    return order
+
+
+# ------------------------------------------------
 # MAIN FUNCTIONS
 # ------------------------------------------------
 
@@ -152,10 +236,13 @@ def ingest_attack():
     )
     init_neontology(graph_config)
 
+    # Fetched once and used twice: handed to the parser, and read for the matrix order
+    # the parser discards. parse_data takes the raw text, exactly as parse_url would.
+    bundle_text = requests.get(ATTACK_STIX_BUNDLE_URL, timeout=300).text
+    tactic_order = _matrix_tactic_order(json.loads(bundle_text))
+
     parser = MitreAttackParser()
-    parser.parse_url(
-        "https://github.com/mitre-attack/attack-stix-data/raw/master/enterprise-attack/enterprise-attack-18.1.json"
-    )
+    parser.parse_data(bundle_text)
 
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
     # 2. Post-process in Neo4j to adjust labels, relationships, and add an id property
@@ -197,6 +284,28 @@ def ingest_attack():
                 DELETE r
                 """
             )
+
+        # D) Stamp each tactic with its matrix position, so consumers can order by
+        #    kill-chain stage without transcribing the sequence. Fails loudly on a
+        #    tactic the matrix does not place: a silent null would sort it arbitrarily.
+        for attack_id, position in tactic_order.items():
+            session.run(
+                """
+                MATCH (t:MitreAttackTactic {attack_id: $attack_id})
+                SET t.matrix_order = $position
+                """,
+                attack_id=attack_id,
+                position=position,
+            )
+        unplaced = session.run(
+            """
+            MATCH (t:MitreAttackTactic) WHERE t.matrix_order IS NULL
+            RETURN collect(t.attack_id) AS ids
+            """
+        ).single()["ids"]
+        if unplaced:
+            raise SystemExit(f"Error: tactics absent from the matrix ordering: {unplaced}")
+
 
 def cleanup_attack():
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))

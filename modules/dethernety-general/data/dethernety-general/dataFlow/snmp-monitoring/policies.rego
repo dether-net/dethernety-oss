@@ -291,7 +291,7 @@ _spoofed_unauthenticated_trap_inform_injection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.006",
+            "value": "T1685",
             "attributes": {}
         }
     ],

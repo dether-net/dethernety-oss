@@ -306,7 +306,7 @@ _secrets_disclosure_in_logs_or_config_client_ip_spoofing_breaking_audit_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.008",
+            "value": "T1685.002",
             "attributes": {
                 "justification": "Disabling edge access logs (proxy_access_log=off) and IP spoofing via trusted_ips=0.0.0.0/0 impair/defeat logging and defensive monitoring."
             }

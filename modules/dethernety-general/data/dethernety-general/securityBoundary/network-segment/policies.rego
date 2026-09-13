@@ -117,7 +117,7 @@ _east_west_log_gap_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {}
         },
         {

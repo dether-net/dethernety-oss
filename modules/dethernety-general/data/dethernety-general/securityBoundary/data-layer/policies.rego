@@ -273,7 +273,7 @@ _data_tier_audit_gap_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562",
+            "value": "T1685",
             "attributes": {
                 "justification": "Without tamper-resistant off-box log shipping, a data-tier compromise can disable or wipe audit telemetry within DBA scope."
             }

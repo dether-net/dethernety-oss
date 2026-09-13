@@ -291,10 +291,11 @@ The attack surface analysis (`/dethereal:surface`) shows which of the 14 Enterpr
 ```
 MITRE ATT&CK Coverage (platform-derived)
   Techniques mapped: 12
-  Tactics covered (5/14): Initial Access, Credential Access, Lateral Movement,
+  Tactics covered (5/15): Initial Access, Credential Access, Lateral Movement,
     Collection, Exfiltration
   Tactics not covered: Reconnaissance, Resource Development, Execution, Persistence,
-    Privilege Escalation, Defense Evasion, Discovery, Command and Control, Impact
+    Privilege Escalation, Stealth, Defense Impairment, Discovery, Command and Control,
+    Impact
 ```
 
 Gaps in tactic coverage highlight areas where your model may be missing relevant threats. Re-running `/dethereal:enrich` will **not** move these numbers — they come from platform analysis, not from anything enrichment writes. To change coverage: push the model with `/dethereal:sync push`, run an analysis, then re-run `/dethereal:surface`.
@@ -302,7 +303,7 @@ Gaps in tactic coverage highlight areas where your model may be missing relevant
 Until that has happened, the section reports the reason instead of a count — either "Model not synced" or "No exposures — analysis has not produced technique mappings yet."
 
 
-> **Note:** Not all 14 tactics are expected to be relevant to every model. Tactics like Reconnaissance and Resource Development describe attacker preparation activities typically outside the scope of component-level threat modeling. Focus on gaps in tactics directly relevant to your system's architecture (e.g., Initial Access, Lateral Movement, Credential Access for internet-facing applications).
+> **Note:** Not all 15 tactics are expected to be relevant to every model. Tactics like Reconnaissance and Resource Development describe attacker preparation activities typically outside the scope of component-level threat modeling. Focus on gaps in tactics directly relevant to your system's architecture (e.g., Initial Access, Lateral Movement, Credential Access for internet-facing applications).
 
 ---
 

@@ -21,7 +21,7 @@ _cleartext_transport_tls_strip_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "TLS-strip / downgrade attack succeeds when HSTS is absent, forcing the flow back to plaintext."
             }
@@ -69,7 +69,7 @@ _tls_protocol_cipher_downgrade_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1562.010",
+            "value": "T1689",
             "attributes": {
                 "justification": "Downgrade Attack \u2014 accepting SSLv3/TLS1.0/1.1 or weak cipher suites lets an on-path adversary force the flow onto a weaker protocol/cipher (POODLE/FREAK/LOGJAM), the canonical ATT&CK technique for this exposure."
             }
