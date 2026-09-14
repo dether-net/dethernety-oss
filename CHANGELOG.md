@@ -5,6 +5,360 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-15
+
+Two people can now edit one model without undoing each other. Until this release every
+interactive save sent back the whole object the client had loaded when the dialog opened, so
+whoever saved second overwrote fields the first had just changed — and both were told it had
+worked. A save now carries only what the user actually edited, and a relationship edit is written
+as the difference against what that client last saw rather than as a whole-list replace. Alongside
+it, the reference data moves to ATT&CK v19.2 with the tactic ordering and the class policies that
+release forces, a connected deployment's destructive controls move behind an administrator of its
+team, and changing who may sign in stops costing the deployment its modules. Compared against the
+previous tag, `v0.8.0`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. Nothing in `.env.example` changed in this
+release, so a `diff .env .env.example` should show you only your own values, and no saved recipe
+needs regenerating to take the upgrade. **The reference-data ingest runs on this upgrade rather
+than being skipped**, because the corpus content hash changed — so the one-shot takes longer here
+than on an upgrade that only moves code. Let it finish; the platform is held back until it does.
+That ingest is additive: every statement is a `MERGE` and nothing in the corpus deletes, so the
+v19.2 nodes are created, the properties of nodes that survived are updated in place — `TA0005`
+picks up its new name, every tactic gains its matrix position — and **the nodes for the 17
+techniques ATT&CK v19 revoked stay in your graph**, together with the relationships the previous
+export gave them. Findings link to a technique by an `EXPLOITED_BY` edge matched on `attack_id`,
+so a finding raised against one of those techniques before the upgrade keeps resolving; it points
+at a technique ATT&CK no longer publishes. The corrected class policies arrive on their own — the
+module content hash was restamped, which is what gets the platform's load-time skip gate to
+reinstall rather than keep the copy it already has — but nothing re-derives findings that already
+exist, so an element's findings pick up the corrected technique references the next time its
+attributes or its class binding are written. Two more things need you to act. If you use the
+plugin, move to `@dether.net/dethereal` 0.4.5. And the administrator gate on a connected
+deployment **is inert until the deployment knows which team it belongs to**: it switches on when
+the deployment is next connected with a recipe that names one, which means getting a fresh recipe
+from the portal, disconnecting, applying it and connecting again — read what disconnecting costs
+first. Until you do that, every console control behaves exactly as it did in 0.8.0.
+
+
+### Added
+
+- **A deployment can name the team it belongs to.** A person who belongs to two teams was served
+  the union of both teams' content on either team's deployment — one team's content reaching
+  another team's deployment. Closing that needs the request to say which team it is for, and
+  the deployment is the only party that knows. `DEPLOYMENT_TEAM_ID` is an optional recipe value; a
+  recipe carrying it now applies, and a recipe without it still applies. On its own this changes no
+  deployment's behaviour, which is the point — the name has to be accepted in the field before
+  anything can be built on it. The rule the senders keep is a coupling rather than a list of
+  routes: the team header is set **if and only if** a bearer token is. That buys three things at
+  once — the credential-free catalog calls provably never carry it, which matters because their
+  responses are publicly cacheable and may be logged by intermediaries; no entitled route added
+  later can forget it; and no public one can acquire it by accident. The value is checked where it
+  is written and again where it is read, because the configuration layer is a file on the
+  operator's host rather than console-private state, and an identifier the console rejects is now
+  logged on both sides — the operator who mistyped it is the only person who can undo it, and
+  previously one of the two senders dropped it in silence. An unset value stays silent on purpose:
+  that is the ordinary state of every deployment predating the name, and warning on it would teach
+  operators to ignore the message that matters. A deployment that has not been told its team is now
+  told exactly that, rather than being shown "subscriptions could not be checked just now —
+  Refresh to try again", which is the sentence for a transient hiccup on a deployment that would
+  answer the same way forever; the sign-in offer is withheld with it, because signing in cannot
+  supply a team identifier.
+- **Changing a connected deployment requires an administrator of its team.** The console is served
+  on the same origin as the platform and was gated on nothing but a valid session, so any member of
+  a team could reach it and disconnect the deployment — removing every cloud-provided module and,
+  at the next platform start, the classes those modules declare and every link into them. Six
+  routes are now gated: disconnect, mount, unmount, install, remove, and the access-list write
+  below. Connect is not, and cannot usefully be — it is the pre-cloud paste path with no
+  authenticated subject, and it is already refused on a connected deployment. Every read stays
+  open: a member who cannot see what their deployment holds is worse served than one who cannot
+  change it. Nothing is cached — the gate asks on every gated request and never honours an earlier
+  answer, because a decision honoured while the authority cannot be reached is an unbounded grant
+  to whoever can interrupt the network. There was no latency to trade for it either; these are
+  occasional operator clicks. Refusals use four statuses, because each remedy wants a different
+  control: 403 you are not an administrator, 503 the check could not be made, 412 this tab holds no
+  credential to ask with, 409 this deployment can never make the check. Never 401 — the interface
+  answers any 401 by clearing the session, so a refusal returned as one would sign an operator out
+  for not being an administrator. Controls are disabled and explained, never hidden, and only an
+  explicit answer disables one; undetermined means the console could not ask, which is the ordinary
+  state of a reloaded tab. Disconnect is disabled at the click rather than refused after its
+  confirmation, so the refusal does not arrive after the operator has read four bullet points about
+  permanent deletion and agreed to them. Disconnect alone is still allowed on a deployment whose
+  configuration can never make the check, because disconnect is what an operator reaches for to fix
+  a bad configuration.
+- **Changing who may sign in no longer costs the deployment its modules.** Who may sign in is a
+  list of subjects in the deployment's configuration, read once when the platform starts. The only
+  console path to change it was disconnect-and-reconnect — so the discoverable path destroyed graph
+  data, and the path that destroys nothing, editing the file on the host, was nowhere in the
+  console's vocabulary. **Apply access list** on the Cloud tab now rewrites that one value on a
+  running deployment and preserves every other. It applies; it does not ask — the roster lives
+  behind a credential this console's token is the wrong audience for, so the operator copies the
+  list from the portal, where they are already signed in with one that works. It refuses a list
+  that does not name the operator applying it, which would lock them out of their own deployment at
+  the next start. It refuses an empty list on its own terms rather than as a missing field: the
+  platform reads an empty list as *no restriction* rather than as nobody, and on a
+  network-reachable deployment it then refuses to start at all — the console can predict neither
+  outcome, so it refuses either way. It takes effect at the next platform start and says so both
+  before and after you submit, and it says *which* restart: this one removes no module, so it
+  carries none of the consequences of a start that finds one missing. A change the operator
+  believes has already happened is the failure this whole route exists to prevent, because the
+  control they would reach for next is the destructive one.
+
+### Changed
+
+- **The ATT&CK corpus is v19.2, and D3FEND is pinned.** Techniques go 691 → 697 and tactics 14 →
+  15: v19 split Defense Evasion, renaming `TA0005` to Stealth and adding `TA0112` Defense
+  Impairment, which carries 56 techniques. Seventeen techniques the previous export carried live
+  were revoked, so the corpus is regenerated by a clean re-ingest into a throwaway graph rather
+  than merged into the existing one — a merge lets a revoked node survive by simply not being
+  mentioned. D3FEND was previously fetched from an unversioned URL, which is why its version was
+  recorded as "unknown" and why re-running the ingest months apart pulled a different D3FEND into
+  what was meant to be an ATT&CK-only change; it is pinned at 1.6.0, and both halves of the corpus
+  are now reproducible from a pinned source. Tactics also carry their matrix position now, stamped
+  at ingest from the bundle's own ordered tactic references. The sequence was always present in the
+  source and always lost, so every consumer needing kill-chain order carried its own copy — and v19
+  changed the sequence by inserting a tactic mid-matrix. That stamp fixes a second-order problem
+  worth stating, because it changes what the product shows. A technique's displayed tactic used to
+  be picked from its tactics by **name** order, which was always arbitrary and which v19 made
+  visible: renaming Defense Evasion moves the alphabetical pick for 185 of 674 techniques, and for
+  66 of them the new pick is an unrelated tactic — Privilege Escalation, Execution, Persistence —
+  selected by nothing but spelling. The exporter and the runtime resolver now order by matrix
+  position, so the tactic shown is the earliest kill-chain stage the technique belongs to, which is
+  a real property of it; on this corpus that changes the pick for 33 of 145 multi-tactic
+  techniques. A corpus ingested before the stamp existed falls back to name order, preserving the
+  previous behaviour. D3FEND keeps name order, since its tactics carry no matrix position and v19
+  did not restructure it.
+- **The general module's technique references follow the corpus.** Fifty-eight class policy files
+  change the techniques they cite, and the shipped policies now carry **no retired technique ids in
+  structured references**. One hundred and one prose mentions of retired ids remain in guide and
+  description text, pending a guide regeneration — they are read by people rather than resolved
+  against the graph, so they misinform rather than misbehave. The module content hash is restamped,
+  which is what gets the platform's load-time skip gate to reinstall the corrected module rather
+  than keep the copy it already has.
+- **`@dether.net/dethereal` 0.4.5.** Carries the reviewer fix under *Fixed* and refreshed
+  dependency ranges. A published package's consumers resolve from the ranges the published copy
+  declares, so the consumer-facing moves would have shipped nowhere without the version change.
+- **CI tests on Node 22 and 26; the platform image and the release build move to 26.** Node 20 left
+  support in April 2026, and the platform image runs Node 26 — a version no job exercised.
+  Packages still declaring `engines.node >= 20` now claim a floor CI does not test, and a comment
+  beside each matrix says so. Separately, the Docker build used to write its layer cache from every
+  pull request; a cache entry serves only the ref that wrote it, so those entries helped nothing but
+  re-pushes of the same pull request while growing to most of the repository's quota and evicting
+  the caches `main` depends on. The cache is written only by publishing runs now; pull requests
+  still read it.
+- **The platform test suites run on every pull request, and can fail one.** `dt-core`, `dt-ui` and
+  `dt-ws` carry around two thousand assertions that run in about a hundred seconds, and none of
+  them ran on a pull request. What existed was a step inside the build job, filtered to the server
+  and marked continue-on-error — a check that existed without running, and one that reached neither
+  of the other two packages. The replacement is blocking and names each suite as its own step, so a
+  failure names the tree it is in. The end-to-end suite runs too, with the container reaper
+  disabled because the harness disposes its own: that suite skips silently where Docker is absent,
+  which makes a skipped integration run look exactly like a passing one.
+
+### Fixed
+
+- **Two people editing one model used to revert each other, silently.** Every interactive save sent
+  the element as this client last loaded it, so editing a description rewrote the name, the
+  position, the parent and the associations along with it — and dragged the node back to wherever
+  this client last thought it was. Neither party saw an error: the writer was told to set those
+  fields and did, and both screens said the item had been updated. A save now carries only the
+  fields the edit names. This is less a new behaviour than an existing one finished — zoning,
+  conduits, controls and data items were already sent only when the element defined them, and the
+  object naming what the user touched has always existed and has always been discarded before the
+  payload was built. Narrowing also *heals*, which is worth saying because it reads as merely
+  defensive: the response carries the whole element back and the client re-pins from it, so a
+  client that omits a name receives the other person's name and converges onto it. Three surfaces
+  change: the settings panel, the model dialog, and the data-item dialog. The model dialog was the
+  larger half of its own defect — it seeds itself once when it opens and then saves on *every* act,
+  including on the way out when a model is opened or exported, so merely opening a model from the
+  dialog destroyed a control somebody else had just attached. Its module list is gone entirely: the
+  dialog has no module editor, so the only thing a module list it sent could ever do was overwrite
+  somebody else's assignment with a load-time copy. The dialog's form now follows the server's
+  answer for every field the user has not touched and never for one they have — losing typing is
+  the worse error — and it refuses to start a second write while one is in flight, since a folder
+  move and a Save overlap by construction and would otherwise each emit the same relationship
+  connect, leaving a parallel edge that reads collapse and no later save heals.
+- **Attaching a control no longer detaches somebody else's.** A control or data-item list was
+  written by disconnecting every edge and connecting the list the client held — right for a caller
+  asserting the whole list, such as an import or a bulk push, and destructive for two people
+  editing one element, because the second save carries a list assembled from a view taken before
+  the first landed. The client now tells the writer what it believed the list to be *before* the
+  edit, and the writer sends the difference; an id this client never saw is in neither side of it,
+  so nothing disconnects it. The baseline has to be read before the optimistic merge, and it is
+  only correct while nothing else writes to the element out of band — the settings panel used to do
+  exactly that, assigning the new list onto the selection so the whole-element send would carry it,
+  which would have made the baseline equal the value just written and the difference empty. Those
+  assignments are gone, and a data-flow save became optimistic to replace what they were doing for
+  the rendered checkbox. One cost is taken deliberately rather than hidden: a delta cannot collapse
+  a duplicate edge the way disconnect-everything incidentally did, so two people adding the *same*
+  control at the same moment now each connect. A duplicate is additive and invisible on read; a
+  destroyed attachment is neither.
+- **A save can no longer be built from an id it cannot use.** Relationship writes filter on an
+  equality against an id, and an equality whose value is missing serialises away — leaving a filter
+  with no condition, which does not match nothing but matches *everything* carrying that label.
+  Measured rather than reasoned: a connect built that way attaches the element to every control in
+  the deployment, and a disconnect built that way clears every link of that type the element has.
+  Neither reports an error, and a read collapses parallel edges, so neither is visible from the
+  interface afterwards. What makes this a class rather than a list of sites is that the schema's
+  non-null discipline stops at the input-object boundary: top-level ids are declared non-null and
+  rejected before the server sees them, but every member of an input object is nullable, and these
+  filters are built inside input objects. There are two answers, because the situations differ. An
+  entry in a list names one item among many, so it is dropped and the rest of the write stands —
+  refusing the whole save would block someone out of an edit they have no way to repair. A scalar
+  *is* the edit, so it refuses. An empty parent is an edit rather than an absence: it means "put me
+  at the root", which is what dragging a node onto the canvas sends. It can only be written once
+  the root is known, so a save made before it resolves now refuses and the caller keeps what it had
+  — previously that combination left the element with no parent at all and reported success.
+- **Clearing a field now works, and an absence now means "leave it alone".** Two of the data-item
+  writer's fields were worse than ungated: an absent sensitivity or regulatory-flag list did not
+  merely get re-sent, it *cleared* the stored value. That is what a full sync means by an absence
+  and the exact opposite of what an interactive save means by one, and both callers share the
+  method — so the only way for the dialog to avoid wiping a classification was to send one, from a
+  snapshot taken when it opened, reverting whatever anybody else had set in the meantime. A clear
+  is still reachable and now has to be stated: a supplied null sensitivity, or a supplied empty
+  flag list. The push path says its clears out loud rather than arriving at them by omission. The
+  same distinction closes a smaller defect in the model dialog: emptying the last compliance driver
+  wrote nothing and reported that it had, because the helper that prepares a scope treated an empty
+  list and an absent one alike — which is the right reading of the stored form, where both mean
+  unset, and the wrong thing to say back to it. An absent key says nothing; an empty list is an
+  instruction.
+- **An element's lock is released by the operation that took it.** The only mutual exclusion the
+  platform has on an element could release a lock that was still being held, and then let the
+  holder release somebody else's. Each record was minted with an operation identifier that nothing
+  ever compared, and three paths deleted by key alone — the damaging one being a budget timer that
+  freed the key while the operation it named was still writing. A runs long and its own timer frees
+  the key; B arrives, finds nothing, registers; A finishes and deletes B's record; B's timer is now
+  armed and unowned and fires into C's life. Nothing went red. The timer no longer releases — it
+  warns. An operation outliving its budget is a thing to look at, not a lock to break, and aborting
+  it is not honestly available: nothing here can cancel a transaction in flight, so the work would
+  carry on and commit while its caller was told it had timed out. The five-minute sweep beside it
+  is deleted rather than repaired: it was unreachable while the timer always got there first, and
+  the only thing it could do once the timer stopped deleting was reintroduce the same bug on a
+  longer fuse. Every time-based release is the defect, whatever its interval.
+- **Rebinding an element's class takes the same lock as writing its attributes.** Two mutations
+  write an element's derived findings through the same helpers, and only one of them held a lock —
+  so an attribute write and a class rebind on one element were excluded from each other by nothing
+  at all, and neither had any idea the other was running. The lock is taken on the element id, so
+  the two now exclude each other rather than each only itself, and it wraps the whole call rather
+  than the write transaction: the part a database cannot arbitrate is what happens before any
+  transaction opens — the preflight read, and the module calls whose findings the transaction then
+  writes. Engine-level conflict detection gives a transaction atomicity; it does not give two
+  callers the absence of overlapping read-decide-write work across separate sessions.
+- **The guard that refuses to affirm a superseded finding now reads inside the transaction it
+  guards.** Affirming a superseded finding resurrects a retired row into a second live finding for
+  one risk. The guard read in one session and wrote in another, so a supersede landing between the
+  two passed a guard that had already decided — and the retry made that window *worse* rather than
+  narrower. With the competing supersede still uncommitted, the guard's read saw the pre-supersede
+  state and passed; the write then conflict-aborted, and the driver's managed retry re-ran the
+  write alone, because the read sat outside the callback and was never repeated. So the retry
+  landed the affirmation on top of a supersede that had committed in the meantime: the guard did
+  not merely fail to fire, the retry machinery carried the affirmation over it. The read now
+  happens inside the write's own transaction, so a retry re-reads, and the refusal is thrown rather
+  than returned so that the rollback is the refusal's own mechanism — returning a sentinel would
+  have committed the lock the refused call took in order to read under.
+- **A document read can no longer be pointed outside the scope of the call that asked for it.** The
+  read took a scope and never consulted it: its multi-key mode read the address straight out of the
+  caller's filter, which arrives as JSON that nothing validates, so naming another scope's address
+  read another scope's documents. The address must now name the call's own scope. The type check is
+  part of the fix rather than tidiness beside it — the address is assigned out of unvalidated JSON,
+  so it can arrive as a string, and on a string a membership test is substring matching, which
+  defeats a scope check written without the guard.
+- **The plugin's reviewer was missing two tools its own skill calls.** The surface skill runs as the
+  read-only reviewer agent, whose frontmatter enumerates a tool allowlist; naming that list makes
+  those the only tools available, and neither of the two the skill instructs it to call was on it.
+  The skill describes one of them as the only model-wide exposure route, so the exposure counts and
+  the whole of the MITRE-grounded gap analysis could not run. Both are reads, and the read-only
+  mandate is prompt-enforced and unchanged by this: the allowlist never was the control that kept
+  the reviewer from writing. A create-and-run tool that appears twice in the skill is deliberately
+  not added — both appearances are inside fenced blocks telling the reader how to run an analysis,
+  so it is printed text rather than a call.
+- **A tactic an ATT&CK release renames no longer sorts to the front of the matrix.** The client
+  sorts the server's tactic list against a hardcoded matrix order, and that sort compared bare
+  lookup results — which yield −1 for any name the list does not carry, placing an unrecognised
+  tactic first rather than treating it as unplaced. An unknown name now sorts last and is still
+  returned, since dropping it would lose a tactic the caller asked for, and unknown names tie so
+  their relative order is left as the server returned it. A dataset ingested before v19 still
+  reports the retired name, so a transitional alias maps it onto the slot Stealth now occupies.
+
+### Security
+
+- **Nine advisories cleared across four dependencies.** `multer` floored at 2.3.0 for four
+  advisories — the previous floor admitted 2.2.0 as a legal resolution and the lockfile was pinned
+  exactly there, so a frozen install would have held a vulnerable resolution indefinitely, and one
+  of the four names that single version as its whole vulnerable range. One caveat is worth stating
+  plainly: 2.3.0 does not fully close the field-array advisory, whose guard is opt-in and defaults
+  to unbounded. That is inert here, because `multer` arrives only as a transitive of the Express
+  adapter and nothing instantiates it — but anyone adding a multipart upload endpoint must set that
+  limit explicitly. `hono` moves to 4.13.5 for three advisories, from a lockfile resolving 4.13.1,
+  inside the range of all three. `vitest` moves to 4.1.11 in the console's interface project, whose
+  own lockfile the workspace-wide update does not reach; no override was needed, the declared range
+  already admitted the fix and the lockfile was simply stale. And `google.golang.org/grpc` 1.83.2
+  for a panic reachable on an xDS-configured server — not reachable here, where gRPC is indirect
+  and the only listening socket is a plain HTTP server, and taken because it is cheap.
+- **Three dependency overrides were dropped after checking whether each still did any work.** The
+  check is a resolution probe with the override removed rather than a version comparison, because
+  the lockfile records ranges rewritten to mirror the active override and so cannot answer the
+  question on its own. An `ajv` floor bought no margin, since the minimum resolution without it is
+  already the patched version. A `minimatch` entry was forcing two dependents onto a major neither
+  declared, because an override key's qualifier matches a dependent's *declared* range rather than
+  its resolution. A `zod` pin rested on a peer requirement the SDK does not actually state, and had
+  begun forcing a version outside the plugin's own declared range. A `lodash` override that looks
+  inert is kept and bounded below the next major: without it a second copy resolves through a
+  transitive that pins an older version exactly, and an open-ended override resolves to the highest
+  satisfying version fleet-wide, which is how a future major gets hoisted across consumers that
+  only ever declared the old one.
+
+### Documentation
+
+- **The user guides describe the product that ships.** A second audit against the source found the
+  same class of drift the previous pass removed, spread across most of the guide set: interface
+  affordances that exist in no component, invented example output, deprecated concepts taught as
+  current, and integrations described as shipping when nothing implements them. Module assignment
+  is retired — the class catalogue is deployment-wide, and the guides now explain where classes
+  come from and how to get more rather than how to assign a module to a model. A bidirectional
+  issue-tracker sync section is gone; the real seam is one optional, inbound-only, pull-on-read
+  hook that no shipped module implements. Retired AI class generation is gone from four guides that
+  still told readers to click an icon no settings surface carries, replaced with the class picker
+  and browse drawer that do exist. A merged issue is created with an empty attribute string, so
+  severity and scoring are dropped — documented with a warning rather than left implied. Analysis
+  status renders as Ready, Working, Paused, Done or Failed and never "idle"; re-running replaces a
+  row's result rather than accumulating history; and the distribution's shipped analysis type runs
+  no AI, so the module-dependent hedge on progress and clarifying questions is restored. The
+  countermeasure documentation now names which relations are actually exposed and emitted and which
+  are reserved, and states that a countermeasure derives from the control's own classes and is
+  identical wherever assigned — assignment decides coverage, scoped to the element or its immediate
+  parent boundary.
+- **The operator guides cover the administrator gate and the access list.** New sections state who
+  can change a connected deployment, which controls need the role, what each of the four refusals
+  means, and that a deployment connected with a recipe naming no team is not checked at all. Two
+  documents said disconnecting never contacts the cloud and is always available; neither has been
+  true since the gate shipped, and the correction names the two narrower guarantees that do hold —
+  a session you already hold keeps the ability to revert while the *platform* is down, since the
+  check asks a different dependency, and a deployment whose configuration can never obtain the
+  credential is not locked in.
+- **The flow-store document describes the write the platform now makes.** Its two save listings
+  sent the whole merged element, and the word *delta* appeared nowhere in 848 lines — a reader
+  following it would have built exactly the caller the platform has just stopped accepting. A new
+  section carries the mechanism end to end: why narrowing exists at all, what a call site must
+  supply and why the object naming the user's edit is the only part that states intent, the
+  merge-then-project order and why the baselines are taken before the merge, the four rules the
+  projection keeps with the real case behind each, and the replace-versus-delta decision table —
+  including the duplicate-edge trade taken deliberately. Ten further drifts were found while
+  verifying it, none of them in the brief: four listings did not match the code they claimed to
+  show, two more were earlier implementations, a deduplication window was stated as five seconds
+  and is fifteen, and a retry section implied mutations retry when they deliberately do not. Source
+  citations are symbols now rather than line ranges, every one of which had drifted onto a closing
+  brace or a blank line.
+- **The operations reference describes the methods that exist.** Six writer signatures were wrong,
+  two of them with worked examples that would not have run. The audit past those six is where the
+  value is: every one of the eight MITRE methods documented on the two framework classes is absent
+  from the code, two analysis methods resolve an identifier rather than a session, a subscription
+  example a reader would copy calls a signature that takes no callback, and two documented read
+  methods exist nowhere in the package. Alongside the corrections it now states the two contracts
+  every writer obeys, from the writer's side — a field the element does not define is not written,
+  and a link list is a delta when the caller can say what it held before and a replace when it
+  cannot.
+
 ## [0.8.0] - 2026-09-03
 
 Two things an operator does often get shorter. A deployment now reads its subscription from the
