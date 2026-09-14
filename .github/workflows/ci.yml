@@ -53,17 +53,73 @@ jobs:
       - name: Build
         run: pnpm turbo build --filter='!mitre-frameworks'
 
-      - name: Test
-        run: pnpm turbo run test --filter='./apps/dt-ws'
-        continue-on-error: true
+
+  # The platform's own suites — dt-core, dt-ui and dt-ws, unit and end-to-end.
+  #
+  # This replaces a `Test` step that used to sit in `build` filtered to ./apps/dt-ws with
+  # `continue-on-error: true`. By the reasoning already written against `dethereal-release`
+  # below, that step could not fail the build, so it was a check that existed without running —
+  # and it reached neither dt-core nor dt-ui, since dt-ui is not a dependency of dt-ws.
+  #
+  # Its own job, blocking, with each suite as a named step so a failure names the tree it is in.
+  platform-suites:
+    name: Platform suites (dt-core, dt-ui, dt-ws)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The suites import these packages' BUILD OUTPUT, not their sources: dt-ws reaches dt-core, and
+      # it reaches dt-module through `module-registry.service.ts` as well as through several specs.
+      # dt-module's `dist` is gitignored, and its `exports` map has no source fallback, so a checkout
+      # that does not build it fails to RESOLVE the package — which is a red suite, not a skipped one.
+      - name: Build the packages the suites import
+        run: pnpm turbo build --filter='@dethernety/dt-core' --filter='@dethernety/dt-module'
+
+      - name: dt-core
+        run: pnpm --filter @dethernety/dt-core test
+
+      - name: dt-ui
+        run: pnpm --filter dt-ui test
+
+      - name: dt-ws (unit)
+        run: pnpm --filter dt-ws test
+
+      # Docker is available on ubuntu runners, so these suites RUN rather than skipping — which
+      # matters, because testcontainers skips silently when Docker is unreachable and a skipped
+      # integration suite looks exactly like a passing one. No DOCKER_HOST: that override is a
+      # macOS Docker Desktop quirk, and a hosted runner's default socket is found unaided.
+      #
+      # RYUK disabled because the harness disposes its own containers; the reaper would add a
+      # startup dependency and nothing else.
+      - name: dt-ws (end-to-end, real databases)
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: 'true'
+        run: pnpm --filter dt-ws test:e2e
 
   # The one package here that is published to npm, guarded on the two ways its release can
   # silently half-happen.
   #
-  # Its own job, without `continue-on-error`, for the same reason as rego-parity below: the
-  # `Test` step above is filtered to ./apps/dt-ws AND cannot fail the build, so a check placed
-  # there would exist without running. Both failures below are invisible until someone installs
-  # the plugin and gets something other than what this repository says they should.
+  # Its own job, without `continue-on-error`, for the same reason as rego-parity below and as
+  # platform-suites above: a check that cannot fail the build is a check that exists without
+  # running. Both failures below are invisible until someone installs the plugin and gets
+  # something other than what this repository says they should.
   dethereal-release:
     name: Dethereal release integrity
     runs-on: ubuntu-latest

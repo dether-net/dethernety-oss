@@ -1,7 +1,7 @@
 import { Countermeasure, Exposure } from '@dethernety/dt-module';
 
 /**
- * Positive allowlist of attribute keys forwarded to the §4.7 Cypher upsert
+ * Positive allowlist of attribute keys forwarded to the scoped Cypher upsert
  * as `$attributes`. Mirrors the dt-module `Exposure` interface (see
  * oss/packages/dt-module/src/interfaces/exposure-interface.ts).
  *

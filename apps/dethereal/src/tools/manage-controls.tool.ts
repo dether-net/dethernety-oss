@@ -264,7 +264,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
    *
    * push-greenfield renames `controls/<temp-id>.json` →
    * `controls/<platform-id>.json` mid-pipeline (the WAL-protected id rewrite,
-   * CONTROL_LIBRARY §7). If the platform create succeeds but a later step
+   * CONTROL_LIBRARY.md §7). If the platform create succeeds but a later step
    * (e.g. setInstantiationAttributes) fails, the control now lives under its
    * platform id with `lifecycle: "partially-pushed"`, so a retry by the
    * original temp id lands on a bare "not found" with no hint. Point the
@@ -580,7 +580,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
 
           const topN = input.top_n ?? 5
 
-          // Score each candidate using deterministic formula from CI §6.3
+          // Score each candidate using deterministic formula from CONTROL_INTEGRATION.md §6.3
           const scored = candidates
             .filter(c => c.classes.length > 0) // Skip orphaned controls (zero classes = data corruption)
             .map(c => {
@@ -772,7 +772,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'promote-external-edit': {
-          // Recovery verb (CL §7 Step A unblock). Synthesises a
+          // Recovery verb (CONTROL_LIBRARY.md §7 Step A unblock). Synthesises a
           // pendingEdit block whose previousAttributes mirror platformAttributes
           // for the keys where local attributes already diverge — does NOT
           // re-pull (re-pulling would destroy the local divergence the

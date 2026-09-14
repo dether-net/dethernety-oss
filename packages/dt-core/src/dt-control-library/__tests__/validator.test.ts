@@ -1,7 +1,7 @@
 /**
  * Tests for the ControlFile validator.
  *
- * One positive + one negative case per §4 invariant. Plus the live-platform
+ * One positive + one negative case per CONTROL_LIBRARY.md §4 invariant. Plus the live-platform
  * validator's classId-resolution check.
  */
 
@@ -190,7 +190,7 @@ describe('validateControlFile — pendingEdit invariants', () => {
   });
 
   it('accepts pendingEdit with attributes==platformAttributes (operator rolled back)', () => {
-    // §4: this is valid — the next push clears pendingEdit silently.
+    // Per the two-write semantic this is valid — the next push clears pendingEdit silently.
     const r = validateControlFile(
       brownfieldFile({
         classes: [

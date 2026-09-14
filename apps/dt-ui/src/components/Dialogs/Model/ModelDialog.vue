@@ -1,8 +1,8 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { onMounted, ref, watch } from 'vue'
   import { useModelsStore } from '@/stores/modelsStore'
   import { useRouter } from 'vue-router'
-  import { Class, Control, Model, Module, ModelScopeLocal, RECOMMENDED_COMPLIANCE_DRIVERS, platformScopeToLocal } from '@dethernety/dt-core'
+  import { Class, Control, Model, ModelScopeLocal, RECOMMENDED_COMPLIANCE_DRIVERS, platformScopeToLocal } from '@dethernety/dt-core'
   import { useIssueStore } from '@/stores/issueStore'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
 
@@ -37,7 +37,6 @@
   const showContentSelectDialog = ref(false)
   const newName = ref(model.value?.name || '')
   const newDescription = ref(model.value?.description || '')
-  const newModules = ref<Module[]>(model.value?.modules || [])
   const controls = ref<Control[]>([])
   const modelName = ref<string>('')
 
@@ -96,17 +95,103 @@
     showContentSelectDialog.value = true
   }
 
+  // WHAT THIS DIALOG LOADED. A save sends the difference against this, never the whole of it: everything
+  // here is a snapshot taken when the dialog opened, and asserting it back would revert whatever anybody
+  // else changed in the meantime. It is re-pinned from the server's answer after each successful save,
+  // so a second save is a difference against what is stored rather than against what was first seen.
+  const seed = ref({
+    name: '',
+    description: '',
+    complianceDrivers: [] as string[],
+    controls: [] as string[],
+  })
+
+  /** Order carries no meaning in either list — a control selection and a driver list are both sets. */
+  const sameMembers = (a: string[], b: string[]) =>
+    a.length === b.length && [...a].sort().join('\u0000') === [...b].sort().join('\u0000')
+
+  const changedFields = () => ({
+    ...(newName.value !== seed.value.name && { name: newName.value }),
+    ...(newDescription.value !== seed.value.description && { description: newDescription.value }),
+    ...(!sameMembers(complianceDrivers.value, seed.value.complianceDrivers) && { scope: buildScope() }),
+    ...(!sameMembers(selectedControlIds.value, seed.value.controls) && {
+      controls: selectedControlIds.value,
+      // The control write is a delta against what was there before this edit, so one person attaching a
+      // control no longer detaches one somebody else attached since this dialog opened.
+      baselineControls: seed.value.controls,
+    }),
+  })
+
+  const pinSeed = (saved: Model) => {
+    // Merge rather than replace: the update response does not carry every field the dialog reads.
+    model.value = { ...(model.value ?? {}), ...saved } as Model
+    const previous = seed.value
+    const answer = {
+      name: saved.name ?? '',
+      description: saved.description ?? '',
+      complianceDrivers: saved.complianceDrivers ?? [],
+      controls: saved.controls?.map(control => control.id || '') ?? [],
+    }
+
+    // THE FORM MOVES WITH THE SEED. Re-pinning the seed alone leaves a field the user never touched
+    // holding this dialog's load-time copy while the seed holds the server's — so the next save reads
+    // an untouched field as an edit and asserts the stale value, reverting whoever wrote it. For the
+    // control list it is worse than a revert: the baseline moves forward while the list does not, so
+    // the delta becomes an explicit disconnect of the control somebody else just attached.
+    //
+    // A field the user IS editing keeps their edit. The two cases are indistinguishable from here —
+    // an edit made before this save and one made while it was in flight look the same — and losing
+    // typing is the worse of the two errors. The cost is that a value the platform normalises is not
+    // shown back until the dialog is reopened.
+    if (newName.value === previous.name) newName.value = answer.name
+    if (newDescription.value === previous.description) newDescription.value = answer.description
+    if (sameMembers(complianceDrivers.value, previous.complianceDrivers)) {
+      complianceDrivers.value = [...answer.complianceDrivers]
+    }
+    if (sameMembers(selectedControlIds.value, previous.controls)) {
+      selectedControlIds.value = [...answer.controls]
+      // The rows, not just the ids — the Controls tab renders these objects.
+      controls.value = saved.controls ?? []
+    }
+
+    seed.value = answer
+  }
+
+  /**
+   * Write what the user actually changed, and nothing else.
+   *
+   * `modules` is deliberately absent from every payload this dialog can build: nothing in it can change
+   * a model's modules, so sending them could only ever overwrite somebody else's assignment with a
+   * load-time copy. The same was true of the folder until a move began naming it explicitly.
+   */
+  // ONE WRITE AT A TIME. Two saves from this dialog do not serialise and do not join: the mutex and
+  // the deduplication key both fold the serialised variables in, and a move carries a folder the other
+  // save does not — so they run concurrently, each builds its delta against a seed neither has
+  // re-pinned yet, and each emits the same control `connect`. A connect compiles to a bare
+  // relationship create, so the second one leaves a parallel SUPPORTS edge that nothing surfaces
+  // (the reads collapse it with DISTINCT) and no later save heals.
+  //
+  // The template disable is the fix; this refusal is the backstop for `moveToFolder`, which is driven
+  // by another dialog's event rather than by a button this one can grey out.
+  const saving = ref(false)
+
+  const save = async (extra: Record<string, unknown> = {}): Promise<boolean> => {
+    if (saving.value) return false
+    const edit = { ...changedFields(), ...extra }
+    // Nothing to write. Reporting success is not a shortcut — it is what happened.
+    if (Object.keys(edit).length === 0) return true
+    saving.value = true
+    try {
+      const saved = await modelsStore.updateModel({ id: model.value?.id || '', ...edit })
+      if (saved) pinSeed(saved)
+      return Boolean(saved)
+    } finally {
+      saving.value = false
+    }
+  }
+
   const saveModel = async (): Promise<boolean> => {
-    const ret = await modelsStore
-      .updateModel({
-        id: model.value?.id || '',
-        name: newName.value,
-        description: newDescription.value,
-        modules: newModules.value.map(module => module.id),
-        controls: selectedControlIds.value,
-        folderId: model.value?.folder?.id || undefined,
-        scope: buildScope(),
-      })
+    const ret = await save()
     if (ret) {
       controls.value = controls.value.filter(control => selectedControlIds.value.includes(control.id || ''))
       modelName.value = newName.value
@@ -114,24 +199,15 @@
     return ret
   }
 
-  const moveToFolder = (folderId: string) => {
-    modelsStore.updateModel({
-      id: model.value?.id || '',
-      name: newName.value,
-      description: newDescription.value,
-      modules: newModules.value.map(module => module.id),
-      controls: selectedControlIds.value,
-      folderId,
-      scope: buildScope(),
-    }).then(ret => {
-      if (ret) {
-        emits('model:moved', folderId)
-      } else {
-        emits('model:moved', null)
-      }
-    }).catch(() => {
+  // A move carries the folder AND any edit still pending on the form, because that is what pressing
+  // Move used to persist and losing a half-typed name to it would be a new defect, not a fix. With a
+  // clean form it is one relationship operation and nothing else.
+  const moveToFolder = async (folderId: string) => {
+    try {
+      emits('model:moved', (await save({ folderId })) ? folderId : null)
+    } catch {
       emits('model:moved', null)
-    })
+    }
   }
 
   onMounted(() => {
@@ -140,10 +216,15 @@
       modelName.value = model.value?.name || ''
       newName.value = model.value?.name || ''
       newDescription.value = model.value?.description || ''
-      newModules.value = model.value?.modules || []
       selectedControlIds.value = model.value?.controls?.map(control => control.id || '') || []
       controls.value = model.value?.controls || []
       complianceDrivers.value = model.value?.complianceDrivers ?? []
+      seed.value = {
+        name: newName.value,
+        description: newDescription.value,
+        complianceDrivers: [...complianceDrivers.value],
+        controls: [...selectedControlIds.value],
+      }
     })
   })
 
@@ -382,10 +463,15 @@
                     <span class="ml-2 text-body-1" />
                   </v-card-title>
                   <v-card-text>
+                    <!-- Every control that can start a write is disabled while one is in flight. Two
+                         overlapping saves from this dialog neither serialise nor join, and each would
+                         emit the same control connect — leaving a parallel edge nothing surfaces. -->
                     <v-btn
                       class="ma-3"
                       color="success"
+                      :disabled="saving"
                       icon="mdi-content-save-outline"
+                      :loading="saving"
                       size="x-large"
                       type="submit"
                       variant="outlined"
@@ -394,6 +480,7 @@
                       <v-btn
                         class="ma-3"
                         color="secondary"
+                        :disabled="saving"
                         icon="mdi-download-outline"
                         size="x-large"
                         variant="outlined"
@@ -402,6 +489,7 @@
                       <v-btn
                         class="ma-3"
                         color="secondary"
+                        :disabled="saving"
                         icon="mdi-file-move-outline"
                         size="x-large"
                         variant="outlined"
@@ -410,6 +498,7 @@
                       <v-btn
                         class="ma-3"
                         color="error"
+                        :disabled="saving"
                         icon="mdi-trash-can-outline"
                         size="x-large"
                         variant="outlined"
@@ -428,6 +517,7 @@
                     v-if="showFileActions"
                     class="ma-3"
                     color="secondary"
+                    :disabled="saving"
                     icon="mdi-vector-polyline-edit"
                     size="x-large"
                     variant="outlined"

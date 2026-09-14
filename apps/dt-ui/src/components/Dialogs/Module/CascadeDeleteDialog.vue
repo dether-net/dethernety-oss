@@ -9,7 +9,7 @@
   } from '@/utils/cascadeState'
 
   // Operator-facing dialog for hard-deleting an orphaned class. Friction
-  // is proportional to blast radius (operator-ux-spec.md §1):
+  // is proportional to blast radius:
   //   - no-dependents       → simple confirm
   //   - has-deps-under-cap  → type-to-confirm + breakdown
   //   - has-deps-near-cap   → adds a "near limit" warning

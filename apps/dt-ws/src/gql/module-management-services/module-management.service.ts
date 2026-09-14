@@ -449,8 +449,7 @@ export class ModuleManagementService {
       const hasEmbedding = embedding !== undefined;
 
       // 1. Look up existing class node by (module, classLabel, name) — both
-      //    edge types so a previously-orphaned class can be revived (design
-      //    §5.4 dual-edge-type lookup).
+      //    edge types so a previously-orphaned class can be revived.
       const lookup = await tx.run(
         `MATCH (m:Module {name: $moduleName})-[r:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {name: $name})
          RETURN c.id AS dbId, type(r) AS edgeType LIMIT 1`,
@@ -1249,7 +1248,7 @@ export class ModuleManagementService {
       });
 
       // Post-commit: the :Module node is committed + visible. Run afterInstall
-      // on its own session — a requirement, not a backstop (design §9.2 #H12):
+      // on its own session — a requirement, not a backstop:
       // an operator "reset a broken module" must re-run the hook too, else the
       // reset re-installs classes but never re-does the hook's graph work.
       await this.runAfterInstall(session, moduleInstalled, moduleInstance);
@@ -1279,7 +1278,7 @@ export class ModuleManagementService {
    * `:Module` node is committed and visible. The hook opens its own session on
    * the raw driver; a throw OR a timeout is caught, logged, and downgrades ONLY
    * this module's `lastInstallStatus` to 'partial' so the content-hash skip gate
-   * reinstalls it next boot and re-invokes the hook (design §9.2 #H9 self-heal).
+   * reinstalls it next boot and re-invokes the hook, which is how it self-heals.
    * Never throws — failure is isolated so sibling modules are unaffected.
    *
    * @param session   An OPEN session to issue the partial-downgrade write on
@@ -1488,7 +1487,7 @@ export class ModuleManagementService {
       // session. Fire afterInstall on each installed OR content-hash-skipped
       // module (iterate `modulesInstalled`, NOT `resolved` — a skipped module
       // must still re-run its hook; a failure self-heals via the partial
-      // downgrade next boot). Isolated + timeout-bounded (design §4.3, §9.2 #H9).
+      // downgrade next boot). Isolated + timeout-bounded.
       for (const name of modulesInstalled) {
         await this.runAfterInstall(session, name, modules.get(name));
       }

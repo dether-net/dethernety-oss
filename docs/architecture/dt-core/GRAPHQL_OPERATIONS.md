@@ -2,6 +2,7 @@
 
 ## Table of Contents
 - [Overview](#overview)
+- [Shared Write Contracts](#shared-write-contracts)
 - [Domain Classes](#domain-classes)
 - [DtModel](#dtmodel)
 - [DtComponent](#dtcomponent)
@@ -16,6 +17,8 @@
 - [DtAnalysis](#dtanalysis)
 - [DtIssue](#dtissue)
 - [MITRE Framework Classes](#mitre-framework-classes)
+- [DtExposure](#dtexposure)
+- [DtCountermeasure](#dtcountermeasure)
 - [DtMitre](#dtmitre)
 - [Disposition Operations](#disposition-operations)
 - [Supersede Orchestration Helpers](#supersede-orchestration-helpers)
@@ -32,6 +35,104 @@ Each domain area in dt-core has a dedicated class that encapsulates GraphQL oper
 **File Naming Convention:**
 - `dt-{domain}.ts` - Class implementation
 - `dt-{domain}-gql.ts` - GraphQL definitions
+
+---
+
+## Shared Write Contracts
+
+Two contracts govern the element update writers — `DtModel.updateModel`, `DtComponent.updateComponent`,
+`DtBoundary.updateBoundaryNode`, `DtDataflow.updateDataFlow`, and `DtDataItem.updateDataItem`. They are
+what lets a caller send only the fields a user actually edited instead of the whole element it last
+loaded, and they are what stops one person's save from rewriting a field somebody else just changed.
+**Presence gating** holds for all five; **link deltas** apply to the four that carry `controls` /
+`dataItems` lists.
+
+The caller's half of the same story — how a store decides what counts as edited, and why the
+relationship baseline must be captured **before** the optimistic merge — is in
+[Flow Store — Narrowing the Write](../frontend/LLD/FLOW_STORE.md#narrowing-the-write). This section is
+the writer's half: what dt-core does with the input it is handed.
+
+### Presence gating — a field the element does not define is not written
+
+**Source:** `packages/dt-core/src/dt-component/dt-component.ts` → `updateComponent`
+
+Every key of an update input is emitted only when the field it carries is **defined** on the element.
+`updateComponent` is the clearest example:
+
+```typescript
+const controlsInput = linkInput(updatedNode.data?.controls, baselineLinks, 'controls')
+const dataItemsInput = linkInput(updatedNode.data?.dataItems, baselineLinks, 'dataItems')
+
+const variables = {
+  componentId: updatedNode.id,
+  input: {
+    ...(updatedNode.data?.label !== undefined && { name: { set: updatedNode.data.label } }),
+    ...(updatedNode.data?.description !== undefined && { description: { set: updatedNode.data.description } }),
+    ...(updatedNode.position !== undefined && {
+      positionX: { set: updatedNode.position.x },
+      positionY: { set: updatedNode.position.y },
+    }),
+    ...(updatedNode.type !== undefined && { type: { set: updatedNode.type } }),
+    ...crownJewelInput,
+    ...(controlsInput !== undefined && { controls: controlsInput }),
+    ...(dataItemsInput !== undefined && { dataItems: dataItemsInput }),
+  },
+}
+```
+
+Two details in that block are load-bearing rather than stylistic:
+
+- **The two position axes are one compound value and are gated together.** A node carrying no
+  `position` at all would otherwise throw on `.x`; reading the axes *inside* the guard is what makes
+  that safe, because the object literal is never evaluated when the guard is false.
+- **The parent guard is a different kind of guard.** `parentBoundary.connect` filters on an `eq` built
+  from `parentNode`, and an undefined one produces a filter with **no condition** — which does not match
+  nothing, it matches every boundary, after the unconditional `disconnect` beside it has already run. An
+  *empty* parent is the other case and is a real edit meaning "put me at the root", i.e. the default
+  boundary. That can only be honoured while the root is known, so an unresolved default boundary refuses
+  rather than emitting a filter that matches nothing. `DtBoundary.updateBoundaryNode` builds its parent
+  input the same way, and `DtDataflow.updateDataFlow` gates its `source` / `target` endpoints on the same
+  reasoning — with no root to fall back to, a named-but-empty endpoint refuses outright.
+
+The id validation behind those filters lives in `packages/dt-core/src/dt-utils/connect-id.ts`
+(`isConnectId`, `connectIds`, `assertConnectId`, `UnresolvedIdError`). The rule it enforces is that a
+relationship operation is built from a validated non-empty id or it is not built at all, with two
+answers because the two situations differ: a **scalar** *is* the edit, so it refuses; an **array
+element** names one item among many, so it is dropped and the rest of the write stands.
+
+### Link deltas — `controls` and `dataItems`
+
+**Source:** `packages/dt-core/src/dt-utils/link-delta.ts` → `linkInput`, `buildLinkOps`
+
+The four writers that carry link lists (`updateComponent`, `updateBoundaryNode`, `updateDataFlow` for
+`controls` + `dataItems`; `updateModel` for `controls`) all route them through `linkInput`, which decides
+the shape of one link key from the list and the caller's `baselineLinks`. There are two different
+absences, and collapsing them is the one mistake that turns a bulk write into a delta against nothing:
+
+| List | Baseline | Shape emitted |
+|------|----------|---------------|
+| absent | — | **Key omitted.** The element does not define this list, so it was not edited and must not be written. The conduit and import "safe node" passes rely on this to preserve associations. |
+| present | absent | **Replace:** `{ disconnect: {}, connect: [...ids] }`. The caller is asserting the whole list — correct for an import or a bulk write. |
+| present | present | **Delta:** `buildLinkOps(current, baselines[key] ?? [])` — connect only what was added, disconnect only what was removed, and omit the key entirely when nothing changed. A baseline holding nothing for the key is a delta against an empty list, not a missing baseline. |
+
+The replace shape's `disconnect` stays **unconditional** on purpose: `connect` compiles to a bare
+relationship `CREATE`, so a disconnect that spared the incoming ids would re-create every
+already-attached pair — one extra parallel edge per element per save. It is safe because the translator
+emits `disconnect` before `connect` for the same field.
+
+The delta's cost is the mirror of that, and it is taken deliberately: two clients adding the **same** id
+at the same moment produce a duplicate edge. A duplicate is additive and invisible on read; a destroyed
+attachment is neither. Both sides of the delta are de-duplicated and id-validated first — an unusable id
+in the *baseline* would otherwise build a `disconnect` with no condition, clearing every edge of that
+type on the element.
+
+Boundary **conduits** get the identical treatment through a different builder — see
+[`updateBoundaryNode` — zoning and conduit reconcile](#updateboundarynode--zoning-and-conduit-reconcile)
+and [`buildConduitOps`](./DATA_ACCESS_LAYER.md#buildconduitops--baseline-delta-reconcile).
+
+`updateModel`'s asymmetry is worth naming: its `controls` take the delta treatment, its `modules` are
+**always** a replace. Nothing edits a model's modules except the push path, which asserts them whole and
+has no earlier state to compare against.
 
 ---
 
@@ -68,10 +169,19 @@ Each domain area in dt-core has a dedicated class that encapsulates GraphQL oper
 │  │  │ DtImport │  │DtMitreAt.│  │DtMitreDe.│  │DtExposure│         │   │
 │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │   │
 │  │                                                                 │   │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐         │   │
+│  │  │DtCounter.│  │DtClassId.│  │ DtMitre  │  │DtCtrlLib.│         │   │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │   │
+│  │                                                                 │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
+
+`DtExport` and `DtImport` appear above to place them in the hierarchy, but they — together with
+`DtUpdate` and the `*Split` siblings of all three — are the model file round-trip and are documented in
+[Import & Export](./IMPORT_EXPORT.md) rather than here. `DtControlLibrary` (`DtCtrlLib.` above) has no
+section in this document yet.
 
 ---
 
@@ -85,12 +195,21 @@ Manages threat model lifecycle and data retrieval.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `getModels` | Get all models | `{ folderId?: string }` | `Promise<Model[]>` |
+| `getModels` | Get models in a folder (no `folderId` → models with no folder) | `{ folderId?: string }` | `Promise<Model[]>` |
+| `getModel` | Get a single model by ID | `{ modelId: string }` | `Promise<Model \| null>` |
 | `getNotRepresentingModels` | Get models not linked as represented | `{ modelId: string }` | `Promise<Model[]>` |
-| `dumpModelData` | Export complete model structure | `{ modelId: string }` | `Promise<ModelDump>` |
-| `createModel` | Create new model | `{ name, description, modules, folderId }` | `Promise<Model>` |
-| `updateModel` | Update model properties | `{ modelId, name?, description?, modules?, controls? }` | `Promise<Model>` |
-| `deleteModel` | Delete model | `{ modelId: string }` | `Promise<boolean>` |
+| `dumpModelData` | Export complete model structure, mapped to canvas nodes / edges | `{ modelId: string }` | `Promise<{ currentModel, components, boundaries, dataFlows, dataItems, modules, defaultBoundary }>` |
+| `getModelData` | Raw model payload from the same `DUMP_MODEL_DATA` query, unmapped | `{ modelId: string }` | `Promise<any>` |
+| `createModel` | Create new model | `{ name, description, modules, folderId, scope?, controls? }` | `Promise<Model>` |
+| `updateModel` | Update model properties — presence-gated; `controls` delta, `modules` replace | `{ id, name?, description?, modules?, controls?, folderId?, scope?, baselineLinks? }` | `Promise<Model>` |
+| `deleteModel` | Delete model | `{ modelId: string }` | `Promise<{ nodesDeleted, relationshipsDeleted } \| null>` |
+
+> **`updateModel` input.** Only `id` is required; a field that is not supplied is not written (see
+> [Shared Write Contracts](#shared-write-contracts)). `folderId` carries three meanings: absent leaves
+> the model where it is, a named id moves it, and the **empty string** means the root — which for a model
+> is the *absence* of a folder, so it emits `{ disconnect: {} }` and connects nothing. `baselineLinks`
+> is what the caller knew `controls` to be before this edit; supplying it turns the control write into a
+> delta instead of a whole-list replace.
 
 ### Example Usage
 
@@ -116,13 +235,16 @@ const modelData = await dtModel.dumpModelData({ modelId: 'model-123' })
 
 ```typescript
 // dt-model-gql.ts exports:
-GET_MODELS           // Query all models with folder filter
+GET_MODELS                   // Query models with a folder filter (also backs getModel)
 GET_NOT_REPRESENTING_MODELS  // Find models not linked
-DUMP_MODEL_DATA      // Full model export query
-CREATE_MODEL         // Create with modules
-UPDATE_MODEL         // Update properties
-DELETE_MODEL         // Delete by ID
+DUMP_MODEL_DATA              // Full model export query (backs dumpModelData + getModelData)
+CREATE_MODEL                 // Create with modules
+UPDATE_MODEL                 // Update properties
+DELETE_MODEL                 // Delete by ID
 ```
+
+`dt-model-gql.ts` also exports `GET_DUMP_MODEL_DATA`, `GET_MODEL_BOUNDARIES`, `GET_MODEL_DATAFLOWS`, and
+`GET_MODEL_DATAITEMS`. No `DtModel` method issues them today.
 
 ---
 
@@ -136,10 +258,19 @@ Manages system components (processes, services, databases, external entities).
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `createComponentNode` | Create new component | `{ newNode, classId, defaultBoundaryId }` | `Promise<Node \| null>` |
-| `updateComponent` | Update component properties | `{ componentId, name?, description?, x?, y?, controls?, dataItems? }` | `Promise<ComponentData>` |
+| `createComponentNode` | Create new component | `{ newNode: Node, classId: string, defaultBoundaryId: string }` | `Promise<Node \| null>` |
+| `updateComponent` | Update component properties, parent boundary, and control / data-item links | `{ updatedNode: Node, defaultBoundaryId: string, baselineLinks?: LinkBaselines }` | `Promise<ComponentData \| null>` |
 | `getComponentRepresentedModel` | Get linked model | `{ componentId }` | `Promise<Model \| null>` |
 | `deleteComponent` | Delete component | `{ componentId }` | `Promise<boolean>` |
+
+> **`updateComponent` takes the node, not a field bag.** There are no `componentId` / `name` / `x` / `y`
+> arguments: the caller passes the component **as a `Node`** and the writer reads `id`, `data.label`,
+> `data.description`, `data.crownJewel`, `position`, `type`, `parentNode`, `data.controls`, and
+> `data.dataItems` off it. Every one of those is presence-gated, so a node carrying only the fields the
+> user edited writes only those fields, and `baselineLinks` turns the two link lists into a delta. This
+> writer is the reference implementation of both contracts — see
+> [Shared Write Contracts](#shared-write-contracts). `defaultBoundaryId` is what an empty `parentNode`
+> resolves to.
 
 > **Class / model binding changes** for components, boundaries, data flows, data items, and controls all flow through [`DtClass.changeElementBinding`](#dtclass) — the atomic single-mutation surface that owns destructive-sweep + rewire + constructive-upsert. The legacy per-type wrappers (`updateComponentClass`, `updateComponentRepresentedModel`, `updateBoundaryClass`, `updateBoundaryRepresentedModel`, `updateDataFlowClass`) were removed in the atomic class-change consolidation.
 
@@ -160,12 +291,27 @@ const node = await dtComponent.createComponentNode({
   defaultBoundaryId: 'boundary-123'
 })
 
-// Update component position and properties
+// Rename a component and move it. Only the fields named on the node are written:
+// no `data.controls` key means the control association is left untouched.
 await dtComponent.updateComponent({
-  componentId: 'comp-123',
-  name: 'Updated Name',
-  x: 150,
-  y: 250
+  updatedNode: {
+    id: 'comp-123',
+    position: { x: 150, y: 250 },
+    data: { label: 'Updated Name' },
+  },
+  defaultBoundaryId: 'root-boundary-123',
+})
+
+// Attach one control without disturbing a control another client attached
+// concurrently: pass the list plus the baseline this client loaded, and the
+// write becomes `connect ctrl-new` rather than disconnect-all + connect-all.
+await dtComponent.updateComponent({
+  updatedNode: {
+    id: 'comp-123',
+    data: { controls: ['ctrl-existing', 'ctrl-new'] },
+  },
+  defaultBoundaryId: 'root-boundary-123',
+  baselineLinks: { controls: ['ctrl-existing'] },
 })
 
 // Link component to another model (composition) — routes through DtClass.changeElementBinding.
@@ -187,15 +333,20 @@ Manages security boundaries and trust zones.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `createBoundaryNode` | Create new boundary | `{ newNode, classId, defaultBoundaryId }` | `Promise<Node \| null>` |
-| `updateBoundaryNode` | Update boundary properties, zoning, and conduits | `{ updatedNode, defaultBoundaryId, baselineConduits? }` | `Promise<BoundaryData \| null>` |
+| `createBoundaryNode` | Create new boundary | `{ newNode: Node, classId: string, defaultBoundaryId: string }` | `Promise<Node \| null>` |
+| `updateBoundaryNode` | Update boundary properties, zoning, conduits, and control / data-item links | `{ updatedNode: Node, defaultBoundaryId: string, baselineConduits?: Conduit[], baselineLinks?: LinkBaselines }` | `Promise<BoundaryData \| null>` |
 | `getBoundaryRepresentedModel` | Get linked model | `{ boundaryId }` | `Promise<Model \| null>` |
-| `getDescendants` | Get direct children | `{ boundaryId }` | `Promise<{ components, securityBoundaries } \| null>` |
+| `getDescendants` | Get direct children | `{ boundaryId }` | `Promise<{ components: DirectDescendant[], securityBoundaries: DirectDescendant[] } \| null>` |
 | `deleteBoundary` | Delete boundary | `{ boundaryId }` | `Promise<boolean>` |
 
 > Class / model binding changes route through [`DtClass.changeElementBinding`](#dtclass) — see the DtComponent block above.
 
 #### `updateBoundaryNode` — zoning and conduit reconcile
+
+Like `updateComponent`, this writer takes the boundary **as a `Node`** and presence-gates every field it
+reads off it, including the parent guard; and it routes `data.controls` / `data.dataItems` through the
+same `linkInput` delta against `baselineLinks`. See [Shared Write Contracts](#shared-write-contracts) for
+both. What follows is what is specific to boundaries.
 
 Beyond the position/dimension properties, `updateBoundaryNode` also persists the boundary's **zoning** fields and reconciles its **conduit** edges in the same `updateSecurityBoundaries` mutation. The values are read off `updatedNode.data` and pass through the [boundary zoning utilities](./DATA_ACCESS_LAYER.md#boundary-zoning-utilities) before being sent:
 
@@ -203,7 +354,7 @@ Beyond the position/dimension properties, `updateBoundaryNode` also persists the
 - `domains` — sanitized via `sanitizeDomains` (trim, drop empties, case-insensitive de-dupe, length/count caps).
 - `planes` — normalized via `normalizePlanes` (valid members only, de-duped, canonical order). Persisted as a `[String!]` field — the values are constrained to the `Plane` union app-side, not by a GraphQL enum.
 
-**Conduit reconcile (baseline delta).** Conduits are reconciled **only when** `updatedNode.data.conduits` is present; an `undefined` buffer leaves the edges untouched (the same convention as `controls` / `dataItems`). When present, the method calls `buildConduitOps('OUTBOUND', …)` and `buildConduitOps('INBOUND', …)` to compute a **delta against `baselineConduits`** — peers added are `connect`-ed, peers removed are `disconnect`-ed, and justification-only changes become `update` ops. This is deliberately a delta and not a connect-all: the graph `CONDUIT` `connect` is **not idempotent**, so re-connecting an existing peer would create a duplicate parallel edge. See [`buildConduitOps`](./DATA_ACCESS_LAYER.md#buildconduitops--baseline-delta-reconcile) for the full rationale.
+**Conduit reconcile (baseline delta).** Conduits are reconciled **only when** `updatedNode.data.conduits` is present; an `undefined` buffer leaves the edges untouched (the same convention `linkInput` applies to `controls` / `dataItems` — see [Link deltas](#link-deltas--controls-and-dataitems)). When present, the method calls `buildConduitOps('OUTBOUND', …)` and `buildConduitOps('INBOUND', …)` to compute a **delta against `baselineConduits`** — peers added are `connect`-ed, peers removed are `disconnect`-ed, and justification-only changes become `update` ops. This is deliberately a delta and not a connect-all: the graph `CONDUIT` `connect` is **not idempotent**, so re-connecting an existing peer would create a duplicate parallel edge. See [`buildConduitOps`](./DATA_ACCESS_LAYER.md#buildconduitops--baseline-delta-reconcile) for the full rationale.
 
 `baselineConduits` is the boundary's conduits **as they were on the server before the optimistic edit** — the caller snapshots them and passes them in (defaults to `[]`). On success the method re-derives `conduits` from the server response via `flattenConduits` so the caller can re-pin its baseline to server truth.
 
@@ -265,24 +416,47 @@ Manages data flow edges between components.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `createDataFlow` | Create new data flow | `{ sourceId, targetId, classId, name, description }` | `Promise<DataFlowData>` |
-| `updateDataFlow` | Update data flow properties | `{ dataFlowId, name?, description?, sourceHandle?, targetHandle? }` | `Promise<DataFlowData>` |
+| `createDataFlow` | Create new data flow | `{ newEdge: Edge, classId: string }` | `Promise<Edge \| null>` |
+| `updateDataFlow` | Update data flow properties, endpoints, and control / data-item links | `{ edge: Edge, updates: object, baselineLinks?: LinkBaselines }` | `Promise<DataFlowData \| null>` |
 | `deleteDataFlow` | Delete data flow | `{ dataFlowId }` | `Promise<boolean>` |
 
 > Class binding changes route through [`DtClass.changeElementBinding`](#dtclass) — see the DtComponent block above.
+
+> **Both methods take the edge, not a field bag.** `createDataFlow` reads `label`, `data.description`,
+> `source`, `target`, `sourceHandle`, and `targetHandle` off `newEdge`, and on success writes the
+> server-assigned id back onto that same edge before returning it. `updateDataFlow` **deep-merges
+> `updates` into `edge` first**, then builds a presence-gated input from the merged edge — so a caller
+> that has already merged passes `updates: {}` and the edge stands as the whole of the input. The two
+> endpoints are gated for the same reason a parent boundary is, but with one difference: a data flow has
+> no root to fall back to, so a named-but-empty `source` / `target` refuses rather than resolving to a
+> default. See [Shared Write Contracts](#shared-write-contracts).
 
 ### Example Usage
 
 ```typescript
 const dtDataflow = new DtDataflow(apolloClient)
 
-// Create data flow between components
+// Create data flow between components. The edge comes back with the server's id
+// written onto it (the same object, mutated in place).
 const flow = await dtDataflow.createDataFlow({
-  sourceId: 'component-api',
-  targetId: 'component-database',
+  newEdge: {
+    id: 'temp-789',
+    source: 'component-api',
+    target: 'component-database',
+    sourceHandle: 'right',
+    targetHandle: 'left',
+    label: 'Database Queries',
+    data: { description: 'SQL queries from API to DB' },
+  },
   classId: 'class-sql-query',
-  name: 'Database Queries',
-  description: 'SQL queries from API to DB'
+})
+
+// Rename the flow. `updates` is merged into `edge` first, so an already-merged
+// caller passes `updates: {}`; nothing but `id` and `label` is named here, so
+// nothing else is written.
+await dtDataflow.updateDataFlow({
+  edge: { id: flow.id, label: 'Database Queries (TLS)' },
+  updates: {},
 })
 
 // Update flow classification — routes through DtClass.changeElementBinding.
@@ -304,12 +478,28 @@ Manages data classification entities.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `getDataItems` | Get all data items | `{ modelId?: string }` | `Promise<DataItem[]>` |
-| `createDataItem` | Create new data item | `{ name, description, classId }` | `Promise<DataItem>` |
-| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. | `{ dataItemId, name?, description?, classId? }` | `Promise<{ dataItem: DataItem \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }>` |
+| `createDataItem` | Create new data item, attached to an element and a model | `{ name, description, elementId, classId: string \| null, modelId, sensitivity?, regulatoryFlags? }` | `Promise<DataItem \| null>` |
+| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. | `{ dataItemId, name?, description?, classId?, sensitivity?, regulatoryFlags?, attributes? }` | `Promise<UpdateDataItemResult>` |
 | `deleteDataItem` | Delete data item | `{ dataItemId }` | `Promise<boolean>` |
 
-> **`updateDataItem` return shape.** The bundled return surfaces both halves so callers can render partial-failure UX: if the class binding committed but the residual property update failed, `bindingResult.success` is `true`, `dataItem` is `null`, and `residualOk` is `false`. The frontend uses this to fire a separate "settings could not be saved" toast in addition to the class-change delta-receipt snackbar.
+> **`updateDataItem` return shape.** `UpdateDataItemResult` is `{ dataItem: DataItem \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }`. The bundled return surfaces both halves so callers can render partial-failure UX: if the class binding committed but the residual property update failed, `bindingResult.success` is `true`, `dataItem` is `null`, and `residualOk` is `false`. The frontend uses this to fire a separate "settings could not be saved" toast in addition to the class-change delta-receipt snackbar.
+
+> **Asset context is presence-gated, and `null` is not `undefined`.** The residual input emits `name`,
+> `description`, `sensitivity`, and `regulatoryFlags` only when the caller supplies them. The two
+> asset-context fields are the expensive half of that contract: `sensitivity: null` or
+> `regulatoryFlags: []` is a **clear** and has to be said, whereas leaving either out leaves the platform
+> value alone. An unrecognised `sensitivity` drops to `null` with a warning rather than failing the save
+> — the value typically comes from a file somebody hand-edited. `attributes` is accepted in the argument
+> type but is not read by the writer; nothing in the residual mutation writes it.
+
+> **Three states for `classId`.** Truthy targets `CLASS`, explicit `null` targets `NONE` (sweeping
+> SYSTEM-derived findings), and **omitted** attempts no binding change at all — `bindingResult` comes
+> back `null`. A falsy `dataItemId` short-circuits to `{ dataItem: null, bindingResult: null, residualOk: false }`
+> without a round trip.
+
+> **The deduplication key names the fields.** `update-dataitem-<id>-<sorted input keys>` rather than
+> `update-dataitem-<id>`: a class pick fires a save without awaiting it, and an id-only key would let a
+> **Save** pressed during that flight join it and never be written. `DtModel.updateModel` keys the same way.
 
 ---
 
@@ -324,14 +514,28 @@ Manages entity classifications, templates, and atomic class / model binding.
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
 | `changeElementBinding` | Atomically change an element's class / representedModel / none binding (destructive sweep + rewire + constructive upsert). The single sanctioned write path for `IS_INSTANCE_OF` and `REPRESENTS_MODEL` edges. | `{ elementId, target: ClassBinding \| RepresentedModelBinding \| NoBinding }` | `Promise<ChangeElementBindingResult>` |
-| `getComponentClass` | Get component's classification | `{ componentId }` | `Promise<Class \| null>` |
-| `getBoundaryClass` | Get boundary's classification | `{ boundaryId }` | `Promise<Class \| null>` |
-| `getDataFlowClass` | Get data flow's classification | `{ dataFlowId }` | `Promise<Class \| null>` |
-| `getDataClass` | Get data class by ID | `{ classId }` | `Promise<Class \| null>` |
-| `getControlClasses` | Get available control classes | `{ moduleId }` | `Promise<Class[]>` |
+| `getComponentClass` | Get component's classification | `{ componentId }` | `Promise<Class \| undefined>` |
+| `getBoundaryClass` | Get boundary's classification | `{ boundaryId }` | `Promise<Class \| undefined>` |
+| `getDataFlowClass` | Get data flow's classification | `{ dataFlowId }` | `Promise<Class \| undefined>` |
+| `getDataClass` | Get data class by ID | `{ dataClassId }` | `Promise<Class \| undefined>` |
+| `getClassById` | Get any class by ID, routed on `classType` (`component` \| `boundary` \| `dataflow` \| `data` \| `control`); an unrecognised type returns `undefined` without a round trip | `{ classId, classType }` | `Promise<Class \| undefined>` |
+| `getControlClasses` | Get control classes, filtered by raw module / class `where` conditions | `{ moduleWhere, classWhere }` | `Promise<Module[]>` — modules with their `controlClasses` flattened |
 | `getControlClassById` | Get specific control class | `{ classId }` | `Promise<Class \| null>` |
-| `setInstantiationAttributes` | Set element attributes from class | `{ elementId, elementType, attributes }` | `Promise<void>` |
-| `getAttributesFromClassRelationship` | Get instantiation attributes | `{ elementId, elementType }` | `Promise<object \| null>` |
+| `matchClasses` | Match element names / descriptions against a class corpus | `{ elements, classLabel, componentType?, moduleIds?, topN?, fields? }` | `Promise<{ matches, unmatched, vectorAvailable }>` |
+| `listClasses` | Paginated, filterable, facetted class browse | `{ classLabel, componentType?, search?, categories?, moduleIds?, offset?, limit? }` | `Promise<{ items, totalCount, facetCounts }>` |
+| `setInstantiationAttributes` | Set per-instance `IS_INSTANCE_OF` edge attributes | `{ componentId, classId, attributes }` | `Promise<boolean>` |
+| `setInstantiationAttributesWithStaleCount` | Same write, with the disposition-staleness count the picker needs | `{ componentId, classId, attributes }` | `Promise<{ success, staleFlippedCount, errorMessage }>` |
+| `getAttributesFromClassRelationship` | Get instantiation attributes for one (element, class) pair | `{ componentId, classId }` | `Promise<object>` (empty object when none) |
+
+> **`componentId` names any element.** The two instantiation-attribute writers and the reader take a
+> parameter called `componentId`, but it carries the id of whichever element holds the `IS_INSTANCE_OF`
+> edge — `DtControl.setInstantiationAttributes` passes a Control id straight through. There is no
+> `elementType` argument; the class id disambiguates.
+
+> **Two instantiation writers, one mutation.** `setInstantiationAttributes` selects only `{ success }`
+> from `SetInstantiationAttributesResult` so its callers keep binding a boolean.
+> `setInstantiationAttributesWithStaleCount` selects the full result and is what the frontend picker
+> save path uses, because it needs `staleFlippedCount` and propagates `errorMessage`.
 
 ### `changeElementBinding` — atomic class / model binding
 
@@ -363,6 +567,15 @@ Target shapes:
 
 Identity transitions (target equals current) short-circuit server-side with zero deltas — safe to retry.
 
+**Mutex scope.** Calls are serialised on a `binding_<elementId>` key, but only **within one `DtClass`
+instance**. Cross-store / cross-instance races fall through to the backend `executeWrite` — the
+client-side mutex is a latency hedge, not a distributed coordination primitive.
+
+**Cancel-on-replace.** `matchClasses` and `listClasses` route through `dtUtils.withCancellableLatest`
+keyed by `matchClasses:<classLabel>:<componentType>` / `listClasses:<classLabel>:<componentType>`, so
+keystrokes from one picker supersede each other while differently-scoped pickers proceed in parallel —
+the same pattern [`DtMitre.matchTechniques`](#dtmitre) uses.
+
 ### Special Handling
 
 The DtClass implementation includes special handling for:
@@ -383,12 +596,18 @@ Manages module registry and frontend bundles.
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
 | `getModules` | Get all modules | `none` | `Promise<Module[]>` |
-| `getModuleById` | Get module by ID | `{ moduleId }` | `Promise<Module \| null>` |
-| `getModuleByName` | Get module by name | `{ moduleName }` | `Promise<Module \| null>` |
-| `saveModule` | Save module configuration | `{ module }` | `Promise<Module>` |
-| `resetModule` | Reset module to defaults | `{ moduleId }` | `Promise<void>` |
+| `getModuleById` | Get module by ID | `moduleId: string` (positional) | `Promise<Module>` |
+| `getModuleByName` | Get module by name | `moduleName: string` (positional) | `Promise<Module>` |
+| `saveModule` | Save a module's attributes (serialised JSON) | `{ moduleId, attributes }` | `Promise<Module>` |
+| `resetModule` | Reset module to defaults | `moduleId: string` (positional) | `Promise<boolean>` |
 | `getAvailableFrontendModules` | List frontend bundles | `none` | `Promise<string[]>` |
-| `getModuleFrontendBundle` | Get bundle code | `{ moduleId }` | `Promise<string \| null>` |
+| `getModuleFrontendBundle` | Get bundle code | `{ moduleName }` | `Promise<string>` |
+
+> **Argument style is not uniform here.** `getModuleById`, `getModuleByName`, and `resetModule` take a
+> bare positional string; `saveModule` and `getModuleFrontendBundle` take an options object. The bundle
+> lookup keys on the module **name**, not its id. `saveModule` throws when either `moduleId` or
+> `attributes` is missing, and `getModuleFrontendBundle` throws on a missing name, rather than returning
+> a null result.
 
 ---
 
@@ -406,7 +625,7 @@ Class-identity admin surface — modules with install lifecycle + orphaned-class
 | `getClassIdentityEvents` | Events from the in-memory ring buffer (max 1000, drop-oldest, process-local) | `{ kind?, moduleName?, since? }` | `Promise<ClassIdentityEvent[]>` |
 | `migrateClassId` | Admin: align the DB id of a `(Module, *Class)` pair to a new id. Server-side: `requireAdmin(ctx)`; emits audit log + `kind: 'rebind', policy: 'audit'` event | `{ moduleName, className, classKind, newId }` | `Promise<boolean>` |
 | `reviveOrphanedClass` | Admin: revive an orphaned class (HAS_ORPHANED_CLASS → HAS_CLASS). Idempotent. Server-side: `requireAdmin(ctx)`; emits audit log + `kind: 'revive'` event | `{ classId, classKind }` | `Promise<boolean>` |
-| `deleteOrphanedClass` | Admin: hard-delete an orphaned class. `cascade=false` (default) refuses with a non-zero incident count. `cascade=true` DETACH DELETEs the class AND every incident instance — capped at 1000 server-side. Server-side: `requireAdmin(ctx)` | `{ classId, classKind, cascade }` | `Promise<boolean>` |
+| `deleteOrphanedClass` | Admin: hard-delete an orphaned class. `cascade` is required; `cascade=false` (the operator default in the UI) refuses with a non-zero incident count. `cascade=true` DETACH DELETEs the class AND every incident instance — capped at 1000 server-side. Server-side: `requireAdmin(ctx)` | `{ classId, classKind, cascade }` | `Promise<boolean>` |
 | `runIdentityMigration` | Admin: re-run the idempotent class-identity cleanup. `dryRun=true` reports planned actions without writing. Server-side: `requireAdmin(ctx)` | `{ dryRun }` | `Promise<IdentityMigrationReport>` |
 
 **Authz model.** Every method maps to a server operation gated by `requireAdmin(ctx)` at resolver entry — UI gating in the Modules page is defence-in-depth, the server gate is the only enforcement. See the backend [`ClassIdentityResolverService`](../backend/LLD/CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#6-classidentityresolverservice) for the audit-log + admin-check details.
@@ -450,11 +669,34 @@ Manages security controls.
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
 | `getControls` | Get all controls | `{ folderId?: string }` | `Promise<Control[]>` |
-| `createControl` | Create new control | `{ name, description, folderId }` | `Promise<Control>` |
-| `updateControl` | Update control — bundled binding + residual write. When `controlClasses` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateControls` mutation. | `{ controlId, name?, description?, controlClasses? }` | `Promise<{ control: Control \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }>` |
+| `getControl` | Get a single control by ID | `{ controlId }` | `Promise<Control \| null>` |
+| `getControlsByIds` | Batched control + class metadata fetch (de-duplicates input; no round trip on an empty list) | `{ ids: string[] }` | `Promise<Control[]>` |
+| `createControl` | Create new control, bound to zero or more control classes | `{ newControl: Control, classIds: string[] \| null, folderId }` | `Promise<Control \| null>` |
+| `updateControl` | Update control — bundled binding + residual write. The binding portion routes through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateControls` mutation. | `{ controlId, name, description, controlClasses: string[], folderId }` | `Promise<UpdateControlResult>` |
 | `deleteControl` | Delete control | `{ controlId }` | `Promise<boolean>` |
+| `findControls` | Filtered control search; an `elementIds` filter takes a Cypher-helper path instead of the polymorphic interface query | `{ controlId?, name?, classId?, classType?, elementIds?, moduleId?, moduleName? }` | `Promise<Control[]>` |
+| `assignControlToElements` | Attach a control to elements, read-before-write so an already-attached pair is not re-created | `{ controlId, elementIds }` | `Promise<Control \| null>` |
+| `getControlsAssignedModels` | Which models each control supports | `{ ids: string[] }` | `Promise<Map<string, string[]>>` |
+| `getControlInstantiationAttributes` | Per-`(Control, ControlClass)` edge attributes | `{ controlIds: string[] }` | `Promise<{ controlId, classId, attributes }[]>` |
+| `controlGaps` | Control-gap analysis over the MITRE framework chain — unmitigated / unaddressable exposures, recommended controls, coverage summary | `{ modelId, topN?, limit? }` | `Promise<ControlGapsResult>` |
+| `controlCandidatesForType` | Controls whose classes support the given element types, with per-class fit detail | `{ elementTypes, moduleIds? }` | `Promise<ControlCandidate[]>` |
+| `setInstantiationAttributes` | Set the control's per-instance class-edge attributes | `{ controlId, classId, attributes }` | `Promise<{ success, errorMessage }>` |
 
-> **`updateControl` return shape.** Same bundled `{ control, bindingResult, residualOk }` shape as `updateDataItem` above: callers can render two distinct snackbars when the binding committed but the residual property update failed. See [`changeElementBinding`](#dtclass) for the binding-portion contract.
+> **`updateControl` return shape.** `UpdateControlResult` is `{ control: Control \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }` — the same bundled shape as `updateDataItem` above, so callers can render two distinct snackbars when the binding committed but the residual property update failed. See [`changeElementBinding`](#dtclass) for the binding-portion contract.
+
+> **`controlClasses` is required, and its emptiness is meaningful.** Unlike `updateDataItem`'s optional
+> `classId`, `updateControl` always attempts a binding change: a non-empty list targets `CLASS` (Controls
+> are the one element type that may hold several), an **empty** list targets `NONE`. The backend
+> identity-short-circuits when the target already matches. A falsy `controlId` short-circuits client-side
+> to `{ control: null, bindingResult: null, residualOk: false }`.
+
+> **`assignControlToElements` reads before it writes.** `connect` compiles to a bare relationship
+> `CREATE`, so connecting an already-attached pair appends a parallel `SUPPORTS` edge. The method reads
+> the current set and connects only the difference — the same non-idempotence that drives the
+> [link deltas](#link-deltas--controls-and-dataitems) and the conduit reconcile.
+
+> **`setInstantiationAttributes` delegates.** It calls `DtClass.setInstantiationAttributesWithStaleCount`
+> with the control id as `componentId` and narrows the result to `{ success, errorMessage }`.
 
 ---
 
@@ -468,10 +710,19 @@ Manages organizational folders.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `getFolders` | Get folder hierarchy | `{ parentId?: string }` | `Promise<Folder[]>` |
-| `createFolder` | Create new folder | `{ name, description, parentId }` | `Promise<Folder>` |
-| `updateFolder` | Update folder | `{ folderId, name?, description? }` | `Promise<Folder>` |
-| `deleteFolder` | Delete folder | `{ folderId }` | `Promise<boolean>` |
+| `getFolders` | Get every folder, each with its `parentFolder` flattened to a single object | `none` | `Promise<Folder[]>` |
+| `createFolder` | Create new folder | `folder: Folder` (positional) | `Promise<Folder>` |
+| `updateFolder` | Update folder | `folder: Folder` (positional) | `Promise<boolean>` |
+| `deleteFolder` | Delete folder | `folderId: string` (positional) | `Promise<boolean>` |
+
+> **Positional arguments, and the whole folder.** Like three of the `DtModule` methods and unlike the
+> rest of dt-core, `DtFolder` takes bare positional arguments rather than an options object.
+> `createFolder` and `updateFolder` take the folder
+> itself and read `name`, `description`, and `parentFolder.id` off it. `updateFolder` does **not**
+> presence-gate: it always writes `name` and `description` (empty-string-coalesced), and rebinds
+> `parentFolder` whenever the folder names one. It returns a boolean, not the updated folder — callers
+> that need the new state re-read through `getFolders`. The hierarchy is not a query argument; it is
+> reconstructed from the `parentFolder` on each returned folder.
 
 ---
 
@@ -485,31 +736,48 @@ Manages AI-powered security analysis workflows.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `findAnalysisClasses` | Get available analysis types | `{ moduleId?: string }` | `Promise<AnalysisClass[]>` |
-| `findAnalyses` | Find analyses by criteria | `{ modelId?, status?, type? }` | `Promise<Analysis[]>` |
-| `createAnalysis` | Start new analysis | `{ modelId, analysisClassId, scope }` | `Promise<Analysis>` |
-| `runAnalysis` | Execute analysis | `{ analysisId }` | `Promise<AnalysisSession>` |
-| `resumeAnalysis` | Continue analysis | `{ sessionId }` | `Promise<AnalysisSession>` |
-| `subscribeToStream` | Real-time updates | `{ sessionId, callback }` | `Subscription` |
-| `startAnalysisChat` | Interactive chat | `{ analysisId, message }` | `Promise<void>` |
+| `findAnalysisClasses` | Get available analysis types | `{ classType?, moduleId?, classId?, className? }` | `Promise<AnalysisClass[] \| null>` |
+| `findAnalyses` | Find analyses by criteria | `{ name?, analysisId?, classId?, elementId?, classType?, moduleId? }` | `Promise<Analysis[] \| null>` |
+| `createAnalysis` | Create an analysis on an element | `{ id, elementId, name, description, type?, category?, analysisClassId }` | `Promise<Analysis \| null>` |
+| `updateAnalysis` | Update analysis properties | `{ analysisId, name, description, type?, category? }` | `Promise<Analysis \| null>` |
+| `deleteAnalysis` | Delete analysis | `{ analysisId }` | `Promise<boolean>` |
+| `runAnalysis` | Execute analysis; resolves the **session id** | `{ analysisId, additionalParams? }` | `Promise<string \| null>` |
+| `resumeAnalysis` | Continue a paused analysis with user input | `{ analysisId, userInput }` | `Promise<string \| null>` |
+| `getAnalysisValues` | Read one keyed value off an analysis | `{ analysisId, valueKey }` | `Promise<object \| null>` |
+| `getDocument` | Read a filtered document produced by an analysis | `{ analysisId, filter }` | `Promise<object \| null>` |
+| `subscribeToStream` | Real-time updates — returns the raw Apollo observable | `{ sessionId }` | `Observable<FetchResult<any>> \| null` |
+| `startChat` | Interactive chat against an analysis | `{ analysisId, userQuestion }` | `Promise<{ sessionId } \| null>` |
+
+> **The caller supplies the analysis id.** `createAnalysis` takes a client-generated `id` so retries are
+> idempotent end to end: both the deduplication key (`create-analysis-<id>`) and the server-side `MERGE`
+> key on it. A wrapper-generated id would defeat that.
+
+> **`runAnalysis` and `resumeAnalysis` resolve a session id string,** not a session object — the value to
+> hand to `subscribeToStream`. Both return `null` when a required argument is missing, without a round
+> trip, and both pass `deduplicationKey: false` — as does `startChat` — so a second invocation never
+> joins an in-flight one.
 
 ### Subscription Pattern
+
+`subscribeToStream` hands back the Apollo observable directly; there is no callback argument and no
+wrapper subscription object. The caller subscribes and owns the teardown.
 
 ```typescript
 const dtAnalysis = new DtAnalysis(apolloClient)
 
-// Start analysis and subscribe to updates
-const session = await dtAnalysis.runAnalysis({ analysisId: 'analysis-123' })
+// Start the analysis — the result IS the session id
+const sessionId = await dtAnalysis.runAnalysis({ analysisId: 'analysis-123' })
+if (!sessionId) return
 
-const subscription = dtAnalysis.subscribeToStream({
-  sessionId: session.sessionId,
-  callback: (event) => {
-    console.log('Analysis update:', event.analysisResponse)
-  }
+const observable = dtAnalysis.subscribeToStream({ sessionId })
+const subscription = observable?.subscribe({
+  next: (result) => {
+    console.log('Analysis update:', result.data)
+  },
 })
 
 // Later: cleanup
-subscription.unsubscribe()
+subscription?.unsubscribe()
 ```
 
 ---
@@ -524,10 +792,25 @@ Manages security issue tracking.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `getIssues` | Get all issues | `{ modelId?: string, status?: string }` | `Promise<Issue[]>` |
-| `createIssue` | Create new issue | `{ name, description, type, elements }` | `Promise<Issue>` |
-| `updateIssue` | Update issue | `{ issueId, name?, status?, attributes? }` | `Promise<Issue>` |
+| `findIssueClasses` | Get available issue classes | `{ classType?, moduleId?, classId?, className?, moduleName?, classCategory? }` | `Promise<Class[]>` |
+| `findIssues` | Find issues by criteria | `{ name?, issueId?, classId?, elementIds?, classType?, moduleId?, moduleName?, issueStatus? }` | `Promise<Issue[]>` |
+| `findIssueDetail` | Full detail for one issue — `syncedAttributes`, `elementsWithExtendedInfo`, `issueClass.template`, and the relationship collections flattened into `elements` | `{ issueId }` | `Promise<Issue \| null>` |
+| `createIssue` | Create new issue, bound to an issue class | `{ name, description?, type?, category?, attributes?, issueClassId, comments? }` | `Promise<Issue>` |
+| `updateIssue` | Update issue | `{ issueId, name?, description?, type?, category?, attributes?, issueClassId?, issueStatus?, comments? }` | `Promise<Issue>` |
 | `deleteIssue` | Delete issue | `{ issueId }` | `Promise<boolean>` |
+| `addElementsToIssue` | Attach elements to an issue across all six element labels | `{ issueId, elementIds }` | `Promise<number>` (elements added) |
+| `removeElementFromIssue` | Detach one element | `{ issueId, elementId }` | `Promise<boolean>` |
+
+> **There is no `getIssues`.** The read surface is `findIssues` (list, filtered) and `findIssueDetail`
+> (one issue, fully expanded). An issue's status is filtered on as `issueStatus`; `createIssue` sets it
+> to `open` and stamps `createdAt` / `updatedAt` client-side.
+
+> **`updateIssue` gates the class relationship, and only that.** The scalar fields are emitted
+> unconditionally as `{ set: … }` rather than presence-gated, so an omitted one carries `undefined` into
+> the input. `issueClassId` is the exception, and the guard there is load-bearing: omitting it used to
+> emit a bare disconnect-all plus a connect
+> on `eq: undefined`, which wiped the issue's class. Absent id → key omitted → class preserved; present →
+> disconnect old + connect new.
 
 ---
 
@@ -537,24 +820,35 @@ Manages security issue tracking.
 
 **Source:** `packages/dt-core/src/dt-mitreattack/`
 
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `getTactics` | Get all ATT&CK tactics | `Promise<MitreAttackTactic[]>` |
-| `getTechniques` | Get techniques (optionally by tactic) | `Promise<MitreAttackTechnique[]>` |
-| `getMitigations` | Get all mitigations | `Promise<MitreAttackMitigation[]>` |
-| `searchTechniques` | Search by keyword | `Promise<MitreAttackTechnique[]>` |
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `getMitreAttackTactics` | Get all ATT&CK tactics | `none` | `Promise<MitreAttackTactic[]>` |
+| `getMitreAttackTechniquesByTactic` | Get the techniques of one tactic | `{ tacticId }` | `Promise<MitreAttackTechnique[]>` |
+| `getMitreAttackTechnique` | Get one technique by its ATT&CK id | `{ attackId }` | `Promise<MitreAttackTechnique \| null>` |
+| `findMitreAttackTechniques` | Search techniques with a raw GraphQL filter object | `{ query: object }` | `Promise<MitreAttackTechnique[]>` |
+| `getMitreAttackMitigations` | Get all mitigations | `none` | `Promise<MitreAttackMitigation[]>` |
+| `getMitreAttackMitigation` | Get one mitigation by its ATT&CK id | `{ attackId }` | `Promise<MitreAttackMitigation \| null>` |
+
+The `attackId` parameters carry an ATT&CK id (`T1566`, `M1049`) and are sent as the schema's `attack_id`
+variable, not the node's internal id.
 
 ### DtMitreDefend
 
 **Source:** `packages/dt-core/src/dt-mitredefend/`
 
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `getTactics` | Get all D3FEND tactics | `Promise<MitreDefendTactic[]>` |
-| `getTechniques` | Get techniques (optionally by tactic) | `Promise<MitreDefendTechnique[]>` |
-| `searchTechniques` | Search by keyword | `Promise<MitreDefendTechnique[]>` |
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `fetchMitreDefendTactics` | Get all D3FEND tactics | `none` | `Promise<MitreDefendTactic[] \| null>` |
+| `getMitreDefendTechniquesByTactic` | Get the techniques of one tactic | `{ tacticId }` | `Promise<MitreDefendTechnique[]>` |
+| `getMitreDefendTechnique` | Get one technique by its D3FEND id | `{ d3fendId }` | `Promise<MitreDefendTechnique \| null>` |
 
-### DtExposure
+Neither class exposes a keyword search of its own — the ATT&CK side's `findMitreAttackTechniques` takes a
+raw GraphQL filter rather than a search string, and D3FEND has no equivalent. Free-text matching against
+either corpus goes through [`DtMitre.matchTechniques`](#dtmitre).
+
+---
+
+## DtExposure
 
 **Source:** `packages/dt-core/src/dt-exposure/`
 
@@ -575,7 +869,7 @@ Manages exposures (security weaknesses) attached to model elements, plus their d
 
 > **USER-copy-delete companion.** When `deleteExposure` is called with `exposureName`, it fires a fire-and-forget `updateExposures` (`FLIP_SUPERSEDED_STALE`) that sets `dispositionStale: true` on any `SUPERSEDED` exposure whose `dispositionReason` contains the single-quote-wrapped name (`'<name>'`). The companion swallows its own errors and never blocks the delete return. When `exposureName` is omitted the companion is skipped — without a name a bare-substring match could flip unrelated dispositions.
 
-#### Example Usage
+### Example Usage
 
 ```typescript
 const dtExposure = new DtExposure(apolloClient)
@@ -597,7 +891,7 @@ await dtExposure.clearDisposition({ exposureId: 'exp-123' })
 await dtExposure.deleteExposure({ exposureId: 'exp-456', exposureName: 'SQL Injection (custom)' })
 ```
 
-#### GraphQL Definitions
+### GraphQL Definitions
 
 ```typescript
 // dt-exposure-gql.ts exports:
@@ -613,7 +907,9 @@ FLIP_SUPERSEDED_STALE // updateExposures companion (staleness flip by name)
 
 The `GET_*` / `UPDATE_EXPOSURE` selections include `dispositionKind`, `dispositionReason`, `dispositionedBy`, `dispositionedAt`, and `dispositionStale` so post-save refetches render disposition state correctly without a second round trip.
 
-### DtCountermeasure
+---
+
+## DtCountermeasure
 
 **Source:** `packages/dt-core/src/dt-countermeasure/`
 
@@ -633,7 +929,7 @@ Manages countermeasures attached to Controls, plus their disposition lifecycle. 
 
 > **USER-copy-delete companion.** `deleteCountermeasure` with `countermeasureName` fires a fire-and-forget `updateCountermeasures` (`FLIP_SUPERSEDED_COUNTERMEASURE_STALE`) that flips `dispositionStale: true` on any `SUPERSEDED` countermeasure whose `dispositionReason` contains `'<name>'`. Same skip-when-absent default as the exposure side.
 
-#### GraphQL Definitions
+### GraphQL Definitions
 
 ```typescript
 // dt-countermeasure-gql.ts exports:

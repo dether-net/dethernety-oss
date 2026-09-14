@@ -335,7 +335,7 @@ describe('module-manager embed CLI', () => {
     expect(captured[0].Authorization).toBe('Bearer sekrit');
   });
 
-  it('fails loudly on HTTP error (no retries per spec §9.3)', async () => {
+  it('fails loudly on HTTP error (a publish is never retried)', async () => {
     scaffoldOpaModule(tmp, 'mod-err', [
       { typeDir: 'component', slug: 'a', name: 'A', type: 'PROCESS' },
     ]);

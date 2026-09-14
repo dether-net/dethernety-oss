@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
  *     (WITH DISTINCT ctrl) followed by a class-collection MATCH that carries
  *     NO supportedTypes filter, so the per-class `compatible` flag is computed
  *     in the collect map rather than guaranteed true by a pre-filter. The
- *     CI §6.3 incompatible-configured penalty depends on this shape.
+ *     CONTROL_INTEGRATION.md §6.3 incompatible-configured penalty depends on this shape.
  *   - row mapping preserves mixed compatible flags and converts driver
  *     Integer-like countermeasure counts
  *   - input validation rejects empty / oversized elementTypes before any

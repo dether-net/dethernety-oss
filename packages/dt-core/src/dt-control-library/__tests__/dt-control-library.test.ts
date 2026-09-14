@@ -7,7 +7,7 @@
  * covers the pure helpers + state-machine pieces that don't need a live
  * Apollo client:
  *
- * - `setLocalEdited` two-write semantic (CL §4)
+ * - `setLocalEdited` two-write semantic (CONTROL_LIBRARY.md §4)
  * - `markTombstoned` lifecycle flip + pendingEdit preservation
  * - Brownfield Step 0 short-circuit (no platform call when nothing to push)
  * - Brownfield Step A external-edit guard
@@ -81,7 +81,7 @@ function brownfieldFile(overrides: Partial<ControlFile> = {}): ControlFile {
   };
 }
 
-describe('setLocalEdited — two-write semantic (CL §4)', () => {
+describe('setLocalEdited — two-write semantic (CONTROL_LIBRARY.md §4)', () => {
   it('first edit captures pre-edit value into previousAttributes', async () => {
     const file = brownfieldFile();
     const result = await lib.setLocalEdited({

@@ -529,11 +529,9 @@ export class DtUpdate {
         description: data.description || existingModel.description || '',
         modules: moduleIds,
         controls: controlIds,
-        // Preserve the model's current folder by passing its id, so the builder
-        // reconnects the same folder (net no-op) instead of the disconnect-all that a
-        // hardcoded `undefined` triggered on every push. `existingModel.folder` is now
-        // populated by getModelData (DUMP_MODEL_DATA selects `folder { id }`).
-        folderId: existingModel.folder?.id,
+        // No folder is sent at all. A push is not a move, and the writer now leaves a relationship
+        // it was not given alone — so saying nothing preserves the model's folder without writing the
+        // relationship, where this previously had to name the current folder to avoid a disconnect-all.
         // Asset-context scope (grouped local shape; the builder lifts it onto the
         // flat platform fields with REPLACE semantics). Absent → platform untouched.
         scope: data.scope
@@ -707,9 +705,11 @@ export class DtUpdate {
             // Explicit null classData must reach updateDataItem as null (its NONE
             // unassign path); `?.` alone would collapse it to undefined (no-op).
             classId: itemData.classData === null ? null : itemData.classData?.id,
-            // Asset-context (REPLACE on update). Local snake `regulatory_flags`.
-            sensitivity: itemData.sensitivity,
-            regulatoryFlags: itemData.regulatory_flags
+            // Asset-context (REPLACE on update). Local snake `regulatory_flags`. The push is a full
+            // sync, so a field the file omits is CLEARED — and the writer now leaves a field it was not
+            // given alone, so that clear has to be stated rather than left to an absence.
+            sensitivity: itemData.sensitivity ?? null,
+            regulatoryFlags: itemData.regulatory_flags ?? []
           })
           // Map + mark processed regardless of outcome: the item EXISTS, so it must
           // not become an orphan-delete target even if the update itself failed.

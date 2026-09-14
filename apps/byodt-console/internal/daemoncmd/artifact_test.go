@@ -227,7 +227,7 @@ func genuineArchive(t *testing.T) (archive []byte, digest string) {
 }
 
 func TestInstallArtifactPinsTheDerivedIdentity(t *testing.T) {
-	// The assertion the whole slice rests on. Every other stubbed test here and in the placement slice
+	// The assertion the rest of this file rests on. Every other stubbed test here and around placement
 	// is only an assertion about this install path because THIS one proves the seam is called with a
 	// subject derived from the request — naming this artifact at this version — rather than a pattern
 	// that would let one version's genuine bytes satisfy a request for another.

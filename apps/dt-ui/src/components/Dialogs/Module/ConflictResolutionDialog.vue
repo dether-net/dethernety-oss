@@ -4,7 +4,7 @@
   import { useModulesStore } from '@/stores/modulesStore'
 
   // Operator-facing dialog for resolving strict-mode rebind conflicts.
-  // State machine per operator-ux-spec.md §2:
+  // State machine:
   //   idle → aligning → all-success | partial-success | error
   // Each row has its own direction (adopt module id ↔ keep DB id) and
   // its own outcome — the loop executes them serially so failures surface
@@ -41,8 +41,8 @@
   const cancelRequested = ref(false)
 
   // (Re)build rows whenever the dialog is opened or the module changes.
-  // Default direction is "adopt-module-id" — the recommended workflow per
-  // operator-ux-spec.md §2 (the module is the source of truth).
+  // Default direction is "adopt-module-id" — the recommended workflow, because
+  // the module is the source of truth for class identity.
   const buildRows = () => {
     const conflicts = props.module?.rebindConflicts ?? []
     rows.value = conflicts.map((detail) => ({

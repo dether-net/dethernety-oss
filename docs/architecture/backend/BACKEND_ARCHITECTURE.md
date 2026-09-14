@@ -383,7 +383,7 @@ interface DTModule {
 
   // Results retrieval
   getAnalysisValues?(id, valueKey): Promise<object>;
-  getDocument?(id, analysisClassId, scope, filter): Promise<object>;  // Retrieve from engine's store
+  getDocument?(scope, analysisId, analysisClassId, filter): Promise<object>;  // Retrieve from engine's store
 
   // ... additional methods (templates, exposures, countermeasures)
 }
@@ -395,16 +395,18 @@ The `getDocument` method provides a unified interface to retrieve analysis resul
 
 ```typescript
 // Example: Retrieve analysis results via filter
-const results = await module.getDocument(modelId, analysisClassId, scope, {
+const results = await module.getDocument(scope, analysisId, analysisClassId, {
   document: 'index'           // Get index document
 });
 
-const details = await module.getDocument(modelId, analysisClassId, scope, {
-  namespace: ['analysis', id], // Direct store lookup
+const details = await module.getDocument(scope, analysisId, analysisClassId, {
+  namespace: ['analysis', scope, analysisId], // Direct store lookup
   key: 'threat-summary',
   attribute: 'findings'
 });
 ```
+
+The multi-key filter addresses the store directly, so its `namespace` must be an array of strings that contains the call's `scope`, and its `key` must be a string. The check is membership rather than position — the scope may appear anywhere in the namespace — so a module whose namespaces do not name the scope cannot be read through this mode. A filter that fails any of these checks returns an error object instead of a document; the `{ document: 'index' }` mode is unaffected, because its address comes from the graph configuration rather than from the caller.
 
 **Supported Analysis Engine Types:**
 

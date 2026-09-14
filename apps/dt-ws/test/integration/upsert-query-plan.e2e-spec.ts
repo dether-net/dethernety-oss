@@ -18,7 +18,7 @@
 //     Exposure nodes in the graph.
 //   - For elements with realistic finding counts (~50) this is fine.
 //   - For pathological elements (>>1000 exposures) the post-filter walk
-//     becomes the hot spot; rewriting §4.7 to start from Exposure (e.g.
+//     becomes the hot spot; rewriting the upsert to start from Exposure (e.g.
 //     `MATCH (existing:Exposure {name: ...})<-[:HAS_EXPOSURE]-(c {id: ...})`)
 //     would enable the label-property index path at the cost of changing
 //     the query shape. Deferred — current shape is sufficient for v1.
@@ -98,7 +98,7 @@ describe('scoped exposure upsert — query plan inspection', () => {
     mg = await startMemgraph();
 
     // Create the `:Exposure(name)` index that production carries via
-    // EnsureIndexesService. Currently NOT consumed by the §4.7 access
+    // EnsureIndexesService. Currently NOT consumed by the upsert's access
     // pattern under Memgraph 3.8.1 (see file docblock) but we ship it
     // because (a) it helps any future query that anchors at Exposure,
     // and (b) the spec specifies it for forward compatibility.
@@ -167,7 +167,7 @@ describe('scoped exposure upsert — query plan inspection', () => {
     };
     const plan = await captureExplainPlan(mg.driver, params);
 
-    // The §4.7 query touches HAS_EXPOSURE in three places:
+    // The upsert query touches HAS_EXPOSURE in three places:
     //   1. OPTIONAL MATCH (c)-[:HAS_EXPOSURE]->(existing) — READ Expand
     //   2. FOREACH CREATE (c)-[:HAS_EXPOSURE]->(:Exposure) — CreateExpand
     //   3. MATCH (c)-[:HAS_EXPOSURE]->(e) — READ Expand

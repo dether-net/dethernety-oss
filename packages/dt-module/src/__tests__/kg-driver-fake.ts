@@ -4,7 +4,7 @@
  * This package deliberately carries no `neo4j-driver` dependency and its tests have no graph, so
  * the session is mocked the same way `db-ops.test.ts` mocks it. What keeps that from testing a
  * fiction is where the row shapes below came from: each one is the **verbatim output** of the
- * corresponding statement run against a real Memgraph during this slice's development — including
+ * corresponding statement run against a real Memgraph — including
  * the detail no amount of reading would have produced, that an integer-valued `score` arrives
  * boxed while a float does not.
  *

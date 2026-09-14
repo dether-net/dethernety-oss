@@ -88,7 +88,11 @@ export interface DTModule {
   getAnalysisStatus?(id: string): Promise<AnalysisStatus>;
   getAnalysisValueKeys?(id: string): Promise<string[]>;
   getAnalysisValues?(id: string, valueKey: string): Promise<object>;
-  getDocument?(id: string, analysisClassId: string, scope: string, filter: object): Promise<object>;
+  // Note the order: this one leads with the SCOPE, not the analysis id, and so differs from
+  // runAnalysis/startChat above. The declaration used to copy their shape while every implementation
+  // and the only caller used this one, which made the third argument read as the scope when it is the
+  // class — and the scope is what a document filter's namespace has to name.
+  getDocument?(scope: string, analysisId: string, analysisClassId: string, filter: object): Promise<object>;
   deleteAnalysis?(id: string): Promise<boolean>;
   stopAnalysis?(id: string): Promise<boolean>;
 

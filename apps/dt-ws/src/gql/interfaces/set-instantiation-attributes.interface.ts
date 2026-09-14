@@ -228,7 +228,8 @@ export interface ConcurrentOperation {
   operationId: string;
   startTime: number;
   timeout: NodeJS.Timeout;
-  type: 'setAttributes' | 'batch';
+  // The two mutations that write an element's derived findings, plus the batch path inside the first.
+  type: 'setAttributes' | 'batch' | 'changeElementBinding';
 }
 
 // ============================================================================

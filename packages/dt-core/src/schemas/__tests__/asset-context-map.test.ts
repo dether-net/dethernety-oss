@@ -93,6 +93,28 @@ describe('localScopeToPlatform', () => {
       complianceDrivers: ['A'],
     });
   });
+  // AN EMPTY LIST IS A CLEAR. Reading the platform, `null` and `[]` both mean unset and collapsing
+  // them keeps the on-disk output deterministic; writing to it they are different instructions, and
+  // dropping the key made the clear a no-op the caller was told had succeeded.
+  it('carries an explicitly empty list through, so a clear can be written', () => {
+    expect(localScopeToPlatform({ compliance_drivers: [] })).toEqual({ complianceDrivers: [] });
+    expect(localScopeToPlatform({ exclusions: [] })).toEqual({ exclusions: [] });
+    expect(localScopeToPlatform({ trust_assumptions: [] })).toEqual({ trustAssumptions: [] });
+  });
+  // The other side of the same rule, and what keeps the two guarantees below intact: a key that is
+  // absent says nothing at all, and must not be turned into a clear.
+  it('still yields undefined when the lists are merely absent', () => {
+    expect(localScopeToPlatform({ depth: 'design' })).toEqual({ depth: 'DESIGN' });
+  });
+  // PRESENCE MEANS BEING A LIST. This direction reads a parsed file, so `null` is a value a
+  // hand-written scope can carry — and forwarded it would reach a field that admits no nulls and fail
+  // the whole model write, where before it was quietly absorbed.
+  it('treats a null list as an absence rather than sending it on', () => {
+    expect(localScopeToPlatform({ compliance_drivers: null } as any)).toBeUndefined();
+    expect(
+      localScopeToPlatform({ depth: 'design', exclusions: null } as any),
+    ).toEqual({ depth: 'DESIGN' });
+  });
   it('drops an unknown enum and yields undefined when nothing else is set', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(localScopeToPlatform({ depth: 'bogus' })).toBeUndefined();

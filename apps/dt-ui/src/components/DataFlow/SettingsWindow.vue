@@ -425,10 +425,12 @@
     if (removed.length === 0) {
       // Pure add — auto-save. saveItem() (not onSubmit()) because onSubmit gates on
       // dirtyTabs.has('general'), and toggling a checkbox doesn't mark general dirty.
-      // saveItem hits updateNode → deepMerge → updateComponentNode, which reads the
-      // just-mutated node.data.dataItems and sends the connect/disconnect to the backend.
-      selectedItem.value.data.dataItems = value
-      saveItem()
+      //
+      // The list is NOT written onto the selection here. The store applies it, and it has to be the
+      // one to do it: it reads what the list held before the edit to work out what changed, and an
+      // edit applied behind its back would make that read return the new value — an empty change, and
+      // an attachment that is never written.
+      saveItem({ dataItems: value })
       return
     }
     const removedId = removed[0]
@@ -459,9 +461,9 @@
       const currentIds: string[] = selectedItem.value.data.controls || []
       const removed = currentIds.filter(id => !value.includes(id))
       if (removed.length === 0) {
-        // Pure add — auto-save via saveItem (not onSubmit, which gates on general-tab dirty).
-        selectedItem.value.data.controls = value
-        saveItem()
+        // Pure add — auto-save via saveItem (not onSubmit, which gates on general-tab dirty). The
+        // store applies the list; see updateSelectedDataItemIds for why it must.
+        saveItem({ controls: value })
         return
       }
       const removedId = removed[0]
@@ -476,8 +478,10 @@
 
   const onRemoveControlConfirmed = () => {
     if (selectedItem.value?.data) {
-      selectedItem.value.data.controls = pendingRemovalProposedValue.value
-      saveItem()
+      // The proposed value is read into the save before the reset below: the argument is evaluated
+      // at call time and saveItem runs synchronously into the store's merge, and the reset assigns
+      // a fresh array to the ref rather than emptying this one.
+      saveItem({ controls: pendingRemovalProposedValue.value })
     }
     showRemoveControlDialog.value = false
     pendingRemoveControlName.value = ''
@@ -496,8 +500,7 @@
 
   const onRemoveDataItemConfirmed = () => {
     if (selectedItem.value?.data) {
-      selectedItem.value.data.dataItems = pendingRemovalProposedValue.value
-      saveItem()
+      saveItem({ dataItems: pendingRemovalProposedValue.value })
     }
     showRemoveDataItemDialog.value = false
     pendingRemoveDataItemName.value = ''
@@ -519,8 +522,7 @@
       controls.value.push(...newControls)
       const newSelectedControlIds = controls.value.map(control => control.id)
       if (selectedItem.value?.data) {
-        selectedItem.value.data.controls = newSelectedControlIds
-        saveItem()
+        saveItem({ controls: newSelectedControlIds })
       }
     } catch (error) {
       console.warn('Error updating selected controls:', error)
@@ -537,7 +539,36 @@
     }
   }
 
-  const saveItem = async () => {
+  // The control / data-item links a caller is changing, named so they travel in `updates`.
+  //
+  // A control id is optional on the shared Control type — a split-file model may carry a reference by
+  // name alone — so a list built from control objects can hold an undefined entry. It travels here
+  // exactly as it does today: an id that never resolves is a hazard where the mutation is built, not
+  // something to quietly drop on the way there.
+  type LinkEdit = { controls?: (string | undefined)[], dataItems?: string[] }
+
+  // A save sends what the user actually changed, and nothing else.
+  //
+  // `updates` is the only part of the payload that states intent; the rest is the element as this
+  // client last loaded it. So a link edit must be NAMED here rather than left to ride a whole-object
+  // send — and for the same reason the General fields are each gated on having moved. Naming a field
+  // the user did not touch asserts this client's load-time copy over whatever anybody else has
+  // written since, which reverts their edit with no error to either party: ticking a control used to
+  // undo a peer's rename, and a crown-jewel toggle used to undo their description.
+  //
+  // THE SELECTION IS THE BASELINE, and no second copy of it is kept. `updateForm` and
+  // `resetPendingFormDataFromSelectedItem` seed the form from `selectedItem`, and the store re-pins
+  // `selectedItem` from the server's answer after every save — so it already holds exactly "what this
+  // client last loaded", moving forward as writes land. The `|| ''` normalisation mirrors that
+  // seeding: without it a null description would read as an edit on every save, forever.
+  //
+  // `data` stays present even when it ends up empty. `editPaths` gives an object with no keys no
+  // path at all, so the projection narrows to the id and a no-op save stays a no-op instead of
+  // widening back to the whole element. The call is still made: it is what clears a fresh draft.
+  //
+  // Both branches take the links — the Data and Controls tabs render for a data flow just as they do
+  // for a node, and dt-core reads the association off the merged edge as it does off the merged node.
+  const saveItem = async (links?: LinkEdit) => {
     if (!selectedItem.value) return
     let res = false
 
@@ -547,23 +578,28 @@
     const deferred = isNode(selectedItem.value) && flowStore.isPendingNode(selectedItem.value.id)
 
     if (isNode(selectedItem.value)) {
+      const loaded = selectedItem.value.data
       res = await flowStore.updateNode({
         nodeId: selectedItem.value.id,
         updates: {
           data: {
-            label: pendingFormData.value.name,
-            description: pendingFormData.value.description,
-            crownJewel: crownJewel.value,
+            ...(pendingFormData.value.name !== (loaded.label || '') && { label: pendingFormData.value.name }),
+            ...(pendingFormData.value.description !== (loaded.description || '') && { description: pendingFormData.value.description }),
+            ...(crownJewel.value !== (loaded?.crownJewel === true) && { crownJewel: crownJewel.value }),
+            ...links,
           },
         },
       })
     } else if (isEdge(selectedItem.value)) {
+      const loadedLabel = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
+      const loadedDescription = selectedItem.value.data?.description || ''
       res = await flowStore.updateDataFlow({
         edgeId: selectedItem.value.id,
         updates: {
-          label: pendingFormData.value.name,
+          ...(pendingFormData.value.name !== loadedLabel && { label: pendingFormData.value.name }),
           data: {
-            description: pendingFormData.value.description,
+            ...(pendingFormData.value.description !== loadedDescription && { description: pendingFormData.value.description }),
+            ...links,
           },
         },
       })

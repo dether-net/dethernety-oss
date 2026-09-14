@@ -129,3 +129,41 @@ describe('DtUpdate — data-item association threading (create follow-ups)', () 
     expect(updateSpy.mock.calls[0][0].updatedNode.data.dataItems).toEqual(['D1']);
   });
 });
+
+/**
+ * The push is a full sync, so a field the file omits is CLEARED — and the writer now leaves a field it
+ * was not given alone. That makes this the control the whole data-item narrowing rests on: without it
+ * the gate would silently turn the full sync into a partial one, and a push would stop being able to
+ * remove a classification somebody had set by hand.
+ */
+describe('DtUpdate — the data-item push states its clears rather than implying them', () => {
+  const pushItem = async (itemData: Record<string, unknown>) => {
+    const dtUpdate = new DtUpdate({} as any) as any;
+    dtUpdate.existingDataitemIds = new Set(['d1']);
+    const spy = vi.fn().mockResolvedValue({ residualOk: true, dataItem: { id: 'd1' }, bindingResult: null });
+    dtUpdate.dtDataitem.updateDataItem = spy;
+
+    await dtUpdate.updateDataItems([{ id: 'd1', name: 'D', ...itemData }]);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    return spy.mock.calls[0][0];
+  };
+
+  it('sends an explicit clear for an asset-context field the file omits', async () => {
+    const args = await pushItem({});
+    expect(args.sensitivity).toBeNull();
+    expect(args.regulatoryFlags).toEqual([]);
+  });
+
+  // The control. A clear that fired for every push would be the same data loss from the other side.
+  it('sends the values the file does carry', async () => {
+    const args = await pushItem({ sensitivity: 'restricted', regulatory_flags: ['PCI cardholder'] });
+    expect(args.sensitivity).toBe('restricted');
+    expect(args.regulatoryFlags).toEqual(['PCI cardholder']);
+  });
+
+  it('still names the item and its description, so the clear is not all it writes', async () => {
+    const args = await pushItem({ description: 'd' });
+    expect(args).toMatchObject({ dataItemId: 'd1', name: 'D', description: 'd' });
+  });
+});

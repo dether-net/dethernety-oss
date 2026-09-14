@@ -82,6 +82,19 @@ function failureEnvelope(
   };
 }
 
+/**
+ * Raised from inside the guarded transaction so that the ROLLBACK is the refusal's own mechanism:
+ * nothing a refused call did survives it, including the lock it took in order to read under. Carries no
+ * driver error code, so the managed transaction does not classify it as retriable — it propagates once,
+ * after the rollback, and the caller maps it to an envelope.
+ */
+class DispositionRefused extends Error {
+  constructor(readonly refusal: 'SUPERSEDED' | 'NOT_FOUND') {
+    super(refusal);
+    this.name = 'DispositionRefused';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Service.
 // Implements disposeExposure + clearDisposition: validation, identity
@@ -184,35 +197,6 @@ export class DispositionResolverService {
       return failureEnvelope(findingId, 'VALIDATION_ERROR', msg);
     }
 
-    // ===== SUPERSEDED -> AFFIRMED guard =====
-    // Affirming a superseded finding would resurrect a retired row into a second
-    // live (confirmed) finding for one risk, double-counting it. The UI never
-    // offers affirm on a disposed row; this rejects the direct-GraphQL /
-    // programmatic path. AFFIRMED-only pre-read keeps the common dispose path
-    // unchanged. Plain MATCH/RETURN (Memgraph-safe); a missing node returns null
-    // here and falls through to the not-found path in the write block below.
-    if (kind === 'AFFIRMED') {
-      const guardSession = this.neo4jDriver.session({
-        database: this.configService.get('database.name'),
-      });
-      try {
-        const current = await guardSession.executeRead(async (tx: any) => {
-          const r = await tx.run(
-            `MATCH (n:${label} {id: $id}) RETURN n.dispositionKind AS k`,
-            { id: findingId },
-          );
-          return r.records.length === 0 ? null : (r.records[0].get('k') ?? null);
-        });
-        if (current === 'SUPERSEDED') {
-          const msg = `Cannot affirm a superseded ${label.toLowerCase()}`;
-          this.logFailure('dispose', opName, operationId, actor, findingId, kind, msg, 'VALIDATION_ERROR', startedAt);
-          return failureEnvelope(findingId, 'VALIDATION_ERROR', msg);
-        }
-      } finally {
-        await guardSession.close();
-      }
-    }
-
     // ===== Cypher =====
     // Single SET writes all five disposition fields atomically. The
     // `coalesce(n.dispositionStale, false) AS wasStale` snapshot pre-SET is the
@@ -224,6 +208,39 @@ export class DispositionResolverService {
 
     try {
       const record = await session.executeWrite(async (tx: any) => {
+        // ===== SUPERSEDED -> AFFIRMED guard =====
+        // Affirming a superseded finding would resurrect a retired row into a second live (confirmed)
+        // finding for one risk, double-counting it. The UI never offers affirm on a disposed row; this
+        // rejects the direct-GraphQL / programmatic path.
+        //
+        // IT READS INSIDE THE WRITE'S OWN TRANSACTION, which is the whole of the fix. Read in a separate
+        // session, the read saw a snapshot taken before a competing supersede committed, and the managed
+        // retry then re-ran the WRITE alone — so a supersede landing mid-flight did not merely slip past
+        // the guard: the retry machinery carried the affirm over it.
+        if (kind === 'AFFIRMED') {
+          // Take the row's lock with a REAL value change, before anything is read from it. A no-op
+          // self-assignment would not serve: a planner may hoist a read past a write to a different
+          // property, and assigning null to null may not be a write at all — which is the common case on
+          // a finding nobody has disposed. No rows means no such finding, which is a different answer
+          // from a refusal and is encoded as one.
+          const locked = await tx.run(
+            `MATCH (n:${label} {id: $id})
+             SET n.dispositionLockRev = coalesce(n.dispositionLockRev, 0) + 1
+             RETURN n.id AS id`,
+            { id: findingId },
+          );
+          if (locked.records.length === 0) throw new DispositionRefused('NOT_FOUND');
+
+          // A FRESH statement: the read must not be foldable into the write above.
+          const current = await tx.run(
+            `MATCH (n:${label} {id: $id}) RETURN n.dispositionKind AS k`,
+            { id: findingId },
+          );
+          if ((current.records[0]?.get('k') ?? null) === 'SUPERSEDED') {
+            throw new DispositionRefused('SUPERSEDED');
+          }
+        }
+
         const result = await tx.run(
           `
           MATCH (n:${label} {id: $id})
@@ -295,6 +312,19 @@ export class DispositionResolverService {
         errorMessage: null,
       };
     } catch (error: any) {
+      // The guard's two answers, which reach here because refusing means rolling back. They stay
+      // distinguishable: one says this finding may not be affirmed, the other says there is no such
+      // finding.
+      if (error instanceof DispositionRefused) {
+        const refusedCode: DispositionErrorCode =
+          error.refusal === 'SUPERSEDED' ? 'VALIDATION_ERROR' : 'EXPOSURE_NOT_FOUND';
+        const refusedMsg =
+          error.refusal === 'SUPERSEDED'
+            ? `Cannot affirm a superseded ${label.toLowerCase()}`
+            : `${label} ${findingId} not found`;
+        this.logFailure('dispose', opName, operationId, actor, findingId, kind, refusedMsg, refusedCode, startedAt);
+        return failureEnvelope(findingId, refusedCode, refusedMsg);
+      }
       const msg = safeErrorMessage(error);
       this.logFailure('dispose', opName, operationId, actor, findingId, kind, msg, 'DATABASE_ERROR', startedAt);
       return failureEnvelope(findingId, 'DATABASE_ERROR', msg);

@@ -17,6 +17,8 @@
 //   - D4 guard regression: module-supplied disposition fields stripped by
 //     EXPOSURE_ATTR_KEYS allowlist; existing disposition unchanged after
 //     a sanitiseExposureAttrs() round-trip.
+//   - a supersede committed while an affirm is in flight: refused, with the
+//     non-supersede control, the byte-identical refused row, and the lock
 
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
@@ -489,7 +491,7 @@ describe('DispositionResolverService — disposition mutations (e2e)', () => {
       expect(stored.dispositionedBy).toBe(TEST_USER_SUB);
     });
 
-    it('affirming a missing finding returns not-found (guard null pre-read does not mask EXPOSURE_NOT_FOUND)', async () => {
+    it('affirming a missing finding returns not-found, not a refusal (the lock statement matches no row)', async () => {
       const result = await svc.disposeExposure(
         { exposureId: 'no-such-e', kind: 'AFFIRMED', reason: 'Confirmed' },
         makeAuthCtx(),
@@ -580,6 +582,135 @@ describe('DispositionResolverService — disposition mutations (e2e)', () => {
       expect(sanitised).not.toHaveProperty('dispositionedBy');
       expect(sanitised).not.toHaveProperty('dispositionedAt');
       expect(sanitised).not.toHaveProperty('dispositionStale');
+    });
+  });
+
+  // =========================================================================
+  // A supersede landing while the affirm is in flight.
+  //
+  // The guard's read and the guarded write are one managed transaction, so the
+  // driver's retry re-runs the READ as well as the write. With the read in a
+  // separate session the retry re-ran the write alone, and walked the affirm
+  // straight past a guard that had already decided.
+  //
+  // The competing supersede is held in an uncommitted explicit transaction:
+  // racing two clients leaves a window too small to reproduce.
+  // =========================================================================
+  describe('a supersede committed while the affirm is in flight', () => {
+    const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    it('refuses the affirm, and the superseded row keeps its own attribution', async () => {
+      await seedExposure(mg.driver, 'e-race', {
+        dispositionKind: 'NOT_APPLICABLE',
+        dispositionReason: 'Was NA',
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      const holder = mg.driver.session();
+      const held = holder.beginTransaction();
+      await held.run(
+        `MATCH (e:Exposure {id: $id})
+         SET e.dispositionKind   = 'SUPERSEDED',
+             e.dispositionReason = "Superseded by user-authored exposure 'x'",
+             e.dispositionedBy   = 'auth0|superseder',
+             e.dispositionedAt   = '2026-02-02T00:00:00.000Z'`,
+        { id: 'e-race' },
+      );
+
+      const affirm = svc.disposeExposure(
+        { exposureId: 'e-race', kind: 'AFFIRMED', reason: 'Confirmed as a live risk' },
+        makeAuthCtx(),
+      );
+      await settle(250);
+      await held.commit();
+      await holder.close();
+
+      const result = await affirm;
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('VALIDATION_ERROR');
+      expect(String(result.errorMessage)).toContain('superseded');
+
+      const stored = await readExposure(mg.driver, 'e-race');
+      expect(stored.dispositionKind).toBe('SUPERSEDED');
+      expect(stored.dispositionedBy).toBe('auth0|superseder');
+    });
+
+    it('still affirms when the concurrent write is not a supersede — the control', async () => {
+      await seedExposure(mg.driver, 'e-ctl', {
+        dispositionKind: 'NOT_APPLICABLE',
+        dispositionReason: 'Was NA',
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      const holder = mg.driver.session();
+      const held = holder.beginTransaction();
+      await held.run(
+        `MATCH (e:Exposure {id: $id}) SET e.name = 'renamed under a held transaction'`,
+        { id: 'e-ctl' },
+      );
+
+      const affirm = svc.disposeExposure(
+        { exposureId: 'e-ctl', kind: 'AFFIRMED', reason: 'Confirmed as a live risk' },
+        makeAuthCtx(),
+      );
+      await settle(250);
+      await held.commit();
+      await holder.close();
+
+      // Contention is not the refusal. Without this, a guard that refused on any conflicting write
+      // would pass the case above and be wrong.
+      const result = await affirm;
+      expect(result.success).toBe(true);
+      expect(result.dispositionKind).toBe('AFFIRMED');
+
+      const stored = await readExposure(mg.driver, 'e-ctl');
+      expect(stored.dispositionKind).toBe('AFFIRMED');
+      expect(stored.name).toBe('renamed under a held transaction');
+    });
+
+    it('a refused affirm writes nothing at all, the lock it took included', async () => {
+      await seedExposure(mg.driver, 'e-intact', {
+        dispositionKind: 'SUPERSEDED',
+        dispositionReason: "Superseded by user-authored exposure 'x'",
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const before = await readExposure(mg.driver, 'e-intact');
+
+      const result = await svc.disposeExposure(
+        { exposureId: 'e-intact', kind: 'AFFIRMED', reason: 'Attempt to affirm' },
+        makeAuthCtx(),
+      );
+      expect(result.success).toBe(false);
+
+      // The whole property map, not the disposition fields: the refusal rolls its own transaction
+      // back, so the lock it took to read under does not survive it either.
+      const after = await readExposure(mg.driver, 'e-intact');
+      expect(after).toEqual(before);
+    });
+
+    it('a successful affirm advances the guard lock — the construction, not a race', async () => {
+      // A STRUCTURAL pin, and it is not offered as anything else: it says the lock statement ran before
+      // the read. On snapshot isolation no behavioural test can show what that statement buys, because
+      // the engine closes the window without it.
+      await seedExposure(mg.driver, 'e-lock', {
+        dispositionKind: 'NOT_APPLICABLE',
+        dispositionReason: 'Was NA',
+        dispositionedBy: 'auth0|prior',
+        dispositionedAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(await readExposure(mg.driver, 'e-lock')).not.toHaveProperty('dispositionLockRev');
+
+      const result = await svc.disposeExposure(
+        { exposureId: 'e-lock', kind: 'AFFIRMED', reason: 'Confirmed as a live risk' },
+        makeAuthCtx(),
+      );
+      expect(result.success).toBe(true);
+
+      const stored = await readExposure(mg.driver, 'e-lock');
+      expect(String(stored.dispositionLockRev)).toBe('1');
     });
   });
 });

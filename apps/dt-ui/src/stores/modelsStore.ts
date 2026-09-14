@@ -152,11 +152,12 @@ export const useModelsStore = defineStore('models', () => {
     }
   }
 
-  const validateUpdateRequest = (data: { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined }): string[] => {
+  const validateUpdateRequest = (data: { id: string, name?: string }): string[] => {
     const errors: string[] = []
     if (!data.id?.trim()) errors.push('Model ID is required')
-    if (!data.name?.trim()) errors.push('Name is required')
-    // if (!data.modules?.length) errors.push('At least one module is required')
+    // An update is partial: a field that is not supplied is not being written, so there is nothing to
+    // validate about it. A name that IS supplied still cannot be blank.
+    if (data.name !== undefined && !data.name.trim()) errors.push('Name is required')
     return errors
   }
 
@@ -167,15 +168,29 @@ export const useModelsStore = defineStore('models', () => {
     }
   }
 
+  /**
+   * Write PART of a model. Every field but the id is optional, and one that is not supplied is not
+   * written — so a caller can send the rename it made instead of the whole model as it last loaded it,
+   * and stop reverting what somebody else changed in between.
+   *
+   * `baselineControls` is what the caller knew the control list to be before its own edit. With it the
+   * control write is a delta and two people's additions compose; without it the list is asserted whole.
+   *
+   * Returns the updated model rather than a flag, because a caller holding a baseline needs the
+   * server's answer to re-pin it — a baseline that drifts re-offers an id that is already attached.
+   */
   const updateModel = async (
-    { id, name, description, modules, controls, folderId, scope }:
-    { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined, scope?: ModelScopeLocal }
-  ): Promise<boolean> => {
+    { id, name, description, modules, controls, folderId, scope, baselineControls }:
+    {
+      id: string, name?: string, description?: string, modules?: string[], controls?: string[],
+      folderId?: string, scope?: ModelScopeLocal, baselineControls?: string[],
+    }
+  ): Promise<Model | null> => {
     // Validate input
-    const validationErrors = validateUpdateRequest({ id, name, description, modules, controls, folderId })
+    const validationErrors = validateUpdateRequest({ id, name })
     if (validationErrors.length > 0) {
       error.value = validationErrors.join(', ')
-      return false
+      return null
     }
 
     // Check if model exists in store (for rollback capability)
@@ -184,13 +199,17 @@ export const useModelsStore = defineStore('models', () => {
 
     // Only do optimistic update if we have the model in store
     if (hasLocalModel) {
-      const optimisticModel = { 
+      // Merge ONLY what is being written. Rebuilding the whole record would blank in the store exactly
+      // the fields this write is leaving alone — a rename would empty the module list on screen.
+      const optimisticModel = {
         ...originalModel,
-        name, 
-        description, 
-        modules: modules.map(moduleId => ({ id: moduleId, name: '' })),
-        controls: controls?.map(controlId => ({ id: controlId, name: '', description: '' })) || [],
-        folderId 
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(modules !== undefined && { modules: modules.map(moduleId => ({ id: moduleId, name: '' })) }),
+        ...(controls !== undefined && {
+          controls: controls.map(controlId => ({ id: controlId, name: '', description: '' })),
+        }),
+        ...(folderId !== undefined && { folderId }),
       } as Model
       syncModelUpdate(optimisticModel)
     }
@@ -198,13 +217,25 @@ export const useModelsStore = defineStore('models', () => {
     try {
       isUpdating.value = true
       error.value = ''
-      const updatedModel = await dtModel.updateModel({ id, name, description, modules, controls, folderId, scope })
-      
+      const updatedModel = await dtModel.updateModel({
+        id,
+        // Spread rather than pass through: a key present and undefined is not the same thing to read
+        // as a key that is absent, and the boundary is easier to reason about when only what is being
+        // written travels across it.
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(modules !== undefined && { modules }),
+        ...(controls !== undefined && { controls }),
+        ...(folderId !== undefined && { folderId }),
+        ...(scope !== undefined && { scope }),
+        ...(baselineControls !== undefined && { baselineLinks: { controls: baselineControls } }),
+      })
+
       // Update store if we have the model locally
       if (hasLocalModel) {
         syncModelUpdate(updatedModel)
       }
-      return true
+      return updatedModel
     } catch (err) {
       // Rollback optimistic update only if we had local model
       if (hasLocalModel && originalModel) {

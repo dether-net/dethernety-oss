@@ -104,13 +104,30 @@
   // offers no reordering, so a plain JSON compare is a faithful dirty signal.
   const flagsEqual = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b)
 
+  /**
+   * What the user actually changed, as the payload to send.
+   *
+   * A field that matches `initialState` is not written. That matters beyond tidiness: everything in
+   * `initialState` is a snapshot taken when the dialog opened, so writing it back asserts a view of the
+   * item that may be minutes old — and for the asset-context pair the writer used to read an absence as
+   * a CLEAR, which made sending them the only safe option and reverting somebody else's classification
+   * the price of it.
+   *
+   * A cleared sensitivity travels as an explicit `null` and cleared flags as an empty list, because
+   * those are edits rather than absences.
+   */
+  const generalEdit = () => ({
+    ...(name.value !== initialState.value.name && { name: name.value }),
+    ...(description.value !== initialState.value.description && { description: description.value }),
+    ...(dataClass.value !== initialState.value.dataClass && { classId: dataClass.value }),
+    ...(sensitivity.value !== initialState.value.sensitivity && { sensitivity: sensitivity.value }),
+    ...(!flagsEqual(regulatoryFlags.value, initialState.value.regulatoryFlags) && {
+      regulatoryFlags: [...regulatoryFlags.value],
+    }),
+  })
+
   const isDirty = computed(() =>
-    name.value !== initialState.value.name ||
-    description.value !== initialState.value.description ||
-    dataClass.value !== initialState.value.dataClass ||
-    sensitivity.value !== initialState.value.sensitivity ||
-    !flagsEqual(regulatoryFlags.value, initialState.value.regulatoryFlags) ||
-    attributesDirty.value
+    Object.keys(generalEdit()).length > 0 || attributesDirty.value
   )
 
   const router = useRouter()
@@ -333,21 +350,12 @@
     
     if (action.value === 'edit' && dataId.value) {
       try {
-        const generalDirty =
-          name.value !== initialState.value.name ||
-          description.value !== initialState.value.description ||
-          dataClass.value !== initialState.value.dataClass ||
-          sensitivity.value !== initialState.value.sensitivity ||
-          !flagsEqual(regulatoryFlags.value, initialState.value.regulatoryFlags)
+        const edit = generalEdit()
 
-        if (generalDirty) {
+        if (Object.keys(edit).length > 0) {
           const success = await flowStore.updateDataItem({
             dataItemId: dataId.value,
-            name: name.value,
-            description: description.value,
-            classId: dataClass.value,
-            sensitivity: sensitivity.value,
-            regulatoryFlags: regulatoryFlags.value,
+            ...edit,
           })
           if (!success) {
             emit('update:snackBar', { show: true, message: 'Failed to update data entity', color: 'error' })
@@ -533,10 +541,11 @@
     issueExposureId.value = ''
   }
 
-  // Test seam — expose the discard/revert internals asserted by DataDialog.test.ts
-  // (discard-and-change-class reverts all edited fields, not just name/description).
+  // Test seam — expose the internals DataDialog.test.ts drives: the discard/revert path (which must
+  // revert every edited field, not just name/description) and the save itself, since what a save
+  // CARRIES is the thing under test and there is no other way to reach it from outside.
   defineExpose({
-    onClassChangeDiscard, name, description, dataClass,
+    onClassChangeDiscard, onSubmit, name, description, dataClass,
     sensitivity, regulatoryFlags, attributesDirty, pendingClassId, initialState,
   })
 

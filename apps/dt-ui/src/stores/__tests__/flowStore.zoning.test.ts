@@ -92,7 +92,12 @@ describe('flowStore — conduit baseline snapshot before merge', () => {
     expect(arg.updatedNode.data.conduits).toEqual([{ peerId: 'p1', direction: 'OUTBOUND', justification: 'edited' }])
   })
 
-  it('a position-only save passes baselineConduits === current conduits (empty delta → no duplicate edge)', async () => {
+  // This used to assert that a position-only save passed a baseline EQUAL to the current conduits, so
+  // that the delta came out empty. The guarantee is now stronger and arrives earlier: such a save does
+  // not carry a conduit buffer at all, so there is nothing for the writer to reconcile. The baseline is
+  // still threaded, unchanged — it is read off the live node before the merge, and it is what the
+  // association deltas will be computed against.
+  it('a position-only save carries no conduit buffer at all, and still threads the baseline', async () => {
     const store = useFlowStore()
     const current = [{ peerId: 'p1', direction: 'OUTBOUND', justification: 'orig' }]
     seed(store, current)
@@ -101,8 +106,8 @@ describe('flowStore — conduit baseline snapshot before merge', () => {
     await store.updateNode({ nodeId: 'b1', updates: { position: { x: 5, y: 5 } } })
 
     const arg = updateBoundaryNodeMock.mock.calls[0][0]
-    expect(arg.baselineConduits).toEqual(arg.updatedNode.data.conduits)
-    expect(arg.updatedNode.data.conduits).toEqual(current)
+    expect(arg.updatedNode.data?.conduits).toBeUndefined()
+    expect(arg.baselineConduits).toEqual(current)
   })
 })
 
