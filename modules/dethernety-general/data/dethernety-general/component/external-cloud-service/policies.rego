@@ -17,14 +17,6 @@ _over_privileged_wildcard_iam_to_the_service_def := {
             "attributes": {
                 "justification": "Wildcard/over-privileged IAM means a single leaked or assumed credential confers broad, legitimate-looking access to the cloud service \u2014 valid-account abuse via cloud accounts that bypasses access controls and blends with normal traffic."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1098.003",
-            "attributes": {
-                "justification": "Full-admin / wildcard policies attached to consuming roles are the standing over-privilege that Additional Cloud Roles abuse depends on \u2014 an actor who can assume or has been granted such a role inherits broad cloud-service privileges."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -90,18 +82,6 @@ _public_exposure_insecure_default_config_of_the_consumed_resource_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1530",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1619",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1190",
             "attributes": {}
         }
     ],
@@ -216,12 +196,6 @@ _service_credentials_harvested_from_files_or_cloud_metadata_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1555.006",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1552",
             "attributes": {}
         }
@@ -248,26 +222,7 @@ _unmonitored_access_exfiltration_over_the_trusted_service_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1685.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1537",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

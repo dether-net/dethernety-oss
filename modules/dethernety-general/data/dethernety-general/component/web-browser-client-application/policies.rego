@@ -73,14 +73,6 @@ _token_session_theft_from_insecure_client_storage_def := {
             "attributes": {
                 "justification": "Web Session Cookie \u2014 the adversary replays the stolen session cookie/token to authenticate and hijack the account without credentials."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1555.003",
-            "attributes": {
-                "justification": "Credentials from Web Browsers \u2014 tokens/JWTs persisted in JS-readable browser storage are harvested by a malicious extension or local access."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -129,14 +121,6 @@ _session_hijacking_over_insecure_transport_mixed_content_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1185",
-            "attributes": {
-                "justification": "Browser Session Hijacking: the attacker rides the authenticated browser session after capturing the session material in transit."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1539",
             "attributes": {
                 "justification": "Steal Web Session Cookie: a session cookie lacking the Secure flag and transmitted over cleartext is captured and replayed."
@@ -177,19 +161,7 @@ _client_side_supply_chain_compromise_cdn_npm_no_sri_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1195.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1195.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1204.005",
             "attributes": {}
         }
     ],
@@ -219,24 +191,7 @@ _clickjacking_ui_redress_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.4,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1185",
-            "attributes": {
-                "justification": "A framable page enables an attacker iframe to overlay decoy UI and ride the authenticated browser session via tricked clicks (browser session hijacking)."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1056.002",
-            "attributes": {
-                "justification": "UI-redress overlays a decoy interface to capture the user's intended GUI input/clicks on the embedded application."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -259,20 +214,7 @@ _overly_permissive_cors_unvalidated_postmessage_origin_def := {
     "category": "",
     "criticality": "high",
     "score": 7.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1539",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1550.004",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -318,12 +260,6 @@ _sensitive_data_cached_persisted_client_side_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1555.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1217",
             "attributes": {}
         }
@@ -358,14 +294,10 @@ _server_relying_on_client_side_validation_authorization_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1565",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1556",
-            "attributes": {}
+            "value": "T1190",
+            "attributes": {
+                "justification": "A server that honors client-asserted roles or enforces rules only in the UI has a weakness in its Internet-facing application, which an adversary exploits by calling the API directly with forged claims (Exploit Public-Facing Application, T1190)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

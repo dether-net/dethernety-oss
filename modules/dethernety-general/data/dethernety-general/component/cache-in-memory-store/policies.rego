@@ -15,12 +15,6 @@ _unauthenticated_internet_exposed_instance_def := {
             "property": "attack_id",
             "value": "T1190",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1133",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -52,24 +46,6 @@ _cleartext_transport_interception_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1040",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1557",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1689",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1048.003",
             "attributes": {}
         }
     ],
@@ -146,14 +122,10 @@ _redishell_lua_sandbox_escape_to_rce_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1059.011",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1190",
-            "attributes": {}
+            "value": "T1210",
+            "attributes": {
+                "justification": "CVE-2025-49844, a use-after-free in the Redis Lua engine, lets an adversary with network access to the cache escape the sandbox and run native code on the host (Exploitation of Remote Services, T1210)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -216,12 +188,6 @@ _memory_exhaustion_denial_of_service_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1499.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499.001",
             "attributes": {}
         }
     ],

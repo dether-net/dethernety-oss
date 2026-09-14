@@ -15,12 +15,6 @@ _smbv1_wormable_remote_code_execution_def := {
             "property": "attack_id",
             "value": "T1210",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021.002",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -55,14 +49,10 @@ _over_broad_world_readable_shares_least_privilege_failure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1135",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1222",
-            "attributes": {}
+            "value": "T1565.001",
+            "attributes": {
+                "justification": "An Everyone full-control SMB ACL or wildcard read-write NFS export lets any reachable principal insert, delete or alter files at rest on the shared volume (Stored Data Manipulation, T1565.001)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -105,7 +95,7 @@ _anonymous_guest_null_session_access_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1021.002",
+            "value": "T1039",
             "attributes": {}
         }
     ],
@@ -145,14 +135,10 @@ _smb_relay_signing_downgrade_and_cleartext_interception_aitm_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1187",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021.002",
-            "attributes": {}
+            "value": "T1040",
+            "attributes": {
+                "justification": "Without mandatory SMB signing and encryption, an adjacent adversary can passively capture file-share traffic, including NTLM authentication exchanges and file contents sent in the clear (Network Sniffing, T1040)."
+            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -193,17 +179,17 @@ _nfs_no_root_squash_privilege_escalation_data_tampering_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1068",
+            "value": "T1565.001",
             "attributes": {
-                "justification": "An NFS export with no_root_squash trusts client-supplied UID 0, letting a client-root attacker write files as root on the server (e.g. drop a SUID-root binary) to escalate privilege on the storage host."
+                "justification": "no_root_squash maps a client's root user to root on the server, so an adversary with root on any client can modify or delete server files at rest (Stored Data Manipulation, T1565.001)."
             }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1222",
+            "value": "T1548.001",
             "attributes": {
-                "justification": "Client root retained via no_root_squash can modify server-side file and directory permissions/ACLs and tamper with data, matching File and Directory Permissions Modification."
+                "justification": "With no_root_squash, a client-root adversary can plant a root-owned setuid binary on the export and execute it with root privileges on every host that mounts the share (Setuid and Setgid, T1548.001)."
             }
         }
     ],
@@ -287,7 +273,7 @@ _internet_exposed_unsegmented_file_sharing_service_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1135",
+            "value": "T1110",
             "attributes": {}
         }
     ],
@@ -350,12 +336,6 @@ _bulk_data_exfiltration_without_dlp_or_access_auditing_def := {
             "property": "attack_id",
             "value": "T1039",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1048.003",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -395,12 +375,6 @@ _unpatched_nas_appliance_firmware_online_brute_force_surface_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1110",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1542.002",
             "attributes": {}
         }
     ],

@@ -29,17 +29,9 @@ _cleartext_transport_tls_strip_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1048.003",
+            "value": "T1557",
             "attributes": {
-                "justification": "Cleartext channel enables exfiltration over an unencrypted non-C2 protocol observable to any on-path attacker."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
-            "attributes": {
-                "justification": "Plain HTTP web-protocol traffic is trivially read and tampered with on the wire by an adversary on path."
+                "justification": "Plain HTTP, or HTTPS that can be TLS-stripped because HSTS is absent, lets an adversary on the network path place themselves between client and API to read tokens and inject responses (Adversary-in-the-Middle, T1557)."
             }
         }
     ],
@@ -107,12 +99,6 @@ _adversary_in_the_middle_via_skipped_certificate_validation_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1553.004",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -143,12 +129,6 @@ _stolen_bearer_token_replay_def := {
             "property": "attack_id",
             "value": "T1550.001",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1134.001",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -178,20 +158,10 @@ _jwt_signature_bypass_alg_none_alg_confusion_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1550.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1134.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1606.001",
-            "attributes": {}
+            "value": "T1606",
+            "attributes": {
+                "justification": "A receiver that trusts the token's own alg header, accepts none, or confuses HS256 with RS256 lets an adversary mint new JWTs with arbitrary claims and impersonate any principal on the flow (Forge Web Credentials, T1606)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -268,14 +238,6 @@ _server_side_request_forgery_via_outbound_flow_def := {
             "attributes": {
                 "justification": "Unrestricted outbound fetch reaches 169.254.169.254 to steal IAM role credentials from the cloud instance metadata API."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1537",
-            "attributes": {
-                "justification": "SSRF-driven egress to attacker-controlled cloud storage enables data exfiltration to an external cloud account."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -309,12 +271,6 @@ _over_scoped_wrong_audience_token_abuse_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1550.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
             "attributes": {}
         }
     ],

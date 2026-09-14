@@ -15,6 +15,14 @@ _authorization_code_interception_and_replay_def := {
             "property": "attack_id",
             "value": "T1550.001",
             "attributes": {}
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1528",
+            "attributes": {
+                "justification": "An authorization code leaked via Referer, client mix-up or a malicious app can be exchanged at /token when PKCE is absent or codes are reusable, giving the adversary the victim's access token (Steal Application Access Token, T1528)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -95,12 +103,6 @@ _id_token_replay_via_missing_or_unchecked_nonce_def := {
             "property": "attack_id",
             "value": "T1550",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1134.003",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -121,14 +123,7 @@ _login_csrf_via_missing_or_unbound_state_parameter_def := {
     "category": "",
     "criticality": "high",
     "score": 7.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1539",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -151,9 +146,17 @@ _redirect_uri_pattern_match_open_redirect_exploit_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1566.002",
+            "value": "T1528",
             "attributes": {
-                "justification": "Spearphishing Link \u2014 broken redirect_uri matching and open returnTo redirects let an attacker craft an IdP-origin link that steers the authorization response (or the post-login navigation) to an attacker-controlled URL, the classic phishing-by-trusted-redirect pattern called out in RFC 9700 \u00a72.1.3 / \u00a74.10."
+                "justification": "Loose redirect_uri matching or an open returnTo redirect sends the authorization response to an attacker origin, delivering the victim's code or token straight to the adversary (Steal Application Access Token, T1528)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "Once a permissive redirect_uri delivers the victim's authorization code or token to an attacker origin, the adversary presents that token to the relying party in place of logging in (Application Access Token, T1550.001)."
             }
         }
     ],
@@ -183,14 +186,18 @@ _saml_signature_wrapping_replay_and_audience_confusion_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1606.002",
-            "attributes": {}
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "Replaying a still-valid AssertionID or presenting an assertion issued for a different service provider reuses a legitimately issued SAML token to authenticate without the user's credentials (Application Access Token, T1550.001)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1556",
-            "attributes": {}
+            "value": "T1606",
+            "attributes": {
+                "justification": "XML signature wrapping places attacker-authored assertion content beside a genuine signed element so the service provider accepts forged claims, producing a forged SAML credential (Forge Web Credentials, T1606)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -299,14 +306,10 @@ _secrets_in_url_leaking_via_referer_logs_and_browser_history_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1217",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1555.003",
-            "attributes": {}
+            "value": "T1552",
+            "attributes": {
+                "justification": "Passwords, authorization codes and tokens carried in query strings are written into proxy and access logs and browser history, leaving plaintext credentials an adversary can harvest from those locations (Unsecured Credentials, T1552)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -336,12 +339,6 @@ _bearer_access_token_theft_and_replay_from_a_different_sender_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1550.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1134.001",
             "attributes": {}
         }
     ],

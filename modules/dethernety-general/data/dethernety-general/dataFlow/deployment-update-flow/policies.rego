@@ -15,12 +15,6 @@ _unsigned_unverified_artifact_admitted_slsa_bypass_def := {
             "property": "attack_id",
             "value": "T1195.002",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1677",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -100,14 +94,10 @@ _deploy_triggered_from_unprotected_branch_fork_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1195.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
+            "value": "T1677",
+            "attributes": {
+                "justification": "A deploy workflow that fires on a push to any branch, with no environment protection rule, lets an adversary with branch or fork access modify the pipeline definition and run it against production (Poisoned Pipeline Execution, T1677)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -198,7 +188,7 @@ _mutable_tag_swap_after_verification_no_digest_pinning_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1036",
+            "value": "T1525",
             "attributes": {}
         },
         {
@@ -230,7 +220,7 @@ _no_central_audit_of_deploy_events_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.002",
+            "value": "T1685",
             "attributes": {}
         },
         {
@@ -262,20 +252,7 @@ _out_of_band_drift_in_running_config_undetected_def := {
     "category": "",
     "criticality": "high",
     "score": 7.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1098.006",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1685",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

@@ -21,12 +21,6 @@ _public_access_exposure_anonymous_read_write_def := {
             "property": "attack_id",
             "value": "T1619",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1213",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -287,32 +281,7 @@ _insufficient_logging_undetected_exfiltration_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.9,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567",
-            "attributes": {
-                "justification": "Exfiltration over the storage web service (S3/GCS/Azure Blob/MinIO API) goes undetected when object-level data-event logging and exfil anomaly detection are absent."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1530",
-            "attributes": {
-                "justification": "Bulk reads of objects from cloud storage are the exfiltration action that the missing access logging / data events fail to record."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1685.002",
-            "attributes": {
-                "justification": "Absent or co-located, deletable cloud logs (no separate tamper-resistant log store) leave the same blind spot an adversary achieves by disabling cloud logs."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -346,14 +315,6 @@ _known_cve_exposure_open_network_surface_residency_drift_def := {
             "value": "T1190",
             "attributes": {
                 "justification": "Unpatched MinIO CVE-2023-28432 Bootstrap-API info disclosure on a publicly network-reachable object store is exploitation of a public-facing application."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1530",
-            "attributes": {
-                "justification": "Open network surface plus leaked root credentials / residency drift enables unauthenticated access to and theft of data from cloud object storage."
             }
         }
     ],

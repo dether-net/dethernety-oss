@@ -19,7 +19,7 @@ _log_tampering_deletion_to_blind_detection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.002",
+            "value": "T1685",
             "attributes": {}
         }
     ],
@@ -142,7 +142,7 @@ _cleartext_weak_tls_ingest_transport_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1048.003",
+            "value": "T1557",
             "attributes": {}
         }
     ],
@@ -181,12 +181,6 @@ _stolen_credentials_weak_rbac_on_the_siem_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1556.006",
             "attributes": {}
         }
     ],
@@ -312,14 +306,6 @@ _unmasked_secrets_pii_in_the_index_coverage_and_retention_gaps_def := {
             "value": "T1552",
             "attributes": {
                 "justification": "Unmasked credentials/tokens indexed verbatim make the SIEM a plaintext credential store an attacker mines after access (T1552.001 Credentials In Files / Unsecured Credentials); CWE-532."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1070",
-            "attributes": {
-                "justification": "Clock skew enables timestomping (T1070.006) and too-short retention destroys evidence \u2014 both create forensic blind spots aligned to Indicator Removal."
             }
         }
     ],

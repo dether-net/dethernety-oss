@@ -47,12 +47,6 @@ _cleartext_db_transport_sniffing_def := {
             "property": "attack_id",
             "value": "T1040",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1048.003",
-            "attributes": {}
         }
     ],
     "attack_vector": "ADJACENT"
@@ -178,12 +172,6 @@ _mass_data_egress_through_legitimate_flow_no_limit_no_quota_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1030",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1213",
             "attributes": {}
         }
@@ -210,24 +198,7 @@ _pii_leakage_via_query_audit_logs_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552.001",
-            "attributes": {
-                "justification": "Credentials In Files \u2014 when bind values containing secrets/PII are mirrored into database or driver log files, the log store becomes a credential/PII file an attacker can read without database access controls."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1530",
-            "attributes": {
-                "justification": "Data from Cloud Storage / log store \u2014 a breach of the centralized log backend (S3, CloudWatch, Elasticsearch) exposes the same PII the database protects, but stripped of the DB's row/column ACLs."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 
@@ -251,22 +222,6 @@ _publicly_reachable_db_listener_scanned_and_brute_forced_def := {
     "criticality": "high",
     "score": 8.6,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1190",
-            "attributes": {
-                "justification": "A publicly-reachable DB listener is the canonical Exploit Public-Facing Application surface \u2014 the DB service is directly exposed to internet scanners and any auth/protocol weakness becomes a direct internet-borne exploit path."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1133",
-            "attributes": {
-                "justification": "Opening the DB port to 0.0.0.0/0 (or binding listen_addresses to all interfaces on a public NIC) creates an External Remote Service \u2014 the database listener becomes a remote service reachable from outside the trust boundary, available for credential brute-force and reuse."
-            }
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",

@@ -77,18 +77,6 @@ _edge_appliance_kev_chain_def := {
             "property": "attack_id",
             "value": "T1190",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1133",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -169,7 +157,7 @@ _dns_hijack_takeover_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1584.002",
+            "value": "T1584.001",
             "attributes": {}
         }
     ],

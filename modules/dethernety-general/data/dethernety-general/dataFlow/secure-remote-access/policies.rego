@@ -57,9 +57,17 @@ _phishable_mfa_factor_sms_totp_push_on_vpn_portal_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1557",
+            "value": "T1111",
             "attributes": {
-                "justification": "Adversary-in-the-Middle: phishable second factors (SMS/TOTP/push) on the VPN portal allow an AiTM proxy to relay credentials and OTP/push approval, defeating non-domain-bound MFA."
+                "justification": "A VPN portal whose second factor is SMS, voice or email OTP relies on out-of-band codes that an adversary can intercept or relay through a phishing proxy to complete the login (Multi-Factor Authentication Interception, T1111)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1621",
+            "attributes": {
+                "justification": "Push, SMS and voice second factors let an adversary holding a valid password bombard the user with MFA prompts until one is approved (Multi-Factor Authentication Request Generation, T1621)."
             }
         }
     ],
@@ -85,7 +93,7 @@ _weak_or_legacy_vpn_protocol_and_cipher_suite_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1040",
+            "value": "T1557",
             "attributes": {}
         },
         {
@@ -121,9 +129,9 @@ _split_tunnel_dns_traffic_leak_bridging_trust_zones_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1572",
+            "value": "T1040",
             "attributes": {
-                "justification": "Protocol Tunneling \u2014 a split-tunnel/DNS-leak path on the VPN-connected host gives an adversary a parallel, uncontrolled channel they can tunnel C2 or pivot traffic through, bridging the untrusted internet egress into the trusted zone the VPN is meant to gate."
+                "justification": "A split-tunnel client keeps a parallel cleartext path while connected, so DNS lookups and other leaked traffic cross the local, often untrusted, network where they can be captured and reveal internal hostnames (Network Sniffing, T1040)."
             }
         }
     ],
@@ -179,7 +187,7 @@ _bastion_bypass_via_direct_admin_path_to_backend_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1133",
+            "value": "T1021",
             "attributes": {}
         }
     ],

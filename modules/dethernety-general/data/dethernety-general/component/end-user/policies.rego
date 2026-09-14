@@ -65,10 +65,8 @@ _phishing_aitm_credential_and_session_theft_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1621",
-            "attributes": {
-                "justification": "MFA request generation: the proxy relays/triggers the phishable OTP or push approval that non-phishing-resistant MFA cannot withstand."
-            }
+            "value": "T1111",
+            "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",
@@ -158,7 +156,7 @@ _insecure_account_recovery_kba_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1098",
+            "value": "T1110",
             "attributes": {}
         },
         {
@@ -213,12 +211,6 @@ _session_hijacking_fixation_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1550.004",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1185",
             "attributes": {}
         }
     ],

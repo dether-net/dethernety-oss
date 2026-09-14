@@ -19,14 +19,10 @@ _weak_non_phishing_resistant_admin_authentication_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1056.003",
-            "attributes": {}
+            "value": "T1111",
+            "attributes": {
+                "justification": "Privileged logins protected only by a password plus an SMS, OTP or push factor let an adversary-in-the-middle phishing proxy capture the one-time code in flight and complete the admin login (Multi-Factor Authentication Interception, T1111)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -60,18 +56,6 @@ _compromise_abuse_of_valid_privileged_credentials_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1550",
             "attributes": {}
         }
     ],
@@ -113,26 +97,18 @@ _standing_over_broad_privilege_exploited_for_lateral_movement_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1021.008",
-            "attributes": {}
+            "value": "T1078",
+            "attributes": {
+                "justification": "Always-on, blanket global-admin rights mean a single compromised administrator account is valid across the whole trust zone, so the adversary pivots between accounts and systems to a high level of access (Valid Accounts, T1078)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1563",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1210",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1098.003",
-            "attributes": {}
+            "value": "T1021",
+            "attributes": {
+                "justification": "Standing global-admin rights let an adversary holding the administrator's credentials log in to many machines through legitimate remote-access services such as SSH or RDP, moving laterally across the trust zone (Remote Services, T1021)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -166,18 +142,6 @@ _privilege_creep_dormant_admin_accounts_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1098",
             "attributes": {}
         }
     ],
@@ -253,12 +217,6 @@ _internet_exposed_admin_management_interface_def := {
             "property": "attack_id",
             "value": "T1133",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021.008",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -291,20 +249,16 @@ _non_attributable_unlogged_privileged_actions_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1070",
             "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
+            "value": "T1685",
+            "attributes": {
+                "justification": "Audit logs that an administrator can modify let a malicious privileged actor change event-log configuration or disable logging so their own actions leave no usable telemetry (Disable or Modify Tools, T1685)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

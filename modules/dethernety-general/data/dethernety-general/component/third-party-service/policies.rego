@@ -15,18 +15,6 @@ _trusted_relationship_supply_chain_pivot_def := {
             "property": "attack_id",
             "value": "T1199",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1195",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1484.002",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -66,14 +54,6 @@ _stolen_or_over_scoped_api_credential_abuse_def := {
             "value": "T1550.001",
             "attributes": {
                 "justification": "A stolen third-party API key/token is replayed as an application access token to act as the integration with its granted privilege."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "An over-scoped or never-revoked integration credential is valid-account access an adversary reuses, including lingering access after offboarding."
             }
         }
     ],
@@ -151,14 +131,6 @@ _forged_or_replayed_inbound_webhook_federation_assertion_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1606.002",
-            "attributes": {
-                "justification": "Unvalidated SAML/OIDC assertions let an adversary forge SAML tokens (Golden SAML) to obtain unauthorized cross-federation access."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1606",
             "attributes": {
                 "justification": "Missing signature/replay verification on inbound callbacks and federation assertions enables forging of web credentials / authentication material accepted by the relying endpoint."
@@ -209,12 +181,6 @@ _man_in_the_middle_on_the_integration_channel_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1001.003",
-            "attributes": {}
         }
     ],
     "attack_vector": "ADJACENT"
@@ -243,24 +209,7 @@ _excessive_data_exposure_across_the_data_sharing_boundary_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1537",
-            "attributes": {
-                "justification": "Data shared without minimization, residency restriction, or sub-processor control across the boundary corresponds to adversary transfer of data to an external/cloud account the org does not control, widening breach blast radius."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1030",
-            "attributes": {
-                "justification": "Absence of data minimization / size and field limits on what leaves the boundary aligns with the lack of data-transfer-size limits that lets bulk data egress to the provider unchecked."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -291,24 +240,7 @@ _availability_dependency_cascading_outage_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499.003",
-            "attributes": {
-                "justification": "Application Exhaustion Flood \u2014 a provider-side exhaustion or rate-limit with no timeout/circuit-breaker exhausts the dependent system's resources (CVE-2023-44487 HTTP/2 rapid reset class)."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1489",
-            "attributes": {
-                "justification": "Service Stop \u2014 an unmitigated single-vendor hard dependency lets a provider outage halt the dependent service, the cascading-outage end state."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

@@ -79,10 +79,8 @@ _forwarder_masquerade_spoofed_log_source_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1565.001",
-            "attributes": {
-                "justification": "Stored Data Manipulation \u2014 fabricated/spoofed events poison the SIEM's stored audit record, manipulating the data investigators rely on."
-            }
+            "value": "T1565",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -184,14 +182,7 @@ _backdated_clock_skewed_events_break_correlation_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1070.006",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 

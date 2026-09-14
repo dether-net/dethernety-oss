@@ -43,7 +43,7 @@ _rogue_broker_unauthenticated_cluster_join_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
+            "value": "T1565.002",
             "attributes": {}
         },
         {
@@ -90,14 +90,6 @@ _weak_default_erlang_cookie_enabling_rogue_rabbitmq_node_def := {
             "value": "T1552",
             "attributes": {
                 "justification": "A default/predictable or world-readable .erlang.cookie is an unsecured credential left exposed in the cluster's configuration/filesystem; an adversary reads or guesses it to authenticate to the Erlang distribution and join the RabbitMQ cluster."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "Presenting the shared Erlang cookie lets a rogue node authenticate as a legitimate cluster peer (valid-account/credential reuse), gaining full cluster control and access to replicated messages."
             }
         }
     ],
@@ -157,8 +149,10 @@ _untrusted_spoofed_federation_or_geo_replication_peer_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
+            "value": "T1565.002",
+            "attributes": {
+                "justification": "An untrusted or spoofed federation or geo-replication peer sits in the cross-cluster replication path and can alter messages in transit before they land on the target cluster (Transmitted Data Manipulation, T1565.002)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -239,14 +233,7 @@ _inter_broker_listener_not_network_isolated_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1040",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

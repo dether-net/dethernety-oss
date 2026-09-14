@@ -35,14 +35,7 @@ _vlan_hopping_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 7.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "ADJACENT"
 }
 
@@ -87,14 +80,7 @@ _cidr_only_trust_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 7.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -145,14 +131,7 @@ _segmentation_drift_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 7.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

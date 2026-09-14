@@ -43,8 +43,10 @@ _unmanaged_device_crossing_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
-            "attributes": {}
+            "value": "T1200",
+            "attributes": {
+                "justification": "Without a posture check at the boundary, an adversary can connect a personal device or plant a rogue wireless access point and gain a path to corporate applications (Hardware Additions, T1200)."
+            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -164,12 +166,6 @@ _endpoint_ransomware_impact_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1486",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021",
             "attributes": {}
         }
     ],

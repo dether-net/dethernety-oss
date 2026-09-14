@@ -53,8 +53,10 @@ _unauthenticated_agent_listening_endpoint_exposure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1046",
-            "attributes": {}
+            "value": "T1082",
+            "attributes": {
+                "justification": "An unauthenticated node_exporter /metrics endpoint bound to all interfaces hands any caller the host's kernel and OS release, architecture and hardware inventory (System Information Discovery, T1082)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -82,12 +84,6 @@ _weak_missing_agent_to_backend_authentication_def := {
     "criticality": "medium",
     "score": 6.5,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -226,14 +222,18 @@ _agent_parser_embedded_http_rce_patch_currency_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
-            "attributes": {}
+            "value": "T1210",
+            "attributes": {
+                "justification": "CVE-2024-4323, memory corruption in Fluent Bit's embedded HTTP server, lets an adversary who can reach the unpatched endpoint execute code on the monitoring agent's host (Exploitation of Remote Services, T1210)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1203",
-            "attributes": {}
+            "value": "T1499.004",
+            "attributes": {
+                "justification": "CVE-2024-4323 lets a crafted request to Fluent Bit's /api/v1/traces endpoint corrupt memory and crash the agent, stopping log and metric collection on that host (Application or System Exploitation, T1499.004)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -287,12 +287,6 @@ _agent_config_tamper_siem_blinding_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1685",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1565.003",
             "attributes": {}
         }
     ],

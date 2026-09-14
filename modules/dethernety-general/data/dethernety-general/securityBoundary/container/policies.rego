@@ -15,12 +15,6 @@ _privileged_mode_excessive_capabilities_def := {
             "property": "attack_id",
             "value": "T1611",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1068",
-            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -50,12 +44,6 @@ _host_namespace_sharing_and_sensitive_mounts_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1611",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1610",
             "attributes": {}
         }
     ],
@@ -91,7 +79,7 @@ _weak_kernel_sharing_confinement_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1068",
+            "value": "T1548.001",
             "attributes": {}
         }
     ],
@@ -147,14 +135,10 @@ _writable_root_filesystem_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1222",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1610",
-            "attributes": {}
+            "value": "T1554",
+            "attributes": {
+                "justification": "With ReadonlyRootfs=false, an adversary with code execution in the container can overwrite the application's own binaries with trojanized versions that keep access for the life of the container (Compromise Host Software Binary, T1554)."
+            }
         }
     ],
     "attack_vector": "LOCAL"
@@ -181,12 +165,6 @@ _missing_cgroup_resource_limits_def := {
             "property": "attack_id",
             "value": "T1499",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1496",
-            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -211,7 +189,7 @@ _untrusted_unverified_image_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1610",
+            "value": "T1195.002",
             "attributes": {}
         },
         {

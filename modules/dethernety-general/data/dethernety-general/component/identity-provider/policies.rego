@@ -19,7 +19,7 @@ _signing_key_compromise_golden_token_golden_saml_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1649",
+            "value": "T1484.002",
             "attributes": {}
         },
         {
@@ -67,7 +67,7 @@ _lax_redirect_uri_open_redirect_code_theft_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
+            "value": "T1528",
             "attributes": {}
         },
         {
@@ -100,12 +100,6 @@ _jwt_algorithm_confusion_alg_none_rs256_hs256_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1606",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1134.003",
             "attributes": {}
         }
     ],
@@ -149,7 +143,7 @@ _insecure_oauth_flow_authorization_code_interception_without_pkce_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1539",
+            "value": "T1528",
             "attributes": {}
         }
     ],
@@ -195,14 +189,18 @@ _saml_assertion_forgery_signature_wrapping_replay_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1606.002",
-            "attributes": {}
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "An identity provider with no replay cache, audience restriction or signature verification accepts a captured SAML assertion again, letting the adversary reuse it in place of logging in (Application Access Token, T1550.001)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1134.003",
-            "attributes": {}
+            "value": "T1606",
+            "attributes": {
+                "justification": "Accepting unsigned, unverified or audience-unrestricted assertions lets an adversary author their own SAML assertions or wrap a signed one inside attacker XML, yielding forged credentials for every federated application (Forge Web Credentials, T1606)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -240,12 +238,6 @@ _missing_audience_restriction_cross_rp_token_replay_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1550.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1606.002",
             "attributes": {}
         }
     ],
@@ -378,12 +370,6 @@ _over_broad_client_scopes_over_privileged_clients_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1550.001",
             "attributes": {}
         }
@@ -460,12 +446,6 @@ _idp_software_exploitation_unpatched_cve_def := {
             "property": "attack_id",
             "value": "T1190",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1212",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -498,14 +478,10 @@ _idp_availability_dos_single_point_of_failure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1498",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499.003",
-            "attributes": {}
+            "value": "T1499",
+            "attributes": {
+                "justification": "A single-node identity provider without rate limiting can be flooded or crashed, and because every federated application depends on it, the outage blocks authentication across the estate (Endpoint Denial of Service, T1499)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

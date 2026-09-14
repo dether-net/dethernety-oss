@@ -17,14 +17,6 @@ _broken_access_control_idor_bola_missing_function_level_authz_def := {
             "attributes": {
                 "justification": "Broken access control (IDOR/BOLA, missing function-level authz, force-browsing) is an authorization weakness in a public-facing application that an attacker exploits over the network to reach data/functions for which they are not authorized \u2014 A01:2021."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1548",
-            "attributes": {
-                "justification": "Missing function-level authorization lets a low-privilege principal invoke privileged functions, abusing the application's elevation/access-control mechanism to perform actions beyond their assigned role."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -61,10 +53,8 @@ _privilege_escalation_via_metadata_parameter_tampering_mass_assignment_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1068",
-            "attributes": {
-                "justification": "Trusting client-supplied role claims / over-posted privileged fields lets a caller exploit the application's privilege model to elevate from a normal account to admin (Exploitation for Privilege Escalation)."
-            }
+            "value": "T1190",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -105,10 +95,8 @@ _injection_sqli_nosqli_os_command_ldap_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1505.001",
-            "attributes": {
-                "justification": "SQL injection that pivots to executing or abusing SQL stored procedures on the backend store maps to SQL Stored Procedures (T1505.001); corpus-confirmed candidate for this injection vector."
-            }
+            "value": "T1059",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -204,14 +192,6 @@ _insecure_deserialization_rce_def := {
             "value": "T1190",
             "attributes": {
                 "justification": "Insecure deserialization of attacker-controlled bytes is exploited against the public-facing business-logic service to gain code execution (Exploit Public-Facing Application)."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1059",
-            "attributes": {
-                "justification": "A deserialization gadget chain culminates in arbitrary command/script execution in the application tier (Command and Scripting Interpreter)."
             }
         }
     ],
@@ -404,14 +384,6 @@ _security_misconfiguration_verbose_errors_debug_defaults_unpatched_components_de
             "value": "T1190",
             "attributes": {
                 "justification": "Verbose errors, default accounts, unnecessary services, and unpatched/known-vulnerable components on a network-reachable application service are directly exploited via Exploit Public-Facing Application."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1195.001",
-            "attributes": {
-                "justification": "Un-inventoried/unscanned vulnerable dependencies and unverified artifact provenance enable Compromise Software Dependencies and Development Tools (A06:2021 supply-chain exposure)."
             }
         }
     ],

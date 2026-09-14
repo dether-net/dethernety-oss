@@ -39,14 +39,7 @@ _shared_credential_crossing_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 8.6,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -101,20 +94,7 @@ _dba_mgmt_path_bypass_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 8.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -137,16 +117,7 @@ _peer_lateral_into_data_tier_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 7.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021",
-            "attributes": {
-                "justification": "M1035 mitigation expression at the boundary - per-workload-identity ingress scoping."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "ADJACENT"
 }
 
@@ -195,7 +166,7 @@ _backup_snapshot_exfil_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552",
+            "value": "T1537",
             "attributes": {}
         }
     ],
@@ -222,14 +193,6 @@ _kms_key_admin_no_sod_def := {
     "criticality": "high",
     "score": 9.1,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552",
-            "attributes": {
-                "justification": "The wrapping key is the master credential for at-rest plaintext."
-            }
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",

@@ -73,8 +73,10 @@ _cicd_pipeline_compromise_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
+            "value": "T1677",
+            "attributes": {
+                "justification": "A poisoned pipeline on the management plane lets an adversary inject code into trusted build and deploy jobs, obtaining credentials and pushing malicious components to every environment the pipeline reaches (Poisoned Pipeline Execution, T1677)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -126,12 +128,6 @@ _direct_admin_protocol_exposure_def := {
     "criticality": "high",
     "score": 8.6,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1190",
-            "attributes": {}
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -197,14 +193,7 @@ _mgmt_plane_bridging_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 8.2,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "ADJACENT"
 }
 
@@ -227,8 +216,18 @@ _admin_endpoint_compromise_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
+            "value": "T1539",
+            "attributes": {
+                "justification": "An implant on the productivity device an administrator uses for management consoles reads authenticated session cookies from the browser's disk storage or memory (Steal Web Session Cookie, T1539)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.004",
+            "attributes": {
+                "justification": "Session cookies lifted from an administrator's productivity device are replayed against management and monitoring consoles, bypassing MFA because the session is already authenticated (Web Session Cookie, T1550.004)."
+            }
         }
     ],
     "attack_vector": "LOCAL"
