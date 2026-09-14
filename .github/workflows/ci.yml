@@ -6,13 +6,24 @@ on:
   pull_request:
     branches: [main]
 
+# A re-pushed PR cancels its superseded run; a push to main is never cancelled, so each merge
+# keeps its own result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     strategy:
       matrix:
-        node-version: [20, 22]
+        # 22 is the oldest line still in support; 26 is what the platform image runs
+        # (Dockerfile.production). Node 20 left support in April 2026 and is no longer
+        # exercised here — a package still declaring `engines.node >= 20` is claiming a floor
+        # this matrix does not test.
+        node-version: [22, 26]
 
     steps:
       - name: Checkout repository
@@ -56,6 +67,7 @@ jobs:
   dethereal-release:
     name: Dethereal release integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -192,8 +204,8 @@ jobs:
       matrix:
         # package-module.js is ESM in a `.js` file with no `type` field anywhere above
         # it, so it depends on Node's module detection — which is exactly the thing
-        # that differs across these majors.
-        node-version: [20, 22]
+        # that has shifted between Node majors. Same two lines as the `build` job.
+        node-version: [22, 26]
 
     steps:
       - name: Checkout repository
@@ -276,6 +288,7 @@ jobs:
   bundle:
     name: Compose bundle (both compose providers)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       # Force podman to broker to the PYTHON provider. Left to itself it prefers Docker Compose v2
       # when installed — which it is on this runner — and the podman leg would then be a second

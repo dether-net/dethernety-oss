@@ -31,6 +31,12 @@ on:
         required: true
         type: string
 
+# A re-pushed PR cancels its superseded build. A publishing run (tag or dispatch) is never
+# cancelled — a half-finished one can leave a pushed image unsigned.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -41,6 +47,8 @@ env:
 jobs:
   image:
     runs-on: ubuntu-latest
+    # Generous: the arm64 half is emulated, and a pull request builds without a warm cache.
+    timeout-minutes: 45
 
     permissions:
       contents: read
@@ -61,10 +69,11 @@ jobs:
         with:
           version: 9.13.2
 
+      # The line the image runs (Dockerfile.production), so what is built is what executes.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 26
           cache: pnpm
 
       - name: Install dependencies
@@ -151,6 +160,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The layer cache is WRITTEN only by a publishing run, never by a pull request. A cache entry
+      # is scoped to the ref that wrote it, so a pull request's entries serve only later runs of that
+      # same pull request — and at mode=max, across two architectures, they grew to most of the
+      # repository's cache quota and evicted the dependency caches `main` relies on. An empty
+      # `cache-to` exports nothing. `cache-from` stays unconditional: reading is free.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -162,7 +176,7 @@ jobs:
           build-args: VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: ${{ steps.meta.outputs.publish == 'true' && 'type=gha,mode=max' || '' }}
 
       - name: Install cosign
         if: steps.meta.outputs.publish == 'true'
@@ -221,6 +235,7 @@ jobs:
   # bundle's PLATFORM_VERSION and CONSOLE_IMAGE agree by construction.
   console-assets:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -235,7 +250,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 26
           cache: pnpm
 
       # The only step that executes third-party code (the SPA's npm install + any postinstall, plus
@@ -258,6 +273,7 @@ jobs:
   console:
     needs: console-assets
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     permissions:
       contents: read
@@ -336,7 +352,8 @@ jobs:
       # apps/byodt-console/ (with the embed tree just restored) from here. The only build-time code is
       # `go build` inside buildkit — pure Go, CGO off — so no dependency code runs in this
       # token-holding job. Cross-compiled per arch, so multi-arch is cheap; a separate cache scope
-      # keeps it from colliding with the platform image's gha cache.
+      # keeps it from colliding with the platform image's gha cache. Written only by a publishing
+      # run, for the reason given on the platform image's build step.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -348,7 +365,7 @@ jobs:
           build-args: VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=console
-          cache-to: type=gha,mode=max,scope=console
+          cache-to: ${{ steps.meta.outputs.publish == 'true' && 'type=gha,mode=max,scope=console' || '' }}
 
       - name: Install cosign
         if: steps.meta.outputs.publish == 'true'
