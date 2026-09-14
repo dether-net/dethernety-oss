@@ -17,14 +17,6 @@ _anonymous_unauthenticated_bind_directory_disclosure_def := {
             "attributes": {
                 "justification": "Anonymous/unauthenticated bind lets an attacker enumerate the directory (users, groups, emails) \u2014 Account Discovery."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "RFC 4513 \u00a75.1.2 unauthenticated bind (real DN + zero-length password) silently authenticates as the DN on lax servers \u2014 Valid Accounts / auth bypass."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -97,7 +89,7 @@ _weak_legacy_tls_on_the_directory_channel_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1040",
+            "value": "T1689",
             "attributes": {}
         },
         {
@@ -253,10 +245,8 @@ _weak_password_hash_storage_scheme_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552",
-            "attributes": {
-                "justification": "Cleartext or weak/unsalted userPassword storage leaves credential material recoverable from any directory/hash disclosure (Unsecured Credentials)."
-            }
+            "value": "T1110.002",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"

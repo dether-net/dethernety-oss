@@ -9,7 +9,16 @@ _jwt_signature_algorithm_confusion_def := {
     "category": "",
     "criticality": "critical",
     "score": 9.8,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1606",
+            "attributes": {
+                "justification": "A verifier that honours an attacker-controlled alg header (alg=none, RS256-to-HS256 key confusion, or kid injection) lets an adversary mint their own tokens that pass signature checks and gain access to the service (Forge Web Credentials, T1606)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -49,7 +58,8 @@ _weak_hmac_secret_brute_force_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1110"
+            "value": "T1606",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -78,7 +88,16 @@ _missing_or_permissive_token_claim_validation_def := {
     "category": "",
     "criticality": "high",
     "score": 8.1,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "A verifier that skips exp, nbf, aud or iss checks accepts expired tokens and tokens issued for another audience, so an adversary can replay them in lieu of login credentials to access this service (Use Alternate Authentication Material: Application Access Token, T1550.001)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -130,7 +149,16 @@ _refresh_token_replay_with_no_rotation_or_reuse_detection_def := {
     "category": "",
     "criticality": "high",
     "score": 8.1,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "Without refresh-token rotation or reuse detection, an adversary can replay a stolen refresh token repeatedly to mint new access tokens and keep long-term access alongside the legitimate user (Use Alternate Authentication Material: Application Access Token, T1550.001)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -153,7 +181,16 @@ _excessive_token_lifetime_with_no_revocation_channel_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "Long-lived access tokens with no revocation or introspection channel keep working after logout or a password change, so an adversary can use a stolen token to access services until it naturally expires (Use Alternate Authentication Material: Application Access Token, T1550.001)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -189,7 +226,8 @@ _token_exfiltration_via_xss_js_accessible_storage_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1550.004"
+            "value": "T1550.001",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -218,7 +256,16 @@ _token_leakage_via_url_referer_or_telemetry_sinks_def := {
     "category": "",
     "criticality": "high",
     "score": 7.5,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1552",
+            "attributes": {
+                "justification": "Tokens written into query strings, access logs, error reports, tracing spans or Referer headers are credentials left in plaintext sinks, where an adversary with read access to those systems can harvest them (Unsecured Credentials, T1552)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -252,22 +299,6 @@ _session_fixation_and_cross_site_request_forgery_on_cookie_borne_sessions_def :=
             "value": "T1550.004",
             "attributes": {
                 "justification": "Web Session Cookie \u2014 replaying/fixating a session cookie to ride an authenticated session is precisely what unrotated-on-auth session ids and SameSite=None cookies enable."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1539",
-            "attributes": {
-                "justification": "Steal Web Session Cookie \u2014 CSRF-spent cookies and fixated session ids let an adversary obtain/abuse a valid session cookie from the victim's browser context."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1606.001",
-            "attributes": {
-                "justification": "Web Cookies \u2014 forging or planting a session cookie value (fixation) that the server later treats as authenticated falls under forged web cookies."
             }
         }
     ],

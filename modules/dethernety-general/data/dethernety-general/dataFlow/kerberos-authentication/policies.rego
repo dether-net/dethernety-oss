@@ -51,10 +51,8 @@ _weak_legacy_ticket_encryption_types_rc4_des_and_downgrade_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1558.004",
-            "attributes": {
-                "justification": "Weak/legacy RC4 preauth enctypes (incl. RC4-MD4/RC4-HMAC-OLD, CVE-2022-33647/33679) enable AS-REP roasting and the preauth enctype downgrade."
-            }
+            "value": "T1689",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -245,8 +243,26 @@ _unarmored_preauth_exchange_no_pkinit_fast_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1558.004",
-            "attributes": {}
+            "value": "T1040",
+            "attributes": {
+                "justification": "Password-based Kerberos preauthentication without FAST armoring sends a password-derived encrypted timestamp over the network, which passive capture collects as crackable authentication material (Network Sniffing, T1040)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1110.002",
+            "attributes": {
+                "justification": "Captured unarmored preauth data is encrypted with a key derived from the user's password, so an adversary can brute-force it offline on their own hardware to recover the plaintext password (Password Cracking, T1110.002)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1689",
+            "attributes": {
+                "justification": "Without FAST armoring the encryption-type negotiation is unprotected, so an on-path adversary can force the exchange down to a weaker legacy enctype that is easier to crack (Downgrade Attack, T1689)."
+            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -279,14 +295,10 @@ _insufficient_tgs_request_auditing_kdc_exposure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1558.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1558.002",
-            "attributes": {}
+            "value": "T1087",
+            "attributes": {
+                "justification": "A KDC reachable from untrusted networks answers anonymous AS-REQ probes differently for existing and non-existent principals, letting an adversary enumerate valid account names (Account Discovery, T1087)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

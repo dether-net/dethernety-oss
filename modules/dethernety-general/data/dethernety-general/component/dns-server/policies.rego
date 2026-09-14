@@ -188,12 +188,6 @@ _weak_transfer_notify_secret_ip_only_spoofable_trust_def := {
             "property": "attack_id",
             "value": "T1590.002",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1565.002",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"

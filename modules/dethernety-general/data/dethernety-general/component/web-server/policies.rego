@@ -25,14 +25,6 @@ _weak_tls_termination_def := {
             "attributes": {
                 "justification": "Accepting SSLv3/TLS1.0/1.1 enables protocol downgrade to a broken cipher/protocol."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1600",
-            "attributes": {
-                "justification": "Offering legacy/non-PFS ciphers weakens the negotiated encryption, enabling decryption of intercepted traffic."
-            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -77,10 +69,8 @@ _unpatched_server_software_cve_rce_dos_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1210",
-            "attributes": {
-                "justification": "Remote exploitation of the server's network-exposed software (worker-crash DoS / memory corruption via crafted QUIC or stream-reset traffic) maps to Exploitation of Remote Services against the network-facing process."
-            }
+            "value": "T1499.004",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -217,7 +207,7 @@ _sensitive_file_path_exposure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1083",
+            "value": "T1595.003",
             "attributes": {}
         }
     ],
@@ -247,14 +237,7 @@ _missing_security_response_headers_def := {
     "category": "",
     "criticality": "medium",
     "score": 4.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1185",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -282,12 +265,6 @@ _request_handling_denial_of_service_def := {
     "criticality": "high",
     "score": 7.5,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499.003",
-            "attributes": {}
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -326,12 +303,6 @@ _http_request_smuggling_desync_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1190",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
             "attributes": {}
         }
     ],
@@ -373,7 +344,7 @@ _inadequate_access_error_logging_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.002",
+            "value": "T1685",
             "attributes": {}
         },
         {

@@ -18,12 +18,10 @@ _logs_not_tamper_evident_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.005"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1565.001"
+            "value": "T1685",
+            "attributes": {
+                "justification": "Audit records with no append-only storage, hash chaining or file-integrity alerting let an adversary edit or selectively clear log entries, manipulating the telemetry defenders rely on (Disable or Modify Tools, T1685)."
+            }
         }
     ],
     "attack_vector": "LOCAL"
@@ -57,7 +55,8 @@ _logs_stored_only_locally_erased_on_host_compromise_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.005"
+            "value": "T1685",
+            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -91,7 +90,8 @@ _over_broad_read_modify_delete_access_to_logs_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.002"
+            "value": "T1685",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -170,13 +170,7 @@ _short_or_absent_retention_destroying_evidence_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1070"
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

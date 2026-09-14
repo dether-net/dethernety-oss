@@ -13,18 +13,6 @@ _unpatched_known_vulnerability_exposure_window_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1203",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1068",
             "attributes": {}
         }
@@ -103,12 +91,6 @@ _kernel_isolation_bypass_enabler_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1611",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1068",
             "attributes": {}
         }
@@ -154,12 +136,6 @@ _on_host_credential_secret_exposure_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1003.008",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552.004",
             "attributes": {}
         }
     ],
@@ -281,12 +257,6 @@ _host_integrity_boot_chain_tamper_def := {
             "property": "attack_id",
             "value": "T1547.006",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1685",
-            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -311,14 +281,7 @@ _at_rest_disk_exposure_detached_snapshotted_volume_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.9,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1005",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "PHYSICAL"
 }
 

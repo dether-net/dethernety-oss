@@ -29,10 +29,8 @@ _leaked_or_over_privileged_api_key_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1199",
-            "attributes": {
-                "justification": "The PSP is a trusted external entity; a compromised broad-scope key lets the attacker act as us against the PSP, abusing the trusted relationship."
-            }
+            "value": "T1550.001",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -73,25 +71,9 @@ _forged_or_unverified_webhook_events_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
-            "attributes": {
-                "justification": "Forging or replaying unverified webhook events POSTs crafted requests to the public-facing webhook handler to trigger fulfilment without payment."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1565",
             "attributes": {
                 "justification": "A forged payment_intent.succeeded event manipulates the application's payment/order state, falsifying that payment occurred."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1684.001",
-            "attributes": {
-                "justification": "An unsigned/unverified event lets the attacker impersonate the PSP (Stripe) as the trusted event source."
             }
         }
     ],
@@ -129,14 +111,6 @@ _webhook_replay_attack_def := {
             "attributes": {
                 "justification": "Replaying a captured signed event duplicates fulfilment / manipulates transaction state \u2014 data manipulation via the trusted webhook channel."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
-            "attributes": {
-                "justification": "The replay is delivered over the legitimate HTTPS webhook (web protocols) channel, blending with normal Stripe delivery traffic."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -168,22 +142,6 @@ _cardholder_data_exposure_pci_scope_creep_def := {
             "value": "T1005",
             "attributes": {
                 "justification": "Untokenized PAN handled/stored server-side becomes Data from Local System \u2014 cardholder data resident on our hosts is a direct collection target once the environment is breached."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552.001",
-            "attributes": {
-                "justification": "Full PAN / sensitive auth data written to application and access logs is Unsecured Credentials In Files \u2014 sensitive financial secrets recoverable from on-disk log files."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1213",
-            "attributes": {
-                "justification": "Cardholder data stored at rest in our repositories/databases (rather than held only by the PSP) is Data from Information Repositories \u2014 a centralized store of sensitive payment data to mine."
             }
         }
     ],
@@ -229,10 +187,8 @@ _tls_downgrade_mitm_on_psp_transport_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1040",
-            "attributes": {
-                "justification": "Plaintext HTTP or weak/un-validated TLS on the PSP transport exposes transaction data and tokens to network sniffing of the cleartext or downgraded channel."
-            }
+            "value": "T1689",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -271,12 +227,6 @@ _double_charge_amount_tampering_via_missing_integrity_controls_def := {
             "property": "attack_id",
             "value": "T1565",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1565.001",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -305,7 +255,16 @@ _payment_fraud_via_missing_sca_3ds_def := {
     "category": "",
     "criticality": "high",
     "score": 7.6,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1657",
+            "attributes": {
+                "justification": "Card payments without 3-D Secure 2 / SCA or velocity fraud checks let an adversary complete purchases with stolen cards for their own financial gain, leaving the merchant with the chargebacks (Financial Theft, T1657)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -339,14 +298,6 @@ _trusted_relationship_abuse_of_the_psp_integration_def := {
             "value": "T1199",
             "attributes": {
                 "justification": "The PSP integration is a trusted external relationship; long-lived static credentials, no IP allowlist, and over-broad trust scope let a compromise of the integration be leveraged to act as us against the PSP and pivot into financial operations."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "Static long-lived PSP credentials usable from any source IP are valid accounts an attacker reuses to operate within the trusted relationship undetected."
             }
         }
     ],
@@ -387,14 +338,6 @@ _transaction_data_exfiltration_over_the_psp_channel_without_audit_trail_def := {
             "value": "T1567",
             "attributes": {
                 "justification": "Stolen PSP credentials or a compromised integration pull customer/transaction data out over the legitimate HTTPS PSP API/webhook (web service) channel; absence of PCI Req 10 audit trail and anomaly alerting lets it go undetected."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
-            "attributes": {
-                "justification": "Exfiltration blends with normal traffic by riding the trusted application-layer HTTPS web protocol of the PSP integration, evading transport-level distinction without dedicated audit logging and alerting."
             }
         }
     ],

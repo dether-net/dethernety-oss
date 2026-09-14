@@ -49,17 +49,9 @@ _jwt_oauth_token_validation_bypass_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1550.001",
+            "value": "T1606",
             "attributes": {
-                "justification": "Forging or replaying a JWT/OAuth token accepted at the edge is use of an application access token to authenticate as a principal without the corresponding credential."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1134.003",
-            "attributes": {
-                "justification": "Accepting alg=none / RS256->HS256 key-confusion tokens lets an attacker mint and impersonate an arbitrary principal's token at the gateway."
+                "justification": "A gateway that accepts alg=none, takes the algorithm from the token header, or skips signature checks lets an adversary mint JWTs with arbitrary claims and authenticate as any principal (Forge Web Credentials, T1606)."
             }
         }
     ],
@@ -154,10 +146,8 @@ _cleartext_or_weak_tls_termination_and_unverified_upstream_re_encryption_def := 
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1048.003",
-            "attributes": {
-                "justification": "Sensitive data traversing an unencrypted/cleartext gateway-to-backend or edge channel can be exfiltrated over an unencrypted non-C2 protocol."
-            }
+            "value": "T1689",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -252,12 +242,6 @@ _http_request_smuggling_desync_and_missing_payload_validation_def := {
             "property": "attack_id",
             "value": "T1190",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -298,25 +282,17 @@ _secrets_disclosure_in_logs_or_config_client_ip_spoofing_breaking_audit_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.007",
-            "attributes": {
-                "justification": "Hardcoded upstream credentials and the Kong-Admin-Token in declarative config / container images are unsecured credentials recoverable from the container/API layer."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1685.002",
-            "attributes": {
-                "justification": "Disabling edge access logs (proxy_access_log=off) and IP spoofing via trusted_ips=0.0.0.0/0 impair/defeat logging and defensive monitoring."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1552",
             "attributes": {
                 "justification": "Logging Authorization/apikey headers (CWE-532) and committing secrets to config exposes unsecured credentials."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1552.001",
+            "attributes": {
+                "justification": "Upstream credentials hardcoded in gateway configuration and authorization headers written to access logs leave usable secrets in files an adversary can harvest after gaining access to the host or its log store (Credentials In Files, T1552.001)."
             }
         }
     ],

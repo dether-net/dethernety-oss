@@ -17,14 +17,6 @@ _unpatched_firmware_pre_auth_rce_on_exposed_vpn_portal_service_def := {
             "attributes": {
                 "justification": "Unauthenticated remote attacker exploits a firmware flaw in the firewall's internet-facing GlobalProtect/SSL-VPN service to run code as root on the appliance \u2014 exploitation of a public-facing application (CVE-2024-3400 / CVE-2024-21762, CISA-KEV)."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1542.002",
-            "attributes": {
-                "justification": "Successful pre-auth RCE on the appliance lets the attacker subvert the NGFW firmware/enforcement engine itself, turning the device's component firmware attacker-controlled."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -58,14 +50,6 @@ _management_plane_authentication_bypass_def := {
             "value": "T1190",
             "attributes": {
                 "justification": "Crafted HTTP/HTTPS requests to the public-facing admin interface bypass authentication and grant admin-level command execution on the NGFW (CVE-2022-40684) \u2014 exploitation of a public-facing application."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1686.002",
-            "attributes": {
-                "justification": "Once authenticated as administrator via the bypass, the attacker rewrites the firewall ruleset and disables enforcement \u2014 disabling/modifying the network device firewall."
             }
         }
     ],
@@ -115,7 +99,7 @@ _internet_exposed_management_plane_with_default_or_weak_admin_credentials_def :=
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
+            "value": "T1078.001",
             "attributes": {}
         }
     ],
@@ -205,16 +189,7 @@ _default_permit_posture_no_implicit_deny_logging_def := {
     "category": "",
     "criticality": "high",
     "score": 7.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {
-                "justification": "A default-permit posture (no terminating default-deny) lets unintended traffic traverse the firewall, bridging the trusted/untrusted segmentation boundary the device exists to enforce."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -284,14 +259,6 @@ _firewall_self_dos_connection_table_exhaustion_with_fail_open_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1499.002",
-            "attributes": {
-                "justification": "Service Exhaustion Flood \u2014 flooding the firewall to exhaust its session/connection table degrades or drops the enforcement service."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1499.001",
             "attributes": {
                 "justification": "OS Exhaustion Flood \u2014 saturating the appliance OS/CPU resources (session table, state memory) until traffic is dropped or the device fails open."
@@ -336,24 +303,7 @@ _inspection_disabled_stale_signatures_enabling_evasion_def := {
     "category": "",
     "criticality": "high",
     "score": 7.4,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {
-                "justification": "A firewall with inspection disabled, stale signatures, or no TLS inspection becomes a blind passthrough, letting traffic bridge the trusted/untrusted boundary uninspected (Network Boundary Bridging)."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1685",
-            "attributes": {
-                "justification": "Disabled IPS/threat-prevention, missing security profiles on allow rules, and stale signatures all impair the defensive enforcement the NGFW is meant to provide (Impair Defenses)."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

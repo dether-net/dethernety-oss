@@ -13,9 +13,9 @@ _unauthenticated_metrics_endpoint_exposure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1046",
+            "value": "T1552",
             "attributes": {
-                "justification": "An open, unauthenticated /metrics endpoint reachable over the network lets an actor enumerate the internal service (build/version, process detail, internal hostnames) \u2014 Network Service Discovery against the exposed exporter."
+                "justification": "Exporters that accidentally embed secrets in metric labels serve those credentials in plaintext to anyone who can read the unauthenticated /metrics endpoint (Unsecured Credentials, T1552)."
             }
         }
     ],
@@ -100,14 +100,7 @@ _ssrf_via_editable_scrape_config_service_discovery_def := {
     "category": "",
     "criticality": "high",
     "score": 8.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1090",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

@@ -231,10 +231,8 @@ _missing_encryption_at_rest_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1213",
-            "attributes": {
-                "justification": "Unencrypted data files, logs and snapshots are readable from disk/volume/snapshot theft, enabling bulk collection of the structured data repository (Data from Information Repositories)."
-            }
+            "value": "T1005",
+            "attributes": {}
         }
     ],
     "attack_vector": "PHYSICAL"
@@ -308,19 +306,7 @@ _backup_tampering_recovery_destruction_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1485",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1490",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1565.001",
             "attributes": {}
         }
     ],
@@ -369,14 +355,6 @@ _audit_logging_gaps_unpatched_engine_residency_drift_def := {
             "value": "T1190",
             "attributes": {
                 "justification": "An EoL or unpatched engine behind a known-exploited CVE (e.g. CVE-2025-1094 PostgreSQL libpq/psql SQLi-to-RCE chain) leaves a weaponized path to exploit the public-facing data store."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567",
-            "attributes": {
-                "justification": "Absent audit trails and residency drift (data/replicas/snapshots outside the approved region) enable bulk exfiltration of the structured store to an external account or web service to proceed undetected."
             }
         }
     ],

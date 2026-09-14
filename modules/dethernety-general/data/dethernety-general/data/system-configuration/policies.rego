@@ -53,7 +53,8 @@ _secrets_in_environment_variables_env_or_baked_into_image_layers_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.007"
+            "value": "T1552",
+            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -87,11 +88,6 @@ _configuration_iac_tampering_with_no_change_detection_or_change_control_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1565.001"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1578"
         }
     ],
     "attack_vector": "NETWORK"
@@ -124,12 +120,18 @@ _over_broad_write_access_to_config_and_secret_stores_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552"
+            "value": "T1555.006",
+            "attributes": {
+                "justification": "Wildcard IAM or Vault policies give any compromised principal permission to pull every secret from the secrets manager, turning one foothold into access to all stored credentials (Cloud Secrets Management Stores, T1555.006)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078"
+            "value": "T1565",
+            "attributes": {
+                "justification": "Blanket write rights to configuration and secret stores let a single compromised principal rewrite system configuration and stored values, undermining the integrity of everything that reads them (Data Manipulation, T1565)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -159,11 +161,6 @@ _config_and_secrets_unencrypted_at_rest_or_in_transit_def := {
     "criticality": "high",
     "score": 7.4,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552.001"
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -268,12 +265,16 @@ _publicly_exposed_config_iac_and_embedded_secrets_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.005"
+            "value": "T1593.003",
+            "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1530"
+            "value": "T1552.001",
+            "attributes": {
+                "justification": "World-readable .env files, IaC state committed to version control and configuration in public repositories expose embedded passwords and keys in files anyone can retrieve (Credentials In Files, T1552.001)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

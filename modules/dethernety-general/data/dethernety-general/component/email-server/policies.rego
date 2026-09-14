@@ -61,6 +61,14 @@ _cleartext_transport_starttls_stripping_mitm_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1040",
+            "attributes": {
+                "justification": "When STARTTLS is opportunistic and can be stripped, message content and SMTP AUTH credentials cross the network in cleartext, where a passive listener on the path captures them (Network Sniffing, T1040)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -99,14 +107,10 @@ _open_relay_abuse_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1071.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1566",
-            "attributes": {}
+            "value": "T1684.002",
+            "attributes": {
+                "justification": "An open relay or overly broad mynetworks lets an adversary send unauthenticated mail with forged From headers through a trusted server, spoofing internal or partner senders (Email Spoofing, T1684.002)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -207,14 +211,10 @@ _data_exfiltration_over_email_no_egress_dlp_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1020",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567",
-            "attributes": {}
+            "value": "T1048.003",
+            "attributes": {
+                "justification": "Without egress DLP, hidden BCC copies and bulk attachments carry data out of the organization over SMTP, a protocol separate from any command-and-control channel (Exfiltration Over Unencrypted Non-C2 Protocol, T1048.003)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -247,7 +247,7 @@ _recipient_enumeration_and_version_disclosure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1087",
+            "value": "T1592.002",
             "attributes": {}
         },
         {
@@ -324,20 +324,10 @@ _smtp_borne_dos_connection_flooding_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1499.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1498.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1667",
-            "attributes": {}
+            "value": "T1499.002",
+            "attributes": {
+                "justification": "Unbounded connection and message rates let a flood of SMTP sessions and spam bursts exhaust the MTA's worker, queue and socket resources, denying mail service to legitimate senders (Service Exhaustion Flood, T1499.002)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

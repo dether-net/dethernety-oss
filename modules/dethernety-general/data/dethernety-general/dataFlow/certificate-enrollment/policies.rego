@@ -13,7 +13,7 @@ _spoofable_acme_domain_control_validation_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1557",
+            "value": "T1588.004",
             "attributes": {}
         }
     ],
@@ -42,12 +42,6 @@ _weak_enrollment_authentication_open_issuance_oracle_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1649",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1136",
             "attributes": {}
         }
     ],
@@ -89,14 +83,6 @@ _requester_supplied_san_subject_honored_at_issuance_def := {
             "attributes": {
                 "justification": "Steal or Forge Authentication Certificates: an unconstrained CA that honors requester-supplied Subject/SAN lets a low-privilege enrollee forge a certificate impersonating an arbitrary host or user (the AD-CS ESC1 pattern generalized to step-ca X5C/JWK and EJBCA Subject-DN override)."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1556",
-            "attributes": {
-                "justification": "Modify Authentication Process: forging a certificate for an arbitrary identity at issuance subverts certificate-based authentication, letting the adversary present a trusted credential for a principal they do not legitimately control."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -129,14 +115,10 @@ _issued_private_key_exposed_in_transit_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.004",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1557",
-            "attributes": {}
+            "value": "T1040",
+            "attributes": {
+                "justification": "Server-side key generation with PKCS#12 delivery, combined with weak SCEP DES-CBC protection, puts the newly issued private key on the wire, where passive capture recovers that authentication material (Network Sniffing, T1040)."
+            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -171,12 +153,6 @@ _cleartext_enrollment_transport_def := {
             "property": "attack_id",
             "value": "T1040",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1557",
-            "attributes": {}
         }
     ],
     "attack_vector": "ADJACENT"
@@ -206,12 +182,6 @@ _provisioner_enrollment_token_compromise_def := {
     "criticality": "critical",
     "score": 8.8,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552",
-            "attributes": {}
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -257,14 +227,6 @@ _unbounded_validity_missing_revocation_def := {
             "attributes": {
                 "justification": "Steal or Forge Authentication Certificates: an enrollment flow that mints long-lived certs with no revocation path lets a forged/mis-issued or key-compromised certificate remain a trusted, unrecallable authentication credential for years."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1553",
-            "attributes": {
-                "justification": "Subvert Trust Controls: unbounded validity plus a missing OCSP/CRL recall path defeats the trust-control lifecycle, so a subverted certificate cannot be invalidated and continues to be honored."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -286,14 +248,7 @@ _unmonitored_unthrottled_issuance_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

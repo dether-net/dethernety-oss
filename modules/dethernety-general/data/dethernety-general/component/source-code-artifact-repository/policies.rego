@@ -17,14 +17,6 @@ _weak_access_control_maintainer_account_takeover_def := {
             "attributes": {
                 "justification": "Weak access control with no phishing-resistant MFA, shared admin accounts, and over-broad roles lets an attacker operate with a legitimate maintainer's valid account at the supply-chain root."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1566",
-            "attributes": {
-                "justification": "Absent phishing-resistant (WebAuthn/FIDO2) MFA, maintainer credentials are takeable via phishing, the primary path to the account-takeover foothold."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -70,12 +62,6 @@ _missing_branch_repo_integrity_controls_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1195",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1199",
             "attributes": {}
         }
     ],
@@ -161,20 +147,18 @@ _over_privileged_ci_tokens_oidc_federation_failures_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552",
-            "attributes": {}
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "Long-lived PATs, static cloud keys and a write-all GITHUB_TOKEN are bearer tokens that, once stolen, an adversary replays against repository and cloud APIs to act on behalf of the pipeline (Application Access Token, T1550.001)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
+            "value": "T1078.004",
+            "attributes": {
+                "justification": "Static cloud access keys and over-scoped CI identities stored as repository secrets are standing cloud credentials, so an adversary who extracts them operates as a legitimate, highly privileged cloud account (Cloud Accounts, T1078.004)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -337,17 +321,17 @@ _missing_encryption_audit_logging_gaps_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1213",
+            "value": "T1685",
             "attributes": {
-                "justification": "Unencrypted in-transit/at-rest repositories plus weak audit visibility ease unauthorized reading and harvesting of source, secrets, and IP from the central information repository."
+                "justification": "Absent off-host audit-log streaming, short retention, and missing anomaly alerting impair defensive telemetry, letting repository access abuse proceed undetected."
             }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685",
+            "value": "T1070",
             "attributes": {
-                "justification": "Absent off-host audit-log streaming, short retention, and missing anomaly alerting impair defensive telemetry, letting repository access abuse proceed undetected."
+                "justification": "Audit logs that stay on the repository host and are never streamed to a SIEM leave a single, local record that an adversary with host or admin access can delete or modify to hide their activity (Indicator Removal, T1070)."
             }
         }
     ],
@@ -403,7 +387,7 @@ _network_exposure_self_hosted_runner_unpatched_instance_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1133",
+            "value": "T1677",
             "attributes": {}
         }
     ],

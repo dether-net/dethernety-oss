@@ -67,7 +67,7 @@ _no_per_workload_identity_ip_or_shared_token_trust_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
+            "value": "T1550.001",
             "attributes": {}
         }
     ],
@@ -93,8 +93,18 @@ _flat_pod_network_no_default_deny_networkpolicy_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1021",
-            "attributes": {}
+            "value": "T1210",
+            "attributes": {
+                "justification": "Any-to-any pod reachability with no default-deny NetworkPolicy lets an adversary on one compromised pod reach vulnerable peer services and exploit them to move laterally through the cluster (Exploitation of Remote Services, T1210)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1046",
+            "attributes": {
+                "justification": "Without a default-deny NetworkPolicy, a compromised pod can scan the entire pod and service network and enumerate every listening service in the cluster (Network Service Discovery, T1046)."
+            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -119,14 +129,7 @@ _no_per_call_service_to_service_authorization_def := {
     "category": "",
     "criticality": "high",
     "score": 7.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -153,7 +156,7 @@ _shared_long_lived_service_credentials_reused_everywhere_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.001",
+            "value": "T1550.001",
             "attributes": {}
         }
     ],
@@ -175,14 +178,7 @@ _unmonitored_east_west_silent_lateral_movement_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1021",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -215,8 +211,18 @@ _privileged_control_plane_reachable_from_app_pods_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1611",
-            "attributes": {}
+            "value": "T1552.007",
+            "attributes": {
+                "justification": "App-namespace pods that can reach kube-apiserver, etcd or the kubelet let an adversary in a compromised workload query those container APIs to retrieve Secrets and service-account tokens (Container API, T1552.007)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1609",
+            "attributes": {
+                "justification": "Reachable kube-apiserver and kubelet (10250) endpoints let an adversary in an application pod use exec and run APIs to execute commands inside other containers (Container Administration Command, T1609)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

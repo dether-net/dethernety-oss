@@ -13,7 +13,8 @@ _unencrypted_pii_at_rest_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1213"
+            "value": "T1005",
+            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -106,7 +107,16 @@ _weak_key_management_keys_co_located_unrotated_no_hsm_kms_def := {
     "category": "",
     "criticality": "critical",
     "score": 8.4,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1552",
+            "attributes": {
+                "justification": "Data-encryption keys stored on the same host, volume or config file as the ciphertext, with no HSM or KMS separation, let an adversary who compromises the data tier collect the keys and decrypt customer records (Unsecured Credentials, T1552)."
+            }
+        }
+    ],
     "attack_vector": "LOCAL"
 }
 
@@ -137,7 +147,16 @@ _over_broad_access_to_pii_stores_def := {
     "category": "",
     "criticality": "high",
     "score": 7.8,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1213.006",
+            "attributes": {
+                "justification": "Blanket SELECT grants, shared admin accounts and no row- or column-level controls on the PII store let an adversary holding one compromised account mine every customer record from the database (Data from Information Repositories: Databases, T1213.006)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -191,17 +210,7 @@ _bulk_exfiltration_without_dlp_or_egress_monitoring_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1537"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1567"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1030"
         }
     ],
     "attack_vector": "NETWORK"
@@ -253,13 +262,7 @@ _data_residency_sovereignty_violation_def := {
     "category": "",
     "criticality": "high",
     "score": 7,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1537"
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

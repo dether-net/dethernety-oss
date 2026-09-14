@@ -17,14 +17,6 @@ _unpatched_kev_appliance_exploit_auth_bypass_rce_chain_def := {
             "attributes": {
                 "justification": "Pre-auth memory-safety/injection flaws in the internet-facing VPN gateway yield unauthenticated RCE/file access \u2014 exploitation of a public-facing application."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1210",
-            "attributes": {
-                "justification": "An auth-bypass + command-injection chain against the remote-access service exploits the gateway to gain code execution and pivot into the trusted zone."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -164,7 +156,7 @@ _weak_cryptography_downgrade_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1600",
+            "value": "T1557",
             "attributes": {}
         }
     ],
@@ -210,22 +202,6 @@ _flat_internal_access_after_admission_def := {
             "attributes": {
                 "justification": "Flat internal reachability from the VPN pool lets a compromised admitted session use Remote Services to move laterally across the trusted zone."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1210",
-            "attributes": {
-                "justification": "Broad post-admission reachability exposes the full internal service surface to Exploitation of Remote Services for lateral movement once a single device or credential is compromised."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1090.001",
-            "attributes": {
-                "justification": "An admitted VPN session with flat internal access can be used as an internal proxy to relay/pivot traffic deeper into the trusted network."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -254,10 +230,8 @@ _internet_exposed_management_interface_default_credentials_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
-            "attributes": {
-                "justification": "An internet-reachable admin GUI/SSH is the public-facing application surface that appliance RCE/auth-bypass exploits target (Ivanti, Citrix, Fortinet, PAN-OS)."
-            }
+            "value": "T1078.001",
+            "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",

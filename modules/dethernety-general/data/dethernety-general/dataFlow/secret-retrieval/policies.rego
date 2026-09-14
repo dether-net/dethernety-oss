@@ -55,14 +55,10 @@ _long_lived_over_broad_token_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1528",
-            "attributes": {}
+            "value": "T1550.001",
+            "attributes": {
+                "justification": "A non-expiring token with wildcard mounts, sys/ or root policy is a bearer credential that an adversary who obtains it replays against the secrets API to read secrets indefinitely (Application Access Token, T1550.001)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -135,12 +131,6 @@ _unverified_tls_to_secrets_manager_mitm_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1040",
-            "attributes": {}
         }
     ],
     "attack_vector": "ADJACENT"
@@ -173,9 +163,17 @@ _retrieved_secret_exposed_via_environment_variable_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.001",
+            "value": "T1552",
             "attributes": {
-                "justification": "Unsecured Credentials: Credentials In Files / process environment \u2014 an env-injected secret is readable via /proc/<pid>/environ and leaks into crash dumps, child processes, and replica environments."
+                "justification": "A retrieved secret injected as an environment variable is exposed through /proc/<pid>/environ, crash dumps and child processes, where an adversary on the workload harvests it (Unsecured Credentials, T1552)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1003.007",
+            "attributes": {
+                "justification": "Secrets delivered as environment variables are readable from /proc/<pid>/environ, so an adversary on the host can walk per-process entries in the proc filesystem to collect them (Proc Filesystem, T1003.007)."
             }
         }
     ],
@@ -254,7 +252,7 @@ _static_long_lived_secret_instead_of_dynamic_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552",
+            "value": "T1078",
             "attributes": {}
         }
     ],

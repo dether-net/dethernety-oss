@@ -27,12 +27,6 @@ _phishing_driven_user_execution_initial_access_def := {
             "property": "attack_id",
             "value": "T1204",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1059",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -76,14 +70,6 @@ _malware_execution_with_disabled_or_stale_endpoint_protection_def := {
             "value": "T1685",
             "attributes": {
                 "justification": "Disabled AV/EDR, missing tamper protection, and disabled real-time/behavior monitoring are the conditions an Impair Defenses actor either exploits or creates to run malware undetected."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1091",
-            "attributes": {
-                "justification": "Without removable-media device control, USB mass storage seeds the malware payload via Replication Through Removable Media."
             }
         }
     ],
@@ -131,12 +117,6 @@ _exploitation_of_unpatched_os_third_party_client_software_def := {
             "property": "attack_id",
             "value": "T1203",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1068",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -181,7 +161,7 @@ _local_credential_theft_and_reuse_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552",
+            "value": "T1555.003",
             "attributes": {}
         },
         {
@@ -221,24 +201,7 @@ _lost_or_stolen_device_data_exposure_def := {
     "category": "",
     "criticality": "high",
     "score": 6.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1052",
-            "attributes": {
-                "justification": "Offline attacker with physical possession of a lost/stolen unencrypted device exfiltrates local data over a physical medium."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1052.001",
-            "attributes": {
-                "justification": "Data on the unprotected device is copied off over USB / removable media once the attacker has physical access."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "PHYSICAL"
 }
 
@@ -325,19 +288,7 @@ _unmanaged_unmonitored_endpoint_with_network_exposure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1686.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1210",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1091",
             "attributes": {}
         }
     ],

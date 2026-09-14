@@ -21,12 +21,6 @@ _weak_legacy_tls_termination_on_the_client_edge_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1040",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -75,14 +69,6 @@ _plaintext_unverified_backend_re_encryption_leg_def := {
             "attributes": {
                 "justification": "Without backend certificate validation the LB accepts any upstream cert, enabling an adversary-in-the-middle on the post-termination connection."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1048.003",
-            "attributes": {
-                "justification": "An unencrypted internal leg permits exfiltration of intercepted sensitive data over an unencrypted non-C2 protocol."
-            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -114,14 +100,6 @@ _http_request_smuggling_desync_between_lb_and_backend_def := {
             "value": "T1190",
             "attributes": {
                 "justification": "Request smuggling/desync exploits the public-facing LB->backend HTTP parsing boundary to smuggle a request past edge authorization."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
-            "attributes": {
-                "justification": "Abuse of the HTTP/HTTP2 application-layer protocol (CL/TE framing, H2.CL/H2.TE downgrade) to desync front-end and back-end."
             }
         }
     ],
@@ -155,20 +133,16 @@ _ddos_connection_exhaustion_of_the_chokepoint_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1498",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1499.002",
             "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1499.003",
-            "attributes": {}
+            "value": "T1499.001",
+            "attributes": {
+                "justification": "SYN floods leave TCP handshakes incomplete and consume the load balancer's connection-state capacity, and because it is the single chokepoint, every backend behind it becomes unreachable (OS Exhaustion Flood, T1499.001)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -205,7 +179,16 @@ _x_forwarded_for_spoofing_client_ip_forgery_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1190",
+            "attributes": {
+                "justification": "Trusting a client-supplied X-Forwarded-For header is a misconfiguration on an Internet-facing edge system: a remote attacker forges their source IP to bypass IP allowlists and reach restricted functions (Exploit Public-Facing Application, T1190)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -257,12 +240,6 @@ _exposed_management_interface_data_plane_running_as_root_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1190",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1578",
             "attributes": {}
         }
     ],

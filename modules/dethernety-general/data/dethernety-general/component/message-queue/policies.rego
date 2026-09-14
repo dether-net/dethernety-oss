@@ -17,14 +17,6 @@ _default_anonymous_weak_broker_authentication_def := {
             "attributes": {
                 "justification": "Default broker accounts (RabbitMQ guest:guest) and default-allow authorization let an attacker authenticate with shipped/known credentials \u2014 Valid Accounts: Default Accounts."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.005",
-            "attributes": {
-                "justification": "Once connected anonymously, the attacker abuses the broker's publish/subscribe protocol (AMQP/Kafka) to read or inject messages \u2014 Application Layer Protocol: Publish/Subscribe Protocols."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -65,9 +57,17 @@ _over_broad_authorization_no_per_topic_least_privilege_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1071.005",
+            "value": "T1078",
             "attributes": {
-                "justification": "With wildcard rights / no per-topic ACLs, any authenticated client abuses the broker's publish/subscribe protocol to inject, consume, or reconfigure arbitrary topics/queues \u2014 a compromised low-privilege producer acts as a confused deputy over the messaging channel."
+                "justification": "Wildcard rights or missing per-topic ACLs mean any compromised broker client credential reaches every queue and topic, turning one valid account into broker-wide access (Valid Accounts, T1078)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1565",
+            "attributes": {
+                "justification": "Wildcard queue rights let any authenticated client publish into, purge or reconfigure queues it should never touch, altering the data downstream consumers act on (Data Manipulation, T1565)."
             }
         }
     ],
@@ -104,22 +104,6 @@ _cleartext_transport_interception_mitm_def := {
             "value": "T1040",
             "attributes": {
                 "justification": "Plaintext AMQP/Kafka listeners expose credentials and message payloads to passive network sniffing."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1557",
-            "attributes": {
-                "justification": "Without peer-certificate verification or pinned TLS 1.2+, an active attacker performs adversary-in-the-middle to read and alter broker traffic."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1048.003",
-            "attributes": {
-                "justification": "Cleartext broker transport enables exfiltration of message data over an unencrypted protocol."
             }
         }
     ],
@@ -201,14 +185,6 @@ _message_tampering_malicious_injection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1659",
-            "attributes": {
-                "justification": "Content Injection \u2014 an attacker on an unauthenticated/wildcard-authorized queue with no per-message integrity protection injects forged messages so downstream consumers act on attacker-controlled content."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1565.002",
             "attributes": {
                 "justification": "Transmitted Data Manipulation \u2014 in-flight broker messages are altered/forged because bodies are unsigned, corrupting the data consumers process."
@@ -241,7 +217,16 @@ _message_replay_def := {
     "category": "",
     "criticality": "medium",
     "score": 6.5,
-    "exploited_by": [],
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1565",
+            "attributes": {
+                "justification": "A queue whose consumers lack idempotency, deduplication or freshness binding lets an adversary re-submit captured messages, inserting data that triggers duplicate business side-effects (Data Manipulation, T1565)."
+            }
+        }
+    ],
     "attack_vector": "NETWORK"
 }
 
@@ -296,12 +281,6 @@ _queue_flooding_resource_exhaustion_dos_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1499.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499.001",
             "attributes": {}
         }
     ],

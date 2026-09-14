@@ -19,7 +19,7 @@ _cleartext_http_downgrade_missing_hsts_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1071.001",
+            "value": "T1689",
             "attributes": {}
         }
     ],
@@ -55,12 +55,6 @@ _missing_weak_content_security_policy_enabling_xss_def := {
             "property": "attack_id",
             "value": "T1059.007",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1185",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -89,14 +83,7 @@ _clickjacking_via_missing_frame_ancestors_x_frame_options_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.4,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1185",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -115,16 +102,7 @@ _permissive_cors_allowing_cross_origin_data_theft_def := {
     "category": "",
     "criticality": "high",
     "score": 7.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1539",
-            "attributes": {
-                "justification": "Permissive CORS lets an attacker-origin page read authenticated JSON responses, enabling Steal Web Session Cookie / web-session data exfiltration cross-site."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -147,16 +125,7 @@ _missing_csrf_protection_on_state_changing_requests_def := {
     "category": "",
     "criticality": "high",
     "score": 7.4,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1185",
-            "attributes": {
-                "justification": "Browser Session Hijacking \u2014 attacker page leverages the victim's authenticated browser session to issue state-changing requests with ambient cookies, the canonical CSRF kill-chain step."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 

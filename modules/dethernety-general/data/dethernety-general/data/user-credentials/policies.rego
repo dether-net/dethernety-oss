@@ -13,12 +13,18 @@ _plaintext_or_reversibly_encrypted_password_storage_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1555"
+            "value": "T1552",
+            "attributes": {
+                "justification": "Passwords stored in cleartext or with a reversible cipher are insecurely stored credentials, so disclosure of the store gives an adversary usable passwords with no cracking required (Unsecured Credentials, T1552)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.001"
+            "value": "T1078",
+            "attributes": {
+                "justification": "Cleartext or reversibly encrypted passwords recovered from a disclosed store can be used immediately to log in as those users, enabling mass account takeover through legitimate authentication (Valid Accounts, T1078)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -320,11 +326,6 @@ _over_broad_access_to_the_credential_store_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1555"
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1003"
         }
     ],
     "attack_vector": "LOCAL"

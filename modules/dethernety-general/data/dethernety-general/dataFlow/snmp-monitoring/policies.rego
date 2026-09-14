@@ -41,10 +41,8 @@ _default_guessable_community_string_public_private_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "A default/guessable community string ('public'/'private') is a valid, vendor-shipped credential that lets any scanner reaching UDP 161 authenticate to the SNMP monitoring flow and dump the full MIB \u2014 use of default accounts/credentials (T1078, sub-technique .001 Default Accounts)."
-            }
+            "value": "T1602.001",
+            "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",
@@ -52,6 +50,14 @@ _default_guessable_community_string_public_private_def := {
             "value": "T1110",
             "attributes": {
                 "justification": "Guessable / dictionary community strings are reached by credential spraying and password guessing against UDP 161 \u2014 brute force (T1110) of the SNMP community secret."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1078.001",
+            "attributes": {
+                "justification": "Vendor-default public and private community strings are known default credentials, so any scanner reaching UDP 161 authenticates as a legitimate SNMP principal and can dump the MIB or issue SET commands (Default Accounts, T1078.001)."
             }
         }
     ],
@@ -87,7 +93,7 @@ _weak_absent_snmpv3_usm_security_level_noauth_md5_des_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1556",
+            "value": "T1602.001",
             "attributes": {}
         }
     ],
@@ -121,17 +127,17 @@ _snmp_set_write_reconfiguration_rwcommunity_rwuser_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1565",
+            "value": "T1686.002",
             "attributes": {
-                "justification": "rwcommunity/rwuser SET write lets an attacker alter device configuration (interface/route/ACL state) over the monitoring channel \u2014 stored/configuration data manipulation."
+                "justification": "SNMP write access via rwcommunity or rwuser lets an adversary change ACLs and filtering rules on routers and switches through SET operations to permit otherwise blocked traffic (Network Device Firewall, T1686.002)."
             }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1601",
+            "value": "T1599",
             "attributes": {
-                "justification": "SNMP SET write can trigger a TFTP config upload/download, modifying the device's running configuration / system image over the monitoring flow."
+                "justification": "SNMP write access gives an adversary control of segmentation devices, letting them rewrite interfaces, routes and ACLs to bridge network boundaries and open paths between zones (Network Boundary Bridging, T1599)."
             }
         }
     ],
@@ -157,10 +163,8 @@ _full_mib_inventory_disclosure_no_vacm_view_restriction_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1046",
-            "attributes": {
-                "justification": "An unrestricted SNMP read view lets a poller enumerate the device's full MIB \u2014 interfaces, listening services, routes, running processes/software \u2014 which is Network Service Discovery over the monitoring channel."
-            }
+            "value": "T1602.001",
+            "attributes": {}
         },
         {
             "label": "MitreAttackTechnique",
@@ -190,12 +194,6 @@ _agent_network_exposure_missing_source_ip_acl_def := {
     "criticality": "high",
     "score": 7.5,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1046",
-            "attributes": {}
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -243,7 +241,7 @@ _snmp_getbulk_reflection_amplification_dos_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1499",
+            "value": "T1498.002",
             "attributes": {}
         }
     ],

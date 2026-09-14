@@ -17,14 +17,6 @@ _weak_issuance_authorization_enrollee_supplied_identity_def := {
             "attributes": {
                 "justification": "Steal or Forge Authentication Certificates \u2014 an enrollee-supplied-subject template with an auth EKU and no approval (AD CS ESC1), or an Any-Purpose/empty-EKU template (ESC2), lets a low-privileged requester obtain a certificate bearing a privileged principal's identity and authenticate as that principal."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1556",
-            "attributes": {
-                "justification": "Modify Authentication Process \u2014 abusing trusted certificate issuance to mint credentials that authenticate as another principal subverts the certificate-based authentication path."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -59,14 +51,6 @@ _ca_wide_san_injection_issuance_control_bypass_def := {
             "attributes": {
                 "justification": "Steal or Forge Authentication Certificates \u2014 ESC6 abuses the CA-wide EDITF_ATTRIBUTESUBJECTALTNAME2 flag to inject an attacker-controlled SAN, obtaining a certificate that authenticates as an arbitrary (privileged) principal across every template at once."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1098",
-            "attributes": {
-                "justification": "Account Manipulation \u2014 a holder of ManageCA (ESC7) manipulates the CA's issuance policy by flipping the CA-wide SAN flag, re-enabling impersonation issuance that bypasses per-template approval and hardening."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -98,14 +82,6 @@ _unconstrained_over_trusted_issuing_ca_def := {
             "value": "T1649",
             "attributes": {
                 "justification": "An unconstrained / over-trusted issuing CA lets an adversary forge or obtain authentication certificates for any name the CA does not own, enabling Steal or Forge Authentication Certificates."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1553.004",
-            "attributes": {
-                "justification": "Without NameConstraints and pathLen=0 the CA can spawn rogue subordinate CAs / sign across namespaces, subverting trust controls (Install Root Certificate)."
             }
         }
     ],
@@ -183,14 +159,6 @@ _ntlm_relay_to_http_enrollment_endpoint_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1187",
-            "attributes": {
-                "justification": "Coerced machine authentication (forced authentication) is the trigger that supplies the credential relayed in ESC8."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1649",
             "attributes": {
                 "justification": "The relay yields an authentication-capable certificate impersonating the victim machine (steal or forge authentication certificates)."
@@ -230,25 +198,7 @@ _weak_default_ca_admin_access_and_role_separation_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1098",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1222",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1649",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
             "attributes": {}
         }
     ],
@@ -291,14 +241,6 @@ _missing_or_stale_revocation_lifecycle_def := {
     "criticality": "high",
     "score": 7.5,
     "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1553",
-            "attributes": {
-                "justification": "Subvert Trust Controls: with revocation missing or stale, a compromised/mis-issued certificate stays trusted, letting an adversary abuse the trust chain until natural expiry."
-            }
-        },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
@@ -346,10 +288,8 @@ _weak_signing_algorithm_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1600",
-            "attributes": {
-                "justification": "Weaken Encryption: a CA signing with SHA-1 or sub-floor RSA keys degrades the cryptographic strength protecting issued certificates, enabling forgeable certificate chains."
-            }
+            "value": "T1649",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -378,17 +318,17 @@ _disabled_or_non_attributable_issuance_auditing_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.001",
+            "value": "T1685",
             "attributes": {
-                "justification": "Disable Windows Event Logging \u2014 AD CS AuditFilter off / OS object-access policy off means CA issuance events are never written."
+                "justification": "Issuance and admin-action auditing that lives only on the CA host, partially enabled and never centrally retained, lets an adversary with CA administration disable or degrade that telemetry before minting rogue certificates (Disable or Modify Tools, T1685)."
             }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685.005",
+            "value": "T1070",
             "attributes": {
-                "justification": "Indicator Removal: Clear Windows Event Logs \u2014 without tamper-resistant, SIEM-forwarded retention, local issuance/admin logs can be cleared to hide rogue-cert minting."
+                "justification": "Because issuance, revocation and template-change records are not shipped off the CA host, an adversary who mints a rogue certificate can delete or edit the only copy of those entries and erase the evidence (Indicator Removal, T1070)."
             }
         }
     ],

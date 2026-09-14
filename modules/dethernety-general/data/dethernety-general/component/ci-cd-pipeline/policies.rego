@@ -55,12 +55,6 @@ _mutable_third_party_action_dependency_substitution_def := {
             "property": "attack_id",
             "value": "T1195.001",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1195.002",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -137,12 +131,6 @@ _over_privileged_pipeline_identity_long_lived_cloud_keys_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1098.003",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1078.004",
             "attributes": {}
         }
@@ -185,12 +173,6 @@ _credential_hygiene_secrets_leaked_in_logs_artifacts_def := {
             "property": "attack_id",
             "value": "T1552.001",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567.001",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -228,12 +210,6 @@ _missing_artifact_integrity_no_signed_provenance_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1195.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1036.001",
             "attributes": {}
         }
     ],
@@ -320,25 +296,17 @@ _self_hosted_runner_compromise_open_egress_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1584",
-            "attributes": {
-                "justification": "A compromised persistent self-hosted runner is attacker-controlled infrastructure within the victim's build environment \u2014 Compromise Infrastructure used as a privileged foothold for subsequent pipeline runs."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1567.001",
-            "attributes": {
-                "justification": "Unrestricted runner egress lets a poisoned build step exfiltrate secrets/source to an external code repository (Exfiltration to Code Repository) and provides a C2 path."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1677",
             "attributes": {
                 "justification": "Untrusted PR code executing on a shared/persistent self-hosted runner is the Poisoned Pipeline Execution primitive that compromises the runner in the first place."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1071",
+            "attributes": {
+                "justification": "A persistent self-hosted runner with unrestricted egress gives an adversary who has compromised it a command-and-control channel over ordinary web protocols that blends in with normal build traffic (Application Layer Protocol, T1071)."
             }
         }
     ],

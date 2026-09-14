@@ -13,12 +13,6 @@ _insecure_local_credential_token_storage_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1552.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1552",
             "attributes": {}
         }
@@ -59,8 +53,10 @@ _cleartext_transport_no_certificate_pinning_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1553.004",
-            "attributes": {}
+            "value": "T1040",
+            "attributes": {
+                "justification": "Cleartext HTTP from the mobile app sends tokens and PII across hostile Wi-Fi and carrier networks, where a passive listener captures them directly (Network Sniffing, T1040)."
+            }
         }
     ],
     "attack_vector": "ADJACENT"
@@ -120,7 +116,7 @@ _app_repackaging_hardcoded_secret_extraction_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1036.001",
+            "value": "T1552.001",
             "attributes": {}
         }
     ],
@@ -223,14 +219,6 @@ _malicious_deep_link_untrusted_client_supplied_data_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1204.001",
-            "attributes": {
-                "justification": "Crafted deep links / custom URL schemes lure a user into activating a malicious link that an unvalidated handler treats as trusted, driving sensitive actions."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1190",
             "attributes": {
                 "justification": "A backend that trusts client-asserted state and lacks server-side allow-list validation exposes an application-layer weakness exploitable by a tampered/instrumented app supplying crafted input."
@@ -267,16 +255,7 @@ _missing_local_auth_biometric_gating_of_secrets_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.8,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1552",
-            "attributes": {
-                "justification": "Keystore-held secrets usable without a biometric/local-auth challenge are unsecured credentials an attacker can recover and exercise from a momentarily-unlocked or stolen device; dossier attack vector 'Device theft / loss with local credential extraction' (mitre_hint T1552)."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "PHYSICAL"
 }
 

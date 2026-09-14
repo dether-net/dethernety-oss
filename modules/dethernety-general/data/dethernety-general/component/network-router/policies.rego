@@ -21,12 +21,6 @@ _exposed_unauthenticated_management_plane_def := {
             "property": "attack_id",
             "value": "T1133",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1048.003",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -75,10 +69,8 @@ _weak_snmp_community_string_abuse_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "Shared/default community strings function as a credential (community-as-credential); a captured or default community grants illegitimate SNMP access, including RW config modification."
-            }
+            "value": "T1602.001",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"
@@ -177,18 +169,6 @@ _routing_protocol_injection_route_hijack_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1565.002",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
         }
     ],
     "attack_vector": "ADJACENT"
@@ -228,18 +208,6 @@ _on_path_interception_and_boundary_bridging_pivot_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1599",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599.001",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1090",
             "attributes": {}
         }
     ],
@@ -285,12 +253,6 @@ _firmware_tampering_unsigned_image_implant_def := {
             "property": "attack_id",
             "value": "T1542",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1542.001",
-            "attributes": {}
         }
     ],
     "attack_vector": "LOCAL"
@@ -324,12 +286,6 @@ _unpatched_known_exploited_cves_and_legacy_services_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1190",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1210",
             "attributes": {}
         }
     ],
@@ -367,19 +323,7 @@ _control_plane_network_denial_of_service_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1498",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1499",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499.004",
             "attributes": {}
         }
     ],
@@ -416,12 +360,6 @@ _logging_change_audit_and_ntp_gaps_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1685",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1070.006",
             "attributes": {}
         },
         {

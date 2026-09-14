@@ -9,14 +9,7 @@ _bypass_dmz_data_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 9.1,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -71,20 +64,7 @@ _trusted_relationship_at_internal_interface_def := {
     "category": "NETWORK",
     "criticality": "high",
     "score": 8.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1199",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1556",
-            "attributes": {}
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "NETWORK"
 }
 
@@ -111,17 +91,9 @@ _east_west_lateral_on_flat_trust_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1021",
+            "value": "T1210",
             "attributes": {
-                "justification": "Remote Services \u2014 adversaries pivot between peers in a flat trust zone via legitimate remote-access services."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1078",
-            "attributes": {
-                "justification": "Valid Accounts \u2014 when peer authn is network-position-only, a stolen workload credential is indistinguishable from a legitimate caller."
+                "justification": "Once on one app service, a flat app tier with no mTLS and permissive NetworkPolicy lets the adversary reach peer services and exploit their weaknesses to move laterally (Exploitation of Remote Services, T1210)."
             }
         }
     ],
@@ -239,8 +211,10 @@ _management_plane_bridging_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1599",
-            "attributes": {}
+            "value": "T1078",
+            "attributes": {
+                "justification": "A boundary management interface reachable from user networks and guarded by weak credentials is taken over simply by logging in with obtained or default credentials, giving the adversary control of zone policy (Valid Accounts, T1078)."
+            }
         }
     ],
     "attack_vector": "NETWORK"

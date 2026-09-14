@@ -13,7 +13,7 @@ _weak_tls_termination_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1040",
+            "value": "T1689",
             "attributes": {}
         },
         {
@@ -105,14 +105,6 @@ _http_request_smuggling_desync_def := {
             "attributes": {
                 "justification": "HTTP request smuggling / desync exploits inconsistent parsing in the internet-facing proxy/WAF to bypass it and reach the backend \u2014 exploitation of a public-facing application."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071.001",
-            "attributes": {
-                "justification": "The smuggled request is carried in the standard HTTP/HTTP/2 web-protocol channel the proxy fronts, abusing application-layer web protocols to slip a hidden request past the WAF."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -155,7 +147,7 @@ _unverified_upstream_trust_ssrf_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1090",
+            "value": "T1557",
             "attributes": {}
         }
     ],
@@ -193,14 +185,6 @@ _forwarded_header_spoofing_host_attacks_def := {
             "attributes": {
                 "justification": "Spoofed X-Forwarded-* / Host headers passed unchanged to the backend exploit the public-facing proxy to bypass IP allowlists and inject crafted Host values (cache poisoning, auth-confusion routing) against the fronted application."
             }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1071",
-            "attributes": {
-                "justification": "Abuse of trusted HTTP application-layer headers (forwarded-for / Host) to forge client origin and identity over the otherwise-legitimate proxied web protocol."
-            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -233,9 +217,17 @@ _information_leakage_missing_response_hardening_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1190",
+            "value": "T1592.002",
             "attributes": {
-                "justification": "Leaked version/stack identity and missing response hardening on the public-facing proxy directly aid targeting and exploitation of the internet-facing application surface (Exploit Public-Facing Application)."
+                "justification": "server_tokens on, verbose error pages and unstripped backend headers disclose the proxy and backend software and exact versions, which an adversary collects to pick matching exploits (Software, T1592.002)."
+            }
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1595.002",
+            "attributes": {
+                "justification": "Version strings in server banners and passed-through backend headers answer exactly what a vulnerability scan looks for, letting an adversary match the running software against known exploits without authenticating (Vulnerability Scanning, T1595.002)."
             }
         }
     ],
@@ -273,7 +265,7 @@ _l7_rate_limit_dos_gaps_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1498",
+            "value": "T1499.002",
             "attributes": {}
         },
         {
@@ -375,10 +367,8 @@ _logging_gaps_blinded_detection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1567",
-            "attributes": {
-                "justification": "Without access/audit logging and SIEM alerting at the proxy, web-service exfiltration of data through the fronted apps passes the appliance unrecorded and undetected."
-            }
+            "value": "T1070",
+            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"

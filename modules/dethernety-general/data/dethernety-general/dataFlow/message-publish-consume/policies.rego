@@ -13,17 +13,9 @@ _anonymous_unauthenticated_broker_access_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1078",
+            "value": "T1565",
             "attributes": {
-                "justification": "Anonymous/default (guest/guest) broker login is use of a valid-but-unauthenticated or default account to access the message flow."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1190",
-            "attributes": {
-                "justification": "A remotely reachable broker listener accepting anonymous produce/consume is exploitation of a public-facing application service over the network."
+                "justification": "An anonymous Kafka listener, Mosquitto allow_anonymous or reachable RabbitMQ guest account lets any client publish, so an adversary can inject or alter events that downstream consumers trust and act on (Data Manipulation, T1565)."
             }
         }
     ],
@@ -53,14 +45,18 @@ _wildcard_missing_topic_authorization_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1098",
-            "attributes": {}
+            "value": "T1213",
+            "attributes": {
+                "justification": "Default-allow authorizers or universal grants let any client subscribe to every topic and read the business data the broker holds and shares between services, collecting it from that repository (Data from Information Repositories, T1213)."
+            }
         },
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1530",
-            "attributes": {}
+            "value": "T1565",
+            "attributes": {
+                "justification": "Universal topic write grants let any client publish into, or overwrite retained messages on, every topic, manipulating the data other services consume (Data Manipulation, T1565)."
+            }
         }
     ],
     "attack_vector": "NETWORK"
@@ -173,7 +169,7 @@ _mass_unauthorized_consumption_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1530",
+            "value": "T1213",
             "attributes": {}
         }
     ],
@@ -203,7 +199,7 @@ _unsafe_message_deserialization_rce_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1203",
+            "value": "T1210",
             "attributes": {}
         }
     ],
@@ -265,12 +261,6 @@ _publicly_reachable_broker_listener_def := {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
             "value": "T1190",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1499",
             "attributes": {}
         }
     ],
