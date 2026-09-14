@@ -174,7 +174,7 @@ describe('module reconciliation — install / orphan / revive end-to-end', () =>
          CREATE (a:Analysis {id: 'an-1'})-[:IS_INSTANCE_OF]->(c)`,
       ),
     );
-    // Re-install with empty class list (authoritative-empty per §5.3 trust-the-source)
+    // Re-install with empty class list (authoritative-empty — the manifest is trusted as the source)
     await install(meta('mod-a', []));
     expect(await countByEdge('mod-a', 'HAS_CLASS')).toBe(0);
     expect(await countByEdge('mod-a', 'HAS_ORPHANED_CLASS')).toBe(1);
@@ -319,7 +319,7 @@ describe('module reconciliation — install / orphan / revive end-to-end', () =>
     expect(await countByEdge('mod-a', 'HAS_CLASS')).toBe(2);
   });
 
-  it('§8.5 invariants: no NULL ids, no duplicate ids, no double :HAS_CLASS per (module,class)', async () => {
+  it('post-install invariants: no NULL ids, no duplicate ids, no double :HAS_CLASS per (module,class)', async () => {
     await install(meta('mod-a', [
       { id: 'class-1', name: 'A' },
       { id: 'class-2', name: 'B' },

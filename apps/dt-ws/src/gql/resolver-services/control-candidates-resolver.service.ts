@@ -81,7 +81,7 @@ export class ControlCandidatesResolverService {
       // compatible class in an allowed module; pass 2 collects ALL of an
       // eligible control's classes (no supportedTypes/module filter) so the
       // per-class compatible flag is real. Filtering classes before the
-      // collect would make compatible tautologically true and the CI §6.3
+      // collect would make compatible tautologically true and the CONTROL_INTEGRATION.md §6.3
       // incompatible-configured penalty unreachable — totalClasses must be
       // the control's true class count for honest relevance scoring.
       //

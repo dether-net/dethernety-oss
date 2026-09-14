@@ -175,7 +175,28 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   // Public entry — invoked by the resolver factory.
   // -------------------------------------------------------------------------
 
+  /**
+   * Takes the same per-element lock as `setInstantiationAttributes`, and on the same key. Both mutations
+   * write this element's derived findings through the same tx-bound upsert helpers, and until now only
+   * one of them was excluded from anything — so two people rebinding and re-attributing one element were
+   * excluded from each other by nothing at all.
+   *
+   * The lock wraps the whole call rather than the write transaction. What the database cannot arbitrate
+   * is the part that happens before any transaction opens: the preflight read, and the module SDK calls
+   * whose findings the transaction then writes.
+   */
   async changeElementBinding(
+    args: { elementId: string; target: ElementBindingInput },
+    graphqlContext: any,
+  ): Promise<ChangeElementBindingResult> {
+    return this.setInstantiation.runExclusive(
+      args.elementId,
+      'changeElementBinding',
+      () => this.bindExclusively(args, graphqlContext),
+    );
+  }
+
+  private async bindExclusively(
     args: { elementId: string; target: ElementBindingInput },
     graphqlContext: any,
   ): Promise<ChangeElementBindingResult> {

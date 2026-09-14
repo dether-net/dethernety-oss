@@ -1572,28 +1572,38 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   // Concurrency Control (Following Established Pattern)
   // ============================================================================
 
-  private async executeWithConcurrencyControl(
-    componentId: string,
-    operation: () => Promise<SetAttributesResult>,
-  ): Promise<SetAttributesResult> {
+  /**
+   * Mutual exclusion on one element, for the whole of `operation`.
+   *
+   * THE RECORD IS REMOVED BY THE OPERATION THAT CREATED IT, AND BY NOTHING ELSE. Any other release —
+   * a timer, a sweep, anything on a clock — frees the key while the work is still running, which admits
+   * a second caller onto the element and leaves the first's timer armed and unowned to fire into that
+   * second caller's life. That is the failure this exclusion exists to prevent, so the mechanism cannot
+   * be allowed to cause it.
+   */
+  async runExclusive<T>(
+    elementId: string,
+    type: ConcurrentOperation['type'],
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const operationId = `concurrent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Check if operation is already in progress
-    if (this.concurrentOperations.has(componentId)) {
-      const existing = this.concurrentOperations.get(componentId)!;
+    if (this.concurrentOperations.has(elementId)) {
+      const existing = this.concurrentOperations.get(elementId)!;
       this.logger.debug('Operation already in progress, waiting', {
-        componentId,
+        componentId: elementId,
         existingOperationId: existing.operationId,
         operationId,
       });
-      
+
       // Wait for existing operation to complete
       return new Promise((resolve, reject) => {
         const checkInterval = setInterval(() => {
-          if (!this.concurrentOperations.has(componentId)) {
+          if (!this.concurrentOperations.has(elementId)) {
             clearInterval(checkInterval);
             // Retry the operation
-            this.executeWithConcurrencyControl(componentId, operation)
+            this.runExclusive(elementId, type, operation)
               .then(resolve)
               .catch(reject);
           }
@@ -1601,28 +1611,39 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       });
     }
 
-    // Create operation tracking
+    // The budget timer WARNS and does not release. An operation outliving its budget is a thing to look
+    // at, not a lock to break: the element is still being written, and handing the key to someone else
+    // is how two writers end up on one element. There is no abort to offer instead — the operation would
+    // carry on and commit regardless, so a caller told it had timed out would be told a falsehood.
     const timeout = setTimeout(() => {
-      this.concurrentOperations.delete(componentId);
-      this.logger.warn('Operation timed out', { componentId, operationId });
+      this.logger.warn('Operation still running past its timeout budget', {
+        componentId: elementId,
+        operationId,
+        type,
+      });
     }, this.config.operationTimeout);
 
     const concurrentOp: ConcurrentOperation = {
-      componentId,
+      componentId: elementId,
       operationId,
       startTime: Date.now(),
       timeout,
-      type: 'setAttributes',
+      type,
     };
 
-    this.concurrentOperations.set(componentId, concurrentOp);
+    this.concurrentOperations.set(elementId, concurrentOp);
 
     try {
       const result = await operation();
       return result;
     } finally {
       clearTimeout(timeout);
-      this.concurrentOperations.delete(componentId);
+      // Release only what this call took. Shutdown clears the map out from under running operations, so
+      // the record sitting here is not unconditionally ours, and deleting it blind would evict a second
+      // caller who legitimately holds the element.
+      if (this.concurrentOperations.get(elementId)?.operationId === operationId) {
+        this.concurrentOperations.delete(elementId);
+      }
     }
   }
 
@@ -1630,31 +1651,15 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   // Cleanup and Health Methods
   // ============================================================================
 
+  // Batch entries only. There is deliberately no companion sweep over the concurrency records: a sweep
+  // can only evict a record whose operation is still running, which is the failure the exclusion exists
+  // to prevent. Release belongs to the operation.
   private startCleanupInterval(): void {
     this.cleanupInterval = setInterval(() => {
-      this.cleanupStaleOperations();
       this.cleanupStaleBatches();
     }, 60000); // 1 minute cleanup interval
 
     this.logger.debug('Cleanup interval started');
-  }
-
-  private cleanupStaleOperations(): void {
-    const now = Date.now();
-    const staleThreshold = 5 * 60 * 1000; // 5 minutes
-    let cleaned = 0;
-
-    for (const [componentId, operation] of this.concurrentOperations.entries()) {
-      if (now - operation.startTime > staleThreshold) {
-        clearTimeout(operation.timeout);
-        this.concurrentOperations.delete(componentId);
-        cleaned++;
-      }
-    }
-
-    if (cleaned > 0) {
-      this.logger.debug('Cleaned up stale operations', { cleaned });
-    }
   }
 
   private cleanupStaleBatches(): void {
@@ -1806,8 +1811,9 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           // GraphQL envelope shape: { success, staleFlippedCount } per
           // SetInstantiationAttributesResult — see schema.graphql.
           try {
-            const result = await this.executeWithConcurrencyControl(
+            const result = await this.runExclusive(
               args.componentId,
+              'setAttributes',
               async () => {
                 // Use batch processing if enabled
                 if (this.config.batchEnabled) {

@@ -5,15 +5,23 @@
 - [Temporary Node Tracking](#temporary-node-tracking)
 - [Three-Phase Node Creation](#three-phase-node-creation)
 - [Deferred Update Mechanism](#deferred-update-mechanism)
+- [Narrowing the Write](#narrowing-the-write)
 - [Error Handling & Rollback](#error-handling--rollback)
 - [Boundary Zoning Getters](#boundary-zoning-getters)
 - [Vue Flow Integration](#vue-flow-integration)
 - [State Synchronization](#state-synchronization)
 - [DtUtils Concurrency Patterns](#dtutils-concurrency-patterns)
+- [Error Classification](#error-classification)
+- [Complete State Reset](#complete-state-reset)
 
 ## Overview
 
 The flowStore manages the data flow diagram editor, implementing advanced optimistic update patterns for responsive user experience during threat modeling.
+
+Two mechanisms sit at its centre and are easy to conflate. The **optimistic merge** decides what the
+canvas renders straight away; the **[projection](#narrowing-the-write)** decides what is actually sent.
+They are not the same object, and the difference is what keeps two people editing one model from undoing
+each other.
 
 **Primary Source File:** `apps/dt-ui/src/stores/flowStore.ts`
 
@@ -59,7 +67,7 @@ The flowStore manages the data flow diagram editor, implementing advanced optimi
 
 ### Data Structures
 
-**Source:** `flowStore.ts:50-54`
+**Source:** `flowStore.ts:76-78`
 
 ```typescript
 // Track nodes that are being created (temp ID exists, real ID pending)
@@ -77,7 +85,7 @@ const deferredUpdates = ref<Map<string, Array<{
 
 ### Helper Functions
 
-**Source:** `flowStore.ts:102-115`
+**Source:** `flowStore.ts` → `isPendingNode`, `getRealNodeId`, `queueUpdateForTempNode`
 
 ```typescript
 // Check if a node is in pending state (being created)
@@ -108,11 +116,11 @@ const queueUpdateForTempNode = (tempId: string, updates: object): void => {
 
 ### Phase 1: Optimistic Update
 
-**Source:** `flowStore.ts:326-347`
+**Source:** `flowStore.ts` → `createComponentNode`
 
 ```typescript
 const createComponentNode = async ({ newNode, classId }): Promise<Node | null> => {
-  const operationKey = `createComponent-${Date.now()}`
+  const operationKey = 'createComponent'
 
   // Generate temporary ID
   const tempId = `temp-${Date.now()}`
@@ -148,7 +156,7 @@ const createComponentNode = async ({ newNode, classId }): Promise<Node | null> =
 
 ### Phase 2: API Call
 
-**Source:** `flowStore.ts:349-353`
+**Source:** `flowStore.ts` → `createComponentNode` (the `dtComponent.createComponentNode` await)
 
 ```typescript
 try {
@@ -168,7 +176,7 @@ try {
 
 ### Phase 3: Reconciliation
 
-**Source:** `flowStore.ts:355-380`
+**Source:** `flowStore.ts` → `createComponentNode` (the `if (createdComponent)` branch)
 
 ```typescript
 if (createdComponent) {
@@ -189,11 +197,10 @@ if (createdComponent) {
     nodes.value = nodes.value.slice()
   }
 
-  // Apply any updates that were queued during creation
+  // Apply any updates that were queued during creation. applyDeferredUpdates
+  // retires pendingNodes[tempId] itself, atomically with its final drain — see
+  // "Applying Deferred Updates" below — so no delete belongs here.
   await applyDeferredUpdates(tempId, createdComponent.id)
-
-  // Cleanup tracking state
-  pendingNodes.value.delete(tempId)
 
   // Keep mapping for a short time for late-arriving updates
   setTimeout(() => tempNodeMapping.value.delete(tempId), 1000)
@@ -223,7 +230,7 @@ Without deferred updates, the name change would be lost because the temp node do
 
 ### Update Detection
 
-**Source:** `flowStore.ts:482-514`
+**Source:** `flowStore.ts` → `updateNode`
 
 ```typescript
 const updateNode = async ({
@@ -234,8 +241,6 @@ const updateNode = async ({
 
   // Check if this is a temporary node
   if (!skipDeferredQueue && isPendingNode(nodeId)) {
-    console.log(`Queueing update for temporary node ${nodeId}:`, updates)
-
     // Queue the update for later
     queueUpdateForTempNode(nodeId, updates)
 
@@ -250,81 +255,269 @@ const updateNode = async ({
     return true  // Indicate update was handled (queued)
   }
 
-  // Regular update flow for non-pending nodes
+  // Not (or no longer) pending: translate a stale temp id to its real id, so a
+  // late edit lands on the real node instead of re-queueing into a map that will
+  // never flush again. The rest is the merge-project-send path below.
+  const targetId = getRealNodeId(nodeId)
   // ...
 }
 ```
 
+`isPendingNode` is true only while the node is genuinely mid-creation. `applyDeferredUpdates` clears the
+flag as its last act, so once the create has resolved an edit takes the `getRealNodeId` path instead of
+the queue. What happens after that translation is the subject of
+[Narrowing the Write](#narrowing-the-write) — the merge is *not* what gets sent.
+
 ### Applying Deferred Updates
 
-**Source:** `flowStore.ts:117-172`
+**Source:** `flowStore.ts` → `applyDeferredUpdates`
 
 ```typescript
 const applyDeferredUpdates = async (tempId: string, realId: string) => {
-  const updates = deferredUpdates.value.get(tempId)
-  if (!updates || updates.length === 0) return
-
-  // Separate class updates from regular updates
-  // (class updates have priority)
-  let classId: string | undefined
-  const nodeUpdates: any = {}
-
-  updates.forEach(({ updates: update }) => {
-    if ('classId' in update) {
-      classId = (update as any).classId  // Take latest class update
-    } else {
-      dtUtils.deepMerge(nodeUpdates, update)  // Merge all other updates
-    }
-  })
-
-  // Small delay to ensure server has committed the node
-  await new Promise(resolve => setTimeout(resolve, 100))
-
-  // Verify real node exists before applying
-  const realNodeExists = getNodeById({ nodeId: realId }) ||
-                         realId === defaultBoundaryId.value
-  if (!realNodeExists) {
-    console.warn(`Real node ${realId} not found. Skipping deferred updates.`)
+  const initial = deferredUpdates.value.get(tempId)
+  if (!initial || initial.length === 0) {
+    // Nothing queued — still retire the pending flag.
+    pendingNodes.value.delete(tempId)
+    deferredUpdates.value.delete(tempId)
     return
   }
 
-  // Apply class update first (if any)
-  if (classId) {
-    try {
-      await updateNodeClass({ nodeId: realId, classId })
-    } catch (error) {
-      console.error('Failed to apply deferred class update:', error)
+  // Small delay to ensure the real node is fully created and in the store.
+  await new Promise(resolve => setTimeout(resolve, 100))
+
+  // Verify real node exists before applying
+  const realNodeExists = getNodeById({ nodeId: realId }) || realId === defaultBoundaryId.value
+  if (!realNodeExists) { /* warn, clear tracking, return */ }
+
+  // Drain loop: re-check the queue after every round-trip, so updates queued DURING
+  // the awaits (the node is still pending) are applied rather than dropped. `processed`
+  // advances monotonically over the stable array instance, so nothing is double-applied.
+  const MAX_FLUSH_ITERATIONS = 50 // runaway backstop
+  let processed = 0
+  while (true) {
+    const queue = deferredUpdates.value.get(tempId)
+    if (!queue || queue.length === processed) break
+    const batch = queue.slice(processed)
+    processed = queue.length
+
+    // Fold this batch: latest class update wins; node updates deep-merge.
+    let classId: string | undefined
+    const nodeUpdates: any = {}
+    batch.forEach(({ updates: update }) => {
+      if ('classId' in update) classId = (update as any).classId
+      else dtUtils.deepMerge(nodeUpdates, update)
+    })
+
+    if (classId) await updateNodeClass({ nodeId: realId, classId })
+    if (Object.keys(nodeUpdates).length > 0) {
+      // skipDeferredQueue prevents infinite loop. updateNode reverts and returns
+      // false silently on failure, so a failed deferred write is surfaced here.
+      const ok = await updateNode({ nodeId: realId, updates: nodeUpdates, skipDeferredQueue: true })
+      if (!ok) dtUtils.handleError({ action: 'applyDeferredUpdates', error: new Error(...) })
     }
   }
-  //
-  // `updateNodeClass` is a thin wrapper around `dtClass.changeElementBinding(
-  //   { elementId, target: { kind: 'CLASS', classIds: [classId] } })`, which
-  // is the single sanctioned write path for the `IS_INSTANCE_OF` /
-  // `REPRESENTS_MODEL` edges. The returned `ChangeElementBindingResult` —
-  // not the boolean from the legacy per-type wrappers — is what callers
-  // should branch on to drive snackbar feedback (see Class-change feedback
-  // pattern in Data architecture/IMPLEMENTATION_PATTERNS.md).
 
-  // Apply merged regular updates
-  if (Object.keys(nodeUpdates).length > 0) {
-    try {
-      // skipDeferredQueue prevents infinite loop
-      await updateNode({ nodeId: realId, updates: nodeUpdates, skipDeferredQueue: true })
-    } catch (error) {
-      console.error('Failed to apply deferred node updates:', error)
-    }
-  }
-
-  // Cleanup
+  // Stop accepting new deferred writes, atomically with the terminal length-check
+  // above (no await in between): a late write either landed before the check — so it
+  // was flushed — or runs after it, sees pendingNodes cleared, and updateNode
+  // translates temp -> real directly.
+  pendingNodes.value.delete(tempId)
   deferredUpdates.value.delete(tempId)
 }
 ```
 
+`updateNodeClass` routes through `dtClass.changeElementBinding` — the single sanctioned write path for the
+`IS_INSTANCE_OF` / `REPRESENTS_MODEL` edges. A non-null `classId` binds
+(`{ kind: 'CLASS', classIds: [classId] }`); a null one unassigns (`{ kind: 'NONE' }`), which also sweeps
+SYSTEM-derived exposures server-side. On success the store writes the new `classId` into the local node
+(`writeLocalClassId`). The returned `ChangeElementBindingResult` — not a boolean — is what callers branch
+on to drive snackbar feedback (see the Class-change feedback pattern in
+`Data architecture/IMPLEMENTATION_PATTERNS.md`).
+
 **Update Priority:**
 1. Class updates applied first (changes node type/schema)
 2. Regular updates merged and applied second
-3. Latest class update wins (if multiple)
+3. Latest class update in a batch wins (if multiple)
 4. Regular updates are deep-merged together
+5. The flag clears only after the queue has drained, so nothing queued mid-flush is lost
+
+---
+
+## Narrowing the Write
+
+An interactive save carries two things: the element as this client last loaded it, and an `updates`
+object naming what the user just changed. The store merges `updates` into the live node so the canvas
+renders the edit immediately — but **what the merge produces is not what is sent**. The payload is
+narrowed back down to the paths `updates` names, and relationship edits are sent as a *delta* against a
+pre-merge baseline rather than as a whole-list replace.
+
+Both halves exist for the same reason: two people editing the same model must not undo each other.
+
+```
+Two clients, one component, overlapping saves:
+─────────────────────────────────────────────────────────────────────────►
+  A loads component         B loads component
+  (name "API", 1 control)   (name "API", 1 control)
+         │                         │
+         ▼                         │
+  A saves { label }                │
+  → sends name only                │
+  → connects nothing               ▼
+                            B saves { dataItems: [+d2] }
+                            → sends the dataItems delta only
+                            → A's new name survives; B's attach survives
+```
+
+Send the whole element instead, and B's save rewrites `name` back to "API". Send the whole list instead
+of a delta, and B's save disconnects the control A just attached — in both cases silently, with a
+success response to both parties.
+
+### What the caller supplies
+
+`updates` is the only part of a save that states intent, so it is what decides which fields travel. A
+call site must therefore name **what the user changed**, not hand over the form's whole contents:
+
+```typescript
+// SettingsWindow.vue — each field enters `updates` only when it differs from what was loaded.
+// `selectedItem` is re-pinned from the server's answer after every save, so it already holds
+// "what this client last loaded", moving forward as writes land.
+const loaded = selectedItem.value.data
+res = await flowStore.updateNode({
+  nodeId: selectedItem.value.id,
+  updates: {
+    data: {
+      ...(pendingFormData.value.name !== (loaded.label || '') && { label: pendingFormData.value.name }),
+      ...(pendingFormData.value.description !== (loaded.description || '') && { description: pendingFormData.value.description }),
+      ...(crownJewel.value !== (loaded?.crownJewel === true) && { crownJewel: crownJewel.value }),
+      ...links,
+    },
+  },
+})
+```
+
+`data` stays present even when it ends up empty — an object with no keys names no path, so the
+projection narrows to the id and a no-op save stays a no-op rather than widening back to the whole
+element. The call is still made: it is what clears a fresh draft.
+
+### The store side: merge, then project
+
+**Source:** `flowStore.ts` → `updateNode`, `linkBaseline`; `apps/dt-ui/src/utils/editProjection.ts`
+
+```typescript
+// What this client believed the element's links to be, read BEFORE the optimistic merge.
+const linkBaseline = (element: Node | Edge) => ({
+  controls: Array.isArray(element.data?.controls) ? [...element.data.controls] : undefined,
+  dataItems: Array.isArray(element.data?.dataItems) ? [...element.data.dataItems] : undefined,
+})
+
+// ...inside updateNode, for a node that is not pending:
+const baselineConduits = node.type === 'BOUNDARY' && Array.isArray(node.data?.conduits)
+  ? [...node.data.conduits]
+  : undefined
+const baselineLinks = linkBaseline(node)   // pre-merge: the only correct delta baseline
+const snapshot = safeClone(node)           // pre-merge: the revert target
+dtUtils.deepMerge(node, updates)           // what the canvas renders
+
+// What gets SENT is narrowed to the fields this edit names.
+const edited = projectEdit(node, updates)
+
+const ok = node.type === 'BOUNDARY'
+  ? await updateBoundaryNode({ updatedNode: edited, baselineConduits, baselineLinks })
+  : await updateComponentNode({ updatedNode: edited, baselineLinks })
+```
+
+Order matters and is load-bearing: the baselines and the snapshot are all taken **before** the merge. An
+edit applied to the element first would make the baseline equal the new value, the delta empty, and the
+attachment would never be written at all. It is also why the settings panel *names* its edit rather than
+assigning into `selectedItem` — an out-of-band write to the element poisons the baseline.
+
+The response carries the whole element back, so the local node still converges onto whatever the other
+client changed: `updateComponentNode` / `updateBoundaryNode` re-pin from the mutation result.
+
+### What `projectEdit` keeps
+
+**Source:** `apps/dt-ui/src/utils/editProjection.ts` → `editPaths`, `projectEdit`
+
+`editPaths(updates)` walks the edit into leaf paths; `projectEdit(source, updates)` rebuilds a fresh
+object from `source` carrying only those paths. Four rules, each of which is a real case rather than a
+precaution:
+
+| Rule | Why |
+|------|-----|
+| **Arrays are leaves.** The walk does not descend into them. | The merge that produced the element replaces arrays wholesale rather than merging element-wise, so the projection must too. Descending would turn a conduit list into `data.conduits.0.justification` and rebuild a partial array from it. |
+| **Presence is the test, not truth.** A named path travels whatever its value. | `zone: null` clears a zone, `crownJewel: false` un-marks a crown jewel, `parentNode: ''` relocates a node to the root boundary. All three are real edits; a truthiness test drops all three. |
+| **An object with no keys names nothing.** | An empty edit narrows to nothing instead of quietly widening back to the whole element — which is what lets a no-op save stay a no-op. |
+| **The `id` always travels**, and a named path missing from `source` is skipped. | The id is not part of the edit; it is how the write addresses the element at all. Absent and explicitly-`undefined` mean the same thing to the writers, so skipping keeps the projection honest about what it holds. |
+
+`updateDataFlow` does the same for edges — merge into the live edge (so a ticked checkbox does not clear
+itself while the server answers), then send `projectEdit(live, updates)` with `updates: {}`. The
+narrowing cannot move into dt-core: the model import/update path (`DtUpdate`) shares that writer and
+passes a fully-built edge with an `updates` object that names little or nothing, so narrowing there would
+send almost nothing. dt-core still merges what it is given — an empty object here — which leaves the
+projected edge as the whole of the input, and `projectEdit` builds a fresh object, so the writer never
+receives the live reactive edge.
+
+### The writer side: a field the element does not define is not written
+
+**Source:** `packages/dt-core/src/dt-component/dt-component.ts` → `updateComponent`
+
+Every field of the update input is gated on being defined on the node. The contract is one sentence:
+**a field the element does not define is not written.**
+
+```typescript
+const controlsInput = linkInput(updatedNode.data?.controls, baselineLinks, 'controls')
+const dataItemsInput = linkInput(updatedNode.data?.dataItems, baselineLinks, 'dataItems')
+
+const variables = {
+  componentId: updatedNode.id,
+  input: {
+    ...(updatedNode.data?.label !== undefined && { name: { set: updatedNode.data.label } }),
+    ...(updatedNode.data?.description !== undefined && { description: { set: updatedNode.data.description } }),
+    // The two axes are ONE edit and are gated together: reading them inside the guard is
+    // what keeps a node carrying no position from throwing on `.x`.
+    ...(updatedNode.position !== undefined && {
+      positionX: { set: updatedNode.position.x },
+      positionY: { set: updatedNode.position.y },
+    }),
+    ...(controlsInput !== undefined && { controls: controlsInput }),
+    ...(dataItemsInput !== undefined && { dataItems: dataItemsInput }),
+  },
+}
+```
+
+The parent guard is a different kind of guard and is **not** optional: `parentBoundary.connect` filters on
+an `eq` built from `parentNode`, and an undefined one produces a filter with no condition — matching
+every boundary, after an unconditional `disconnect` has already run. An *empty* parent is the other case
+and is a real edit meaning "put me at the root", i.e. the default boundary. `DtBoundary.updateBoundaryNode`
+builds its input the same way.
+
+### Relationship edits: delta, not replace
+
+**Source:** `packages/dt-core/src/dt-utils/link-delta.ts` → `linkInput`, `buildLinkOps`
+
+`linkInput` decides the shape of one link key. There are two different absences and collapsing them is
+the one mistake that turns a bulk write into a delta against nothing:
+
+| `current` | `baselines` | Shape emitted |
+|-----------|-------------|---------------|
+| absent | — | **Key omitted.** The element does not define this list, so it was not edited and must not be written. The conduit and import "safe node" passes rely on this. |
+| present | absent | **Replace:** `{ disconnect: {}, connect: [...ids] }`. The caller is asserting the whole list — correct for an import or a bulk write. |
+| present | present | **Delta:** `buildLinkOps(current, baselines[key] ?? [])` — connect only what was added, disconnect only what was removed, and omit the key entirely when nothing changed. A baseline that holds nothing for the key is a delta against an empty list, not a missing baseline. |
+
+The replace shape's `disconnect` stays unconditional on purpose: `connect` compiles to a bare
+relationship `CREATE`, so a disconnect that spared the incoming ids would re-create every already-attached
+pair — one extra parallel edge per element per save.
+
+The delta's cost is the mirror of that: two clients adding the **same** id at the same moment produce a
+duplicate edge. That trade is deliberate — a duplicate is additive and invisible on read, a destroyed
+attachment is neither. Both sides of the delta are de-duplicated and id-validated first; an unusable id
+in the baseline would otherwise build a `disconnect` with no condition, clearing every edge of that type
+on the element.
+
+Boundary **conduits** take the same delta treatment through their own builder, with `baselineConduits` as
+the pre-merge snapshot — see [Server re-pin keeps the baseline correct](#server-re-pin-keeps-the-baseline-correct)
+and the dt-core conduit reconcile in
+[Data Access Layer](../../dt-core/DATA_ACCESS_LAYER.md).
 
 ---
 
@@ -332,7 +525,7 @@ const applyDeferredUpdates = async (tempId: string, realId: string) => {
 
 ### Node Creation Failure
 
-**Source:** `flowStore.ts:385-401`
+**Source:** `flowStore.ts` → `createComponentNode` (the `catch` block)
 
 ```typescript
 catch (error) {
@@ -370,22 +563,29 @@ runs. Callers therefore just check the boolean — no per-call-site `try/catch` 
 
 ```typescript
 const updateNode = async ({ nodeId, updates }): Promise<boolean> => {
-  const isDefault = nodeId === defaultBoundaryId.value
-  const node = isDefault ? defaultBoundary.value : nodes.value[getNodeIndexById({ nodeId })]
+  const targetId = getRealNodeId(nodeId)
+  const isDefault = targetId === defaultBoundaryId.value
+  const node = isDefault ? defaultBoundary.value : nodes.value[getNodeIndexById({ nodeId: targetId })]
   if (!node) return false
 
-  // Snapshot prior server truth BEFORE the optimistic merge (safeClone = structuredClone + JSON fallback).
+  // Baselines and snapshot are all taken BEFORE the optimistic merge
+  // (safeClone = structuredClone + JSON fallback). See "Narrowing the Write".
+  const baselineConduits = node.type === 'BOUNDARY' && Array.isArray(node.data?.conduits)
+    ? [...node.data.conduits]
+    : undefined
+  const baselineLinks = linkBaseline(node)
   const snapshot = safeClone(node)
   dtUtils.deepMerge(node, updates)
+  const edited = projectEdit(node, updates)   // only the paths this edit names
 
   try {
     const ok = node.type === 'BOUNDARY'
-      ? await updateBoundaryNode({ updatedNode: node, baselineConduits })
-      : await updateComponentNode({ updatedNode: node })
-    if (!ok) revertNode(nodeId, isDefault, snapshot)
+      ? await updateBoundaryNode({ updatedNode: edited, baselineConduits, baselineLinks })
+      : await updateComponentNode({ updatedNode: edited, baselineLinks })
+    if (!ok) revertNode(targetId, isDefault, snapshot)
     return ok
   } catch (error) {
-    revertNode(nodeId, isDefault, snapshot)   // never re-throws
+    revertNode(targetId, isDefault, snapshot)   // never re-throws
     return false
   }
 }
@@ -406,7 +606,7 @@ surfaces (the Zoning tab, the peer picker drawer, the model-wide overview, and t
 They are pure reads over `nodes.value` / `defaultBoundary.value`; no GraphQL is issued. Writes
 flow through the existing `updateNode` path — these getters never mutate.
 
-**Source:** `flowStore.ts:815-826`
+**Source:** `flowStore.ts` → `boundaryById`, `allBoundaries`, `effectiveZone`
 
 | Getter | Signature | Returns |
 |--------|-----------|---------|
@@ -462,10 +662,12 @@ lookup, the walk also crosses into the default boundary. See
 ### Server re-pin keeps the baseline correct
 
 `updateBoundaryNode` re-pins `data.zone`, `data.domains`, `data.planes`, and `data.conduits` from the
-mutation response after a successful save (`flowStore.ts:774-778`). This keeps the next save's
-optimistic-merge baseline aligned with server truth, and is the reason `updateNode` snapshots the
-**pre-merge** conduit list as the conduit delta baseline (`flowStore.ts:565-568`), which
-`updateBoundaryNode` then mirrors onto peer boundaries.
+mutation response after a successful save. This keeps the next save's optimistic-merge baseline aligned
+with server truth, and is the reason `updateNode` snapshots the **pre-merge** conduit list as the conduit
+delta baseline (`baselineConduits`; see [Narrowing the Write](#narrowing-the-write)), which
+`updateBoundaryNode` then mirrors onto peer boundaries through `syncPeerConduits` — a `CONDUIT` is one
+directed edge, and the mutation re-pins only the saved boundary, so without the mirror a peer's settings
+would show a stale conduit list until a full model reload.
 
 ---
 
@@ -473,7 +675,7 @@ optimistic-merge baseline aligned with server truth, and is the reason `updateNo
 
 ### Node/Edge State
 
-**Source:** `flowStore.ts:32-36`
+**Source:** `flowStore.ts:49-53`
 
 ```typescript
 // Vue Flow reactive state
@@ -494,7 +696,12 @@ renders as a discrete gold treatment (a south-east gold cast plus a gradient
 hairline that dissolves toward the top-left; gold is the `crownjewel` theme token in
 `plugins/vuetify.ts`). The General-tab crown toggle
 (`SettingsTabs/SettingsGeneralTab.vue`, gated to components only) persists the flag
-through `saveItem → updateNode → DtComponent.updateComponent`.
+through `saveItem → updateNode → DtComponent.updateComponent`. Like every other field,
+it travels only when the edit names it: `saveItem` includes `crownJewel` in `updates`
+only when it differs from the loaded value, and `updateComponent` writes
+`crownJewel: { set: ... }` only when the node defines it (see
+[Narrowing the Write](#narrowing-the-write)) — which is what keeps a follow-up
+association-only write from clobbering a flag set at create time.
 
 The class rides Vue Flow's **`node.class`** (not a manual DOM `classList`), so it
 survives the framework's re-renders. It is derived purely from `data.crownJewel` by
@@ -514,50 +721,57 @@ only changes the node fill.
 
 ### Selection Tracking
 
-**Source:** `flowStore.ts:42, 316`
+**Source:** `flowStore.ts:59` (state), `flowStore.ts` → `setSelectedItem`
 
 ```typescript
 // Currently selected element (node or edge)
 const selectedItem = ref<Node | Edge | null>(null)
 
-const setSelectedItem = ({ item }: { item: Node | Edge | null }) => {
-  selectedItem.value = item
-}
+const setSelectedItem = ({ item }: { item: Node | Edge | null }) => { selectedItem.value = item }
 ```
 
-**Selection During Optimistic Updates:**
-- Line 347: `selectedItem.value = optimisticNode` (immediate)
-- Lines 365-367: Update selection when temp replaced with real
-- Line 389: Clear selection on failure
+**Selection During Optimistic Updates** (all inside `createComponentNode` / `createBoundaryNode`):
+- Phase 1: `selectedItem.value = optimisticNode` (immediate)
+- Phase 3: selection re-pinned when the temp node is replaced with the real one
+- `catch`: selection cleared on failure
+
+`revertNode` and `revertEdge` do the same on a failed *update* — if `selectedItem` points at the
+element being reverted, it is re-pinned to the snapshot so the settings panel does not keep rendering
+an edit that was never saved.
 
 ### Boundary Nesting
 
-**Source:** `flowStore.ts:403-480` (createBoundaryNode)
+**Source:** `flowStore.ts` → `createBoundaryNode`
 
-Boundaries support hierarchical nesting:
+Boundaries support hierarchical nesting. The parent is carried on the node itself (`newNode.parentNode`),
+not as a separate argument — dt-core falls back to the default boundary when the node names no parent:
 
 ```typescript
-const createBoundaryNode = async ({ newNode, classId, parentBoundaryId }) => {
+const createBoundaryNode = async ({ newNode, classId }) => {
+  const operationKey = 'createBoundary'
   const tempId = `temp-${Date.now()}`
 
   const optimisticNode = {
     id: tempId,
-    type: 'BOUNDARY',
+    type: newNode.type,
     position: newNode.position,
     data: {
       ...newNode.data,
       pending: true,
-      parentId: parentBoundaryId,  // Hierarchical relationship
-      style: {
-        width: newNode.data?.style?.width || 300,
-        height: newNode.data?.style?.height || 200
-      }
+      label: newNode.data?.label || 'Creating boundary...'
     }
   }
 
-  // Same three-phase pattern as components...
+  // Same three-phase pattern as components, via dtBoundary.createBoundaryNode({
+  //   newNode, classId, defaultBoundaryId })
 }
 ```
+
+Nesting is re-expressed on update as `parentNode` — an empty string means "the default boundary", which
+is why the writers gate the parent on presence rather than truthiness (see
+[Narrowing the Write](#narrowing-the-write)). `deleteBoundaryNode` uses the same path: before deleting,
+it re-parents each direct descendant to the grandparent boundary and offsets its position by the deleted
+boundary's, through ordinary `updateNode` calls.
 
 ---
 
@@ -565,7 +779,7 @@ const createBoundaryNode = async ({ newNode, classId, parentBoundaryId }) => {
 
 ### Sync Helpers
 
-**Source:** `flowStore.ts:175-197`
+**Source:** `flowStore.ts` → `syncDataItems`, `syncControls`
 
 When a node update returns related data (data items, controls), sync helpers ensure consistency:
 
@@ -600,19 +814,28 @@ const syncControls = (newControls: Control[]) => {
 
 ### Usage in Node Updates
 
-**Source:** `flowStore.ts:583-584, 653-654, 769-770`
+**Source:** `flowStore.ts` → `updateComponentNode`, `updateBoundaryNode`, `updateDataFlow`
 
 ```typescript
-const updateComponentNode = async ({ updatedNode }) => {
-  const result = await dtComponent.updateComponentNode({ updatedNode })
+const updateComponentNode = async ({ updatedNode, baselineLinks }) => {
+  const updatedComponent = await dtComponent.updateComponent({
+    updatedNode,                                        // already projected by updateNode
+    defaultBoundaryId: defaultBoundaryId.value || '',
+    baselineLinks,                                      // pre-merge link baseline, may be undefined
+  })
+  if (!updatedComponent) return false
 
-  // Sync any returned related data
-  syncDataItems(result.dataItems)
-  syncControls(result.controls)
-
-  return result
+  // Splice the server's answer back into nodes.value, re-pin selectedItem, then:
+  syncDataItems(updatedComponent.dataItems || [])
+  syncControls(updatedComponent.controls || [])
+  return true
 }
 ```
+
+The dt-core method is `DtComponent.updateComponent` (the store's wrapper is what is called
+`updateComponentNode`). `updateBoundaryNode` and `updateDataFlow` call the same two sync helpers on their
+own results; `updateBoundaryNode` additionally gates concurrent saves of one boundary behind the
+`updateBoundary-<id>` operation flag, which the UI binds to disable **Save** while a save is in flight.
 
 ---
 
@@ -620,27 +843,27 @@ const updateComponentNode = async ({ updatedNode }) => {
 
 ### Promise-Based Mutex
 
-**Source:** `packages/dt-core/src/dt-utils/dt-utils.ts:31-47`
+**Source:** `packages/dt-core/src/dt-utils/dt-utils.ts` → `withMutex`
 
-Prevents concurrent execution of the same operation:
+Serialises execution of the same operation — a real FIFO queue, not a "wait for whoever is in the map":
 
 ```typescript
 private mutex: Map<string, Promise<any>> = new Map()
 
 async withMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  // Wait for existing operation to complete
-  if (this.mutex.has(key)) {
-    await this.mutex.get(key)
-  }
-
-  // Create new promise for this execution
-  const promise = fn()
-  this.mutex.set(key, promise)
+  // Chain each caller after the previous holder's *tail*, so at most one `fn` per key is
+  // ever in flight. `prev.then(fn, fn)` runs ours once the predecessor settles regardless
+  // of its outcome, so we never inherit the predecessor's rejection.
+  const prev = this.mutex.get(key) ?? Promise.resolve()
+  const run = prev.then(() => fn(), () => fn())
+  const tail = run.then(() => {}, () => {})   // settle-only; what the next waiter chains on
+  this.mutex.set(key, tail)
 
   try {
-    return await promise
+    return await run
   } finally {
-    this.mutex.delete(key)
+    // Identity-checked: only ever remove our own entry, never a later waiter's.
+    if (this.mutex.get(key) === tail) this.mutex.delete(key)
   }
 }
 ```
@@ -648,14 +871,17 @@ async withMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
 **Mutex Key Pattern:**
 ```typescript
 const mutexKey = `${action}-${JSON.stringify(variables)}`
-// Example: "updateNode-{\"nodeId\":\"123\",\"updates\":{...}}"
+// Example: "updateComponentNode-{\"componentId\":\"123\",\"input\":{...}}"
 ```
+
+The serialised variables are part of the key, so the mutex serialises *identical* submissions only. Two
+different edits of one element carry different variables, so they do not queue behind each other.
 
 ### Request Deduplication
 
-**Source:** `dt-utils.ts:163-194`
+**Source:** `dt-utils.ts` → `withDeduplication`, `performMutation`
 
-Prevents duplicate concurrent requests:
+Lets identical in-flight submits share one promise:
 
 ```typescript
 private requestDeduplicator = new Map<string, Promise<any>>()
@@ -664,51 +890,80 @@ private requestMetadata = new Map<string, { timestamp: number; count: number }>(
 private async withDeduplication<T>(
   key: string,
   operation: () => Promise<T>,
-  ttl: number = 5000
+  ttl: number = 15000
 ): Promise<T> {
-  // Return existing promise if request in flight
-  if (this.requestDeduplicator.has(key)) {
-    const metadata = this.requestMetadata.get(key)!
-    metadata.count++
-    console.debug(`Deduplicating request ${key} (${metadata.count} concurrent)`)
-    return this.requestDeduplicator.get(key)!
+  // Join an in-flight request under this key, if any.
+  const existing = this.requestDeduplicator.get(key) as Promise<T> | undefined
+  if (existing) {
+    const metadata = this.requestMetadata.get(key)
+    if (metadata) metadata.count++
+    return existing
   }
 
-  // Start new request
-  const promise = operation().finally(() => {
-    this.requestDeduplicator.delete(key)
-    this.requestMetadata.delete(key)
-  })
+  // Start a new request. Clear the TTL timer on settle, and evict only if the stored
+  // entry is still *this* promise, so a stale timer can never drop a newer entry
+  // mid-flight. The TTL is a leak backstop only — mutations no longer retry, so it
+  // comfortably exceeds any single operation's lifetime.
+  let timer
+  const promise = operation().finally(() => { /* clearTimeout + identity-checked evict */ })
 
   this.requestDeduplicator.set(key, promise)
   this.requestMetadata.set(key, { timestamp: Date.now(), count: 1 })
-
-  // Auto-cleanup after TTL (memory safety)
-  setTimeout(() => {
-    this.requestDeduplicator.delete(key)
-    this.requestMetadata.delete(key)
-  }, ttl)
+  timer = setTimeout(() => { /* identity-checked evict */ }, ttl)
 
   return promise
 }
 ```
 
-### Deep Merge Utility
+### The effective deduplication key
 
-**Source:** `dt-utils.ts:54-68`
+**Source:** `dt-utils.ts` → `performMutation`
 
-Used for merging deferred updates:
+Callers pass a readable `deduplicationKey` — `update-component-<id>`, `update-boundary-<id>`,
+`update-dataflow-<id>` — but that string is **not** the key requests are joined on. `performMutation`
+folds the serialised variables in:
 
 ```typescript
-deepMerge(target: any, updates: any): any {
-  for (const key in updates) {
-    if (
-      updates[key] &&
-      typeof updates[key] === 'object' &&
-      !Array.isArray(updates[key])
-    ) {
+const mutexKey = `${action}-${JSON.stringify(variables)}`
+const exec = () => this.withMutex(mutexKey, () => this.executeActualMutation(...))
+
+if (deduplicationKey !== false && deduplicationKey) {
+  const dedupKey = `${deduplicationKey}::${mutexKey}`
+  return await this.withDeduplication(dedupKey, exec)
+}
+return await exec()
+```
+
+The consequence is worth stating plainly, because the caller-supplied key reads as if it were per-element:
+
+- **Identical** submits (same action, same variables — a double-clicked Save) collapse onto one in-flight
+  promise and one network call.
+- **Different** writes that happen to share an id-only caller key do *not* collapse — and equally, they do
+  not serialise, because `mutexKey` differs too. Two saves of one element issued back to back run
+  concurrently. Do not assume they queue.
+
+Dedup sits *outside* the mutex, so identical rapid submits share one flight rather than serialising and
+then re-executing. `deduplicationKey: false` disables joining entirely — every delete passes it.
+
+Element-level ordering, where it is needed, is enforced above dt-core: `updateBoundaryNode` sets an
+`updateBoundary-<id>` operation flag and the UI disables **Save** while it is set.
+
+### Deep Merge Utility
+
+**Source:** `dt-utils.ts` → `deepMerge`
+
+Used for the optimistic merge and for folding deferred updates together:
+
+```typescript
+deepMerge (target: any, updates: any) {
+  // Own enumerable keys only, and reuse an existing nested value only when it is an own
+  // object — never resolve or write through inherited members onto shared built-ins.
+  for (const key of Object.keys(updates)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
+    if (updates[key] && typeof updates[key] === 'object' && !Array.isArray(updates[key])) {
       // Recursive merge for nested objects
-      target[key] = target[key] || {}
+      const existing = Object.hasOwn(target, key) ? target[key] : undefined
+      target[key] = (existing && typeof existing === 'object') ? existing : {}
       this.deepMerge(target[key], updates[key])
     } else {
       // Direct assignment for primitives and arrays
@@ -719,9 +974,16 @@ deepMerge(target: any, updates: any): any {
 }
 ```
 
+**Arrays are replaced, not merged** — which is exactly why `projectEdit` treats them as leaves
+(see [Narrowing the Write](#narrowing-the-write)).
+
 ### Retry with Exponential Backoff
 
-**Source:** `dt-utils.ts:130-158`
+**Source:** `dt-utils.ts` → `retryNetworkOperation`
+
+**Queries only.** Mutations are deliberately *not* retried: a network-classified failure (timeout, 502,
+504) may mean the write already committed server-side, so a blind retry risks a duplicate node. Only
+`performQuery` wraps its work in this helper.
 
 ```typescript
 private async retryNetworkOperation<T>(
@@ -771,7 +1033,7 @@ const DEFAULT_NETWORK_RETRY = {
 
 ### Error State Management
 
-**Source:** `flowStore.ts:45-90`
+**Source:** `flowStore.ts` → `setError`, `clearError`, `setOperationLoading`
 
 ```typescript
 const errors = ref<Record<string, string>>({})
@@ -794,55 +1056,70 @@ const setOperationLoading = (operation: string, loading: boolean) => {
 
 **Key Pattern:**
 - Operation-specific error keys isolate failures
-- Example: `createComponent-1234567890` vs `updateNode-abc123`
-- UI can display errors per-operation without interference
+- Examples: `createComponent`, `createBoundary`, `updateBoundary-<nodeId>`,
+  `updateRepresentedModel-<nodeId>`
+- UI can display errors per-operation without interference; the same keys drive
+  `isOperationLoading`, which is how **Save** is disabled mid-save
 
 ### handleApiError
 
+**Source:** `flowStore.ts` → `handleApiError`
+
+Classifies a transport error into a user-facing message. It does not throw and does not log the raw
+error to the user:
+
 ```typescript
-const handleApiError = (error: Error, operation: string): string => {
-  console.error(`${operation} failed:`, error)
+const handleApiError = (error: Error, action: string): string => {
+  const errorMessage = error.message || error.toString()
 
-  if (error.message.includes('401')) {
-    return 'Session expired. Please log in again.'
-  }
-  if (error.message.includes('network')) {
-    return 'Connection failed. Please check your internet.'
-  }
+  if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) return 'Please log in again to continue'
+  if (errorMessage.includes('403') || errorMessage.includes('forbidden')) return 'Access denied to this resource'
+  if (errorMessage.includes('404') || errorMessage.includes('not found')) return 'Resource not found'
+  if (errorMessage.includes('network') || errorMessage.includes('fetch')) return 'Connection failed. Please check your internet connection.'
+  if (errorMessage.includes('timeout')) return 'Request timed out. Please try again.'
 
-  return `Failed to ${operation}. Please try again.`
+  return `Failed to ${action}. Please try again.`
 }
 ```
+
+Transport-level diagnostics are logged separately by `DtUtils.handleError`, which the store calls on the
+paths that have no user-facing message of their own.
 
 ---
 
 ## Complete State Reset
 
-**Source:** `flowStore.ts:254-270`
+**Source:** `flowStore.ts` → `resetStore`
 
 ```typescript
 const resetStore = () => {
-  // Clear Vue Flow state
+  // Clear Vue Flow state and related data
   nodes.value = []
   edges.value = []
-  selectedItem.value = null
-
-  // Clear related data
   controls.value = []
   dataItems.value = []
   modules.value = []
 
-  // Clear temporary tracking
+  // Clear model context
+  modelId.value = undefined
+  currentModel.value = null
+  defaultBoundaryId.value = undefined
+  selectedItem.value = null
+  mitreAttackTactics.value = []
+  activeModelLoad = null        // in-flight model-load guard; plain let, not a ref
+
+  // Clear error and loading states
+  clearAllErrors()
+  isLoading.value = false
+  operationStates.value = {}
+
+  // Clear temporary node tracking
   pendingNodes.value.clear()
   tempNodeMapping.value.clear()
   deferredUpdates.value.clear()
 
-  // Clear error state
-  errors.value = {}
-  operationStates.value = {}
-
-  // Clear model context
-  currentModelId.value = ''
-  defaultBoundaryId.value = ''
+  // Reset UI preferences
+  editMode.value = false
+  openedEmpty.value = false
 }
 ```

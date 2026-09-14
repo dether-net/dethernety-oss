@@ -117,6 +117,24 @@ export function platformScopeToLocal(m: PlatformScopeFields): ModelScopeLocal | 
 /**
  * Local grouped scope → platform flat fields (push direction).
  * Returns `undefined` when nothing is set. Unknown enum values are dropped (see `localEnumToPlatform`).
+ *
+ * AN EMPTY LIST IS A CLEAR; AN ABSENT KEY IS NOT. `nonEmpty` conflates the two, which is right when
+ * reading the platform — there `null` and `[]` both mean unset, and collapsing them is what keeps the
+ * on-disk output deterministic — and wrong when writing to it. A caller that declares
+ * `compliance_drivers: []` is asking for the list to be emptied; dropping the key turns that into a
+ * no-op, and because the update path emits its five `set`s only when this function returns something,
+ * an otherwise-empty scope emitted no write at all while the caller was told it succeeded.
+ *
+ * The three lists are therefore taken on presence here — but presence means BEING A LIST, not merely
+ * having a key. The push direction reads a parsed file, which is untyped at runtime, so `null` is a
+ * value a hand-written scope can carry; `nonEmpty` used to absorb it, and a bare `!== undefined` would
+ * send it on as `{ set: null }` to a field that admits no nulls and fail the whole model write. A
+ * `null` here is an absence like any other, and anything that is not a list is dropped rather than
+ * forwarded.
+ *
+ * Everything else is unchanged, and so are the two guarantees that depend on it: `{}` still yields
+ * `undefined`, and a scope whose only content is an unknown enum still yields `undefined` rather than
+ * a blanket wipe.
  */
 export function localScopeToPlatform(scope?: ModelScopeLocal | null): PlatformScopeFields | undefined {
   if (!scope) return undefined;
@@ -125,11 +143,8 @@ export function localScopeToPlatform(scope?: ModelScopeLocal | null): PlatformSc
   const intent = localEnumToPlatform(scope.modeling_intent, MODELING_INTENTS);
   if (depth) out.depth = depth;
   if (intent) out.modelingIntent = intent;
-  const drivers = nonEmpty(scope.compliance_drivers);
-  const exclusions = nonEmpty(scope.exclusions);
-  const trust = nonEmpty(scope.trust_assumptions);
-  if (drivers) out.complianceDrivers = drivers;
-  if (exclusions) out.exclusions = exclusions;
-  if (trust) out.trustAssumptions = trust;
+  if (Array.isArray(scope.compliance_drivers)) out.complianceDrivers = scope.compliance_drivers;
+  if (Array.isArray(scope.exclusions)) out.exclusions = scope.exclusions;
+  if (Array.isArray(scope.trust_assumptions)) out.trustAssumptions = scope.trust_assumptions;
   return Object.keys(out).length > 0 ? out : undefined;
 }

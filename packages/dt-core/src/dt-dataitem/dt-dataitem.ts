@@ -139,7 +139,17 @@ export class DtDataItem {
    */
   updateDataItem = async (
     { dataItemId, name, description, classId, attributes: _attributes, sensitivity, regulatoryFlags }:
-    { dataItemId: string | null, name: string, description: string, classId?: string | null, attributes?: object, sensitivity?: string, regulatoryFlags?: string[] }
+    {
+      dataItemId: string | null,
+      name?: string,
+      description?: string,
+      classId?: string | null,
+      attributes?: object,
+      // `null` is a CLEAR and `undefined` is "leave it alone" — the two used to be the same value here,
+      // which is what let a caller wipe a classification it had never been asked to touch.
+      sensitivity?: string | null,
+      regulatoryFlags?: string[],
+    }
   ): Promise<UpdateDataItemResult> => {
     if (!dataItemId) {
       return { dataItem: null, bindingResult: null, residualOk: false }
@@ -165,17 +175,26 @@ export class DtDataItem {
     }
 
     try {
+      // A field the caller does not supply is not written. That contract used to hold for none of these
+      // four, and the asset-context pair was the expensive half: an absent value CLEARED the platform
+      // field, which is what a full sync means by absence and the opposite of what an interactive save
+      // means by it. The clear is still available and now has to be said — a `null` sensitivity or an
+      // empty flag list — rather than arrived at by leaving the field out.
+      //
+      // The input can legitimately end up with no keys at all, when a save changes only the class
+      // binding above. That still goes to the server: the caller needs the row back to re-pin its copy,
+      // and an update naming no field returns it unchanged.
       const variables = {
         dataId: dataItemId,
         input: {
-          name: { set: name },
-          description: { set: description },
-          // Asset-context: REPLACE (local authoritative). The push is a full
-          // sync, so always overwrite — an absent value clears the platform
-          // field ({ set: null } / { set: [] }). Sensitivity is validated +
-          // uppercased; unknown drops to null (warned). Flags replace wholesale.
-          sensitivity: { set: localEnumToPlatform(sensitivity, SENSITIVITY_LEVELS) ?? null },
-          regulatoryFlags: { set: regulatoryFlags ?? [] },
+          ...(name !== undefined && { name: { set: name } }),
+          ...(description !== undefined && { description: { set: description } }),
+          // Sensitivity is validated and uppercased; an unknown value drops to null with a warning,
+          // which is a clear rather than a rejection because the value came from a file somebody edited.
+          ...(sensitivity !== undefined && {
+            sensitivity: { set: localEnumToPlatform(sensitivity, SENSITIVITY_LEVELS) ?? null },
+          }),
+          ...(regulatoryFlags !== undefined && { regulatoryFlags: { set: regulatoryFlags } }),
         },
       }
 
@@ -184,7 +203,11 @@ export class DtDataItem {
         variables,
         dataPath: 'updateData.data[0]',
         action: 'updateDataItem',
-        deduplicationKey: `update-dataitem-${dataItemId}`
+        // The key carries WHICH FIELDS are being written, not just which item. Deduplication joins an
+        // in-flight request under the same key and returns its result — right for a double submit of one
+        // act, wrong for two different ones. A class pick fires a save without awaiting it, so a Save
+        // pressed during that one would otherwise join it and never be written.
+        deduplicationKey: `update-dataitem-${dataItemId}-${Object.keys(variables.input).sort().join('.')}`
       })
 
       if (result) {

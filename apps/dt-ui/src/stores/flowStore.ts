@@ -5,6 +5,8 @@ import { nextTick, ref, toRaw } from 'vue'
 import apolloClient from '@/plugins/apolloClient'
 import { Edge, Node } from '@vue-flow/core'
 import { resolveEffectiveZone } from '@/utils/effectiveZone'
+import { projectEdit } from '@/utils/editProjection'
+import type { LinkBaselines } from '@dethernety/dt-core'
 import {
   // Core classes
   DtBoundary, DtClass, DtComponent, DtControl, DtDataflow, DtDataItem,
@@ -255,13 +257,25 @@ export const useFlowStore = defineStore('flow', () => {
   }
 
   // === DATA VALIDATION ===
-  const validateDataItem = (data: { name: string, description: string, elementId: string }): string[] => {
+  /**
+   * `nameRequired` is the difference between the two callers rather than a flag for its own sake. A
+   * create must have a name. An update is partial, so a name that is not being written has nothing to
+   * validate — but one that IS written still cannot be blank, and neither caller may skip that.
+   */
+  const validateDataItem = (
+    data: { name?: string, description?: string, elementId: string },
+    { nameRequired }: { nameRequired: boolean },
+  ): string[] => {
     const errors: string[] = []
     
-    if (!data.name?.trim()) {
+    if (nameRequired && data.name === undefined) {
       errors.push('Name is required')
-    } else if (data.name.length > 100) {
-      errors.push('Name must be 100 characters or less')
+    } else if (data.name !== undefined) {
+      if (!data.name.trim()) {
+        errors.push('Name is required')
+      } else if (data.name.length > 100) {
+        errors.push('Name must be 100 characters or less')
+      }
     }
     
     if (!data.elementId?.trim()) {
@@ -578,6 +592,28 @@ export const useFlowStore = defineStore('flow', () => {
     if (selectedItem.value && selectedItem.value.id === nodeId) selectedItem.value = snapshot
   }
 
+  // Re-pin an edge to its pre-merge snapshot after a failed save, mirroring revertNode. The index is
+  // re-resolved because a concurrent delete or sync could have shifted it, and a concurrently removed
+  // edge is left removed rather than resurrected.
+  const revertEdge = (edgeId: string, snapshot: Edge | undefined): void => {
+    if (!snapshot) return
+    const i = edges.value.findIndex(e => e.id === edgeId)
+    if (i === -1) return
+    edges.value.splice(i, 1, snapshot)
+    edges.value = [...edges.value]
+    if (selectedItem.value && selectedItem.value.id === edgeId) selectedItem.value = snapshot
+  }
+
+  // What this client believed the element's links to be, read BEFORE the optimistic merge. This is the
+  // only correct baseline for the association delta, and it is only correct while nothing else writes
+  // to the element out of band — which is why the settings panel names its edit instead of assigning
+  // to the selection. An edit applied here first would make the baseline equal the new value, the
+  // delta empty, and the attachment would never be written at all.
+  const linkBaseline = (element: Node | Edge) => ({
+    controls: Array.isArray(element.data?.controls) ? [...element.data.controls] : undefined,
+    dataItems: Array.isArray(element.data?.dataItems) ? [...element.data.dataItems] : undefined,
+  })
+
   const updateNode = async ({ nodeId, updates, skipDeferredQueue = false }: { nodeId: string, updates: object, skipDeferredQueue?: boolean }): Promise<boolean> => {
     // Check if this is a temporary node from optimistic update
     if (!skipDeferredQueue && isPendingNode(nodeId)) {
@@ -613,13 +649,20 @@ export const useFlowStore = defineStore('flow', () => {
       // Snapshot prior server truth before the optimistic merge. `updateNode` NEVER rejects: on a failed
       // save (throw or falsy return) it reverts the node to this snapshot and returns false. On success the
       // downstream updateBoundaryNode/updateComponentNode re-pin to the fresh server node, so no revert runs.
+      const baselineLinks = linkBaseline(node)
       const snapshot = safeClone(node)
       dtUtils.deepMerge(node, updates)
 
+      // The merge above is what the canvas renders. What gets SENT is narrowed to the fields this edit
+      // names, so a save cannot rewrite a field the user did not touch — and cannot revert one another
+      // user changed since this client loaded the model. The response carries the whole element back,
+      // so the local node still converges onto their edits below.
+      const edited = projectEdit(node, updates)
+
       try {
         const ok = node.type === 'BOUNDARY'
-          ? await updateBoundaryNode({ updatedNode: node, baselineConduits })
-          : await updateComponentNode({ updatedNode: node })
+          ? await updateBoundaryNode({ updatedNode: edited, baselineConduits, baselineLinks })
+          : await updateComponentNode({ updatedNode: edited, baselineLinks })
         if (!ok) revertNode(targetId, isDefault, snapshot)
         return ok
       } catch (error) {
@@ -683,8 +726,10 @@ export const useFlowStore = defineStore('flow', () => {
     return null
   }
 
-  const updateComponentNode = async ({ updatedNode }: { updatedNode: Node }): Promise<boolean> => {
-    const updatedComponent = await dtComponent.updateComponent({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '' })
+  const updateComponentNode = async (
+    { updatedNode, baselineLinks }: { updatedNode: Node, baselineLinks?: LinkBaselines },
+  ): Promise<boolean> => {
+    const updatedComponent = await dtComponent.updateComponent({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '', baselineLinks })
     if (updatedComponent) {
       const index = getNodeIndexById({ nodeId: updatedComponent.id })
       if (index !== -1) {
@@ -776,14 +821,17 @@ export const useFlowStore = defineStore('flow', () => {
     if (changed) nodes.value = [...nodes.value]
   }
 
-  const updateBoundaryNode = async ({ updatedNode, baselineConduits }: { updatedNode: Node, baselineConduits?: Conduit[] }): Promise<boolean> => {
+  const updateBoundaryNode = async (
+    { updatedNode, baselineConduits, baselineLinks }:
+    { updatedNode: Node, baselineConduits?: Conduit[], baselineLinks?: LinkBaselines },
+  ): Promise<boolean> => {
     // Gate concurrent saves of the same boundary: dt-core's `update-boundary-<id>` deduplicationKey shares
     // the in-flight promise, so a second overlapping save would resolve to the first's result and silently
     // drop its own edit. The UI binds this flag to disable Save while a save is in flight.
     const saveOp = `updateBoundary-${updatedNode.id}`
     setOperationLoading(saveOp, true)
     try {
-    const updatedBoundary = await dtBoundary.updateBoundaryNode({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '', baselineConduits })
+    const updatedBoundary = await dtBoundary.updateBoundaryNode({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '', baselineConduits, baselineLinks })
     if (updatedBoundary) {
       if (updatedNode.id === defaultBoundaryId.value) {
         // @ts-ignore
@@ -960,15 +1008,27 @@ export const useFlowStore = defineStore('flow', () => {
   const updateDataFlow = async ({ edgeId, updates }: { edgeId: string, updates: object }): Promise<boolean> => {
     const index = edges.value.findIndex(edge => edge.id === edgeId)
     if (index !== -1) {
+      const live = edges.value[index]
+      const baselineLinks = linkBaseline(live)
+      const snapshot = safeClone(live)
+      if (!snapshot) return false
       try {
-        // Hand dt-core a detached clone: it deep-merges `updates` into the passed
-        // edge in place before the network call, so passing the live reactive edge
-        // would leave the canvas diverged on a rejected/failed save. On failure we
-        // return false and never touch edges.value; on success we rebuild from
-        // server truth below.
-        const edgeClone = safeClone(edges.value[index])
-        if (!edgeClone) return false
-        const updatedDataFlow = await dtDataflow.updateDataFlow({ edge: edgeClone, updates })
+        // Merge into the LIVE edge, then revert on failure — mirroring updateNode. This edge is what
+        // the settings panel renders an association from, so without an optimistic merge the checkbox
+        // a user has just ticked clears itself until the server answers.
+        //
+        // The merge happens HERE rather than in dt-core so that the edge can be narrowed to the fields
+        // this edit names before it is sent. It cannot be narrowed inside the writer: import and update
+        // share it, and they pass a fully-built edge with an `updates` that names little or nothing, so
+        // narrowing there would send almost nothing. dt-core still merges what it is given — an empty
+        // object now — which leaves the projected edge as the whole of the input. `projectEdit` builds a
+        // fresh object, so the writer never receives the live reactive edge.
+        dtUtils.deepMerge(live, updates)
+        const updatedDataFlow = await dtDataflow.updateDataFlow({
+          edge: projectEdit(live, updates),
+          updates: {},
+          baselineLinks,
+        })
 
         if (updatedDataFlow) {
           const idx = edges.value.findIndex(edge => edge.id === updatedDataFlow.id)
@@ -1002,10 +1062,12 @@ export const useFlowStore = defineStore('flow', () => {
             return true
           }
         }
+        // Reached only when the save resolved without a usable result: the optimistic merge stands on
+        // the canvas and nothing was written, so it has to come back off.
+        revertEdge(edgeId, snapshot)
       } catch (error) {
-        // dt-core rethrows on failure; the live edge was never mutated (clone),
-        // so the canvas stays consistent. saveItem surfaces "Failed to update item".
-        console.error(`updateDataFlow: save failed for ${edgeId}, canvas left unchanged`, error)
+        console.error(`updateDataFlow: save failed for ${edgeId}, reverting the optimistic edit`, error)
+        revertEdge(edgeId, snapshot)
       }
     }
     return false
@@ -1048,7 +1110,7 @@ export const useFlowStore = defineStore('flow', () => {
     
     try {
       // Validate input data
-      const validationErrors = validateDataItem({ name, description, elementId })
+      const validationErrors = validateDataItem({ name, description, elementId }, { nameRequired: true })
       if (validationErrors.length > 0) {
         throw new Error(`Validation failed: ${validationErrors.join(', ')}`)
       }
@@ -1119,9 +1181,14 @@ export const useFlowStore = defineStore('flow', () => {
     return dataItems.value.find(data => data.id === dataItemId)
   }
 
+  /**
+   * Write PART of a data item. A field that is not supplied is not written, so a caller can send the
+   * one thing the user edited instead of everything it loaded — and stop reverting what somebody else
+   * changed in between. An explicit `null` sensitivity or empty flag list is still a CLEAR.
+   */
   const updateDataItem = async (
     { dataItemId, name, description, classId, sensitivity, regulatoryFlags }:
-    { dataItemId: string | null, name: string, description: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[] }
+    { dataItemId: string | null, name?: string, description?: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[] }
   ): Promise<boolean> => {
     if (!dataItemId) return false
     
@@ -1129,7 +1196,7 @@ export const useFlowStore = defineStore('flow', () => {
     
     try {
       // Validate input data
-      const validationErrors = validateDataItem({ name, description, elementId: dataItemId })
+      const validationErrors = validateDataItem({ name, description, elementId: dataItemId }, { nameRequired: false })
       if (validationErrors.length > 0) {
         throw new Error(`Validation failed: ${validationErrors.join(', ')}`)
       }
@@ -1139,14 +1206,16 @@ export const useFlowStore = defineStore('flow', () => {
       
       const { dataItem: updatedDataItem, bindingResult, residualOk } = await dtDataItem.updateDataItem({
         dataItemId,
-        name,
-        description,
-        classId,
-        // Asset-context rides the same update. dt-core uses REPLACE semantics
-        // (an omitted value clears the platform field), so the dialog always
-        // sends the current values — see DataDialog seeding them on load.
-        sensitivity: sensitivity ?? undefined,
-        regulatoryFlags,
+        // Spread rather than pass through: a key present and undefined is not the same thing to read as
+        // a key that is absent, and the writer branches on presence.
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(classId !== undefined && { classId }),
+        // Asset-context rides the same update, and the three states are distinct all the way down: a
+        // value writes it, an explicit `null` CLEARS it, and an absence leaves it alone. Flattening the
+        // null into an absence here would turn the dialog's "clear the classification" into a no-op.
+        ...(sensitivity !== undefined && { sensitivity }),
+        ...(regulatoryFlags !== undefined && { regulatoryFlags }),
       })
 
       if (bindingResult?.errorCode) {

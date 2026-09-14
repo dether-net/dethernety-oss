@@ -55,7 +55,7 @@ class FakeModuleRegistry {
     this.byClass.clear();
   }
 
-  // The service calls this with the module name from the §4.2 lookup. Our
+  // The service calls this with the module name resolved from the element's class. Our
   // seed uses `mod-1` as the module name for every class; this mock returns
   // a synthetic DTModule-shaped object whose getExposures/getCountermeasures
   // look up by classId.
@@ -340,10 +340,10 @@ describe('ElementBindingService — atomic class-change invariants', () => {
   const ctx = (sub = 'test-user') => ({ user: { sub } });
 
   // -------------------------------------------------------------------------
-  // §5.7 transition matrix — Component (single-class).
+  // The binding-transition matrix — Component (single-class).
   // -------------------------------------------------------------------------
 
-  describe('§5.7 transitions — Component (single-class)', () => {
+  describe('binding transitions — Component (single-class)', () => {
     beforeEach(async () => {
       await seedClass(mg.driver, 'ComponentClass', 'cc-A');
       await seedClass(mg.driver, 'ComponentClass', 'cc-B');
@@ -529,10 +529,10 @@ describe('ElementBindingService — atomic class-change invariants', () => {
   });
 
   // -------------------------------------------------------------------------
-  // §5.7 transition matrix — Control (N-N).
+  // The binding-transition matrix — Control (N-N).
   // -------------------------------------------------------------------------
 
-  describe('§5.7 transitions — Control (N-N)', () => {
+  describe('binding transitions — Control (N-N)', () => {
     beforeEach(async () => {
       await seedClass(mg.driver, 'ControlClass', 'ctlc-A');
       await seedClass(mg.driver, 'ControlClass', 'ctlc-B');
@@ -595,7 +595,7 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       // Deleted: cm-A1 (because ctlc-A removed). cm-B1 stays (still bound to ctlc-B).
       expect(result.deltas.deletedDerivedCountermeasures).toBe(1);
       // Instantiated: cm-B1 + cm-C1 (B re-runs against module since it's in the
-      // target list; C is added new). The §4.7 upsert is idempotent — re-running
+      // target list; C is added new). The scoped finding upsert is idempotent — re-running
       // it on cm-B1 keeps the same node.
       expect(result.deltas.instantiatedDerivedCountermeasures).toBe(2);
 
@@ -645,7 +645,7 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       expect(result.deltas.instantiatedDerivedCountermeasures).toBe(0);
     });
 
-    it('legacy-stale catch on Controls (§4.4 second OR clause)', async () => {
+    it('legacy-stale catch on Controls (the class-mismatch arm of the stale filter)', async () => {
       // Seed: Control bound to [ctlc-A]. A stale countermeasure exists
       // tied to ctlc-B via IS_COUNTERMEASURE_OF, even though the Control
       // never had an IS_INSTANCE_OF to ctlc-B. Past buggy-write-path data.
@@ -671,7 +671,7 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       expect(result.success).toBe(true);
       // The stale countermeasure (IS_COUNTERMEASURE_OF ctlc-B, but ctl-1
       // was never instance of ctlc-B) is swept by the second OR clause
-      // of §4.4: NOT (c)-[:IS_INSTANCE_OF]->(klass) where klass=ctlc-B.
+      // of the stale filter: NOT (c)-[:IS_INSTANCE_OF]->(klass) where klass=ctlc-B.
       // Seed produces exactly one stale countermeasure — assert the count,
       // not a lower bound, so over-delete regressions surface.
       expect(result.deltas.deletedDerivedCountermeasures).toBe(1);
@@ -837,7 +837,7 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       await seedClass(mg.driver, 'ComponentClass', 'cc-A');
       // Hostile module: returns createdBy=USER + a chosen id + a key
       // outside the allowlist. The resolver must:
-      //   - force createdBy = 'SYSTEM' (the §4.7 upsert's inline + trailing SET),
+      //   - force createdBy = 'SYSTEM' (the upsert's inline + trailing SET),
       //   - assign a server-generated UUID (randomUUID in the upsert),
       //   - drop the unallowlisted 'internalNotes' key.
       registry.setForClass('cc-A', {
@@ -927,14 +927,14 @@ describe('ElementBindingService — atomic class-change invariants', () => {
   // duplicate SYSTEM exposures can land for the same (element, class, name)
   // triple. RETURN DISTINCT defends the returned row count, but the graph
   // carries the duplicate. The documented self-heal is that the *next* class
-  // change sweeps both via §4.3's class-derived filter and instantiates a
+  // change sweeps both via the class-derived filter and instantiates a
   // single fresh row against the new class — restoring singularity.
   //
   // We prime the duplicate state directly (deterministic; no race-condition
   // flake) and assert the self-heal trigger on the subsequent class change.
   // -------------------------------------------------------------------------
 
-  describe('§4.7 self-heal — primed duplicate state restores singularity', () => {
+  describe('upsert self-heal — primed duplicate state restores singularity', () => {
     beforeEach(async () => {
       await seedClass(mg.driver, 'ComponentClass', 'cc-A');
       await seedClass(mg.driver, 'ComponentClass', 'cc-B');
@@ -981,7 +981,7 @@ describe('ElementBindingService — atomic class-change invariants', () => {
 
       // Prime the documented race state: insert a second SYSTEM exposure with
       // the same name + IS_EXPOSURE_OF cc-A edge, distinct id. This is what
-      // the §4.7 OPTIONAL MATCH/CREATE race produces in production when two
+      // the upsert's OPTIONAL MATCH/CREATE race produces in production when two
       // independent sessions both see `existing IS NULL`.
       await seedSystemExposureBoundToClass(mg.driver, 'comp-1', 'cc-A', 'Privilege Escalation');
 
@@ -989,9 +989,9 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       // hide the duplicate state we are explicitly priming.
       expect(await countExposureNodesByClass('comp-1', 'cc-A')).toBe(2);
 
-      // Self-heal trigger: transition to a different class. §4.3's sweep
+      // Self-heal trigger: transition to a different class. The class-derived sweep
       // deletes BOTH duplicates (both linked to cc-A via IS_EXPOSURE_OF), and
-      // §4.7 instantiates one clean exposure against cc-B.
+      // then instantiates one clean exposure against cc-B.
       const healed = await service.changeElementBinding(
         { elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cc-B'] } },
         ctx(),
@@ -1053,7 +1053,7 @@ describe('ElementBindingService — atomic class-change invariants', () => {
   // forensic reconstruction.
   // -------------------------------------------------------------------------
 
-  describe('§3.4 LWW forensic recoverability', () => {
+  describe('last-writer-wins forensic recoverability', () => {
     let logSpy: jest.SpyInstance;
 
     beforeEach(async () => {

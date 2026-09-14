@@ -3,6 +3,8 @@ import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module } from '../interfaces/core-types-interface.js'
 import { flattenConduits } from '../dt-boundary/boundary-zoning-utils.js'
+import { connectIds, assertConnectId } from '../dt-utils/connect-id.js'
+import { linkInput, LinkBaselines } from '../dt-utils/link-delta.js'
 import { ModelScopeLocal, localScopeToPlatform } from '../schemas/index.js'
 import { Node, Edge } from '@vue-flow/core'
 
@@ -401,17 +403,33 @@ export class DtModel {
   }
 
   /**
-   * Update a model
+   * Update a model.
+   *
+   * EVERY FIELD BUT THE ID IS OPTIONAL, and a field that is not supplied is not written. That is the
+   * same contract the component, boundary and data-flow writers keep, and this was the one writer
+   * without it: it emitted name, description, modules, controls and folder unconditionally, so a caller
+   * that only wanted to rename a model rewrote everything else about it from whatever it had loaded —
+   * including a module another user had just assigned.
+   *
    * @param id - The ID of the model to update
-   * @param name - The name of the model
-   * @param description - The description of the model
-   * @param modules - The modules of the model
-   * @param controls - The controls of the model
+   * @param baselineLinks - What the caller knew the controls to be before this edit, if it knows
    * @returns The updated model
    */
   updateModel = async (
-    { id, name, description, modules, controls, folderId, scope }:
-    { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined, scope?: ModelScopeLocal }
+    { id, name, description, modules, controls, folderId, scope, baselineLinks }:
+    {
+      id: string,
+      name?: string,
+      description?: string,
+      // The two link lists are typed loosely on purpose: they are built by mapping id fields that are
+      // optional on the shared types, so an entry that is not an id is a shape the caller can produce and
+      // this writer has to survive.
+      modules?: (string | undefined)[],
+      controls?: (string | undefined)[],
+      folderId?: string,
+      scope?: ModelScopeLocal,
+      baselineLinks?: LinkBaselines,
+    }
   ): Promise<Model> => {
     try {
       // Asset-context scope on update: REPLACE (local authoritative). When scope
@@ -428,35 +446,45 @@ export class DtModel {
         exclusions: { set: p.exclusions ?? [] },
         trustAssumptions: { set: p.trustAssumptions ?? [] },
       } : {}
-      const mutationInput = {
-        name: { set: name },
-        description: { set: description },
+      // THE CONTROLS ARE WRITTEN AS A DELTA WHEN THE CALLER CAN SAY WHAT THEY WERE, and as a whole-list
+      // replace when it cannot. THE MODULES ARE ALWAYS A REPLACE, and the asymmetry is deliberate: the
+      // settings dialog can edit the control list, so it holds a baseline and its save composes with
+      // somebody else's; nothing edits a model's modules except the push path, which asserts them whole
+      // and has no earlier state to compare against.
+      //
+      // Both lists are filtered before any operand is built. An entry that is not a usable id would
+      // build a connect whose filter carries no condition, and that does not connect nothing: it
+      // connects EVERY module, or every control, in the deployment.
+      const controlsInput = linkInput(controls, baselineLinks, 'controls')
+      const mutationInput: Record<string, unknown> = {
+        ...(name !== undefined && { name: { set: name } }),
+        ...(description !== undefined && { description: { set: description } }),
         ...scopeUpdate,
-        modules: {
-          disconnect: {},
-          connect: modules.map(module => ({
-            where: { node: { id: { eq: module } } },
-          })),
-        },
-        controls: {
-          disconnect: {},
-          connect: controls.map(control => ({
-            where: { node: { id: { eq: control } } },
-          })),
-        },
-        folder: { }
-      }
-      if (folderId) {
-        mutationInput.folder = {
-          disconnect: {},
-          connect: {
-            where: { node: { id: { eq: folderId } } },
+        ...(modules !== undefined && {
+          modules: {
+            disconnect: {},
+            connect: connectIds(modules).map(module => ({
+              where: { node: { id: { eq: module } } },
+            })),
           },
-        }
-      } else {
-        mutationInput.folder = {
-          disconnect: {},
-        }
+        }),
+        ...(controlsInput !== undefined && { controls: controlsInput }),
+        // A named folder is a move. An empty one is the root — and a model's root is the ABSENCE of a
+        // folder rather than a node to connect to, so it disconnects and connects nothing. That is the
+        // same intent an empty parent carries on the canvas, where the root happens to be a real node.
+        // No folder at all is neither: the model stays where it is, and the key is not written. Only
+        // the empty string carries the root meaning, so anything else that cannot name a folder refuses
+        // rather than silently unfiling the model.
+        ...(folderId !== undefined && {
+          folder: folderId === ''
+            ? { disconnect: {} }
+            : {
+                disconnect: {},
+                connect: {
+                  where: { node: { id: { eq: assertConnectId(folderId, 'folder') } } },
+                },
+              },
+        }),
       }
       
       const response = await this.dtUtils.performMutation<{ updateModels: { models: Model[] } }>({
@@ -464,7 +492,11 @@ export class DtModel {
         variables: { id, input: mutationInput },
         dataPath: '',
         action: 'updateModel',
-        deduplicationKey: `update-model-${id}`
+        // The key carries WHICH FIELDS are being written, not just which model. Deduplication joins an
+        // in-flight request under the same key and returns its result, which is right for a double
+        // submit of one act and wrong for two different ones: a folder move still in flight would
+        // otherwise swallow a rename clicked a moment later and report it saved.
+        deduplicationKey: `update-model-${id}-${Object.keys(mutationInput).sort().join('.')}`
       })
       
       if (!response?.updateModels?.models?.length) {

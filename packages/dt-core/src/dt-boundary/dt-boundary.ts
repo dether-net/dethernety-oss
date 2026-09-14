@@ -1,8 +1,10 @@
 
 import { DtUtils } from '../dt-utils/dt-utils.js'
+import { linkInput, LinkBaselines } from '../dt-utils/link-delta.js'
+import { assertConnectId } from '../dt-utils/connect-id.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { BoundaryData, Control, DataItem, DirectDescendant, Model, Conduit } from '../interfaces/core-types-interface.js'
+import { BoundaryData, DataItem, DirectDescendant, Model, Conduit } from '../interfaces/core-types-interface.js'
 import { Node } from '@vue-flow/core'
 import { ADD_BOUNDARY, UPDATE_BOUNDARY, GET_DIRECT_DESCENDANTS, DELETE_BOUNDARY, GET_BOUNDARY_REPRESENTED_MODEL } from './dt-boundary-gql.js'
 import { sanitizeZone, sanitizeDomains, normalizePlanes, buildConduitOps, flattenConduits } from './boundary-zoning-utils.js'
@@ -93,10 +95,19 @@ export class DtBoundary {
    * @returns The updated node or null if the node is not a boundary
    */
   updateBoundaryNode = async (
-    { updatedNode, defaultBoundaryId, baselineConduits = [] }:
-    { updatedNode: Node, defaultBoundaryId: string, baselineConduits?: Conduit[] }
+    { updatedNode, defaultBoundaryId, baselineConduits = [], baselineLinks }:
+    { updatedNode: Node, defaultBoundaryId: string, baselineConduits?: Conduit[], baselineLinks?: LinkBaselines }
   ): Promise<BoundaryData | null> => {
     try {
+      // The parent gate below is the same shape as the scalar gates in the input: a node that does not
+      // name a parent leaves the association alone. It is load-bearing rather than tidy — `connect`
+      // filters on an `eq` built from this value, and an undefined one produces a filter with no
+      // condition, matching every boundary after the unconditional disconnect has already run.
+      //
+      // An empty parent is the opposite case: a real edit meaning "put me at the root". It can only be
+      // written while the root is known, so an unresolved default refuses rather than emitting a filter
+      // that matches nothing once the disconnect beside it has run. The root boundary itself has no
+      // parent to write and is excluded before either branch is reached.
       let parentBoundaryInput = undefined
       if (updatedNode.id === defaultBoundaryId || updatedNode.parentNode === undefined) {
         parentBoundaryInput = undefined
@@ -106,7 +117,12 @@ export class DtBoundary {
           connect: {
             where: {
               node: {
-                id: { eq: updatedNode.parentNode === '' ? defaultBoundaryId: updatedNode.parentNode },
+                id: {
+                  eq: assertConnectId(
+                    updatedNode.parentNode === '' ? defaultBoundaryId : updatedNode.parentNode,
+                    'parentBoundary',
+                  ),
+                },
               },
             },
           },
@@ -117,7 +133,7 @@ export class DtBoundary {
       // mirroring controls/dataItems). Membership is a baseline-driven delta — `connect` is NOT
       // idempotent for CONDUIT (re-connecting an existing peer duplicates the edge), so we connect
       // only added peers, disconnect only removed, and `update` only changed-justification peers.
-      const conduitsBuf: Conduit[] | undefined = updatedNode.data.conduits
+      const conduitsBuf: Conduit[] | undefined = updatedNode.data?.conduits
       const outboundOps = conduitsBuf === undefined
         ? undefined
         : buildConduitOps('OUTBOUND', conduitsBuf, baselineConduits, updatedNode.id)
@@ -125,59 +141,56 @@ export class DtBoundary {
         ? undefined
         : buildConduitOps('INBOUND', conduitsBuf, baselineConduits, updatedNode.id)
 
+      const controlsInput = linkInput(updatedNode.data?.controls, baselineLinks, 'controls')
+      const dataItemsInput = linkInput(updatedNode.data?.dataItems, baselineLinks, 'dataItems')
+
       const variables = {
         boundaryId: updatedNode.id,
         input: {
-          name: { set: updatedNode.data.label },
-          description: { set: updatedNode.data.description },
-          positionX: { set: updatedNode.position.x },
-          positionY: { set: updatedNode.position.y },
-          dimensionsWidth: { set: updatedNode.width },
-          dimensionsHeight: { set: updatedNode.height },
-          dimensionsMinWidth: { set: updatedNode.data.minWidth },
-          dimensionsMinHeight: { set: updatedNode.data.minHeight },
+          // Gated exactly like the zoning scalars below, and for the same reason extended to the whole
+          // input: a field the node does not define is not written, so a caller can send only what the
+          // user edited instead of the boundary as it last loaded it.
+          ...(updatedNode.data?.label !== undefined && { name: { set: updatedNode.data.label } }),
+          ...(updatedNode.data?.description !== undefined && { description: { set: updatedNode.data.description } }),
+          // The two axes are ONE edit and are gated together: a node carrying no position would
+          // otherwise throw on `.x`. The guard is what keeps the axes from being read at all.
+          ...(updatedNode.position !== undefined && {
+            positionX: { set: updatedNode.position.x },
+            positionY: { set: updatedNode.position.y },
+          }),
+          ...(updatedNode.width !== undefined && { dimensionsWidth: { set: updatedNode.width } }),
+          ...(updatedNode.height !== undefined && { dimensionsHeight: { set: updatedNode.height } }),
+          ...(updatedNode.data?.minWidth !== undefined && { dimensionsMinWidth: { set: updatedNode.data.minWidth } }),
+          ...(updatedNode.data?.minHeight !== undefined && { dimensionsMinHeight: { set: updatedNode.data.minHeight } }),
           // Zoning scalars are partial-update: emit a `{ set }` only when the key is present on node.data.
           // An absent key leaves the field untouched (mirrors controls/dataItems/conduits below); a present
           // `null`/`[]` still writes (explicit clear/inherit). This protects callers that rebuild node.data
           // without zoning (the import/update controls & dataItems association passes) from clobbering it.
-          ...(updatedNode.data.zone !== undefined && { zone: { set: sanitizeZone(updatedNode.data.zone ?? null) } }),
-          ...(updatedNode.data.domains !== undefined && { domains: { set: sanitizeDomains(updatedNode.data.domains) } }),
+          ...(updatedNode.data?.zone !== undefined && { zone: { set: sanitizeZone(updatedNode.data!.zone ?? null) } }),
+          ...(updatedNode.data?.domains !== undefined && { domains: { set: sanitizeDomains(updatedNode.data!.domains) } }),
           // `planes` is a `[String!]` field (NOT a GraphQL enum): @neo4j/graphql v7 generates a broken
           // enum-list mutation input (both `set` and `push` required, resolver forbids both), so the enum
           // form was unwritable. Stored as String, the values stay constrained to the `Plane` union by
           // `normalizePlanes` (app-side validation). Same shape as `domains`.
-          ...(updatedNode.data.planes !== undefined && { planes: { set: normalizePlanes(updatedNode.data.planes) } }),
+          ...(updatedNode.data?.planes !== undefined && { planes: { set: normalizePlanes(updatedNode.data!.planes) } }),
           ...(outboundOps !== undefined && { outboundConduits: outboundOps }),
           ...(inboundOps !== undefined && { inboundConduits: inboundOps }),
           ...(parentBoundaryInput !== undefined && { parentBoundary: parentBoundaryInput }),
-          // Guard the whole relationship key like the zoning scalars above: an
-          // absent field (undefined) omits it entirely, leaving the association
-          // untouched — the conduit/import "safe node" passes rely on this to
-          // preserve controls/dataItems. A PRESENT
-          // array REPLACEs, via an unconditional disconnect-all then connect.
+          // An absent list omits the key entirely, leaving the association untouched — the conduit and
+          // import "safe node" passes rely on this to preserve controls/dataItems.
           //
-          // The disconnect MUST stay unconditional. `connect` compiles to a bare
-          // relationship CREATE, so a disconnect that spares the incoming ids
-          // leaves every already-attached pair to be re-created — one extra
-          // parallel edge per element per save. Disconnect-all is safe because
-          // the translator emits disconnect before connect for the same field,
-          // and it also collapses duplicates already on disk.
-          ...(updatedNode.data.controls !== undefined && {
-            controls: {
-              disconnect: {},
-              connect: updatedNode.data.controls.map((control: Control) => ({
-                where: { node: { id: { eq: control } } },
-              })),
-            },
-          }),
-          ...(updatedNode.data.dataItems !== undefined && {
-            dataItems: {
-              disconnect: {},
-              connect: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
-                where: { node: { id: { eq: dataItem } } },
-              })),
-            },
-          }),
+          // A PRESENT list is written one of two ways, and which one depends on whether the caller told
+          // us what the list held before. Without that it can only assert the whole list, so the write
+          // is an unconditional disconnect-all then connect — correct for a bulk write, and destructive
+          // for two people editing one element, because the second save disconnects what the first just
+          // attached. With a baseline the write is the delta instead, and the two saves compose.
+          //
+          // The disconnect in the REPLACE shape must stay unconditional: `connect` compiles to a bare
+          // relationship CREATE, so a disconnect that spares the incoming ids leaves every
+          // already-attached pair to be re-created — one extra parallel edge per element per save. It is
+          // safe because the translator emits disconnect before connect for the same field.
+          ...(controlsInput !== undefined && { controls: controlsInput }),
+          ...(dataItemsInput !== undefined && { dataItems: dataItemsInput }),
         },
       }
       

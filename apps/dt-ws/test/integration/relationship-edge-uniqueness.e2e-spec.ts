@@ -13,14 +13,26 @@
 //      that SPARES the incoming ids paired with an unconditional connect (what the
 //      element-side save emitted). Both append a parallel edge per call. Pinned here
 //      so the regression is a measurement, not an inference.
-//   2. THE FIX — an unconditional disconnect-all paired with the same connect is
-//      idempotent: repeat saves leave exactly one edge per pair.
+//   2. THE REPLACE SHAPE — an unconditional disconnect-all paired with the same connect
+//      is idempotent: repeat saves leave exactly one edge per pair. This is the shape a
+//      caller asserting a WHOLE list emits, which today means the import and bulk-update
+//      passes. It was the interactive path's shape too until the delta below.
 //   3. ORDERING — disconnect-all and connect-all in ONE mutation do not annihilate
 //      each other. The translator emits disconnect before connect for the same
 //      field; if that ever inverts, replace-semantics would silently clear every
 //      association instead of replacing it, so this is the load-bearing assertion.
-//   4. SELF-HEAL — the fixed shape collapses duplicates already on disk.
+//   4. SELF-HEAL — the replace shape collapses duplicates already on disk. Worth reading
+//      beside section 6: this is the property the interactive path gives up, and what
+//      that costs is measured there rather than argued.
 //   5. The absent-field guard still leaves associations untouched.
+//   6. THE DELTA — what an interactive save emits once it knows what the list held before.
+//      Two people editing one element stop destroying each other's work; the price is
+//      pinned in the same section rather than left as a claim.
+//   7. AN OPERAND THAT NAMES NOTHING — what an id-less filter does to each half. A
+//      connect attaches EVERY control in the graph; a disconnect clears every control
+//      edge on the element and stops there. This is why the writer validates ids before
+//      it builds operations, and it is measured here rather than inferred from a
+//      translator dump.
 //
 // COUPLING NOTE: `@dethernety/dt-core` (the actual writer) cannot be imported here —
 // it is ESM-only and this config un-ignores only `jose`. So the mutation variables
@@ -351,6 +363,174 @@ describe('relationship edge uniqueness — element-side association writes', () 
       supports: { 'ctl-1': 1, 'ctl-2': 1 },
       handles: { 'dat-1': 1 },
       totals: { supports: 2, handles: 1 },
+    });
+  });
+
+  // ── 6 · THE DELTA ──────────────────────────────────────────────────────────────────
+  //
+  // The replace shape above is correct for a caller asserting a whole list, and destructive for two
+  // people editing one element: the second save carries a list assembled before the first landed, so
+  // its disconnect-all removes what the other person just attached. A caller that knows what the list
+  // held BEFORE its own edit can send the difference instead, and the two saves compose.
+  describe('the delta an interactive save emits', () => {
+    const ops = (ids: string[]) => ids.map(id => ({ where: { node: { id: { eq: id } } } }));
+    const delta = (connect: string[], disconnect: string[]) => ({
+      ...(connect.length ? { connect: ops(connect) } : {}),
+      ...(disconnect.length ? { disconnect: ops(disconnect) } : {}),
+    });
+
+    const addControls = (...ids: string[]) =>
+      runOk(`mutation { createControls(input: [${ids.map(id => `{ id: "${id}", name: "${id}" }`).join(', ')}]) { controls { id } } }`);
+
+    const attached = async () => Object.keys((await edgeCounts()).supports).sort();
+
+    // THE CASE THIS EXISTS FOR. Both clients loaded the component holding ctl-1 and ctl-2. Each adds a
+    // different control, neither knowing about the other's.
+    it('two clients each adding a different control keep both', async () => {
+      await seed();
+      await addControls('ctl-3', 'ctl-4');
+
+      await updateComponent({ controls: delta(['ctl-3'], []) });
+      await updateComponent({ controls: delta(['ctl-4'], []) });
+
+      expect(await attached()).toEqual(['ctl-1', 'ctl-2', 'ctl-3', 'ctl-4']);
+      expect((await edgeCounts()).totals.supports).toBe(4);
+    });
+
+    // The same two acts under the replace shape, on the same seed, so the difference is a measurement
+    // and not a description. The second client's list was assembled before the first save landed.
+    it('and under the replace shape the second client destroys the first\'s', async () => {
+      await seed();
+      await addControls('ctl-3', 'ctl-4');
+
+      await updateComponent({ controls: unconditionalDisconnect(['ctl-1', 'ctl-2', 'ctl-3']) });
+      await updateComponent({ controls: unconditionalDisconnect(['ctl-1', 'ctl-2', 'ctl-4']) });
+
+      expect(await attached()).toEqual(['ctl-1', 'ctl-2', 'ctl-4']);
+    });
+
+    it('a removal still removes, and leaves a peer\'s concurrent addition alone', async () => {
+      await seed();
+      await addControls('ctl-3');
+
+      // One client attaches ctl-3; another, which never saw it, removes ctl-2.
+      await updateComponent({ controls: delta(['ctl-3'], []) });
+      await updateComponent({ controls: delta([], ['ctl-2']) });
+
+      expect(await attached()).toEqual(['ctl-1', 'ctl-3']);
+    });
+
+    // Why the baseline has to be right, priced. A correct delta emits nothing for an id the baseline
+    // already holds; a delta built against a WRONG baseline offers it again, and there is no
+    // disconnect-all to absorb that any more. The cost of getting the baseline wrong is a parallel
+    // edge per save, which is what this pins.
+    it('re-offering an already-attached id appends a parallel edge, with no disconnect to absorb it', async () => {
+      await seed();
+
+      await updateComponent({ controls: delta(['ctl-1'], []) });
+
+      expect((await edgeCounts()).supports['ctl-1']).toBe(2);
+    });
+
+    // THE PRICE, MEASURED. `connect` compiles to a bare relationship CREATE, so two clients adding the
+    // SAME control at the same moment each create an edge. This is the trade the delta makes on
+    // purpose: a duplicate is additive and invisible above raw Cypher, and a destroyed attachment is
+    // neither. It is pinned here so nobody has to take that on trust.
+    it('two clients adding the SAME control leave two edges', async () => {
+      await seed();
+      await addControls('ctl-3');
+
+      await updateComponent({ controls: delta(['ctl-3'], []) });
+      await updateComponent({ controls: delta(['ctl-3'], []) });
+
+      expect((await edgeCounts()).supports['ctl-3']).toBe(2);
+    });
+
+    // And what a later removal does about it. The replace shape's self-heal is gone, so the question
+    // is whether a FILTERED disconnect removes one edge of a duplicated pair or all of them. Measured
+    // rather than assumed: the answer decides whether an ordinary removal still cleans up after the
+    // case above.
+    it('a delta removal clears every edge of a duplicated pair, not one of them', async () => {
+      await seed();
+      await addControls('ctl-3');
+      await updateComponent({ controls: delta(['ctl-3'], []) });
+      await updateComponent({ controls: delta(['ctl-3'], []) });
+      expect((await edgeCounts()).supports['ctl-3']).toBe(2);
+
+      await updateComponent({ controls: delta([], ['ctl-3']) });
+
+      expect(await attached()).toEqual(['ctl-1', 'ctl-2']);
+    });
+
+    it('works the same for data items', async () => {
+      await seed();
+      await runOk(`mutation { createData(input: [{ id: "dat-2", name: "D2" }]) { data { id } } }`);
+
+      await updateComponent({ dataItems: delta(['dat-2'], []) });
+
+      expect((await edgeCounts()).handles).toEqual({ 'dat-1': 1, 'dat-2': 1 });
+    });
+  });
+  // ── 7 · AN OPERAND THAT NAMES NOTHING ──────────────────────────────────────────────
+  //
+  // Every operand above filters on `{ id: { eq: <id> } }`. What happens when the id is missing — an
+  // optional field that was undefined, so it serialised away and left `{ id: {} }` — is the reason the
+  // writer validates ids before it builds operations. That behaviour was read off a translator dump; it
+  // is measured here, on both halves, because the two are not the same size of mistake.
+  describe('an operand whose filter carries no condition', () => {
+    const nothing = { where: { node: { id: {} } } };
+    const idOp = (id: string) => ({ where: { node: { id: { eq: id } } } });
+
+    const addControls = (...ids: string[]) =>
+      runOk(`mutation { createControls(input: [${ids.map(id => `{ id: "${id}", name: "${id}" }`).join(', ')}]) { controls { id } } }`);
+
+    const attached = async () => Object.keys((await edgeCounts()).supports).sort();
+
+    /** A second component holding ctl-1, so an operation's blast radius is visible rather than assumed. */
+    const addPeerComponent = () =>
+      runOk(`
+        mutation {
+          createComponents(input: [{
+            id: "cmp-2",
+            name: "Peer",
+            controls: { connect: [{ where: { node: { id: { eq: "ctl-1" } } } }] }
+          }]) { components { id } }
+        }
+      `);
+
+    it('CONNECT — one such operand attaches every control there is, beside the one that was named', async () => {
+      await seed();
+      await addControls('ctl-3'); // never offered, never attached
+
+      await updateComponent({ controls: { connect: [idOp('ctl-1'), nothing] } });
+
+      expect(await attached()).toEqual(['ctl-1', 'ctl-2', 'ctl-3']);
+    });
+
+    it('DISCONNECT — one such operand clears every control edge the element has', async () => {
+      await seed();
+      await addPeerComponent();
+      expect((await edgeCounts()).totals.supports).toBe(3); // cmp-1 ×2, cmp-2 ×1
+
+      await updateComponent({ controls: { disconnect: [nothing] } });
+
+      expect(await attached()).toEqual([]);
+      // It walks out from the element, so the damage stops there — the peer keeps its edge. Worse than
+      // a connect for this element, narrower than a connect for the deployment.
+      expect((await edgeCounts()).totals.supports).toBe(1);
+    });
+
+    // The control for both, and the reason neither of the above can be read as "these inputs are
+    // rejected": the identical operations built from ids that resolve behave exactly as expected.
+    it('and the same two operations built from real ids do only what they say', async () => {
+      await seed();
+      await addControls('ctl-3');
+
+      await updateComponent({ controls: { connect: [idOp('ctl-3')] } });
+      expect(await attached()).toEqual(['ctl-1', 'ctl-2', 'ctl-3']);
+
+      await updateComponent({ controls: { disconnect: [idOp('ctl-3')] } });
+      expect(await attached()).toEqual(['ctl-1', 'ctl-2']);
     });
   });
 });

@@ -49,6 +49,25 @@ describe('DtModel.updateModel — scope REPLACE', () => {
     expect(input).not.toHaveProperty('trustAssumptions');
   });
 
+  // THE CLEAR HAS TO REACH THE MUTATION. Emptying the last compliance driver leaves a scope whose
+  // only content is an empty list; while that collapsed to `undefined` the update emitted no scope
+  // keys, and with nothing else edited it emitted no keys AT ALL — a mutation that returned the model
+  // unchanged and a dialog that reported the clear saved.
+  it('writes the clear when the only remaining scope content is an empty list', async () => {
+    const { dtModel, performMutation } = makeModel();
+    await dtModel.updateModel({
+      id: 'm1', name: 'M', description: '', modules: [], controls: [], folderId: undefined,
+      scope: { compliance_drivers: [] },
+    });
+    expect(inputOf(performMutation)).toMatchObject({
+      depth: { set: null },
+      modelingIntent: { set: null },
+      complianceDrivers: { set: [] },
+      exclusions: { set: [] },
+      trustAssumptions: { set: [] },
+    });
+  });
+
   it('emits NO scope keys when scope has only unknown values (no blanket wipe)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { dtModel, performMutation } = makeModel();

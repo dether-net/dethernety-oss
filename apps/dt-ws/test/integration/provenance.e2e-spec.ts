@@ -61,7 +61,7 @@ const ctx = (userSub: string | null) => ({
 });
 
 // ---------------------------------------------------------------------------
-// Verbatim copy of the production §4.7 upsert query for the Exposure case.
+// Verbatim copy of the production scoped-upsert query for the Exposure case.
 // The test asserts the production Cypher shape; if the service's query
 // drifts, this test fails loudly. Keep in sync with
 // set-instantiation-attributes.service.ts upsertExposures.
@@ -272,7 +272,7 @@ describe('Provenance — Exposure/Countermeasure invariants', () => {
   });
 
   // -------------------------------------------------------------------------
-  // SYSTEM write path — §4.7 scoped Cypher upsert (verbatim production shape)
+  // SYSTEM write path — the scoped Cypher upsert (verbatim production shape)
   // -------------------------------------------------------------------------
 
   describe('SYSTEM write path (scoped Cypher upsert)', () => {

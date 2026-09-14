@@ -22,7 +22,7 @@ This documentation provides a complete picture of the Dethernety frontend archit
 | Document | Description |
 |----------|-------------|
 | [Data Architecture](./LLD/Data%20architecture/) | Data models and state management patterns |
-| [Flow Store & Optimistic Updates](./LLD/FLOW_STORE.md) | Diagram store: optimistic updates, never-reject `updateNode`, boundary zoning getters |
+| [Flow Store & Optimistic Updates](./LLD/FLOW_STORE.md) | Diagram store: optimistic updates, edit projection and link deltas, never-reject `updateNode`, boundary zoning getters |
 
 ### Feature Areas
 

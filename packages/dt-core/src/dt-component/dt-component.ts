@@ -1,7 +1,9 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
+import { linkInput, LinkBaselines } from '../dt-utils/link-delta.js'
+import { assertConnectId } from '../dt-utils/connect-id.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { ComponentData, Control, DataItem, Model } from '../interfaces/core-types-interface.js'
+import { ComponentData, DataItem, Model } from '../interfaces/core-types-interface.js'
 import { ADD_COMPONENT, UPDATE_COMPONENT, DELETE_COMPONENT, GET_COMPONENT_REPRESENTED_MODEL } from './dt-component-gql.js'
 import { Node } from '@vue-flow/core'
 
@@ -92,8 +94,8 @@ export class DtComponent {
    * @returns The updated node or null if the node is not a component
    */
   updateComponent = async (
-    { updatedNode, defaultBoundaryId }:
-    { updatedNode: Node, defaultBoundaryId: string }
+    { updatedNode, defaultBoundaryId, baselineLinks }:
+    { updatedNode: Node, defaultBoundaryId: string, baselineLinks?: LinkBaselines }
   ): Promise<ComponentData | null> => {
     try {
       // Asset-context crown-jewel: REPLACE only when the caller explicitly sets
@@ -104,50 +106,70 @@ export class DtComponent {
       const crownJewelInput = updatedNode.data?.crownJewel !== undefined
         ? { crownJewel: { set: updatedNode.data.crownJewel === true } }
         : {}
+      const controlsInput = linkInput(updatedNode.data?.controls, baselineLinks, 'controls')
+      const dataItemsInput = linkInput(updatedNode.data?.dataItems, baselineLinks, 'dataItems')
+      // EVERY field is gated on being defined on the node, the way crownJewel above and
+      // controls/dataItems below already are. The contract is one sentence: a field the node does not
+      // define is not written. That is what lets a caller send only what the user edited, instead of
+      // the whole component as it last loaded it — and it is what stops one person's save from
+      // rewriting a field somebody else changed in the meantime.
       const variables = {
         componentId: updatedNode.id,
         input: {
-          name: { set: updatedNode.data.label },
-          description: { set: updatedNode.data.description },
-          positionX: { set: updatedNode.position.x },
-          positionY: { set: updatedNode.position.y },
-          type: { set: updatedNode.type },
+          ...(updatedNode.data?.label !== undefined && { name: { set: updatedNode.data.label } }),
+          ...(updatedNode.data?.description !== undefined && { description: { set: updatedNode.data.description } }),
+          // The two axes are ONE edit and are gated together: a node carrying no position at all would
+          // otherwise throw on `.x`. Reading the axes inside the guard is what makes that safe — the
+          // object literal is never evaluated when the guard is false.
+          ...(updatedNode.position !== undefined && {
+            positionX: { set: updatedNode.position.x },
+            positionY: { set: updatedNode.position.y },
+          }),
+          ...(updatedNode.type !== undefined && { type: { set: updatedNode.type } }),
           ...crownJewelInput,
-          parentBoundary: {
-            disconnect: {},
-            connect: {
-              where: {
-                node: { id: { eq: updatedNode.parentNode === '' ? defaultBoundaryId: updatedNode.parentNode } },
+          // Gating the parent is NOT optional, and it is not the same kind of guard as the scalars
+          // above. `connect` filters on an `eq` built from this value; an undefined one produces a
+          // filter with no condition, which matches EVERY boundary — and the disconnect above it has
+          // already run unconditionally. So a component whose node does not name a parent would be
+          // detached from its own boundary and attached to all of them.
+          //
+          // An empty parent is the OTHER case, and it is a real edit rather than an absence: it means
+          // "put me at the root", which is the default boundary. That only works while the default
+          // boundary is known — before it resolves the caller passes an empty id, which matches nothing
+          // and would leave the component with no parent at all. There is no correct payload for that,
+          // so the write refuses and the caller keeps what it had.
+          ...(updatedNode.parentNode !== undefined && {
+            parentBoundary: {
+              disconnect: {},
+              connect: {
+                where: {
+                  node: {
+                    id: {
+                      eq: assertConnectId(
+                        updatedNode.parentNode === '' ? defaultBoundaryId : updatedNode.parentNode,
+                        'parentBoundary',
+                      ),
+                    },
+                  },
+                },
               },
             },
-          },
-          // Guard the whole relationship key: an absent field (undefined) omits it
-          // entirely, leaving the association untouched — the conduit/import "safe
-          // node" passes rely on this to preserve controls/dataItems. A PRESENT
-          // array REPLACEs, via an unconditional disconnect-all then connect.
+          }),
+          // An absent list omits the key entirely, leaving the association untouched — the conduit and
+          // import "safe node" passes rely on this to preserve controls/dataItems.
           //
-          // The disconnect MUST stay unconditional. `connect` compiles to a bare
-          // relationship CREATE, so a disconnect that spares the incoming ids
-          // leaves every already-attached pair to be re-created — one extra
-          // parallel edge per element per save. Disconnect-all is safe because
-          // the translator emits disconnect before connect for the same field,
-          // and it also collapses duplicates already on disk.
-          ...(updatedNode.data.controls !== undefined && {
-            controls: {
-              disconnect: {},
-              connect: updatedNode.data.controls.map((control: Control) => ({
-                where: { node: { id: { eq: control } } },
-              })),
-            },
-          }),
-          ...(updatedNode.data.dataItems !== undefined && {
-            dataItems: {
-              disconnect: {},
-              connect: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
-                where: { node: { id: { eq: dataItem } } },
-              })),
-            },
-          }),
+          // A PRESENT list is written one of two ways, and which one depends on whether the caller told
+          // us what the list held before. Without that it can only assert the whole list, so the write
+          // is an unconditional disconnect-all then connect — correct for a bulk write, and destructive
+          // for two people editing one element, because the second save disconnects what the first just
+          // attached. With a baseline the write is the delta instead, and the two saves compose.
+          //
+          // The disconnect in the REPLACE shape must stay unconditional: `connect` compiles to a bare
+          // relationship CREATE, so a disconnect that spares the incoming ids leaves every
+          // already-attached pair to be re-created — one extra parallel edge per element per save. It is
+          // safe because the translator emits disconnect before connect for the same field.
+          ...(controlsInput !== undefined && { controls: controlsInput }),
+          ...(dataItemsInput !== undefined && { dataItems: dataItemsInput }),
         },
       }
       

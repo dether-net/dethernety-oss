@@ -42,8 +42,12 @@ describe('DtUpdate — single model-property writer (no Step-3 revert)', () => {
     expect(modelSpy.mock.calls[0][0]).toMatchObject({
       name: 'NEW', description: 'NEWDESC',
       modules: ['mod1'], controls: ['c1'],
-      folderId: 'f1', // current folder preserved, not undefined
     });
+    // The model's folder is still preserved, by a different mechanism: it is not written at all. The
+    // writer leaves a relationship it was not given alone, so a push that says nothing about the folder
+    // moves nothing — where this previously had to name the current folder to stop an unconditional
+    // disconnect from unfiling the model.
+    expect(modelSpy.mock.calls[0][0]).not.toHaveProperty('folderId');
     expect(dtUpdate.stats.updated).toBe(1);
   });
 
