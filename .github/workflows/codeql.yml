@@ -9,6 +9,12 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# A re-pushed PR cancels its superseded analysis; pushes to main and the weekly scan are never
+# cancelled.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   actions: read
   security-events: write
@@ -18,6 +24,7 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false

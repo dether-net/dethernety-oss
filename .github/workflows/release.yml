@@ -35,6 +35,7 @@ jobs:
   modules:
     name: Build module payloads
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     outputs:
@@ -104,10 +105,11 @@ jobs:
         with:
           version: 9.13.2
 
+      # The same line the platform image is built and run on (docker.yml, Dockerfile.production).
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 26
           cache: pnpm
 
       - name: Install dependencies
@@ -164,6 +166,7 @@ jobs:
     name: Sign and publish the release
     needs: modules
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
       id-token: write
