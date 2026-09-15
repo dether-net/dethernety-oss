@@ -155,6 +155,14 @@ jobs:
         working-directory: apps/dethereal
         run: pnpm vitest run src/__tests__/mcp-config.test.ts
 
+      # The guard below reads the manifest AND the source of every package tsup bundles into the
+      # artifact. This proves it still does, against a throwaway repository in the same layout —
+      # a guard that only checks declared ranges passed a platform-wide change to the bundled data
+      # layer with a clean report, and the published plugin kept the old code under the same number.
+      - name: The republish guard sees bundled source, not only declared ranges
+        working-directory: apps/dethereal
+        run: pnpm vitest run src/__tests__/check-republish.test.ts
+
       # A published package's dependencies are resolved from the ranges the published copy
       # declares, not from this repository's lockfile — so a sweep that moves them without a
       # version bump leaves a repository that is fixed and a registry that is not.
