@@ -135,9 +135,14 @@ first. Until you do that, every console control behaves exactly as it did in 0.8
   against the graph, so they misinform rather than misbehave. The module content hash is restamped,
   which is what gets the platform's load-time skip gate to reinstall the corrected module rather
   than keep the copy it already has.
-- **`@dether.net/dethereal` 0.4.5.** Carries the reviewer fix under *Fixed* and refreshed
-  dependency ranges. A published package's consumers resolve from the ranges the published copy
-  declares, so the consumer-facing moves would have shipped nowhere without the version change.
+- **`@dether.net/dethereal` 0.4.5.** The plugin compiles the platform's data-access layer into its
+  own artifact, so it carries the write-path change above as well: a push from the plugin now
+  writes a model's scope lists the way the platform does — an explicitly empty list in `scope.json`
+  clears the platform's list, where it used to be silently ignored — and every other write goes
+  through the same presence-gated writers the interface uses. Alongside that, the reviewer fix
+  under *Fixed* and refreshed dependency ranges. This is the first version published since 0.4.3:
+  0.4.4 was declared in the previous release and never reached the registry, so an operator who
+  followed that instruction found nothing to install. 0.4.5 is where both land.
 - **CI tests on Node 22 and 26; the platform image and the release build move to 26.** Node 20 left
   support in April 2026, and the platform image runs Node 26 — a version no job exercised.
   Packages still declaring `engines.node >= 20` now claim a floor CI does not test, and a comment
@@ -492,7 +497,9 @@ Reports and counts produced before this release may be inflated; see the first t
 ### Changed
 
 - **`@dether.net/dethereal` 0.4.4.** The plugin is versioned and published on its own line; this
-  version carries the authentication fix above and its refreshed dependency ranges.
+  version carries the authentication fix above and its refreshed dependency ranges. *Correction:*
+  0.4.4 was declared here and never published — the registry stayed at 0.4.3. The authentication fix
+  first reaches an installed plugin in 0.4.5, under the 0.9.0 release.
 - **The browser tab reads "Dethernety | Threat Modeling".** The previous title was a strained
   portmanteau matching nothing else in the product. A tab, a bookmark and a history entry all read
   from it, so the brand leads and the rest survives truncation.
