@@ -29,6 +29,8 @@ import * as jwt from 'jsonwebtoken';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
 import { JwtAuthGuard } from '../../src/common/guards/jwt-auth.guard';
 import { createGraphQLContextFactory } from '../../src/gql/utils/graphql-context.factory';
+import { maskedErrorCode } from '../../src/gql/utils/masked-error-code';
+import { maskExecutionResultErrors } from '../../src/gql/utils/sse-error-masking';
 
 jest.setTimeout(120_000);
 
@@ -131,6 +133,27 @@ describe('deployment allowlist — factory gate across the @authentication bound
     const result = await graphql({ schema, source: QUERY, contextValue: ctx as any });
     expect(result.data?.secretDocs ?? null).toBeNull();
     expect(result.errors?.[0]?.message).toBe('Unauthenticated');
+  });
+
+  // THE REFUSAL MUST SURVIVE MASKING WITH ITS NAME. In production both transports keep only the
+  // extensions code, and the library's refusal carries none — so it was answered as a crash, and the
+  // SPA told the refused person to try again. maskedErrorCode recognises the refusal by the shape the
+  // library gives it, which is not part of its public API: this pins the REAL shape the installed
+  // version throws, so a bump that changes it goes red here rather than quietly turning every refusal
+  // back into "Internal server error". (The schema-level check throws the library's base error — its
+  // name is the plain GraphQLError's, so the message is what carries the meaning; an earlier draft of
+  // this test pinned a class name and was wrong.)
+  it('validated-but-unlisted user (B): the refusal masks to UNAUTHENTICATED, not to a crash', async () => {
+    const ctx = await factory({ req: { headers: { authorization: `Bearer ${tokenB}` } } });
+    const result = await graphql({ schema, source: QUERY, contextValue: ctx as any });
+    const refusal = result.errors?.[0];
+    expect(refusal?.originalError?.message).toBe('Unauthenticated');
+    expect(refusal?.originalError?.name).toBe('GraphQLError');
+    expect(maskedErrorCode(refusal)).toBe('UNAUTHENTICATED');
+    // What the SSE transport actually sends, in production.
+    const masked = maskExecutionResultErrors(result, true);
+    expect(masked.errors?.[0]?.message).toBe('Internal server error');
+    expect((masked.errors?.[0] as any)?.extensions?.code).toBe('UNAUTHENTICATED');
   });
 
   it('validated-but-unlisted user (B) over WebSocket: same all-cleared rejection', async () => {

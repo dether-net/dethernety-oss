@@ -12,6 +12,7 @@ import gqlConfig, { GqlConfig } from './gql.config';
 import { Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { createGraphQLContextFactory } from './utils/graphql-context.factory';
+import { maskedErrorCode } from './utils/masked-error-code';
 import {
   assertComplexityWithinLimit,
   buildValidationRules,
@@ -99,19 +100,23 @@ import {
                 }
               : undefined,
             context: createGraphQLContextFactory({ configService, jwtAuthGuard, neo4jDriver }),
-            formatError: (error: any) => {
+            formatError: (error: any, original?: unknown) => {
               logger.error('GraphQL Error:', {
                 message: error.message,
                 path: error.path,
                 extensions: error.extensions,
               });
-              
-              // Don't expose internal errors in production
+
+              // Don't expose internal errors in production. The code is the
+              // only field that survives, so it is classified rather than
+              // copied: the library's own refusals carry none, and a
+              // deployment refusing a caller must not answer as a crash.
+              // See maskedErrorCode.
               if (process.env.NODE_ENV === 'production') {
                 return {
                   message: 'Internal server error',
                   extensions: {
-                    code: error.extensions?.code || 'INTERNAL_ERROR',
+                    code: maskedErrorCode(original ?? error, error.extensions?.code || 'INTERNAL_ERROR'),
                   },
                 };
               }

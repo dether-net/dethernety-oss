@@ -40,6 +40,13 @@ type gatedRoute struct {
 	// non-cloud deployment, install refuses its body, disconnect reverts — which is why the local test needs
 	// its own expectation rather than openStatus.
 	localStatus int
+	// teamlessStatus is what the route answers on a deployment that NAMES NO TEAM, where the gate stands
+	// aside. For the six routes that change the deployment it is openStatus — they behave exactly as before
+	// the gate existed, which is the pass-through's whole justification. For the two reads that reveal who
+	// may sign in it is their OWN refusal, because a read that inherited the pass-through would be ungated
+	// on exactly those deployments. A third value per row rather than a rule derived from the other two, so
+	// that a route added later has to say which kind it is.
+	teamlessStatus int
 }
 
 // gatedRoutes is every route the gate wraps. Named rather than counted, deliberately: a requirement
@@ -49,20 +56,29 @@ func gatedRoutes() []gatedRoute {
 		// An unmount of a key nothing mounted: valid enough to pass the handler's own validation, absent
 		// enough to stop at 404. The cleanest probe here — it separates the gate from the handler with no
 		// side effect at all.
-		{"unmount", http.MethodDelete, "/api/modules/absent-module", "", http.StatusNotFound, http.StatusConflict},
+		{"unmount", http.MethodDelete, "/api/modules/absent-module", "", http.StatusNotFound, http.StatusConflict, http.StatusNotFound},
 		// A mount with an empty object: the gate runs first, then the handler refuses the missing key.
-		{"mount", http.MethodPost, "/api/modules", `{}`, http.StatusBadRequest, http.StatusConflict},
-		{"install", http.MethodPost, "/api/artifacts", `{}`, http.StatusBadRequest, http.StatusConflict},
-		{"remove", http.MethodDelete, "/api/artifacts/absent-artifact", "", http.StatusNotFound, http.StatusConflict},
+		{"mount", http.MethodPost, "/api/modules", `{}`, http.StatusBadRequest, http.StatusConflict, http.StatusBadRequest},
+		{"install", http.MethodPost, "/api/artifacts", `{}`, http.StatusBadRequest, http.StatusConflict, http.StatusBadRequest},
+		{"remove", http.MethodDelete, "/api/artifacts/absent-artifact", "", http.StatusNotFound, http.StatusConflict, http.StatusNotFound},
 		// Disconnect actually disconnects when admitted. Every fixture owns its own mode file, so that is
 		// contained — and it is the honest probe, since a disconnect that is admitted is the whole hazard.
-		{"disconnect", http.MethodDelete, "/api/cloud", "", http.StatusOK, http.StatusOK},
+		{"disconnect", http.MethodDelete, "/api/cloud", "", http.StatusOK, http.StatusOK, http.StatusOK},
 		// The allowlist-only apply, with an empty body. It decodes cleanly, so the gate runs first and the
 		// handler then refuses the empty list — a HANDLER status, reached only if the gate admitted, and
 		// independent of whether the session carries a subject (which the fixtures' sessions do not).
 		// Adding it here rather than giving it a gate test of its own is what makes "the sixth gated route"
 		// a fact: every case below now runs against it too.
-		{"change the access list", http.MethodPost, "/api/cloud/allowlist", `{}`, http.StatusBadRequest, http.StatusConflict},
+		{"change the access list", http.MethodPost, "/api/cloud/allowlist", `{}`, http.StatusBadRequest, http.StatusConflict, http.StatusBadRequest},
+		// THE TWO READS THAT REVEAL WHO MAY SIGN IN. Admitted, each answers 200 with its list — the fixture's
+		// content service serves a roster, and its recipe carries an access list. On a pre-cloud deployment
+		// each refuses 409 for itself. And on a deployment that names no team each refuses 409 AGAIN, which is
+		// the one column where these rows differ from the six above: the gate stands aside there, and a read
+		// that inherited that would be open to any session holder. They are in this table rather than in a
+		// suite of their own for the reason the apply is — every gate case below runs against them too — and
+		// their own suite in roster_test.go holds what the gate cases cannot.
+		{"read the access list", http.MethodGet, "/api/cloud/allowlist", "", http.StatusOK, http.StatusConflict, http.StatusConflict},
+		{"read the roster", http.MethodGet, "/api/cloud/roster", "", http.StatusOK, http.StatusConflict, http.StatusConflict},
 	}
 }
 
@@ -73,6 +89,9 @@ type gateFixture struct {
 	s       *server
 	// asked counts /v1/entitlements requests, so a test can prove the gate asked — or prove it did not.
 	asked *atomic.Int32
+	// rosterAsked counts /v1/roster requests, kept apart from asked so "the gate asked" and "the relay
+	// fetched" stay two facts — a relay that asked the cloud once would otherwise satisfy a gate assertion.
+	rosterAsked *atomic.Int32
 	// teamHeader is the team the last entitled request named, so a test can prove the question was scoped.
 	teamHeader *atomic.Value
 }
@@ -102,13 +121,24 @@ type gateOptions struct {
 	// every case that must decide locally: without it, "the gate let this through" and "the gate asked and
 	// happened to be told yes" are the same green.
 	refuseToBeAsked bool
+	// roster is the body /v1/roster answers with. Empty means sampleRoster: two members, one of them with
+	// no address, which is a legal member and the one a careless relay would drop.
+	roster string
+	// rosterStatus is the status /v1/roster answers with. Zero means 200.
+	rosterStatus int
 }
 
 const adminAnswer = `{"protocol":"1","packages":[{"key":"acme-cloud"}],"admin":true}`
 
+// sampleRoster is what the fixture's content service serves for the team. sub-b carries no address, and
+// is served anyway, exactly as the service serves one — the relay must carry them through by identifier
+// rather than drop them, because a member dropped here is shown as having left the team.
+const sampleRoster = `{"protocol":"1","members":[{"sub":"sub-a","email":"anna@example.test"},{"sub":"sub-b","email":""}]}`
+
 func newGateFixture(t *testing.T, opt gateOptions) gateFixture {
 	t.Helper()
 	asked := &atomic.Int32{}
+	rosterAsked := &atomic.Int32{}
 	team := &atomic.Value{}
 	team.Store("")
 
@@ -116,13 +146,22 @@ func newGateFixture(t *testing.T, opt gateOptions) gateFixture {
 		if opt.refuseToBeAsked {
 			t.Errorf("the content service was dialled, and this deployment must decide locally: %s", r.URL.Path)
 		}
-		asked.Add(1)
 		team.Store(r.Header.Get("x-deployment-team"))
-		body := opt.entitlements
-		if body == "" {
-			body = adminAnswer
+		// Two surfaces, told apart by path the way the real service tells them apart. Everything that is
+		// not the roster is the entitlements answer, which is what every test before the relay relied on.
+		body, status := opt.entitlements, opt.contentStatus
+		if r.URL.Path == "/v1/roster" {
+			rosterAsked.Add(1)
+			body, status = opt.roster, opt.rosterStatus
+			if body == "" {
+				body = sampleRoster
+			}
+		} else {
+			asked.Add(1)
+			if body == "" {
+				body = adminAnswer
+			}
 		}
-		status := opt.contentStatus
 		if status == 0 {
 			status = http.StatusOK
 		}
@@ -172,7 +211,7 @@ func newGateFixture(t *testing.T, opt gateOptions) gateFixture {
 
 	ts := httptest.NewServer(s.routes())
 	t.Cleanup(ts.Close)
-	return gateFixture{base: ts.URL, session: signIn(t, s), s: s, asked: asked, teamHeader: team}
+	return gateFixture{base: ts.URL, session: signIn(t, s), s: s, asked: asked, rosterAsked: rosterAsked, teamHeader: team}
 }
 
 // call drives one gated route with the session and, unless token is empty, the operator's access token.
@@ -406,6 +445,11 @@ func TestOnlyDisconnectProceedsWhenTheDeploymentCanNeverCheck(t *testing.T) {
 // not name, so it omits the field, and the caller would be told "you are not an administrator" when what is
 // missing is a line in their recipe. The console knows this locally and declines to ask a question whose
 // answer it would misread.
+//
+// EXCEPT FOR THE TWO READS THAT REVEAL WHO MAY SIGN IN, whose "exactly as before" is that they did not
+// exist. The gate is silent on them here too — that is asserted, the sentence must not be the gate's — and
+// what answers instead is the route's own refusal, which teamlessStatus names per row. The pass-through
+// arm is the one outcome of the gate those two must not inherit, and this is where inheriting it would show.
 func TestAdminGateDoesNotApplyWhenTheDeploymentNamesNoTeam(t *testing.T) {
 	for _, rt := range gatedRoutes() {
 		t.Run(rt.name, func(t *testing.T) {
@@ -414,8 +458,8 @@ func TestAdminGateDoesNotApplyWhenTheDeploymentNamesNoTeam(t *testing.T) {
 			if isGateRefusal(body) {
 				t.Fatalf("a deployment that names no team must not be gated on %s, got %d %s", rt.name, status, body)
 			}
-			if status != rt.openStatus {
-				t.Fatalf("%s should have behaved exactly as before the gate and answered %d, got %d %s", rt.name, rt.openStatus, status, body)
+			if status != rt.teamlessStatus {
+				t.Fatalf("%s should have answered %d on a deployment that names no team, got %d %s", rt.name, rt.teamlessStatus, status, body)
 			}
 		})
 	}
@@ -618,6 +662,10 @@ func TestAMalformedTeamIdentifierIsAFaultAndNotAnAbsentOne(t *testing.T) {
 // READS STAY OPEN, and nothing asserted it. The route table states the rule — "a member who cannot see what
 // their deployment has is worse served than one who cannot change it" — and a refactor that wrapped one
 // HandleFunc line too many would satisfy every other test in this file while quietly gating the catalog.
+//
+// EXCEPT THE TWO THAT REVEAL WHO MAY SIGN IN, which are deliberately absent from this list and present in
+// gatedRoutes() instead. The rule is about what a deployment HAS; the roster and the access list are who
+// may use it, and a member is not owed that. Adding either path here would be the refactor in reverse.
 func TestReadsAreNotAdminGated(t *testing.T) {
 	f := newGateFixture(t, gateOptions{
 		team:         sampleTeamID,

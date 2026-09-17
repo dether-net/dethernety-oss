@@ -43,6 +43,12 @@ let lastSessionAuth = '' // the Authorization the mint (POST /api/session) carri
 let packagesBody: unknown = { packages: [] }
 // The local inventory the content panels fetch; overridden per test to render an artifact row.
 let modulesBody: unknown = { modules: [], artifacts: [] }
+// The two reads behind the cloud panel's card: the team's members and the identifiers the deployment
+// admits. A one-person team, admitted, nobody departed — enough for the card to reach its ready state.
+let rosterBody: unknown = { members: [{ sub: 'sub-a', email: 'a@example.test' }] }
+let allowlistBody: unknown = { subjects: ['sub-a'] }
+// Non-200 makes both reads refuse with that status, the way the gate refuses them together.
+let rosterStatus = 200
 // Recovery-path controls: simulate a posture FLIP between mount and the 401-recovery re-fetch. postureCall
 // counts /api/posture hits; the 2nd+ hit returns postureBodyAfter (if set), or fails if postureFailOnRefetch.
 // mode401Once makes just the first /api/mode call 401 (a transient session drop that then recovers).
@@ -84,6 +90,10 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Pr
   if (url === '/api/modules' && method === 'GET') return new Response(JSON.stringify(modulesBody), { status: 200 })
   if (url === '/api/modules' && method === 'POST') return new Response(JSON.stringify({ status: 'mounted', message: 'module mounted' }), { status: 200 })
   if (url === '/api/cloud') return new Response(JSON.stringify({ status: 'applied', message: 'cloud configuration written' }), { status: 200 })
+  if (url === '/api/cloud/roster' || (url === '/api/cloud/allowlist' && method === 'GET')) {
+    if (rosterStatus !== 200) return new Response('refused by the gate', { status: rosterStatus })
+    return new Response(JSON.stringify(url === '/api/cloud/roster' ? rosterBody : allowlistBody), { status: 200 })
+  }
   return new Response('not found', { status: 404 })
 })
 
@@ -94,6 +104,9 @@ beforeEach(() => {
   stateStatus = 200
   modeBody = { ...defaultMode }
   modulesBody = { modules: [], artifacts: [] }
+  rosterBody = { members: [{ sub: 'sub-a', email: 'a@example.test' }] }
+  allowlistBody = { subjects: ['sub-a'] }
+  rosterStatus = 200
   postureBody = { posture: 'local', authDisabled: true }
   lastSessionAuth = ''
   packagesBody = { packages: [] }
@@ -436,5 +449,42 @@ describe('App', () => {
     expect(content.attributes('aria-selected')).toBe('true')
     expect(w.find('[data-tab="overview"]').attributes('aria-selected')).toBe('false')
     w.unmount()
+  })
+
+  // THE DEPARTED COUNT REACHES THE OVERVIEW, where an administrator lands, and it is computed from the
+  // roster fetched in this tab — the daemon serves no such count. Its button opens the tab that fixes it.
+  it('alerts on the overview when people who have left the team can still sign in', async () => {
+    setSession('sess-1')
+    modeBody = { phase: 'post-cloud', authDisabled: false, cloudFileWritten: true, restartPending: false }
+    allowlistBody = { subjects: ['sub-a', 'sub-gone-1', 'sub-gone-2'] }
+    const w = mount(App)
+    await flushPromises()
+    await flushPromises()
+    const alert = w.find('[data-cloud-departed-alert]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain('2 people who have left the team can still sign in')
+    // The identifiers themselves stay on the card; the overview carries the count and the way there.
+    expect(alert.text()).not.toContain('sub-gone-1')
+    await w.find('[data-cloud-departed-open]').trigger('click')
+    expect(w.find('[data-tab="cloud"]').attributes('aria-selected')).toBe('true')
+    w.unmount()
+  })
+
+  it('shows no departed alert when nobody has left, or when the card could not learn it', async () => {
+    setSession('sess-1')
+    modeBody = { phase: 'post-cloud', authDisabled: false, cloudFileWritten: true, restartPending: false }
+    const none = mount(App)
+    await flushPromises()
+    await flushPromises()
+    expect(none.find('[data-cloud-departed-alert]').exists()).toBe(false)
+    none.unmount()
+
+    // A member: the reads refuse 403, and the overview says nothing of the team.
+    rosterStatus = 403
+    const member = mount(App)
+    await flushPromises()
+    await flushPromises()
+    expect(member.find('[data-cloud-departed-alert]').exists()).toBe(false)
+    member.unmount()
   })
 })

@@ -907,7 +907,9 @@ Module resolver error
   |    +-- Original message included only in non-production (extensions.originalMessage)
   |
   +-- Passed to Apollo's formatError()
-       +-- Production: replaced with "Internal server error"
+       +-- Production: replaced with "Internal server error"; extensions.code kept
+       |    (classified by src/gql/utils/masked-error-code.ts — a wrapped resolver's
+       |    own code survives as-is)
        +-- Development: passed through with details
 ```
 

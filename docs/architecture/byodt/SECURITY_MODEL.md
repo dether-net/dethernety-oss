@@ -36,7 +36,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 
         B4  release channel  ──▶  console-init      signature + digest verified
         B5  content service  ──▶  platform          cloud only, per request, caller's token
-        B6  console          ──▶  content service   cloud only, seven routes, the operator's token
+        B6  console          ──▶  content service   cloud only, the operator's token, per request
 ```
 
 | Boundary | Enforced by | Notes |
@@ -46,7 +46,7 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 | **B3** — caller to platform | The platform's own authentication | Disabled, own identity provider, or cloud — decided by the mode layer |
 | **B4** — release channel to deployment | Sigstore signature against a pinned identity, plus digests | Detailed in [`SUPPLY_CHAIN.md`](./SUPPLY_CHAIN.md) |
 | **B5** — content service to platform | The caller's own token, per request | Only exists on a cloud-connected deployment; the console never holds that content |
-| **B6** — console to content service | The operator's own OIDC access token, held for the duration of one request | Only exists on a cloud-connected deployment. Seven calls carry it, in two kinds: two where the operation needs it — reading what the subscription includes, which the catalog is marked with, and fetching an entitled artifact's bytes — and five where the **admin gate** needs it, because every route that changes the deployment asks the content service who is acting before it runs. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
+| **B6** — console to content service | The operator's own OIDC access token, held for the duration of one request | Only exists on a cloud-connected deployment. The calls that carry it are of three kinds, and this row names the kinds rather than counting the calls — a count here was wrong by the next route twice over. Where the **operation** needs it: reading what the subscription includes, which the catalog is marked with; fetching an entitled artifact's bytes; and relaying the team's roster to the card that chooses who may sign in. Where the **admin gate** needs it: every route that changes the deployment asks the content service who is acting before it runs. And where **both** do: the two reads that reveal who may sign in — the roster relay and the deployment's own access list — are admin-gated for what they show rather than for what they change, so the gate spends the token there too. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
 
 Inside the stack network, hops are plain HTTP and Bolt is unencrypted. The isolation is the network,
 not encryption of each hop: no service but the proxy publishes a port, and the database and embedding
@@ -97,18 +97,23 @@ survives the full-page redirect a sign-in performs. A cloud sign-in returns two 
 exchange, and both are held in memory only and never persisted: the ID token, which rides on
 `Authorization` on every gated request so the daemon can forward it to the platform's authenticated
 module query, and an access token, which nothing attaches automatically and which travels on
-`X-Console-Cloud-Token` on the seven routes that need it. Two tokens for two audiences cannot
+`X-Console-Cloud-Token` on the routes that need it. Two tokens for two audiences cannot
 share one header — collapsing them would send whichever arrived last to whichever service was called
 next. They are set and cleared together, because they come from one exchange and expire on one clock.
 
-**Seven, and this said two until the admin gate landed.** Two of those routes forward the access token
-because the *operation* needs it — the catalog read, which asks what the subscription includes, and the
-artifact install, which asks for bytes the content service hands only to a subscriber. The other five
-forward it because the *authorization* needs it: every route that changes the deployment is admin-gated,
-and the gate asks the content service who is acting. So an unmount carries a credential even though what it
-does is delete a file on this host, and so does the route that rewrites this deployment's access list. The
-distinction matters when reading the sentence below about relaying: on those five the token is not passed
-along as part of the work, it is spent asking whether the work may happen at all.
+**More than two, and this once counted them.** It said *two* until the admin gate landed, then *seven*,
+and the second count was wrong by the time the next route was wired — so it now says what kinds there are
+and not how many. Some routes forward the access token because the *operation* needs it — the catalog
+read, which asks what the subscription includes; the artifact install, which asks for bytes the content
+service hands only to a subscriber; and the roster relay, which asks for the team's members on the
+administrator's behalf. The rest forward it because the *authorization* needs it: every route that changes
+the deployment is admin-gated, and the gate asks the content service who is acting. So an unmount carries a
+credential even though what it does is delete a file on this host, and so does the route that rewrites this
+deployment's access list — and so do the two reads that reveal who may sign in, which change nothing and
+are gated for what they show. The distinction matters when reading the sentence below about relaying: on
+the gated routes the token is not passed along as part of the work, it is spent asking whether the work may
+happen at all. On the roster relay it is both — spent on the gate's question first, and then forwarded as
+the bearer the content service answers the roster to.
 
 ---
 
@@ -185,18 +190,19 @@ the documentation of what that decision costs.
 | Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only |
 | TLS private key | `tls/key.pem`, mode `0600`, in a `0700` directory | Mounted read-only into the proxy. The control script never widens that directory |
 | Operator ID token (cloud) | Browser memory only | Never persisted, never written to disk by the console, never logged |
-| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token`, from seven routes: the catalog read, which asks what the subscription includes; the artifact install, which asks for entitled bytes; and the six that change the deployment, where the admin gate spends it asking who is acting. It is sent upstream as an ordinary bearer — the console's own header name never travels outbound |
+| Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token` from every route that asks the content service something on the operator's behalf: the catalog read, which asks what the subscription includes; the artifact install, which asks for entitled bytes; the roster relay, which asks for the team's members; the routes that change the deployment, where the admin gate spends it asking who is acting; and the read of the deployment's own access list, gated the same way. It is sent upstream as an ordinary bearer — the console's own header name never travels outbound |
+| Team roster (cloud) | The daemon's memory for one request; the page's memory while the card is open | The team's members by identifier and address, relayed from the content service to an administrator's browser tab. **Never persisted** — not to the mode layer, not to any file, not to a log record, and not to browser storage. A test fails if a byte of the relayed body reaches a log call; the draft the page keeps across a sign-in redirect carries identifiers only, and the roster is fetched again on return |
 | Console session id | Daemon memory; browser `sessionStorage` | Random 256-bit value, sent as a header |
 | Mode layer | `mode/mode.env`, mode `0644` | Non-secret configuration by design — identity endpoints and the deployment's access list, no credentials |
 
 Four consequences are worth stating plainly:
 
 - **The console holds no credential of its own.** The authenticated calls it makes on the operator's
-  behalf — the platform's module query, and the two on the content service's entitled surface: what
-  the subscription includes, and an entitled artifact's bytes — carry the operator's own tokens, taken
-  from the request that asked for the work and gone when that request ends. There is no service
-  identity behind the console to steal, and nothing it could replay once the operator's session is
-  over.
+  behalf — the platform's module query, and the three on the content service's entitled surface: what
+  the subscription includes, an entitled artifact's bytes, and the team's roster — carry the operator's
+  own tokens, taken from the request that asked for the work and gone when that request ends. There is
+  no service identity behind the console to steal, and nothing it could replay once the operator's
+  session is over.
 - **The console is never given the database password.** Its service definition passes neither the
   variable nor the secrets file, so a flaw in the console cannot yield database credentials.
 - **A backup is not a secret-bearing file, but it is your whole graph.** Database authentication is
@@ -327,13 +333,74 @@ failing on a separator nobody chose.
 claiming more.** This route is strictly safer than the reconfiguration it replaces *for graph data* — it
 removes no module, so nothing declares a class that then disappears. It is not safer for access
 governance, and in one respect it is looser: the console is not the authority on who belongs to a team. It
-writes the list it is given, and nothing afterwards compares that list against the team's actual
+writes the list it is given, and the daemon never compares that list against the team's actual
 membership. A deployment's admitted set can therefore drift from the roster — an account removed from the
-team keeps its sign-in until somebody applies a fresh list, and an account that was never on the team can
-be added to the deployment by anyone who administers it. Both were already true of the recipe path, which
-also writes the value unchecked; what changed is that doing it now costs a click instead of a disconnect,
-and is correspondingly quieter. The reconciling authority is the account portal, which derives the list
-from the membership at the moment it is copied, and the operator is the one who carries it across.
+team keeps its sign-in until an administrator removes it here, and an account that was never on the team
+can be added to the deployment by anyone who administers it. Both were already true of the recipe path,
+which also writes the value unchecked; what changed is that doing it now costs a click instead of a
+disconnect, and is correspondingly quieter. What the two reads below add is *visibility* of the drift, in
+the administrator's browser and nowhere else: the card lays the admitted list over the roster it fetched
+and shows the difference, in both directions, and offers to close one of them. The daemon still holds no
+opinion, and the deployment still keeps no record of the comparison.
+
+**Two reads are admin-gated, and they are the one exception to "reads stay open".** Every other read the
+console serves is open to any session holder, on the rule that a member who cannot see what their
+deployment *has* is worse served than one who cannot change it. `GET /api/cloud/roster` and
+`GET /api/cloud/allowlist` are gated for what they *reveal* rather than for what they change: the first is
+the team's people by address, the second is the selection among them, and neither is something a member is
+owed a view of. They are composed over the session check exactly as the routes that change the deployment
+are — asked live of the content service, never cached — and refused with the same statuses, so the
+interface branches on them the same way. The gate's shared refusal sentence names both things the role
+covers, changing the deployment and seeing who may sign in, because a refusal that described only the
+first would misdescribe what a refused read had asked for.
+
+- **The roster is relayed, and it is re-encoded rather than passed through.** The page cannot call the
+  content service itself — its entitled tier serves no CORS, deliberately — so the daemon asks with the
+  operator's bearer and this deployment's team, over the same transport every other entitled call uses.
+  What it answers is `{ members: [{ sub, email }] }`: **exactly two fields**, parsed and re-marshalled, so
+  a field the service adds about a person later stops at this boundary rather than reaching the page. A
+  member with an empty address is carried as the bare identifier; a member with a blank identifier makes
+  the whole document malformed rather than a shorter team. An unrecognised document is *could not fetch*,
+  never an empty team, because an empty team reads as everyone having left.
+- **The service's refusals are mapped to the operator's remedies, and never to the two statuses that
+  would mislead.** A transport error, an unrecognised document, a `5xx` or a `429` from the service is
+  `503` — wait and try again. A `401` from the service is `412` — the tab's cloud sign-in has lapsed, so
+  sign in again; its own sentence rather than the gate's, because the gate *did* ask with this credential
+  and was answered. Any other `4xx` — the service's `403` above all — is `502`: the console has already
+  confirmed that this operator administers the team, so a refusal from the service is about the
+  deployment's sign-in configuration and not about the person. It is **deliberately not `403`**, which is
+  the daemon's *you are not an administrator*, and the gate has just confirmed the opposite. And **never
+  `401`**, which the page answers by signing the operator out of their own console.
+- **On a deployment that names no team, the reads refuse for themselves.** The admin gate stands aside
+  there for the routes that change the deployment, so that they behave exactly as they did before the gate
+  existed — the gate's own rollout property ([`CONSOLE.md`](./CONSOLE.md#authentication-posture)). A read
+  that inherited that arm would be **ungated on exactly those deployments**: any session holder could read
+  who may sign in. So both reads decide the team-less case on their own, in the handler, before anything is read
+  and before anything is dialled, with their own `409` sentence about a recipe that predates team
+  identifiers. A test calls both handlers bare — no gate, no route table — and expects that refusal
+  from each, because a handler that is correct only while wrapped is not correct.
+- **Nothing from either body is logged, and that is a test rather than a comment.** The relay logs only a
+  transport error on an outage, which names the host and never the body; nothing else in either handler
+  logs at all. A test swaps the daemon's logger for a capturing sink at debug level, runs a relay, checks
+  that the gate's own audit record *is* in the capture — so a logger swap that silently failed cannot pass
+  vacuously — and then that no address, no identifier and not even the fixture's domain appears anywhere
+  in it. The access-list read is held to the same standard, because the selection is what this design
+  protects even though the identifiers are not addresses. Neither read touches the mode layer or any file.
+
+**And the page side, which is where the addresses go.** The card fetches both lists when it is shown, holds
+them in component memory for exactly as long as it is, and derives everything on the page: the ticks are
+the admitted identifiers laid over the roster, the departed are the admitted identifiers absent from it,
+and the count the overview banner shows is the length of that second list. **Nothing derived is persisted
+and nothing derived is sent anywhere.** The one thing the page writes to browser storage is the draft that
+survives the sign-in redirect a `412` on the write performs — and that draft is identifiers only, the ticks
+or a pasted list, under one `sessionStorage` key, consumed on return and never the roster; the roster is
+fetched again and the restored ticks are laid over it, a tick for someone who has since left being dropped.
+A component test reads the stored value back after a redirect and looks for an address in it; the browser's
+own storage was inspected the same way, through a `412` round trip, and held none. The departed count
+lives in the page, is undefined for a member, a reloaded tab without a credential, or a failed fetch, and is
+forgotten on sign-out and on disconnect. A `412` on the *read* is offered a sign-in and never acts on it —
+a card that redirected on mount would send every reloaded tab to the identity provider unasked — where a
+`412` on the *write* still acts, as every gated control does.
 
 Two write-path rules complete it: a **recipe** cannot be applied over an existing cloud configuration
 (disconnect first, so reconfiguration is never a silent overwrite — the single-variable write above is the

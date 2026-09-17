@@ -76,6 +76,12 @@ const entitlementsTimeout = 5 * time.Second
 // here does: how large a response is remains the upstream's choice, not this console's.
 const maxEntitlementsBytes = 64 << 10
 
+// maxRosterBytes caps the body read back from the roster surface. A member is a subject and an address —
+// on the order of a hundred bytes — and the access list the roster puts names to is itself capped at
+// maxAllowlistEntries, so a team large enough to approach this is a paste of the wrong thing on the other
+// side of the wire, not a roster. Generous rather than tight, for the reason every cap here is.
+const maxRosterBytes = 256 << 10
+
 // maxStubBytes caps the module file read back when checking which pin it names. The stub the console
 // writes is one rendering of stubTemplate — a few hundred bytes, with the pin on the fifth line — but it
 // sits in an operator-writable volume, so the read is bounded like any other. The cap only ever bites on
@@ -540,6 +546,104 @@ func resolveEntitlements(ctx context.Context, base, token, team string) (entitle
 	// `admin` gets no nil check of its own, and that asymmetry with the line above is the protocol's, not an
 	// oversight: it is an optional field whose absence MEANS false. See entitlementsDoc.
 	return entitlementAnswer{packages: keys, admin: doc.Admin}, true
+}
+
+// rosterMember is one person on the team this deployment belongs to: the subject the access list is
+// written in, and the address that puts a name to it. The address may be empty — the service serves a
+// member whose account holds none with `""`, and the interface shows the identifier alone for them — and
+// an empty address is NOT a reason to drop the member. Dropping one would show a current colleague as
+// having left the team, which is the one wrong answer this read exists to prevent.
+//
+// TWO FIELDS, AND THE STRUCT IS THE FILTER. The relay re-encodes what it parsed rather than passing the
+// service's bytes through, so a field the service adds later — a role, a join date, anything more about a
+// person — is dropped at this boundary rather than forwarded to the page by default. Widening what the page
+// learns about a colleague is a decision, and this type is where it is made.
+type rosterMember struct {
+	Sub   string `json:"sub"`
+	Email string `json:"email"`
+}
+
+// rosterDoc is the roster surface's document: the protocol marker and the members, ordered by subject.
+// `members` is mandatory, exactly as `packages` is on the entitlements document — a body carrying the
+// marker without it is malformed, and malformed collapses to could-not-fetch rather than to an empty team.
+type rosterDoc struct {
+	Protocol string         `json:"protocol"`
+	Members  []rosterMember `json:"members"`
+}
+
+// rosterOutcome is what one roster read came to, and it has more arms than resolveEntitlements' bool
+// because the operator's remedies differ. The gate collapses every refusal into could-not-check, since
+// what it owes an operator is two sentences; a relay that answered "try again" to a refusal that will
+// repeat forever would be the same defect the gate's permanent arm exists to prevent.
+type rosterOutcome int
+
+const (
+	// rosterServed: the members are the answer.
+	rosterServed rosterOutcome = iota
+	// rosterUnreachable: no answer was obtained — a transport failure, a document this console does not
+	// recognise, a 5xx or a 429. Retrying is the remedy, and NEVER an empty team: an unrecognised document
+	// unmarshals happily into a zero value, and a zero value here would read as a team with nobody on it.
+	rosterUnreachable
+	// rosterRefused: the service declined this sign-in for this team. It answers every cause with one
+	// refusal by design, so this console cannot say which, and retrying will not change it.
+	rosterRefused
+	// rosterUnauthenticated: the service did not accept the credential at all. The remedy is a fresh
+	// sign-in, which is a different control from waiting and from reconnecting.
+	rosterUnauthenticated
+)
+
+// fetchRoster asks the content service who is on the team this deployment belongs to, with the operator's
+// own credential, and reports what became of the ask. The error is the transport's, returned so the caller
+// can log it: it names the path and never the body.
+//
+// ALL THREE INPUTS ARE REQUIRED, and an empty one is refused before dialling. The handler refuses each with
+// its own sentence before ever calling this; here it is the backstop that keeps a bare "Bearer " and a
+// team-less request off the wire whatever the caller did. A team-less roster read has no meaning — the
+// service refuses it unconditionally, in both of its rollout modes — so unlike entitledGet's other callers
+// this one does not degrade to naming no team.
+//
+// THE MARKER IS CHECKED, NOT MERELY PARSED, for the reason resolveEntitlements gives: a 200 whose body is
+// not this document — a gateway's own error shape, a future revision — unmarshals into a zero value, and
+// the zero value here is an empty roster, which the page would render as a team everyone has left.
+//
+// NOTHING IN THE BODY IS LOGGED, HERE OR BY ANY CALLER. The body is the only thing on this deployment that
+// names people by address, and the apply's standard for the log — the shape of the change and never its
+// content — is held here with nothing to relax it, because there is no change to describe. The test for
+// this captures every log record emitted during a relay and asserts nothing from the body appears in any.
+func fetchRoster(ctx context.Context, base, token, team string) ([]rosterMember, rosterOutcome, error) {
+	if base == "" || token == "" || team == "" {
+		return nil, rosterUnreachable, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, contentTimeout)
+	defer cancel()
+	body, status, err := entitledGet(ctx, base, "/v1/roster", token, team, maxRosterBytes)
+	if err != nil {
+		return nil, rosterUnreachable, err
+	}
+	switch {
+	case status == http.StatusOK:
+		// Fall through to the document.
+	case status == http.StatusUnauthorized:
+		return nil, rosterUnauthenticated, nil
+	case status == http.StatusTooManyRequests || status >= 500:
+		return nil, rosterUnreachable, nil
+	default:
+		return nil, rosterRefused, nil
+	}
+	var doc rosterDoc
+	if err := json.Unmarshal(body, &doc); err != nil || doc.Protocol != wireProtocolVersion || doc.Members == nil {
+		return nil, rosterUnreachable, nil
+	}
+	// A member naming no subject is nothing the page can tick, and it is not a member the service emits —
+	// the subject is the attribute's own name on its side of the wire, and cannot be blank. One arriving
+	// blank means the document is not the one this console understands, and a document half understood is
+	// answered like one not understood at all rather than as a shorter team.
+	for _, m := range doc.Members {
+		if m.Sub == "" {
+			return nil, rosterUnreachable, nil
+		}
+	}
+	return doc.Members, rosterServed, nil
 }
 
 // latestModule finds a module by key within the package it was mounted from, so pin currency is judged

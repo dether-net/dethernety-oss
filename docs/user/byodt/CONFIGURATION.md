@@ -222,9 +222,9 @@ Three console controls write this file, and nothing else does. Two of them repla
 
 | Control | What it writes | What applies it |
 |---|---|---|
-| **Apply cloud configuration**, on the Cloud tab | The whole file, replaced with the identity settings from your deployment recipe | `./byodt restart` |
-| **Disconnect from cloud**, on the Cloud tab | The whole file, replaced with the two standalone values above | `./byodt restart` |
-| **Apply access list**, under **Who may sign in** on the Cloud tab | One line, `DEPLOYMENT_ALLOWLIST`. Every other value is left exactly as it was | `./byodt restart platform` |
+| **Apply cloud configuration**, in section **2 · Configuration** of the Cloud tab | The whole file, replaced with the identity settings from your deployment recipe | `./byodt restart` |
+| **Disconnect from cloud**, in the **Disconnect** section at the foot of the Cloud tab | The whole file, replaced with the two standalone values above | `./byodt restart` |
+| The **Who may sign in** card, section **3 · Who may sign in** of the Cloud tab — **Apply**, **Remove people who have left**, or the paste box's **Apply access list**, all through one write | One line, `DEPLOYMENT_ALLOWLIST`. Every other value is left exactly as it was | `./byodt restart platform` |
 
 It is always rewritten, **never deleted** — a missing file would break the very recovery path disconnecting is.
 

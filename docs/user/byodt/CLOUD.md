@@ -65,11 +65,18 @@ The two callbacks the console shows you are derived from the address in your bro
 > Paste the two lines anyway — saving a URL that is already registered changes nothing, and the cost of
 > skipping it is a rejection you cannot diagnose from your own logs.
 
+> **The numbers on the Cloud tab match the portal's Deployment page.** Sections **1 · Access and callbacks** and **2 · Configuration** carry the same numbers on both, so with the two open side by side you read one sequence. Each has a third step, and the two are deliberately different decisions: on the portal it is **3 · Team** — who is on the team: members, roles and invitations, shown to the team's owner only — and on the console it is **3 · Who may sign in**, which of those members *this* deployment admits. The console's step 3 appears only once the deployment is connected, because it lists the team the connection names; it is covered under [Changing who may sign in](#changing-who-may-sign-in). Selecting is not inviting: adding someone to the team stays in the portal.
+
 ## Step 2 — Paste the recipe and apply
 
 1. Click **Get your deployment recipe ↗** at the top of the Cloud tab. It opens the portal page that issues the recipe for this deployment.
 2. Copy the whole recipe. It is a block of plain `NAME=value` lines.
-3. Back in the console, in section **2 · Configuration**, paste it into the text area.
+3. Back in the console, in section **2 · Configuration**, paste it into the text area. Above the box the console says:
+
+   > Every member of your team will be able to sign in. If this deployment will hold a client's data, narrow who can sign in before you load it.
+
+   The recipe lists your whole team, because the portal does not know who works on which client. If this deployment is for one client, the order of work is: connect, restart, sign in, [choose who may sign in](#changing-who-may-sign-in), restart again, and only then load the client's data.
+
 4. Click **Apply cloud configuration**.
 
 On success the console reports:
@@ -124,7 +131,7 @@ The platform itself now requires sign-in too. Open it from **Open platform →**
 
 ## Who can change a connected deployment
 
-Signing in gets you the console. **Changing** the deployment needs one thing more: you must be an administrator of the team the deployment belongs to. Reading is not restricted — anyone who can sign in sees the deployment's state, the catalog, what is mounted, and what is installed.
+Signing in gets you the console. **Changing** the deployment needs one thing more: you must be an administrator of the team the deployment belongs to. Reading is not restricted — anyone who can sign in sees the deployment's state, the catalog, what is mounted, and what is installed — with one exception: **who may sign in**. The card that lists your team's members and who among them may sign in is shown only to an administrator, because of what it reveals rather than what it changes.
 
 These are the controls that need the role:
 
@@ -132,21 +139,21 @@ These are the controls that need the role:
 |---|---|
 | **Mount**, **Mount all**, **Update**, **Unmount**, **Unmount all** | Content tab |
 | **Install** and **Remove**, for entitled artifacts | Content tab |
-| **Apply access list** | Cloud tab |
-| **Disconnect from cloud** | Cloud tab |
+| The **Who may sign in** card — seeing the team and the ticks, **Apply**, **Remove people who have left**, and the paste box's **Apply access list** | Cloud tab, section **3 · Who may sign in** |
+| **Disconnect from cloud** | Cloud tab, the **Disconnect** section at the foot |
 
 The console does not hide them from you. It disables them and says why beside them:
 
-> Only an administrator of this deployment's team can change what it provides. An owner or administrator of that team can grant you the administrator role in the portal.
+> Only an administrator of this deployment’s team can change what it provides or see who may sign in to it. An owner or administrator of that team can grant you the administrator role in the portal.
 
-The Content tab says the same as a banner across the top: **You can see this deployment, but not change it**.
+The Content tab says the same as a banner across the top: **You can see this deployment, but not change it**. The **Who may sign in** card shows the sentence and nothing else — no list, no ticks, nothing about who has left.
 
 Four things are worth knowing about how the check runs:
 
 - **It is asked of the cloud every time, and never remembered.** A role granted or withdrawn in the portal takes effect on your next attempt. You do not have to sign in again for it — though the Content tab only learns which controls to offer when it reads the catalog, so click **Refresh** there to see the buttons change.
-- **It uses the cloud credential this browser tab holds**, which lives only in memory. Reloading the page clears it while leaving you signed in to the console, so the console may send you to sign in again when you use one of these controls. That is the ordinary state of a reloaded tab, not a fault.
+- **It uses the cloud credential this browser tab holds**, which lives only in memory. Reloading the page clears it while leaving you signed in to the console, so the console may send you to sign in again when you use one of these controls. That is the ordinary state of a reloaded tab, not a fault. The **Who may sign in** card does not send you anywhere on its own: in a reloaded tab it offers a **Sign in to the cloud** button and waits.
 - **A refusal always means nothing was changed.** The four ways it can refuse, and what each one calls for, are in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in).
-- **A deployment connected with a recipe that names no team is not checked at all**, and every control behaves as it did before the check existed. The check turns itself on for a deployment when it is next connected with a recipe that names one.
+- **A deployment connected with a recipe that names no team is not checked at all**, and every control behaves as it did before the check existed — except the **Who may sign in** card, which cannot list a team the deployment does not name and offers the paste box instead ([below](#when-the-deployment-names-no-team)). The check turns itself on for a deployment when it is next connected with a recipe that names one.
 
 ---
 
@@ -222,30 +229,33 @@ If the service cannot be reached at the moment you connect, the console says so 
 
 ## Changing who may sign in
 
-Who may sign in to a connected deployment is a list of accounts held in the deployment's configuration. You can replace that list from the console, on a running deployment, without disconnecting.
-
-If your browser tab has been reloaded since you signed in, the console sends you to sign in again at the moment you apply. That interrupts the change rather than making it: your pasted list is put back in the box when you return, with a line saying nothing was changed.
+Who may sign in to a connected deployment is a list of accounts held in the deployment's configuration. You change that list from the console, on a running deployment, without disconnecting: section **3 · Who may sign in** on the Cloud tab lists your team's members with a tick beside each, and you tick the colleagues who work on this client.
 
 **Reach for this rather than disconnecting.** Disconnecting also ends everyone's access, but it takes every cloud-provided module with it — and at the next platform start, the classes those modules provide and every link to them. Changing the list costs none of that. See [What disconnecting costs](#disconnecting).
+
+**Selecting is not inviting.** The card lists people who are already on your team. Adding someone to the team, removing them, and changing roles all stay in the portal.
 
 ### Before you start
 
 | Prerequisite | Why |
 |---|---|
-| A connected deployment | The control appears only once a cloud configuration is written. A deployment that is not connected admits whoever its own configuration admits, and has no access list to change. |
-| The administrator role | This changes the deployment, so it needs an administrator of the deployment's team — see [Who can change a connected deployment](#who-can-change-a-connected-deployment). |
-| The **whole** list, copied from the portal | The console cannot show you the current list, so this is not something to edit from memory. The portal's **Who may sign in** card is a copyable field with a **Copy** button beside it. |
+| A connected deployment | The card appears only once a cloud configuration is written — before that the Cloud tab has steps 1 and 2 and no step 3. A deployment that is not connected admits whoever its own configuration admits, and has no access list to change. |
+| The administrator role | The card shows your team's members and who among them may sign in, and it changes the deployment — both need an administrator of the deployment's team. See [Who can change a connected deployment](#who-can-change-a-connected-deployment). A member who is not one sees that section's sentence and nothing of the team: no list, no ticks, nothing about who has left. |
+| A deployment whose recipe names its team | The card asks the cloud for the members of the team this deployment belongs to. A deployment connected with an older recipe does not carry its team, and the card says so instead of listing anyone — see [When the deployment names no team](#when-the-deployment-names-no-team). |
+| Your cloud sign-in in this tab | The card fetches your team with the cloud credential this tab holds, which a page reload clears. In a reloaded tab the card offers a **Sign in to the cloud** button and fetches when you return. |
 
-Some of the console's messages call these accounts *subjects*. They are the identifiers your identity provider issues, and they are what the portal's card gives you.
+### The card
 
-### Replace the list
+1. In the console, select the **Cloud** tab. On a connected deployment, section **2 · Configuration** has shrunk to one sentence — *This deployment is configured for the cloud. Who may sign in to it is chosen in step 3 below; disconnecting, which reverts this configuration, is at the foot of this page.* — and below it is section **3 · Who may sign in**, numbered like the two before it. The **Disconnect** section sits after it, at the foot of the tab. Above the list, the console states when a change takes effect: at the next platform start, not now.
+2. The card lists **every current member of your team by email address**, each with a tick box. **The ticks show who may sign in today.** Your own row is marked **(you)**: it is always ticked, and its box is greyed out. An account with no address on file is shown by its account identifier instead, and says so.
+3. **Tick the colleagues who work on this client, and untick the rest.** Your own row stays ticked — you cannot untick it, and hovering over the row says why: *Your own access stays: a list that left you out would lock you out of this deployment.* A list that leaves out the person applying it would end their own access at the next platform start, so the card never offers that choice; if the new list genuinely should not include you, an administrator who *is* on it applies it instead.
+4. Click **Apply**. The console reports how many accounts it wrote and when the change takes effect — for example:
 
-1. In the console, select the **Cloud** tab. Section **2 · Configuration** opens with a **Who may sign in** section, above the disconnect control.
-2. In the portal, open this deployment's **Who may sign in** card. Its heading carries the number of accounts — `Who may sign in (12 accounts)` — so note that number, then click **Copy**.
-3. Paste it into the box. One account per line, or separated by commas.
-4. Click **Apply access list**. The box clears, and the console reports how many accounts it wrote and when the change takes effect — for example:
+   > `3 accounts written. Who may sign in changes at the next platform start, not now: the platform reads this list once, when it starts, so until then it goes on admitting exactly who it admits today — including anyone you just removed. Apply it by restarting the platform: byodt restart platform. That restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does.`
 
-   > `12 accounts written. Who may sign in changes at the next platform start, not now: the platform reads this list once, when it starts, so until then it goes on admitting exactly who it admits today — including anyone you just removed. Apply it by restarting the platform: byodt restart platform. That restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does.`
+   The number is how many you ticked. The card then fetches the team again, so the ticks show the list as written. A banner also appears at the top of **Who may sign in**, and stays there until you reload the page:
+
+   > **Restart required to apply your changes** — Changes to who may sign in take effect when you recreate the platform: `byodt restart platform`. Until then, anyone you removed can still sign in.
 
 5. Apply it:
 
@@ -255,20 +265,87 @@ Some of the console's messages call these accounts *subjects*. They are the iden
 
    Only the platform is recreated, and this restart removes no module — so it does not touch your classes or the links to them.
 
-**Check the count against the portal's.** The two numbers are meant to be the same one: the portal's card says `(12 accounts)` in its heading, and a successful apply answers `12 accounts written`. That comparison is the only confirmation you get that the paste was read the way you meant it — the console reports the number and never the accounts themselves, it cannot show you the list you replaced, and it clears the box on success, so there is nothing left on screen to check against. If the console's number is lower than the portal's, the paste lost lines: copy the list again and apply it again **before** you restart. Nothing has taken effect until you do.
+**What success looks like.** After the restart, a colleague you unticked who opens the deployment still signs in with your identity provider as before — that part is not what the list changes — and is then shown a page saying **This deployment does not admit your account** instead of the app. A colleague you ticked signs in and reaches the app as before. What that page says, and what to do when a colleague reports it, is under [Someone the list does not admit](#someone-the-list-does-not-admit).
+
+**Apply writes exactly the ticks.** The list is replaced whole with the accounts you ticked, and nothing else: anyone unticked loses access at the next platform start, and there is no add-one or remove-one. Because only a current member can be ticked, applying also drops any account listed in red beneath the members ([below](#people-who-have-left-the-team)) — the card says so under that list.
+
+**Refresh.** The card reads your team when it opens and after every apply, not on its own after that. A colleague who joined the team since then appears only when you click **Refresh** on the card — unticked, because a new member is not added to any deployment automatically. (This is the card's own button; the **Refresh** at the top of the Content tab reads the catalog, not the team.)
+
+**Pending invitations are not listed.** Someone invited but not yet joined cannot be ticked until they accept in the portal.
+
+### People who have left the team
+
+When someone leaves your team, they do not leave this deployment's list. Leaving ends their subscription; it does not stop them signing in to a deployment that still lists them, and a signed-in person can read that client's models. The portal says as much before an owner removes someone: its confirmation warns that if the person had access to any of your deployments, they keep it until an admin updates each one — the portal cannot see your deployments, so it cannot say which.
+
+So the card shows them. Beneath the members, each account on this deployment's list that no longer belongs to a team member is listed individually, in red, with **no longer on the team** beside it, under a line such as:
+
+> 2 people who have left the team can still sign in.
+
+They are shown by account identifier rather than by address, because the address of someone who has left is kept nowhere — not by this deployment and not by the cloud — so there is nothing else to show.
+
+Click **Remove people who have left**. The console writes the current list with those accounts taken out, reports the count and the restart sentence as above, and raises the same **Restart required to apply your changes** banner. Everyone still on the team is left exactly as they were — and so are any ticks you have changed but not yet applied. Then restart the platform, as in step 5.
+
+**The overview says the same.** While an administrator is signed in to the cloud in this tab, the console's overview carries a banner, **People who have left the team can still sign in**, with the count and an **Open the Cloud tab** button. It is worked out afresh each time the page loads and never remembered: a member sees no such banner, a reloaded tab without a cloud sign-in shows none, and it goes when the team could not be fetched.
+
+### If you are sent to sign in
+
+If your cloud sign-in in this tab lapses at the moment you apply, the console takes you to sign in again. That interrupts the change rather than making it. When you return the card shows:
+
+> You were signed in again before this could be applied, so nothing was changed. What you had chosen is below — check it and apply again.
+
+Your ticks are put back as you left them, over the team fetched afresh; a tick for someone who has left the team in the meantime is dropped. The console keeps the ticks — account identifiers — across that redirect, and never the addresses.
+
+### When the deployment names no team
+
+A deployment connected with an older recipe does not tell the console which team it belongs to. The card cannot list the team, and says so:
+
+> This deployment's recipe predates team identifiers, so the console cannot tell which team it belongs to — and without that it will show neither the team nor who may sign in. Nothing was changed. Regenerate the deployment recipe in the portal and reconnect — see what disconnecting costs before you do.
+
+The lasting fix is a fresh recipe: get one from the portal, [disconnect](#disconnecting), apply it, and connect again — read what disconnecting costs first. Until then, the card offers a paste box beneath that sentence, and **on this deployment only** you replace the list by pasting it. This is the one place the console cannot show you the current list, so copy the whole list rather than editing from memory.
+
+**The list is a line of the recipe.** The portal has no separate list to copy: the recipe that connected this deployment carries it, as the `DEPLOYMENT_ALLOWLIST=` line of the **Environment** block on the portal's deployment page — the page **Get your deployment recipe ↗** opens. The recipe is built from the team's current members each time that page shows it, so the line is current when you read it, even though the one your deployment holds is not.
+
+Some of the console's messages call these accounts *subjects*. They are the identifiers your identity provider issues, and they are what that line holds, separated by commas.
+
+1. In the portal, open the deployment page and find the `DEPLOYMENT_ALLOWLIST=` line in the **Environment** block. Copy its value — everything after the `=`, to the end of that line, and nothing else. The block's **Copy** button copies the whole recipe, which is not what the box wants.
+2. Paste it into the box. One account per line, or separated by commas — the line's own commas are fine as they are.
+3. Click **Apply access list**. The box clears, and the console reports how many accounts it wrote and when the change takes effect, in the same words as step 4 above — and raises the same **Restart required to apply your changes** banner.
+4. Restart the platform, as in step 5 above.
+
+**The count is the only confirmation you get.** A successful apply answers with a number — `12 accounts written` — and on this deployment that number is all there is: the console reports the number and never the accounts themselves, it cannot show you the list you replaced, and it clears the box on success, so there is nothing left on screen to check against. So count the identifiers in the line before you paste it, and compare. If the console's number is lower, the paste lost something: copy the value again and apply it again **before** you restart. Nothing has taken effect until you do. If you need to check what is actually configured, it is readable on the host: [Troubleshooting → I need to see who is on the access list](./TROUBLESHOOTING.md#i-need-to-see-who-is-on-the-access-list).
 
 ### What the console will and will not accept
 
-- **It replaces the whole list.** Anyone not in the box loses access at the next platform start. There is no add-one or remove-one.
-- **It cannot show you the current list.** Nothing in the console surfaces it, deliberately. Copy the whole list from the portal rather than editing from memory — what you cannot see is what you drop. If you need to check what is actually configured, it is readable on the host: [Troubleshooting → I need to see who is on the access list](./TROUBLESHOOTING.md#i-need-to-see-who-is-on-the-access-list).
-- **It refuses a list that leaves you out**, because applying it would lock you out of your own deployment at the next platform start. Copy the whole list from the portal again rather than adding yourself back to what is in the box — if your own account went missing from it, others may have too. An administrator who is on the new list can also apply it for you.
-- **It refuses an empty list.** An empty list does not mean "nobody": the platform reads it as *no restriction*, and on a deployment reachable over the network it refuses to start at all. A box that looks filled can still name none — separators on their own, such as `,,,`, are not accounts. To narrow access to one person, submit a list naming that one account. If that person is not you, the console refuses that list too, for the reason in the bullet above: keep your own account on it as well, or ask an administrator who *is* on the new list to apply it.
+- **It replaces the whole list.** Whether you apply ticks or a paste, anyone not on it loses access at the next platform start. There is no add-one or remove-one.
+- **It refuses a list that leaves you out**, because applying it would lock you out of your own deployment at the next platform start. The card cannot produce this refusal — your own row stays ticked there — so you only meet it from the paste box, and its sentence is written for that: paste the recipe's `DEPLOYMENT_ALLOWLIST` value from a freshly generated deployment recipe again rather than adding yourself back to what is in the box — if your own account was missing from what you pasted, others may be too. An administrator who is on the new list can also apply it for you.
+- **It refuses an empty list.** An empty list does not mean "nobody": the platform reads it as *no restriction*, and on a deployment reachable over the network it refuses to start at all. The card lets you apply with nobody ticked so that you read this refusal rather than a greyed-out button; a paste that looks filled can still name none — separators on their own, such as `,,,`, are not accounts. To narrow access to one person, apply a list naming that one account. If that person is not you, that list leaves you out: on the card your own row stays ticked beside theirs, and in the paste box the console refuses it, for the reason in the bullet above — keep your own account on it as well, or ask an administrator who *is* on the new list to apply it.
 - **It changes nothing else.** Only who may sign in. Every other value in the deployment's configuration is left exactly as it was.
 - **A refusal changes nothing.** The message names which refusal it is; each one, and what to do about it, is in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in).
 
 ### Until you restart
 
 The change is written, and it is inert. The platform reads its access list once, when it starts, so until you run `./byodt restart platform` the deployment goes on admitting exactly who it admitted before — including anyone you just removed. The console states this before you submit anything, and again in the answer. If access has to end now, restart the platform now.
+
+**The reminder stays.** After any successful write — **Apply**, **Remove people who have left**, or **Apply access list** — a banner at the top of **Who may sign in** reads **Restart required to apply your changes** and names the command, like the one the Content tab shows after a mount. It stays for as long as the page is open, however many times the card refreshes, because the console cannot see you run the command; reloading the page clears it, and so does disconnecting, which owes a restart of its own. A refused write raises no banner, since nothing was written.
+
+**The deployment never keeps the addresses.** They are fetched when the card opens and held only while it is open — never written to the deployment's disk, its configuration, its logs, or your browser's storage. Reopening the card fetches them again.
+
+### Someone the list does not admit
+
+Once the platform has restarted, a person whose account is not on the list still signs in with your identity provider exactly as before — the list is read by the platform, not by the identity provider, so the sign-in itself succeeds. What they then see, instead of the app, is a page with the heading:
+
+> **This deployment does not admit your account**
+
+It tells them their sign-in worked, names the account it worked as, and says that who may sign in is chosen by an administrator of the team this deployment belongs to, on the deployment's console, and that the change takes effect when the platform is restarted. It offers two buttons: **Check again**, which tries the app once more, and **Sign out**. It does not send them back to sign in, because their sign-in is not the problem.
+
+So when a colleague reports that page, the deployment is doing what its list says. If they should have access:
+
+1. On the **Who may sign in** card, tick their row and click **Apply** — or, on a deployment that names no team, paste a list that includes them and click **Apply access list**.
+2. Read the count the console reports, and the **Restart required to apply your changes** banner it raises.
+3. Restart the platform: `./byodt restart platform`.
+4. Ask them to click **Check again**. The same sign-in is admitted now, so they reach the app without signing in again — unless their session expired in the meantime, in which case the ordinary sign-in follows and then admits them.
+
+If they are not on your team, add them to the team in the portal first — [selecting is not inviting](#changing-who-may-sign-in) — then tick them.
 
 ---
 
@@ -280,7 +357,11 @@ Disconnecting rewrites the deployment's configuration back to the standalone val
 
 1. In the console, select the **Cloud** tab. Section **2 · Configuration** now reads:
 
-   > This deployment is configured for the cloud. Disconnect rewrites the configuration back to the pure open-source values and removes the modules the cloud provided; the change is applied by recreating the stack.
+   > This deployment is configured for the cloud. Who may sign in to it is chosen in step 3 below; disconnecting, which reverts this configuration, is at the foot of this page.
+
+   Scroll past section **3 · Who may sign in** to the **Disconnect** section at the foot of the tab. It carries no step number, because disconnecting is not a step of setting the deployment up — it undoes step 2 — and it reads:
+
+   > Disconnect rewrites the configuration back to the pure open-source values and removes the modules the cloud provided; the change is applied by recreating the stack.
 
 2. Click **Disconnect from cloud**. The console asks you to confirm, listing what the disconnect removes; click **Disconnect** to accept. It then reports:
 
@@ -315,14 +396,14 @@ Worth knowing, because it explains the messages you may see.
 - **It requires every expected variable to be present and non-empty.** A half-applied recipe would boot the deployment into a broken state, so it is refused outright.
 - **It keeps your deployment's own exposure declaration** rather than taking the recipe's, and says so when it does.
 - **It supplies the values a recipe cannot know** — the callback address of your front door, and where cached content lives.
-- **It refuses to reconfigure a deployment that is already connected.** Disconnect first, then apply the new recipe. There is exactly one exception, and it is not a recipe: [who may sign in](#changing-who-may-sign-in) can be replaced in place on a connected deployment. No other value can.
+- **It refuses to reconfigure a deployment that is already connected.** Disconnect first, then apply the new recipe. There is exactly one exception, and it is not a recipe: [who may sign in](#changing-who-may-sign-in) can be changed in place on a connected deployment, from the card. No other value can.
 - **It will not write a plaintext identity endpoint or a non-local plaintext callback.** Those must be HTTPS, or `localhost`.
 
 ---
 
 ## Troubleshooting
 
-Cloud-specific symptoms — a rejected callback, a sign-in that will not complete, a refused administrator check, a rejected access list, an unreachable catalog — are covered in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in) and [Content mounts](./TROUBLESHOOTING.md#content-mounts).
+Cloud-specific symptoms — a rejected callback, a sign-in that will not complete, a refused administrator check, a team the card could not fetch, a rejected access list, an unreachable catalog — are covered in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in) and [Content mounts](./TROUBLESHOOTING.md#content-mounts).
 
 ## Related
 

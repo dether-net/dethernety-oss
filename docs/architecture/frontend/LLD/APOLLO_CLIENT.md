@@ -437,40 +437,54 @@ async function bootstrap() {
 
 ### Error Link
 
-**Source:** `apolloClient.ts:61-80`
+**Source:** `apolloClient.ts` (`errorLink`), `utils/deploymentRefusal.ts`
 
 ```typescript
-const errorLink = onError(({ graphQLErrors, networkError, operation }) => {
-  // GraphQL errors (validation, resolver errors)
-  if (graphQLErrors) {
-    graphQLErrors.forEach(({ message, locations, path, extensions }) => {
-      console.error(
-        `[GraphQL Error] ${message}`,
-        { locations, path, extensions, operation: operation.operationName }
-      )
+const errorLink = new ErrorLink(({ error }) => {
+  if (CombinedGraphQLErrors.is(error)) {
+    // GraphQL errors: logged in DEV, then classified as a refusal or not
+    const authStore = useAuthStore()
+    const meaning = refusalMeaning(error.errors, {
+      authDisabled: authStore.authDisabled,
+      isAuthenticated: authStore.isAuthenticated,
     })
-  }
-
-  // Network errors (connection, timeout)
-  if (networkError) {
-    console.error('[Network Error]', networkError)
-
-    // Detect auth failures
-    const statusCode = (networkError as any)?.statusCode
-    if (statusCode === 401 || statusCode === 403) {
+    if (meaning === 'not-admitted') {
+      leaveForOnce(`${import.meta.env.BASE_URL}auth/not-admitted`)
+    } else if (meaning === 'sign-in') {
+      authStore.clearState()
+      leaveForOnce(`${import.meta.env.BASE_URL}login`)
+    }
+  } else {
+    // Network errors: a 401/403 status clears the session and redirects
+    if (error && 'statusCode' in error && (error.statusCode === 401 || error.statusCode === 403)) {
       const authStore = useAuthStore()
       authStore.clearState()
-      window.location.href = '/login'
+      leaveForOnce(`${import.meta.env.BASE_URL}login`)
     }
   }
 })
 ```
 
+The link sits on the HTTP chain only (queries and mutations); the subscription transports handle their own auth failures ([above](#subscription-transports)).
+
+**A refusal for identity, classified client-side.** The API answers every refused credential the same way — `extensions.code: UNAUTHENTICATED`, whether the token is missing, invalid, expired, or valid but not on the deployment's access list (`DEPLOYMENT_ALLOWLIST`) — so the API itself is no oracle for "your token is real but you are not admitted". `refusalMeaning()` (`utils/deploymentRefusal.ts`, pure, unit-tested apart from the link) draws the distinction from what the browser already knows:
+
+| `UNAUTHENTICATED` seen and… | Meaning | Action |
+|---|---|---|
+| `authStore.authDisabled` | `null` — the API cannot refuse for identity; this is something else | None |
+| The browser holds a token that has not expired (`isAuthenticated`) | `'not-admitted'` — the sign-in was fine; the deployment refuses the account | Navigate to `/auth/not-admitted` |
+| The token is stale or gone | `'sign-in'` — the ordinary refusal | Clear state, navigate to `/login` |
+| No `UNAUTHENTICATED` among the errors | `null` | None (propagates to the caller) |
+
+Only the code is read, never the message — production masking scrubs the message to "Internal server error". One refusal among several errors is enough.
+
+**Navigation is started once.** A page load fires several queries and every one of them is refused the same way; `leaveForOnce()` guards `window.location.href` so the second navigation does not cancel the first. The not-admitted page is its own route, deliberately not the login page: a redirect there would go silently through the identity provider, come back with an equally current token, and loop. See [`AUTHENTICATION.md` → Router Guard](./AUTHENTICATION.md#router-guard) for why `/auth/not-admitted` is reachable while signed in.
+
 ### Error Flow
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    GraphQL Operation                    │
+│           GraphQL Operation (query / mutation)          │
 └─────────────────────────────┬───────────────────────────┘
                               │
                     ┌─────────┴─────────┐
@@ -480,16 +494,17 @@ const errorLink = onError(({ graphQLErrors, networkError, operation }) => {
                     │                   │
               GraphQL Error        Network Error
                     │                   │
-              Log with context    ┌─────┴─────┐
-                    │             │           │
-                    │          401/403      Other
-                    │             │           │
-                    │        Clear auth   Log error
-                    │        Redirect
-                    │             │
-                    └──────┬──────┘
-                           │
-                    Propagate to caller
+            refusalMeaning()      ┌─────┴─────┐
+         ┌──────────┼──────────┐  │           │
+         │          │          │ 401/403    Other
+    not-admitted  sign-in    null │           │
+         │          │          │ Clear auth  Log error
+    /auth/        Clear auth   │ /login
+    not-admitted  /login       │  │
+         │          │          │  │
+         └──────────┴─────┬────┴──┘
+                          │
+                   Propagate to caller
 ```
 
 ### HTTP Link Configuration

@@ -163,16 +163,23 @@ const wsLink = new GraphQLWsLink(
 **Error Handling:**
 
 ```typescript
-const errorLink = onError(({ graphQLErrors, networkError }) => {
-  if (graphQLErrors) {
-    graphQLErrors.forEach(({ extensions }) => {
-      if (extensions?.code === 'UNAUTHENTICATED') {
-        authStore.logout();
-      }
+const errorLink = new ErrorLink(({ error }) => {
+  if (CombinedGraphQLErrors.is(error)) {
+    // UNAUTHENTICATED is what the API says to every refused credential.
+    // Which refusal it is comes from the token this browser holds.
+    const meaning = refusalMeaning(error.errors, {
+      authDisabled: authStore.authDisabled,
+      isAuthenticated: authStore.isAuthenticated,   // current, unexpired token
     });
+    if (meaning === 'not-admitted') leaveForOnce(`${BASE_URL}auth/not-admitted`);
+    else if (meaning === 'sign-in') { authStore.clearState(); leaveForOnce(`${BASE_URL}login`); }
+  } else if (error.statusCode === 401 || error.statusCode === 403) {
+    authStore.clearState(); leaveForOnce(`${BASE_URL}login`);
   }
 });
 ```
+
+A current token that the API still refuses means the deployment does not admit the account (see `DEPLOYMENT_ALLOWLIST` in the [Configuration guide](../../CONFIGURATION_GUIDE.md#deployment-access-multi-tenant-idp)); the SPA leaves for `/auth/not-admitted` — never `/login`, which would loop through the identity provider. Details in [LLD/APOLLO_CLIENT.md → Error Link](./LLD/APOLLO_CLIENT.md#error-link).
 
 ### 3. Data Flow Editor
 
@@ -553,6 +560,8 @@ Routes auto-generated from `pages/` directory:
 | `pages/modules.vue` | `/modules` | Yes |
 | `pages/login.vue` | `/login` | No |
 | `pages/auth/callback.vue` | `/auth/callback` | No |
+| `pages/auth/logout.vue` | `/auth/logout` | No |
+| `pages/auth/not-admitted.vue` | `/auth/not-admitted` | No — reached *while* signed in, when the deployment refuses a current token (see [Error Handling](#2-graphql-client-apollo)); under `/auth/` so the guard lets a signed-in person reach it without a loop through the identity provider |
 
 ### Navigation Guard
 

@@ -4,6 +4,7 @@ import {
   ExecutionArgs,
   GraphQLError,
 } from 'graphql';
+import { maskedErrorCode } from './masked-error-code';
 
 /**
  * Production error-masking for the SSE transport — the graphql-sse
@@ -20,7 +21,7 @@ import {
 
 function maskError(error: any): GraphQLError {
   return new GraphQLError('Internal server error', {
-    extensions: { code: error?.extensions?.code || 'INTERNAL_ERROR' },
+    extensions: { code: maskedErrorCode(error) },
   });
 }
 
