@@ -5,6 +5,120 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-09-17
+
+An administrator now chooses who may sign in to a connected deployment from the team itself, on
+the deployment, without disconnecting it. The previous release made the access list writable on a
+running deployment, but only by pasting it from the portal; the console now lists the team's
+members with a tick beside each, names the people who have left the team and can still sign in,
+and removes them in one click. On the platform's side, a person the list does not admit is told so
+— until now that refusal reached the browser as an internal error, and the interface could only
+suggest trying again. Compared against the previous tag, `v0.9.0`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. The only line of `.env.example` that changed is
+`PLATFORM_VERSION`, so a `diff .env .env.example` should show you that line and your own values
+and nothing else. No module, corpus or class policy moved in this release: no content hash changed,
+so the reference-data ingest is skipped on this upgrade and the platform's load-time skip gate
+keeps every module it already has — the one-shot is as short as it gets. `./byodt update` pulls the
+console image as well as the platform's, because the console follows `PLATFORM_VERSION` unless
+your `.env` pins `CONSOLE_IMAGE`, so the new card and the new page arrive together and need nothing
+beyond the update itself: no saved recipe is invalidated, nothing regenerates, and no restart beyond
+the one the update performs. One caveat carries over from 0.9.0. The card lists the team only on a
+deployment whose recipe names one; on a deployment connected with an older recipe, section **3 ·
+Who may sign in** shows a sentence saying so and the paste box from 0.9.0 beneath it, and the paste
+box keeps working exactly as it did. Getting the card means reconnecting with a fresh recipe, and
+what that costs is in the cloud guide under `docs/user/byodt/`. The plugin does not move:
+`@dether.net/dethereal` stays at 0.4.5.
+
+### Added
+
+- **Who may sign in is chosen on the deployment, from the team.** The Cloud tab of a connected
+  deployment gains a third numbered section, **3 · Who may sign in**: every current member of the
+  team with a tick beside those the deployment admits today, the operator's own row always ticked
+  and disabled — the one list the console will always refuse is one that leaves its submitter out,
+  and keeping the row ticked means that refusal is never reached from the card — and **Apply**,
+  which writes exactly the ticks. Selecting is not inviting: adding and removing people, and
+  changing roles, stay in the portal, and a colleague who joined since the card was fetched appears
+  only on **Refresh**, unticked. The console asks the cloud for the team's members on the
+  operator's behalf, through the operator's own cloud credential, and relays exactly two fields per
+  member — identifier and address — which are held in the tab while the card is open and nowhere
+  else: not on the deployment's disk, not in its configuration, not in a log line. Both the member
+  list and the read of the current access list are gated on the administrator role, for what they
+  reveal rather than what they change; a member who is not one reads the same sentence that
+  disables the other administrator-only controls, and nothing of the team. The writer of the access
+  list is unchanged and still refuses an empty list, unprintable characters, and any list that
+  would lock the submitter out; its two paste-path refusals now name the recipe's own
+  `DEPLOYMENT_ALLOWLIST` line as the place to re-copy from, since the portal no longer keeps a
+  separate list. A selection in progress survives the cloud sign-in redirect as identifiers only,
+  and is put back over a freshly fetched team when the tab returns.
+- **People who have left the team are named, and removed in one click.** Leaving a team ends a
+  person's subscription; it does not stop them signing in to a deployment that still lists them,
+  and a signed-in person can read that client's models. The card now lists every admitted account
+  that belongs to nobody on the team, by identifier — the address of someone who has left is kept
+  nowhere, so there is nothing else to show — under a count such as "2 people who have left the
+  team can still sign in." **Remove people who have left** writes the current list less those
+  accounts — never the ticks — and leaves everything else as it was, including ticks changed but
+  not yet applied. While an administrator is signed in to the cloud in the tab, the console's
+  overview carries the same count as a banner, **People who have left the team can still sign
+  in**, worked out afresh on every load and never remembered.
+- **The console says the restart is still owed.** The platform reads the access list once, when it
+  starts, so a written change is inert until the platform is recreated — and whoever was just
+  removed can still sign in until it is. After any successful write, a banner reading **Restart
+  required to apply your changes** stays at the top of the section for as long as the page is open,
+  naming `byodt restart platform`, in the same shape as the reminder the Content tab shows after a
+  mount. A refused write raises none, since nothing was written.
+
+### Changed
+
+- **Disconnect is the last thing on the Cloud tab, and unnumbered.** It is not a step of setting a
+  deployment up — it is the undoing of step 2 — and until now an operator looking for "change who
+  has access" found it before anything that would have served them. A destructive control belongs
+  at the foot of the page, after everything an operator might have come for instead. The
+  administrator refusal now names both things the role covers — changing the deployment, and
+  seeing who may sign in to it.
+- **The plugin's republish guard reads the source it bundles, not only the ranges it declares.**
+  For contributors; this changes nothing for an operator. The check that decides whether a change
+  to `@dether.net/dethereal` needs a new published version compared dependency declarations and
+  excluded development dependencies, which is right for a range and wrong for a bundle: the
+  platform's data-access layer is a development dependency compiled into the plugin's artifact, so
+  the previous release's rewrite of that layer's write path passed the guard with a clean report.
+  The guard now reads the bundle list from the build configuration and diffs each bundled package's
+  source against the base, excluding tests and prose, and CI runs its own test. The 0.9.0 entry
+  below was corrected at the same time to say what 0.4.5 actually carries, and that it is the first
+  version published since 0.4.3.
+
+### Fixed
+
+- **A person the deployment does not admit is now told so.** In production both transports keep
+  only an error's code and replace its message, and the schema library's authentication refusal
+  carried no code — so a deployment refusing a caller answered as `INTERNAL_SERVER_ERROR`,
+  byte-identical to a crash, and the interface showed "Failed to load models. Please try again." The
+  masked code is now classified rather than copied: the library's refusals become `UNAUTHENTICATED`
+  and `FORBIDDEN`, the codes the platform's own resolvers already use, on both transports, and
+  every other error keeps what it had. No oracle is opened — a missing, invalid, expired and
+  unlisted credential all reach the same refusal and get the same code. The interface tells the
+  cases apart from the token's own expiry: a refusal of a current token now lands on its own page,
+  **This deployment does not admit your account**, which says the sign-in worked, names the account
+  it worked as, says who can change the list and that the change takes effect when the platform is
+  restarted, and offers **Check again** and **Sign out** — not a sign-in prompt, because the
+  sign-in is not the problem. A stale token gets the ordinary sign-in. A deployment running without
+  authentication is untouched.
+
+### Documentation
+
+- **The operator guides cover the card, the departed, and the refused.** The cloud guide's
+  *Changing who may sign in* section is rewritten around the ticks: prerequisites, the card step by
+  step, people who have left the team, what survives a sign-in redirect, the paste box as the
+  fallback for a deployment that names no team, what the console will and will not accept, and a
+  new *Someone the list does not admit* section that says what a refused colleague sees and what to
+  do about it. The troubleshooting guide gains entries for the sentences the card can show and for
+  the colleague who reports the new page, and the configuration guide's table of what each console
+  control writes names the three writes that share the access-list line. The security model states
+  the code a refusal now carries on the GraphQL transports, and the console and security
+  architecture documents, the backend and frontend references for error masking, the Apollo error
+  link and the authentication routes describe the mechanism.
+
 ## [0.9.0] - 2026-09-15
 
 Two people can now edit one model without undoing each other. Until this release every
@@ -1189,6 +1303,8 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.9.1]: https://github.com/dether-net/dethernety-oss/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/dether-net/dethernety-oss/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/dether-net/dethernety-oss/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/dether-net/dethernety-oss/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/dether-net/dethernety-oss/compare/v0.6.0...v0.6.1
