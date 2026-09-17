@@ -16,9 +16,11 @@ export interface ModeView {
   // True when the written mode file's intent disagrees with what the platform is actually running —
   // a change is written but not yet applied (in either direction). Drives the "recreate" banner.
   restartPending: boolean
-  // The signed-in subject, for display in the header. Present only in cloud posture (a local session
-  // mints with no credential, so there is no user); either field may be empty depending on token claims.
-  user?: { email?: string; name?: string }
+  // The signed-in subject: the address and name the header shows, and the identifier the access-list
+  // card uses to find the operator's own row so it can keep that row ticked. Present only in cloud
+  // posture (a local session mints with no credential, so there is no user); any field may be empty
+  // depending on token claims.
+  user?: { sub?: string; email?: string; name?: string }
   // When a change to who may sign in takes effect. Present only on a cloud deployment, where the control
   // that makes such a change exists. It arrives on a READ so the panel can state the consequence before
   // anything is submitted, and it is the same sentence the change's own answer returns — one definition in
@@ -46,14 +48,34 @@ export interface CloudResult {
 export interface AllowlistResult {
   status: string
   // How many subjects the daemon read out of the submitted value, parsed the way the PLATFORM will parse
-  // it. The console never shows the current list — the ungated posture read projects a fixed field set
-  // precisely to keep the member ids off the wire — so this count is the only check the operator has that
-  // their paste was understood as five people rather than as one. It catches the failure that actually
-  // happens: half a list, or a separator the value did not use.
+  // it. On a deployment whose roster cannot be fetched the console cannot show the list either, so this
+  // count is the only check the operator has that their paste was understood as five people rather than
+  // as one. It catches the failure that actually happens: half a list, or a separator the value did not use.
   subjects: number
   // When the change takes effect, and which restart applies it. The same sentence ModeView.allowlistNotice
   // carries, from one constant in the daemon.
   message: string
+}
+
+// One member of the team this deployment belongs to, as the content service lists them. `email` can be
+// empty — an account need not carry an address — and the card then shows the identifier instead. Two
+// fields, because the daemon re-encodes exactly two: anything the service adds about a person later stops
+// at the daemon rather than arriving here.
+export interface RosterMember {
+  sub: string
+  email: string
+}
+
+// The team's current members. Never an empty array standing in for "could not fetch": the daemon answers
+// that with a refusal, because an empty team reads as everyone having left.
+export interface RosterView {
+  members: RosterMember[]
+}
+
+// The identifiers this deployment admits, parsed out of its own configuration the way the platform parses
+// them. Identifiers only — the deployment keeps no addresses, so there are none to return.
+export interface AllowlistView {
+  subjects: string[]
 }
 
 // ModulesState.status ∈ ok | unreachable | no-assets | did-not-verify | partial | failed |
@@ -413,14 +435,16 @@ function post<T>(path: string, body?: unknown): Promise<T> {
 
 const CLOUD_TOKEN_HEADER = 'X-Console-Cloud-Token'
 
-// SEVEN calls forward the operator's access token, and three things about them are deliberate.
+// The calls below forward the operator's access token, and three things about them are deliberate.
 //
-// WHY SEVEN RATHER THAN TWO. Two of them forward it because the DAEMON needs it to answer — the
-// subscription on the catalog, the signed bytes on an install. The other five forward it because the daemon's admin
-// gate asks the cloud with it before letting a deployment-changing operation run at all, and that gate is
-// the whole point: a check that asked nothing and read a local session record instead would be trusting
-// exactly the thing that carries no authority. So mounting forwards a credential even though what it does
-// is write a file on this host.
+// WHY MORE THAN TWO. Two of them forward it because the DAEMON needs it to answer — the subscription on
+// the catalog, the signed bytes on an install. The rest forward it because the daemon's admin gate asks
+// the cloud with it before letting a gated operation run at all, and that gate is the whole point: a
+// check that asked nothing and read a local session record instead would be trusting exactly the thing
+// that carries no authority. So mounting forwards a credential even though what it does is write a file
+// on this host — and so do the two reads that reveal who may sign in, which are gated for what they show
+// rather than for what they change. (This comment once counted the calls, and the count was wrong by the
+// next route.)
 //
 // They are CALLERS of request(), never bypasses of it. Every route is session-gated like the rest, so
 // skipping request() would drop the session header and earn a 401 — which this file turns into
@@ -428,10 +452,10 @@ const CLOUD_TOKEN_HEADER = 'X-Console-Cloud-Token'
 // instead of 401 to prevent.
 //
 // They are their own functions rather than a header flag on get()/post()/del(), because a shared flag is
-// one edit away from attaching this token to a call that must never carry it. Growing from two to seven is
-// the argument for that shape rather than against it: every new forwarding route arrived as a named
-// function, and the one call that must stay credential-free — cloudApply, the pre-cloud paste path, which
-// has no authenticated subject to forward — kept the plain helper it already had.
+// one edit away from attaching this token to a call that must never carry it. Growing is the argument for
+// that shape rather than against it: every new forwarding route arrived as a named function, and the one
+// call that must stay credential-free — cloudApply, the pre-cloud paste path, which has no authenticated
+// subject to forward — kept the plain helper it already had.
 //
 // And the header is OMITTED rather than sent empty. On a gated call the daemon reads an absent token as
 // "cannot check" and refuses without dialling the cloud; on the catalog an absent token is the ordinary
@@ -507,6 +531,14 @@ export const api = {
   // refuse a list that would lock the submitter out.
   changeAllowlist: (allowlist: string) =>
     postEntitled<AllowlistResult>('/api/cloud/allowlist', { allowlist }),
+  // The two reads behind the card that chooses who may sign in: the team's members, relayed from the
+  // content service, and the identifiers this deployment admits, read from its own configuration. Every
+  // other read on this console carries only the session header, because a member who cannot see what their
+  // deployment has is worse served than one who cannot change it. These two are the exception, and the
+  // reason is what they reveal — the team's people by address, and the selection among them — so they are
+  // admin-gated exactly as the writes are, and forward the token the gate asks with.
+  roster: () => getEntitled<RosterView>('/api/cloud/roster'),
+  allowlist: () => getEntitled<AllowlistView>('/api/cloud/allowlist'),
   // Content mounts. The catalog half is public, but this route also answers what this deployment is
   // subscribed to and whether this operator administers it — which the daemon can only learn by asking the
   // content service with the operator's own token, so this call forwards it. Reading the local inventory

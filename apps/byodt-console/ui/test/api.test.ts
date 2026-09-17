@@ -132,12 +132,16 @@ describe('api content methods', () => {
   })
 })
 
-// EVERY DEPLOYMENT-CHANGING CALL FORWARDS THE TOKEN, AND THE ONE THAT MUST NOT, DOES NOT.
+// EVERY GATED CALL FORWARDS THE TOKEN, AND THE ONE THAT MUST NOT, DOES NOT.
 //
 // These belong in this file and nowhere else. Every component test mocks the `api` object wholesale, so a
 // dropped header leaves the entire rest of the suite green while every gated operation in production is
 // refused with "your cloud sign-in is not available in this tab" — a failure that looks like a sign-in bug
 // and is actually one deleted line.
+//
+// The two reads are in this table for the same reason the writes are: they are behind the same gate, for
+// what they reveal rather than for what they change, and a dropped header on either would refuse the card
+// on every reloaded tab.
 describe('api admin-gated calls carry the operator access token', () => {
   const gated: [string, () => Promise<unknown>][] = [
     ['mount', () => api.mountModule({ packageKey: 'acme-cloud', moduleKey: 'acme-compute', pin: 'sha256:' + 'a'.repeat(64) })],
@@ -146,6 +150,8 @@ describe('api admin-gated calls carry the operator access token', () => {
     ['remove', () => api.removeArtifact('acme-risk')],
     ['disconnect', () => api.cloudDisable()],
     ['change the access list', () => api.changeAllowlist('sub-a,sub-b')],
+    ['read the roster', () => api.roster()],
+    ['read the access list', () => api.allowlist()],
   ]
 
   for (const [name, call] of gated) {
@@ -163,6 +169,18 @@ describe('api admin-gated calls carry the operator access token', () => {
       expect(new Headers(lastInit?.headers).get('X-Console-Cloud-Token')).toBeNull()
     })
   }
+
+  // The two reads share the write's path and differ by method — the daemon's mux tells them apart — so
+  // the method is asserted, not just the path.
+  it('the roster and the access list are GETs on their own routes', async () => {
+    setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })
+    await api.roster()
+    expect(lastUrl).toBe('/api/cloud/roster')
+    expect(lastInit?.method ?? 'GET').toBe('GET')
+    await api.allowlist()
+    expect(lastUrl).toBe('/api/cloud/allowlist')
+    expect(lastInit?.method ?? 'GET').toBe('GET')
+  })
 
   it('the access-list change posts the pasted value to its own route', async () => {
     setCloudTokens({ idToken: 'the-id-token', accessToken: 'the-access-token' })

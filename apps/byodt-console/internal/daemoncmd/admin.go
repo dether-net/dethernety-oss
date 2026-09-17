@@ -5,7 +5,10 @@ import (
 )
 
 // The admin gate. Every route that CHANGES this deployment requires that the caller administers the team
-// the deployment belongs to; every route that only reads it does not.
+// the deployment belongs to; every route that only reads it does not — with one named exception. A READ
+// THAT REVEALS WHO MAY SIGN IN IS ADMIN-ONLY: the roster relay and the access-list read (roster.go) are
+// gated like the routes that change the deployment, because what they disclose is the team's people and
+// the selection among them rather than what the deployment has.
 //
 // WHY A ROLE AT ALL. The console is served on the same origin as the platform and gates on nothing but a
 // valid session, so before this any member of a team could reach it and disconnect the deployment —
@@ -57,9 +60,15 @@ var (
 	// notAnAdmin names the role required and who can grant it. An operation that vanishes from the
 	// interface, or one that returns a raw error, is the version of this feature that generates support
 	// tickets instead of preventing damage.
+	//
+	// It names BOTH things the role covers, because this one sentence answers two kinds of route. It once
+	// said "this operation changes the deployment", which was true of every gated route until the two reads
+	// that reveal who may sign in were put behind the same gate — and a refusal that misdescribes what was
+	// asked for is one the operator cannot act on. "Nothing was changed" stays: it is true of a refused
+	// read too, and it is the half an operator reading a 403 most needs to hear.
 	notAnAdmin = adminRefusal{
 		status: http.StatusForbidden,
-		detail: "You are not an administrator of the team this deployment belongs to, and this operation changes the deployment. Nothing was changed. " +
+		detail: "You are not an administrator of the team this deployment belongs to. Only an administrator may change this deployment or see who may sign in to it. Nothing was changed. " +
 			"An owner or administrator of that team can grant you the administrator role in the portal.",
 	}
 	// couldNotCheck is the fail-closed arm. It says the check failed rather than asserting anything about
@@ -174,10 +183,10 @@ func (s *server) gate(next http.HandlerFunc, recoveryPath bool) http.HandlerFunc
 		// THIS ARM IS A FAIL-OPEN AND IS ACCEPTED AS ONE, said plainly so the next reader does not have to
 		// work it out. cloudModeFile reports false for a mode file it cannot READ as well as for one that
 		// is genuinely local, and both land here. Reaching it needs a filesystem fault or host access, which
-		// the threat model above already concedes; and five of the six gated handlers re-check posture for
-		// themselves and refuse, while the sixth is disconnect, where proceeding is the recovery rather than
-		// the hazard. If this file ever grows a caller for which neither is true, the read error needs its
-		// own arm.
+		// the threat model above already concedes; and every gated handler but one re-checks posture for
+		// itself and refuses, the one being disconnect, where proceeding is the recovery rather than the
+		// hazard. (This comment once counted them, and the count was wrong by the next route.) If this file
+		// ever grows a caller for which neither is true, the read error needs its own arm.
 		vars, cloud := s.cloudModeFile()
 		if !cloud {
 			next(w, r)
@@ -201,6 +210,14 @@ func (s *server) gate(next http.HandlerFunc, recoveryPath bool) http.HandlerFunc
 		//
 		// It closes on its own: the gate switches itself on per deployment as team identifiers arrive,
 		// and universally when the variable is promoted to required.
+		//
+		// TWO ROUTES MUST NOT INHERIT THIS ARM, and they do not. "Behave exactly as before the gate
+		// existed" is right for a route that changes the deployment, because before the gate any session
+		// holder could change it. It is wrong for the two reads that reveal who may sign in, because
+		// before the gate those reads did not exist — passing them through here would open the team's
+		// roster and its access list to any session holder, on exactly the deployments whose roster
+		// cannot be fetched at all. Both refuse a team-less deployment for themselves, before reading
+		// anything (roster.go).
 		// A MALFORMED VALUE IS NOT AN ABSENT ONE, and reading it as one would be the gate's own off-switch.
 		// contentTargetFrom blanks an identifier this console will not use, so folded together a single
 		// mistyped character in the mode file turns the gate off — silently, and looking exactly like the

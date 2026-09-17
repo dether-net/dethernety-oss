@@ -360,17 +360,21 @@ authorization: {
 
 ### Error Sanitization
 ```typescript
-// Production error formatting
-formatError: (error) => {
+// Production error formatting (gql.module.ts)
+formatError: (error, original) => {
   if (process.env.NODE_ENV === 'production') {
     return {
       message: 'Internal server error',
-      extensions: { code: 'INTERNAL_ERROR' }
+      // The code is the only field that survives, so it is classified rather
+      // than copied — see src/gql/utils/masked-error-code.ts.
+      extensions: { code: maskedErrorCode(original ?? error, error.extensions?.code || 'INTERNAL_ERROR') }
     };
   }
   return error; // Full details in development
 }
 ```
+
+`maskedErrorCode()` (`src/gql/utils/masked-error-code.ts`, shared with the SSE transport's `sse-error-masking.ts`) keeps a code the error already carries, and names the `@neo4j/graphql` library's own refusals — which carry none, so Apollo would label them `INTERNAL_SERVER_ERROR` — `UNAUTHENTICATED` (the `@authentication` check, and `Neo4jGraphQLAuthenticationError`) or `FORBIDDEN` (`Neo4jGraphQLForbiddenError`). Without it a deployment refusing a validated-but-unlisted caller (`DEPLOYMENT_ALLOWLIST`) answered exactly as a crash. A real crash still answers `INTERNAL_SERVER_ERROR`; an error with no code at all answers `INTERNAL_ERROR`.
 
 ### Context Security
 ```typescript

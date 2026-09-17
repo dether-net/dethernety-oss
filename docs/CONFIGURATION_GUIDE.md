@@ -113,7 +113,7 @@ By default a deployment serves every user its IdP authenticates. When several de
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DEPLOYMENT_ALLOWLIST` | String | — (unrestricted) | Comma-separated list of token `sub` values this deployment serves. Empty/unset means no restriction. A validated-but-unlisted user is rejected on every transport, indistinguishable from an invalid token. |
+| `DEPLOYMENT_ALLOWLIST` | String | — (unrestricted) | Comma-separated list of token `sub` values this deployment serves. Empty/unset means no restriction. A validated-but-unlisted user is rejected on every transport, indistinguishable from an invalid token: on the GraphQL transports the answer carries `extensions.code: UNAUTHENTICATED`, as any missing, invalid or expired credential does, rather than an internal-error code. The SPA tells the cases apart from the token's own expiry, and shows a refusal of a current token as a "not admitted" page instead of a sign-in prompt. |
 | `OIDC_SHARED_POOL` | Boolean | `false` | Set `true` when authenticating against a shared / multi-tenant IdP. Enables the fail-closed bootstrap gate below. Left `false`, a deployment behaves exactly as before. |
 | `DEPLOYMENT_EXPOSURE` | String | `network` | Operator's exposure declaration: `network` (reachable) or `loopback` (single-operator local use only). A **declaration**, never derived from the bind host. |
 

@@ -28,6 +28,17 @@ describe('maskExecutionResultErrors', () => {
     expect(String(JSON.stringify(masked))).not.toContain('Neo.ClientError');
   });
 
+  // The library's authentication refusal carries no code, and masked as a
+  // crash the SPA could only tell a refused person to try again.
+  it('production: a deployment refusing a caller is answered UNAUTHENTICATED, not as a crash', () => {
+    const refusal = new Error('Unauthenticated');
+    Object.defineProperty(refusal, 'name', { value: 'Neo4jGraphQLAuthenticationError' });
+    const result = { data: null, errors: [{ message: 'Unauthenticated', originalError: refusal }] };
+    const masked = maskExecutionResultErrors(result as any, true);
+    expect(masked.errors![0].message).toBe('Internal server error');
+    expect((masked.errors![0] as any).extensions.code).toBe('UNAUTHENTICATED');
+  });
+
   it('non-production and error-free results pass through untouched', () => {
     expect(maskExecutionResultErrors(leaky as any, false)).toBe(leaky);
     const clean = { data: { ok: 1 } };

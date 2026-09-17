@@ -145,8 +145,8 @@ func TestAllowlistAppliesAndTouchesNothingElse(t *testing.T) {
 	}
 }
 
-// TestAllowlistRefusesAListThatOmitsTheCaller is the guard, and the break-it
-// the plan names.
+// TestAllowlistRefusesAListThatOmitsTheCaller is the guard: delete the containsSubject check and this is
+// the test that goes red.
 func TestAllowlistRefusesAListThatOmitsTheCaller(t *testing.T) {
 	f := newGateFixture(t, gateOptions{team: "team-a"})
 	session := signInAs(t, f.s, "sub-a")
@@ -397,10 +397,36 @@ func TestTheSelfExclusionRefusalNamesTheAccount(t *testing.T) {
 	if !strings.Contains(body, "sub-a") {
 		t.Fatalf("the refusal must name the account the caller is signed in as, got: %s", body)
 	}
-	// And it must send them back to the portal rather than to a one-line edit, because a partial paste is
-	// the likeliest cause and editing it in place keeps whatever else it dropped.
-	if !strings.Contains(body, "Copy the whole list again") {
-		t.Fatalf("the refusal must lead with re-copying, got: %s", body)
+	// And it must send them back to the recipe's line rather than to a one-line edit, because a partial
+	// paste is the likeliest cause and editing it in place keeps whatever else it dropped.
+	if !strings.Contains(body, "DEPLOYMENT_ALLOWLIST value from a freshly generated deployment recipe") {
+		t.Fatalf("the refusal must lead with re-pasting the recipe's line, got: %s", body)
+	}
+	if !strings.Contains(body, "rather than adding yourself back") {
+		t.Fatalf("the refusal must say not to edit in place, got: %s", body)
+	}
+	// The portal's separate copyable list is gone; a refusal that sent the operator to it would send them
+	// to a card that does not exist.
+	if strings.Contains(body, "from the portal") {
+		t.Fatalf("the refusal must not name the portal's list as the source, got: %s", body)
+	}
+}
+
+// TestTheUnprintableRefusalNamesTheRecipeLine. The same source rule for the other paste-path refusal:
+// an invisible character is fixed by re-copying, and the place to re-copy from is the recipe.
+func TestTheUnprintableRefusalNamesTheRecipeLine(t *testing.T) {
+	f := newGateFixture(t, gateOptions{team: "team-a"})
+	session := signInAs(t, f.s, "sub-a")
+
+	status, body := applyAllowlist(t, f.base, session, "acc-tok", "sub-a,\ufeffsub-b")
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", status, body)
+	}
+	if !strings.Contains(body, "DEPLOYMENT_ALLOWLIST value from a freshly generated deployment recipe") {
+		t.Fatalf("the refusal must name the recipe's line as the source, got: %s", body)
+	}
+	if strings.Contains(body, "from the portal") {
+		t.Fatalf("the refusal must not name the portal's list as the source, got: %s", body)
 	}
 }
 
@@ -659,6 +685,27 @@ func TestTheModeReadCarriesTheNoticeOnlyWhereTheControlExists(t *testing.T) {
 	// so asserting the key is absent is what tells "not set" from "set to nothing".
 	if strings.Contains(string(body), "allowlistNotice") {
 		t.Fatalf("a pre-cloud deployment has no access list to change, so it must carry no notice: %s", body)
+	}
+}
+
+// TestTheModeReadNamesTheSessionsOwnSubject. The card keeps the operator's own row ticked, and the roster
+// names rows by identifier — so the mode read has to say which identifier is the session's. It is the
+// session's own, answered to that session only; a session minted with no identity carries no user at all.
+func TestTheModeReadNamesTheSessionsOwnSubject(t *testing.T) {
+	f := newGateFixture(t, gateOptions{team: "team-a"})
+	_, body := get(t, f.base, "/api/mode", signInAs(t, f.s, "sub-a"))
+	var mode modeView
+	if err := json.Unmarshal(body, &mode); err != nil {
+		t.Fatalf("decoding the mode read: %v", err)
+	}
+	if mode.User == nil || mode.User.Sub != "sub-a" {
+		t.Fatalf("the mode read must carry the session's own subject, got user %+v", mode.User)
+	}
+
+	// A session with no recorded identity — the restart window, or a local one — carries nothing at all.
+	_, body = get(t, f.base, "/api/mode", signIn(t, f.s))
+	if strings.Contains(string(body), `"sub"`) {
+		t.Fatalf("a session without an identity must not carry a subject: %s", body)
 	}
 }
 

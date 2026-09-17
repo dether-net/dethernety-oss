@@ -335,10 +335,12 @@ query {
 {
   message: "Internal server error",
   extensions: {
-    code: "INTERNAL_ERROR"
+    code: "INTERNAL_ERROR"   // or the error's own code — see below
   }
 }
 ```
+
+In production the code is the only field a client gets, so it is classified rather than copied: `maskedErrorCode()` in `src/gql/utils/masked-error-code.ts`, used by both `formatError` here and by the SSE transport's `sse-error-masking.ts`. An error that carries its own code keeps it (`UNAUTHENTICATED`, `MODULE_RESOLVER_TIMEOUT`, a crash's `INTERNAL_SERVER_ERROR`, …). The `@neo4j/graphql` library's own refusals carry none — the schema-level `@authentication` check throws a bare `Unauthenticated`, and the Cypher-level path re-throws `Neo4jGraphQLAuthenticationError` / `Neo4jGraphQLForbiddenError` — so they are recognised by shape and answered `UNAUTHENTICATED` / `FORBIDDEN`. Before this, a deployment refusing a validated-but-unlisted caller (`DEPLOYMENT_ALLOWLIST`) was masked to `INTERNAL_SERVER_ERROR`, indistinguishable from a crash. No oracle is opened: a missing, invalid, expired and unlisted credential all get the same code. An error with no code at all falls back to `INTERNAL_ERROR`.
 
 ## Logging
 

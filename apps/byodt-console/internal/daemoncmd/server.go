@@ -123,10 +123,12 @@ func (s *server) routes() http.Handler {
 	// Everything else requires a live session.
 	mux.HandleFunc("GET /api/mode", s.sess.requireSession(s.mode))
 	mux.HandleFunc("GET /api/state", s.sess.requireSession(s.state))
-	// THE SIX ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, and every read below is not — a member
-	// who cannot see what their deployment has is worse served than one who cannot change it. See admin.go
-	// for what the gate decides and in which order; the wrapper composes OVER the session check, so a
-	// caller holds a session first and then administers the team.
+	// THE SIX ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, AND SO ARE THE TWO READS THAT REVEAL WHO
+	// MAY SIGN IN. Every other read below is not — a member who cannot see what their deployment has is
+	// worse served than one who cannot change it — and the two are the named exception because what they
+	// disclose is not what the deployment has but the team's people, by address, and the selection among
+	// them. See admin.go for what the gate decides and in which order; the wrapper composes OVER the
+	// session check, so a caller holds a session first and then administers the team.
 	//
 	// POST /api/cloud — connect — is the exception, and it needs no gate. It is the pre-cloud paste path
 	// and has NO AUTHENTICATED SUBJECT: it runs before the deployment is connected, when there is no cloud
@@ -148,6 +150,14 @@ func (s *server) routes() http.Handler {
 	// connected deployment without disconnecting, which is the whole reason it exists: the reconfiguration
 	// it replaces costs every cloud module and the classes they declare. See allowlist.go.
 	mux.HandleFunc("POST /api/cloud/allowlist", s.sess.requireSession(s.requireAdmin(s.cloudAllowlist)))
+	// GET /api/cloud/allowlist and GET /api/cloud/roster — the two admin-gated reads, and the exception the
+	// comment above names. The first answers the identifiers the deployment admits; the second relays the
+	// team's members, by address, from the content service. ServeMux tells the two allowlist patterns apart
+	// by method, the shape DELETE /api/artifacts/{key} already uses beside its POST. Both REFUSE on a
+	// deployment that names no team rather than inherit the gate's pass-through there, which would leave
+	// them open to any session holder on exactly those deployments. See roster.go.
+	mux.HandleFunc("GET /api/cloud/allowlist", s.sess.requireSession(s.requireAdmin(s.cloudAllowlistRead)))
+	mux.HandleFunc("GET /api/cloud/roster", s.sess.requireSession(s.requireAdmin(s.cloudRoster)))
 	// Entitled artifacts. Installing one fetches signed bytes with the OPERATOR's own credential, which
 	// is why this route read a second header before the gate existed; everything it places is local.
 	mux.HandleFunc("POST /api/artifacts", s.sess.requireSession(s.requireAdmin(s.installArtifact)))
@@ -164,7 +174,8 @@ func (s *server) routes() http.Handler {
 	// GET /api/packages reads the operator's own access token, because the subscription it marks the
 	// catalog with is a fact only that token can ask for. The catalog half still carries nothing.
 	//
-	// SIX ROUTES NOW READ THAT TOKEN, not two: the gate asks the cloud with it on each of the five it
+	// EVERY GATED ROUTE READS THAT TOKEN TOO, and this comment once counted them — "six, not two" — and
+	// was wrong by the time the next one was wired. The gate asks the cloud with it on each route it
 	// wraps, so mounting and unmounting carry it even though what they do is a local file write. That is
 	// the difference between a gate that asks the cloud and one that trusts a local session record, and
 	// only the first is worth building.
@@ -291,8 +302,17 @@ type modeView struct {
 	AllowlistNotice string `json:"allowlistNotice,omitempty"`
 }
 
-// userView is the display identity of the requesting session, shown in the console header.
+// userView is the identity of the requesting session: the address and name the console header shows,
+// and the subject identifier.
+//
+// THE SUBJECT IS HERE SO THE CARD CAN FIND THE OPERATOR'S OWN ROW. The access-list card keeps that row
+// ticked and disabled, because the one list the daemon will always refuse is one that leaves the
+// submitter out — and the roster names people by identifier, which is the one thing an operator cannot
+// look up about themselves. Matching by address instead was a display aid that could miss (an account
+// need carry no address), and a row that is merely unlabelled cannot be kept ticked. It is the session's
+// own identity, answered only to that session, and the same value the refusal already names.
 type userView struct {
+	Sub   string `json:"sub,omitempty"`
 	Email string `json:"email,omitempty"`
 	Name  string `json:"name,omitempty"`
 }
@@ -301,10 +321,10 @@ type userView struct {
 // is nothing to show (local sessions carry no identity).
 func (s *server) sessionUser(r *http.Request) *userView {
 	ident := s.sess.identityOf(r.Header.Get(sessionHeader))
-	if ident.email == "" && ident.name == "" {
+	if ident.sub == "" && ident.email == "" && ident.name == "" {
 		return nil
 	}
-	return &userView{Email: ident.email, Name: ident.name}
+	return &userView{Sub: ident.sub, Email: ident.email, Name: ident.name}
 }
 
 const (

@@ -273,7 +273,7 @@ rewrites the same file with the local values.
 was that a disconnect contacts nothing, because a recovery path that depended on the thing it recovers from
 would be useless. Disconnect removes every cloud-provided module and, at the next platform start, the
 classes those modules declare and every link those classes are in — the irreversible act the admin role
-exists to put behind someone — so it is gated like the other four routes that change the deployment
+exists to put behind someone — so it is gated like the other routes that change the deployment
 ([below](#authentication-posture)), and the gate asks the cloud. What the old sentence got right is kept as
 a carve-out: a deployment that can never obtain a content credential is let through rather than refused
 forever, because a gate that refused in exactly the state disconnect exists to undo would be a lockout
@@ -304,10 +304,15 @@ and every link those classes are in ([above](#the-mode-layer)). The way that cos
 env file on the host — was nowhere in the console's vocabulary. This route is that edit, named and gated.
 
 **It applies a value; it never fetches one.** The membership list lives in the operator's account, and the
-console's deployment-scoped credential has the wrong audience to ask for it — which is why an earlier route
-that tried to re-fetch a whole configuration was retired rather than repaired. The operator copies the list
-out of their account, where they are already signed in with a credential that works, and this route writes
-it. Nothing here reads the cloud's idea of who a member is.
+console's deployment-scoped credential has the wrong audience to ask the account service for it — which is
+why an earlier route that tried to re-fetch a whole configuration was retired rather than repaired. The
+value this route writes is composed elsewhere: by the card, from the team's roster and the deployment's own
+list, both read through the two admin-gated reads [below](#who-may-sign-in-the-two-admin-gated-reads) — or,
+on a deployment that names no team, pasted by the operator out of a recipe generated on the portal, where
+they are signed in with a credential that works. Either way this route
+writes whichever value it is given and asks nobody; nothing *here* reads the cloud's idea of who a member is,
+and the audience argument that rules the account service out still stands. The roster comes from the
+content service, whose audience the token is right for.
 
 **It is admin-gated like every other route that changes the deployment**, wired the same way — the gate
 composed over the session check, asked live, never cached ([below](#authentication-posture)) — so the
@@ -328,6 +333,22 @@ which has never heard of this variable, and its subject has been checked against
 Where the session carries no subject at all, the guard cannot run, and the route refuses rather than
 proceeding without it.
 
+**The card cannot reach the guard; only the paste box can.** The guard names the submitter by identifier,
+which is the one thing an operator does not know about themselves — so read from the card, its sentence
+was a puzzle: an operator who unticked their own row was told to re-paste a list they had never pasted. The
+card therefore does not offer the choice. `GET /api/mode` carries the session's subject as `user.sub`
+(alongside the address and name the header shows), the card finds the operator's own row on the roster by
+that identifier — the address is only the fallback for a daemon that does not yet say — and keeps that row
+ticked with its box disabled, saying why on the row itself. The tick is re-added wherever the ticks are set
+from outside the operator's hand: the seed from the admitted list, and a draft restored across the sign-in
+redirect, so a draft written before the rule existed cannot bring a self-excluding selection back. The
+guard is unchanged and is still what stops the lockout; the card is the interface not offering a choice the
+guard will refuse. Its refusal sentence is consequently written for the one path that can read it — it
+leads with re-pasting the recipe's `DEPLOYMENT_ALLOWLIST` value from a freshly generated recipe rather than
+adding oneself back, because the likeliest cause of a paste that omits the submitter is a partial copy that
+dropped others too — and it names the recipe's own line, because the portal's separate copyable list no
+longer exists.
+
 **An empty list is refused unconditionally, and that is not a required-field check wearing a guard's
 clothes.** The platform reads an empty list as *no restriction* rather than "nobody", and a shared-pool
 deployment reachable over the network refuses to start with one at all. The console cannot tell which of
@@ -339,10 +360,13 @@ submitted string, because the platform splits on commas and drops the blanks: `,
 wearing a non-empty string, and a check on the string would pass it straight through.
 
 **What it accepts is wider than what it writes.** Entries may be separated by commas or by whitespace, and
-are de-duplicated, sorted and written back in the single comma-joined form the platform parses — so a list
-copied out of an account that renders its members one per line applies on the first attempt, instead of
-failing over a separator the operator never chose. Nothing is loosened at the platform by that, since the
-canonical form is what gets written. The guard's own comparison is exact: the platform compares the `sub`
+are de-duplicated, sorted and written back in the single comma-joined form the platform parses. The reason
+was the portal, which once rendered the members as a list, one per line, so the natural copy was
+newline-separated and refusing it would have failed the documented path on the first attempt over a
+separator the operator never chose. The portal no longer keeps that list — the paste source is now the
+recipe's comma-joined line — but the card composes its value one identifier per line, so the forgiveness is
+still load-bearing. Nothing is loosened at the platform by that, since the canonical form is what gets
+written. The guard's own comparison is exact: the platform compares the `sub`
 claim exactly, so a trimmed or case-insensitive match here would claim an admission the platform will not
 make.
 
@@ -374,12 +398,24 @@ Two copies of a sentence drift; one constant read twice cannot. It is a standing
 control does and never a claim that a restart is owed — nothing the platform reports says which access list
 it started with, so `restartPending` stays what it was.
 
-**The answer reports a count and never the subjects.** Nothing in this console surfaces the access list —
-the ungated posture read is a hard field projection precisely so the list and the service URLs stay off the
-wire — so the operator cannot see what they replaced, and the count is the only confirmation they get that
-the value parsed the way they meant. It catches the failure that actually happens, a paste that lost half
-its lines, without printing back the ids that are kept out of every other response. The log record has the
-same shape: how many subjects, and which session subject asked for it, never the list.
+The claim that a restart *is* owed lives in the page instead, because the receipt that carries the sentence
+is read once and scrolls away and nothing in the mode view can reflect it. After any successful write —
+the ticks, the departed removal, or the paste — the card raises the modules tab's sticky reminder in the
+same shape, **Restart required to apply your changes**, naming `byodt restart platform` and saying that
+anyone removed can still sign in until then. It is component state, not a daemon field: raised by a
+successful answer and never by a refused one, kept across the card's own refreshes because the console
+cannot observe the operator running the command, cleared by a page reload — and by a disconnect, which
+owes a restart of its own that the mode view does report.
+
+**The answer reports a count and never the subjects.** Exactly one route in this console surfaces the
+access list — the admin-gated read [below](#who-may-sign-in-the-two-admin-gated-reads) — and the ungated
+posture read is a hard field projection precisely so the list and the service URLs stay off the wire. On a
+deployment whose team the card can list, the count is a receipt and the card fetches the list again to show
+what was written; on one that names no team, where the read refuses and the operator pasted, the count is
+the only confirmation they get that the value parsed the way they meant. It catches the failure that
+actually happens, a paste that lost half its lines, without printing back the ids that are kept out of
+every other response. The log record has the same shape: how many subjects, and which session subject
+asked for it, never the list.
 
 **The refusals an operator actually meets**, on top of the gate's own:
 
@@ -388,12 +424,110 @@ same shape: how many subjects, and which session subject asked for it, never the
 | `409` this deployment is not connected to the cloud | There is no access list to change. The mirror of the connect path's write guard: that route refuses a deployment that *is* cloud-configured, this one refuses a deployment that is not |
 | `412` the console could not tell which account this session belongs to | The guard cannot run, so it refuses rather than proceeding. Deliberately its own sentence and not the gate's `412`, which says the tab holds no credential to ask the cloud with; this says the console cannot tell whose the session is. Same status because the remedy is the same one the SPA answers by *acting* — it performs the sign-in |
 | `400` an empty access list | Above. The refusal names the value that does what the operator meant: a list containing only their own subject |
-| `400` a character that cannot appear in a subject | A control character. A newline would split the written file into a second `NAME=value` line, the exact class the closed variable set exists to prevent — so it is refused where the value is accepted as well as at the writer every write passes through |
-| `409` the list does not include the account you are signed in as | The self-exclusion guard. A conflict rather than a bad request: the value is perfectly well formed, and what is wrong is its relationship to the person submitting it. A `400` would read as "you typed it wrong" and send the operator back to re-copy a list that was already correct |
+| `400` a character that cannot appear in a subject | A control character. A newline would split the written file into a second `NAME=value` line, the exact class the closed variable set exists to prevent — so it is refused where the value is accepted as well as at the writer every write passes through. The remedy it names is the recipe's `DEPLOYMENT_ALLOWLIST` line, freshly generated, because that is the only place left to copy from |
+| `409` the list does not include the account you are signed in as | The self-exclusion guard. A conflict rather than a bad request: the value is perfectly well formed, and what is wrong is its relationship to the person submitting it. A `400` would read as "you typed it wrong" and send the operator back to re-copy a list that was already correct. Reachable from the paste box only — the card keeps the operator's own row ticked ([above](#changing-who-may-sign-in)) — so its sentence speaks of what was pasted |
 | `409` this deployment's configuration is incomplete | The mode layer is missing a required variable, so the console will not rewrite it. Reachable by hand-editing the file on the host, which is the same way every other incomplete-configuration state is reached |
 
 Every one of those changes nothing, and says so. And never `401`, for the reason the mint route and the
 admin gate never return one: the SPA reads any `401` as an expired session.
+
+### Who may sign in: the two admin-gated reads
+
+The card that chooses who may sign in needs two lists it cannot compose from the wire it already has: the
+team's members, and the deployment's current selection among them. Two reads serve them, and both are the
+named exception to the rule that reads stay open ([below](#authentication-posture)) — gated for what they
+reveal, not for what they change.
+
+| Route | Answers | Refuses |
+|---|---|---|
+| `GET /api/cloud/roster` | `{ members: [{ sub, email }] }` — the team's current members, relayed from the content service, `no-store` | `409` pre-cloud; `409` names no team; `503` the service could not be asked; `412` the service no longer accepts this tab's sign-in; `502` the service declined this sign-in |
+| `GET /api/cloud/allowlist` | `{ subjects: [...] }` — the identifiers in `DEPLOYMENT_ALLOWLIST`, in the canonical form the apply writes, de-duplicated and sorted, never null, `no-store` | `409` pre-cloud; `409` names no team |
+
+Both sit behind `requireSession(requireAdmin(…))` exactly as the apply does, and the gate's own refusals —
+`403`, `503`, `412`, `409` — come before either handler is entered. The gate's shared `403` sentence names
+both things the role covers, *change this deployment or see who may sign in to it*, because it once said
+only *this operation changes the deployment*, which was true of every gated route until these two were
+put behind the same gate and false of them.
+
+**The roster is relayed because the page cannot fetch it.** The content service's entitled tier serves no
+CORS, deliberately, and the deployment-scoped token in the tab is the right credential for it — so the
+daemon asks on the page's behalf, with the operator's bearer and this deployment's team, over the same
+transport every other entitled call uses: bearer set, the team header sent only alongside a non-empty
+token, redirects refused, the same timeout, and a body cap of its own. The protocol marker is **checked,
+not merely parsed**, and `members` is mandatory — the marker without it is malformed, exactly as `packages`
+is on the entitlements document. A single member with a blank identifier makes the whole document
+malformed rather than a shorter team. **The relay re-encodes two fields rather than passing bytes
+through**, so a field the service adds about a person later stops at this boundary.
+
+**The status mapping is by remedy, and two statuses are deliberately absent.** The fetch has four outcomes
+where the entitlements check has a boolean, because the operator's remedies differ: a transport error, an
+unrecognised document, a `5xx` or a `429` is `503` — wait and try again; a `401` from the service is `412`
+— sign in to the cloud again, with its own sentence rather than the gate's, because the gate *did* ask with
+this credential and was answered; any other `4xx` — `403`, `404`, `400` — is `502`. **Not `403`**, because
+`403` from this daemon is the interface's *you are not an administrator* and the gate has just confirmed the
+opposite: a service `403` here is the service refusing a sign-in that did not come through the team's own
+deployment, which is about the deployment's configuration and not about the person, and the interface
+must not offer a role remedy for a configuration fault. **Never `401`**, which the SPA answers by clearing
+the session — the service's `401` is the one status the fetch maps away from itself.
+
+**The team-less refusal is the reads' own, and it is the one outcome of the gate they must not inherit.**
+The gate stands aside on a deployment that names no team so that the routes that change the deployment
+behave exactly as they did before the gate existed. A read that inherited that pass-through would be
+ungated on exactly those deployments — any session holder could read who may sign in. So both reads decide
+the team-less case for themselves, before anything is read and before anything is dialled, with their own
+`409` sentence: the deployment's recipe predates team identifiers, and without one the console will show
+neither the team nor who may sign in. *Absent* and *malformed* are told apart, as the gate tells them apart:
+an absent identifier is the supported pre-team state and gets that sentence; a malformed one is a
+configuration fault and gets the gate's *can never check* sentence, because *regenerate the recipe* is the
+wrong remedy for a typo. Each handler is correct standing alone rather than only while wrapped — the relay
+re-checks the base and the token the gate has already checked, both re-check posture — and a test calls
+both handlers bare and expects the team-less refusal from each.
+
+**Nothing from either body reaches a log record, and that is a test rather than a comment.** The relay
+logs only a transport error on an outage, which names the path and the host and never the body; nothing
+else in either handler logs at all. The test swaps the daemon's logger for a capturing sink at debug level,
+runs a relay, asserts the gate's own audit line *is* in the capture — the anti-vacuity check, without which
+a logger swap that silently failed would pass every assertion — and then that no address, no identifier and
+not even the fixture's domain appears anywhere in it. The access-list read is held to the same standard.
+The list read takes **no lock**: the apply holds the mode-layer lock across its read and its write because
+the read decides what the write contains; this reads and decides nothing, and the file is written
+atomically, so a read racing an apply sees the list before or the list after.
+
+**And the card, which is where the two lists meet.** The page fetches both when the card is shown and
+holds them in component memory for exactly as long as it is. It derives the ticks — the admitted list laid
+over the roster — the departed — admitted identifiers absent from the roster, shown individually by
+identifier because the address of someone who has left is kept nowhere — and the count the overview banner
+carries, which is the length of that second list and is computed in the tab, never asked of the daemon,
+and never persisted. The card has one arm per outcome of the reads and shows an empty team in none of them:
+a failed fetch is a reason, printed, and a `412` on the read is *offered* a sign-in rather than acted on,
+because a card that redirected on mount would send every reloaded tab to the identity provider unasked.
+The paste box survives in exactly one arm — the team-less deployment — because every other arm refuses
+the write for the same reason it refused the read. **One writer serves every control**: **Apply** submits
+exactly the ticks; **Remove people who have left** submits *admitted ∩ roster* and leaves unapplied ticks
+alone; the paste box submits what was pasted; and all three go through `POST /api/cloud/allowlist` above,
+which re-runs every guard. The draft that survives a `412` on the write is identifiers only — the ticks or
+the paste, under one `sessionStorage` key, consumed on return — and the roster is fetched again and the
+restored ticks laid over it, a tick for someone who has since left being dropped. A component test reads
+the stored value back after a redirect and looks for an address in it.
+
+**Where the card sits, and why it carries a numeral.** The Cloud tab is three numbered steps and one
+unnumbered section: **1 · Access and callbacks**, **2 · Configuration**, **3 · Who may sign in**, and
+**Disconnect** at the foot. Steps 1 and 2 are always shown; step 3 and the disconnect section exist only
+once a cloud file is written, and step 2 on a connected deployment reduces to one sentence pointing at each.
+Step 3 cannot come earlier — the roster is fetched for a connected deployment that names its team, so there
+is nothing to do there until step 2 is done — and it sits above disconnect because the order is the
+argument: until it existed, the connected state offered exactly one control and it was the destructive one,
+so an operator looking for "change who has access" found **Disconnect**. Disconnect is last and unnumbered
+because it is not a step of setting the deployment up but the undoing of step 2, and a destructive control
+belongs after everything an operator might have come for. The numerals pair with the same-numbered steps on
+the account portal's Deployment page, which an operator has open beside this screen: steps 1 and 2 are the
+same decisions on both, and each has a third step that is deliberately a different decision with a different
+title — the portal's **3 · Team** decides who is on the team, the console's **3 · Who may sign in** decides
+which of them this deployment admits. The pairing is agreed by convention and enforced by nothing: the
+portal is a separate application, the console imports nothing from it, and the badges match only because
+both palettes define the same accent values, so a change to either page's numbering has to be made on the
+other by hand. A component test pins the order of the three numerals and that the disconnect section carries
+none.
 
 ### Content mounts
 
@@ -676,7 +810,8 @@ so.
 ### Authentication posture
 
 How a session is minted tracks the deployment's posture; how it is *carried* never changes — and on the
-six routes that change the deployment, holding one is not enough on its own.
+routes that change the deployment, and on the two reads that reveal who may sign in, holding one is not
+enough on its own.
 
 | Posture | Mint | Lifetime |
 |---|---|---|
@@ -715,13 +850,16 @@ authentication round trip.
 
 **Changing the deployment takes more than a session.** The gated set is these, and it is stated by naming
 them rather than by counting them — `DELETE /api/cloud`, `POST /api/cloud/allowlist`, `POST /api/modules`,
-`DELETE /api/modules/{key}`, `POST /api/artifacts`, `DELETE /api/artifacts/{key}` — and every read beside
-them is not. Until this landed a session was the whole authority, so any member of a team
-who could reach the console could disconnect the deployment, taking every cloud-provided module and the
-classes those modules declare with it. That is the irreversible act a role is being introduced to put behind
-someone. The reads stay open because a member who cannot *see* what their deployment holds is worse served
-than one who cannot change it. The gate composes *over* the session check rather than replacing it: a caller
-holds a session first, and then administers the team.
+`DELETE /api/modules/{key}`, `POST /api/artifacts`, `DELETE /api/artifacts/{key}` — **and two reads beside
+them, `GET /api/cloud/roster` and `GET /api/cloud/allowlist`**; every other read is not. Until this landed a
+session was the whole authority, so any member of a team who could reach the console could disconnect the
+deployment, taking every cloud-provided module and the classes those modules declare with it. That is the
+irreversible act a role is being introduced to put behind someone. The reads stay open because a member who
+cannot *see* what their deployment holds is worse served than one who cannot change it — with the one named
+exception: what the two reads reveal is not what the deployment *has* but *who may sign in to it*, the
+team's people by address and the selection among them, and neither is something a member is owed a view of
+([above](#who-may-sign-in-the-two-admin-gated-reads)). The gate composes *over* the session check rather
+than replacing it: a caller holds a session first, and then administers the team.
 
 **The question names one team, and only one is the right one.** A person may administer one team and merely
 belong to another, so "is this person an administrator" is not a well-formed question; "do they administer
@@ -743,8 +881,8 @@ quietly withdrawn by an unrelated fault in the same file.
 | Local state | Decision |
 |---|---|
 | Not cloud posture | No gate. A local session carries no identity at all — it is minted with no credential, on single-user host trust, so there is no subject, no team and no cloud to ask. A role check where no roles exist would lock an operator out of their own console before they had anything to lose |
-| The deployment names no team | No gate, and the deployment behaves exactly as it did before the gate existed. `DEPLOYMENT_TEAM_ID` is an optional recipe variable and absent means "as today". Asking anyway would refuse with the *wrong sentence*: the content service cannot scope `admin` to a team the request did not name, so it omits the field, an omitted field reads as false, and the operator would be told they are not an administrator when what is missing is a line in their recipe. It closes on its own — the gate switches itself on per deployment as team identifiers arrive |
-| The configured `OIDC_SCOPE` carries no content scope, **or** the configured content host is missing or unusable | The check can never succeed here, and only the deployment's own configuration can say so. Two causes with one remedy — fix the configuration — and both look transient from the wire: a deployment without the scope still obtains a perfectly good token for the scopes it *did* ask for, and a deployment with no usable host has nowhere to send the question at all. Left to the call, the second would answer "retry in a moment" every moment, forever. Disconnect proceeds; the other four are refused permanently |
+| The deployment names no team | No gate, and the deployment behaves exactly as it did before the gate existed. `DEPLOYMENT_TEAM_ID` is an optional recipe variable and absent means "as today". Asking anyway would refuse with the *wrong sentence*: the content service cannot scope `admin` to a team the request did not name, so it omits the field, an omitted field reads as false, and the operator would be told they are not an administrator when what is missing is a line in their recipe. It closes on its own — the gate switches itself on per deployment as team identifiers arrive. **The two reads that reveal who may sign in do not inherit this arm**: they did not exist before the gate, so "as before" is not a state they have, and passed through they would be ungated on exactly these deployments. Each refuses the team-less case for itself ([above](#who-may-sign-in-the-two-admin-gated-reads)) |
+| The configured `OIDC_SCOPE` carries no content scope, **or** the configured content host is missing or unusable | The check can never succeed here, and only the deployment's own configuration can say so. Two causes with one remedy — fix the configuration — and both look transient from the wire: a deployment without the scope still obtains a perfectly good token for the scopes it *did* ask for, and a deployment with no usable host has nowhere to send the question at all. Left to the call, the second would answer "retry in a moment" every moment, forever. Disconnect proceeds; every other gated route is refused permanently |
 
 **Past those three the cloud is asked, live, and nothing is cached** — unless no operator access token
 arrived at all, which is refused *before* the call rather than inside it, so a tab whose tokens are gone
@@ -788,8 +926,8 @@ something an operator waits out; an outage that *cannot* end — a deployment co
 ask at all — would be a lockout, and disconnect is the operation an operator reaches for to fix a bad
 recipe. So on that one deployment state, that one route proceeds. It is disconnect's alone: the predicate is
 a property of the whole deployment, so written over every gated route it would ungate mount, unmount,
-install, remove and the access-list apply on any mis-scoped deployment, which is a blanket bypass rather
-than a recovery. A
+install, remove, the access-list apply and the two reads that reveal who may sign in on any mis-scoped
+deployment, which is a blanket bypass rather than a recovery. A
 *transient* outage does refuse disconnect, deliberately — an attacker who can interrupt this deployment's
 network can therefore deny a disconnect, which is the safe direction for a destructive act to fail in.
 
@@ -824,11 +962,13 @@ at the click, with the sentence where the confirmation card would have opened.
 | `GET /auth/callback` | no | no | The sign-in landing page — serves the same shell, which completes the exchange |
 | `POST /api/session` | no | no | Mint a session, by posture |
 | `GET /api/posture` | no | no | Which sign-in to render, plus the public discovery values it needs |
-| `GET /api/mode` | yes | no | Phase, restart-pending, and the signed-in subject — plus, on a cloud deployment, when a change to who may sign in takes effect, so the panel can say it before one is submitted |
+| `GET /api/mode` | yes | no | Phase, restart-pending, and the signed-in subject — its identifier (`user.sub`), which the access-list card uses to find and hold the operator's own row, plus the address and name the header shows; answered only to that session — plus, on a cloud deployment, when a change to who may sign in takes effect, so the panel can say it before one is submitted |
 | `GET /api/state` | yes | no | The init record plus derived failures |
 | `POST /api/cloud` | yes | no — there is no subject to check | Write the cloud mode layer from a pasted recipe |
 | `DELETE /api/cloud` | yes | yes, with the recovery carve-out | Revert the mode layer to the local values, removing every cloud-provided module |
 | `POST /api/cloud/allowlist` | yes | yes | Replace who may sign in — one variable of the mode layer, on a connected deployment, without a disconnect (cloud posture only) |
+| `GET /api/cloud/allowlist` | yes | **yes — gated for what it reveals** | The identifiers this deployment admits, read from its own configuration in the canonical form the apply writes. Refuses for itself on a deployment that names no team (cloud posture only) |
+| `GET /api/cloud/roster` | yes | **yes — gated for what it reveals** | The team's current members by identifier and address, relayed from the content service with the operator's own token and re-encoded to two fields; never logged, never written. Refuses for itself on a deployment that names no team (cloud posture only) |
 | `GET /api/packages` | yes | no | The public content catalog, marked with what this deployment's subscription includes — read live on every load, never from the mode layer. Also reports whether this deployment is configured to ask at all, and whether this operator administers it (cloud posture only) |
 | `GET /api/modules` | yes | no | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
 | `POST /api/modules` | yes | yes | Mount one module at one pin (cloud posture only) |
@@ -843,23 +983,24 @@ mode file rather than a dump of it — the same file also holds the deployment's
 service URLs, and none of those are returned.
 
 **Every route in the admin column is gated on the request itself**, never on what the panel offered. The
-gate's own decision order, its three refusal statuses, and why connect is absent from that column while
+gate's own decision order, its four refusal statuses, and why connect is absent from that column while
 disconnect carries a carve-out are [above](#authentication-posture).
 
-**Seven routes carry a second credential**, the operator's access token on `X-Console-Cloud-Token` — **and
-this said two until the admin gate landed.** Two of them forward it because the daemon needs it to answer:
-`GET /api/packages` asks what the subscription includes, `POST /api/artifacts` asks for bytes. The other
-five forward it because the gate asks the cloud with it before a deployment-changing operation runs at all,
-so mounting, unmounting and rewriting the access list now carry a credential even though what they do is
-write a file on this host.
-That is the difference between a gate that asks the cloud and one that trusts a local session record, and
-only the first is worth building. It is stated here rather than on the rows because it is a property of the
-set. Each attaches it in a request helper of its own rather than through a flag on the one every other call
-shares, on both sides of the wire — and growing from two to seven is the argument for that shape rather
-than against it: every forwarding route arrived as a named function, while the one call that must stay
-credential-free, the pre-cloud paste path with no authenticated subject to forward, kept the plain helper it
-already had. The catalog half of `GET /api/packages` still carries nothing even though the same handler
-serves it.
+**Every route in the admin column carries a second credential, and so do two that are not in it** — the
+operator's access token on `X-Console-Cloud-Token`. **This paragraph once counted them — *two*, then
+*seven* — and the second count was wrong by the time the next route was wired, so it now says which kinds
+there are and not how many.** Some forward it because the daemon needs it to answer: `GET /api/packages`
+asks what the subscription includes, `POST /api/artifacts` asks for bytes, `GET /api/cloud/roster` asks for
+the team's members. The rest forward it because the gate asks the cloud with it before a gated operation
+runs at all, so mounting, unmounting and rewriting the access list carry a credential even though what they
+do is write a file on this host — and so does `GET /api/cloud/allowlist`, which reads one. That is the
+difference between a gate that asks the cloud and one that trusts a local session record, and only the
+first is worth building. It is stated here rather than on the rows because it is a property of the set.
+Each attaches it in a request helper of its own rather than through a flag on the one every other call
+shares, on both sides of the wire — and growing is the argument for that shape rather than against it:
+every forwarding route arrived as a named function, while the one call that must stay credential-free, the
+pre-cloud paste path with no authenticated subject to forward, kept the plain helper it already had. The
+catalog half of `GET /api/packages` still carries nothing even though the same handler serves it.
 
 Request bodies are capped at 1 MiB and decoded with unknown fields rejected.
 

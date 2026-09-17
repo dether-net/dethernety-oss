@@ -47,6 +47,12 @@ const contentReload = ref(0)
 // call of its own, and the content panel is mounted whenever the deployment is post-cloud, so this costs
 // no request at all.
 const contentAdmin = ref<boolean | undefined>(undefined)
+// How many accounts on this deployment's access list no longer belong to a team member, as the cloud panel
+// last worked it out from the roster it fetched in this tab. Undefined is "not known" — a member, a
+// reloaded tab with no cloud credential, an unreachable service — and shows nothing. NEVER PERSISTED and
+// never asked of the daemon, which holds no such count: it is computed afresh on every page load while an
+// administrator's credential is in the tab, and it is gone with the tab.
+const departedCount = ref<number | undefined>(undefined)
 let timer: ReturnType<typeof setInterval> | undefined
 // Bounds the local auto-remint recovery: a healthy re-mint is honored by the next poll (which resets
 // this to 0), so >2 consecutive failures means the session keeps being rejected — stop rather than spin.
@@ -74,8 +80,19 @@ const hasAlerts = computed(
     !!loadError.value ||
     !!(mode.value && mode.value.restartPending) ||
     !!(state.value && state.value.failures.length) ||
-    !!cloudNotice.value,
+    !!cloudNotice.value ||
+    !!departedCount.value,
 )
+
+// The status line for people who have left the team and can still sign in. One sentence, the same one the
+// cloud panel shows beside the list — an administrator who lands on the overview sees it without opening
+// the tab that fixes it.
+const departedSummary = computed(() => {
+  const n = departedCount.value ?? 0
+  return n === 1
+    ? '1 person who has left the team can still sign in to this deployment.'
+    : `${n} people who have left the team can still sign in to this deployment.`
+})
 
 // The OIDC discovery config the cloud SSO card and the initial-sign-in callback both run against, sourced
 // from the ungated posture read (available before a session exists, unlike /api/mode).
@@ -111,6 +128,7 @@ function toLogin() {
   state.value = null
   loadError.value = ''
   cloudNotice.value = null
+  departedCount.value = undefined
   void reestablish()
 }
 
@@ -332,6 +350,21 @@ onUnmounted(() => {
           <FailureBanner v-for="(f, i) in state?.failures ?? []" :key="`${f.kind}-${i}`" :failure="f" />
 
           <CloudNotice v-if="cloudNotice" :notice="cloudNotice" />
+
+          <!-- People who have left the team and can still sign in. In the alerts region rather than the
+               health card because it is something to act on, and the action is one tab away. -->
+          <Banner v-if="departedCount" tone="warn" title="People who have left the team can still sign in" data-cloud-departed-alert>
+            {{ departedSummary }} Remove them on the Cloud tab; the change takes effect at the next platform
+            restart.
+            <button
+              type="button"
+              class="ml-2 text-dt-text underline hover:text-dt-accent"
+              data-cloud-departed-open
+              @click="activeTab = 'cloud'"
+            >
+              Open the Cloud tab
+            </button>
+          </Banner>
         </div>
 
         <!-- At-a-glance health -->
@@ -374,7 +407,14 @@ onUnmounted(() => {
 
         <!-- Cloud -->
         <section v-show="activeTab === 'cloud'">
-          <CloudPanel v-if="mode" :mode="mode" :admin="contentAdmin" @changed="refresh" @sign-in-required="onSignInRequired" />
+          <CloudPanel
+            v-if="mode"
+            :mode="mode"
+            :admin="contentAdmin"
+            @changed="refresh"
+            @sign-in-required="onSignInRequired"
+            @departed="departedCount = $event"
+          />
         </section>
 
         <!-- Content — exists only once the platform is running in cloud mode. -->

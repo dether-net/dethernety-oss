@@ -8,9 +8,20 @@ import { createClient as createWsClient } from 'graphql-ws'
 import { print } from 'graphql'
 import { useAuthStore } from '@/stores/authStore'
 import { getConfig } from '@/config/environment'
+import { refusalMeaning } from '@/utils/deploymentRefusal'
 
 // Initialize Apollo client with runtime configuration
 let apolloClient: ApolloClient | null = null;
+
+// A full-page navigation away from the app, started at most once: a page load fires several queries
+// and every one of them is refused the same way, and the second navigation would cancel the first.
+// The page that the navigation lands on is what ends the app, so nothing here needs resetting.
+let leaving = false
+function leaveForOnce(href: string) {
+  if (leaving) return
+  leaving = true
+  window.location.href = href
+}
 
 // Create Apollo client with runtime configuration
 async function createApolloClient() {
@@ -72,6 +83,24 @@ async function createApolloClient() {
           console.error(`GraphQL error: Message: ${message}, Location: ${locations}, Path: ${path}`)
         })
       }
+
+      // A refusal for identity, answered as one. The API says UNAUTHENTICATED to a missing, stale
+      // and unlisted credential alike; this browser knows which it holds. A current token that is
+      // still refused means the deployment does not admit the account — its own page, never the
+      // login page, which would loop through the identity provider. A stale one is the ordinary
+      // case and gets the ordinary answer. Every failing query in a page load reports the same
+      // thing, so the navigation is started once.
+      const authStore = useAuthStore()
+      const meaning = refusalMeaning(error.errors, {
+        authDisabled: authStore.authDisabled,
+        isAuthenticated: authStore.isAuthenticated,
+      })
+      if (meaning === 'not-admitted') {
+        leaveForOnce(`${import.meta.env.BASE_URL}auth/not-admitted`)
+      } else if (meaning === 'sign-in') {
+        authStore.clearState()
+        leaveForOnce(`${import.meta.env.BASE_URL}login`)
+      }
     } else {
       if (import.meta.env.DEV) {
         console.error(`[ApolloClient] Network error: ${error}`)
@@ -84,7 +113,7 @@ async function createApolloClient() {
           console.warn('[ApolloClient] GraphQL request unauthorized, clearing session')
         }
         authStore.clearState()
-        window.location.href = `${import.meta.env.BASE_URL}login`
+        leaveForOnce(`${import.meta.env.BASE_URL}login`)
       }
     }
   })

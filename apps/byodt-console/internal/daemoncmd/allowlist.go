@@ -19,10 +19,15 @@ import (
 // destroyed graph data, while the way that destroys nothing — editing the env file on the host — is
 // nowhere in the console's vocabulary. This route is that operation, named.
 //
-// IT APPLIES; IT DOES NOT ASK. The roster lives in the commerce service, and this console's
+// IT APPLIES; IT DOES NOT ASK COMMERCE. The roster's home is the commerce service, and this console's
 // deployment-scoped token has the wrong audience for it — which is why the route that once tried to fetch
-// a fresh configuration was retired. The operator copies the value from the portal, where they are
-// already signed in with a credential that works, and this route writes it.
+// a fresh configuration was retired, and why nothing here asks commerce anything still. What the console
+// now asks is the CONTENT service, whose audience the token is right for and which carries a copy of the
+// roster for exactly this purpose: the admin-gated relay in roster.go puts addresses to the identifiers,
+// the page composes the list from them, and it submits that list HERE. This route is still the one
+// writer, and it still asks nobody: it writes whichever value it is given. The paste path stays beside the
+// composed one — the operator can copy the value from a recipe generated on the portal, where they are
+// signed in with a credential that works, and this route cannot tell the two apart.
 //
 // IT IS ADMIN-GATED like every other route that changes the deployment, and its gate is the same one:
 // composed in routes(), asked live, never cached.
@@ -105,22 +110,27 @@ var (
 	//
 	// AND IT LEADS WITH RE-COPYING RATHER THAN EDITING. The likeliest cause on a paste path is a partial
 	// copy that dropped lines — in which case adding yourself back fixes the symptom and applies a list
-	// that is still missing colleagues, which is the failure this guard is supposed to catch.
+	// that is still missing colleagues, which is the failure this guard is supposed to catch. The place to
+	// re-copy from is the recipe's own line: the portal once kept a separate copyable list and no longer
+	// does. And the card's tick path cannot reach this refusal at all — the operator's own row is kept
+	// ticked there — so a paste is the only way this sentence is read, and it says so.
 	selfExcluded = allowlistRefusal{
 		status: http.StatusConflict,
 		detail: "That list does not name the account you are signed in as (%s), so applying it would lock you out of this deployment at the " +
-			"next platform start. Nothing was changed. Copy the whole list again from the portal — if your own account is missing from it, " +
-			"others may be too. An administrator who is on the list can also apply it for you.",
+			"next platform start. Nothing was changed. Paste the DEPLOYMENT_ALLOWLIST value from a freshly generated deployment recipe " +
+			"again rather than adding yourself back — if your own account was missing from what you pasted, others may be too. " +
+			"An administrator who is on the list can also apply it for you.",
 	}
 )
 
 // allowlistResult is what a completed apply answers with.
 //
-// IT REPORTS A COUNT AND NEVER THE SUBJECTS. Nothing in this console surfaces the access list — the
-// posture read projects a fixed field set precisely so the list and the service URLs stay off the wire —
-// so the operator cannot see what they replaced and this answer is the only confirmation they get that
-// the value parsed the way they meant. A count catches the failure that actually happens, a paste that
-// lost half its lines; printing the ids back would defeat the reason none of them are printed anywhere.
+// IT REPORTS A COUNT AND NEVER THE SUBJECTS. Exactly one route in this console surfaces the access list —
+// the admin-gated read in roster.go, which answers an administrator who asked for precisely that — and the
+// posture read projects a fixed field set so the list and the service URLs stay off every other answer.
+// This one is not the read: it is confirmation that the value parsed the way the operator meant, and a
+// count catches the failure that actually happens, a paste that lost half its lines. Printing the ids back
+// here would put them on a response every apply carries rather than on the one built to carry them.
 type allowlistResult struct {
 	Status   string `json:"status"`
 	Subjects int    `json:"subjects"`
@@ -145,9 +155,11 @@ type allowlistResult struct {
 //
 // IT IS DELIBERATELY MORE FORGIVING THAN THE PLATFORM ABOUT SEPARATORS, and that costs nothing because
 // this value never reaches the platform in the form it was typed — the canonical comma-joined form below
-// is what gets written. The reason is the portal: it renders the members as a LIST, one per line, so the
-// natural copy is newline-separated. Refusing that would have made the documented path — "copy the list
-// from the portal" — fail on the first attempt, with a message about a separator the operator never chose.
+// is what gets written. The reason was the portal: it rendered the members as a LIST, one per line, so the
+// natural copy was newline-separated, and refusing that would have made the documented path fail on the
+// first attempt with a message about a separator the operator never chose. The portal no longer keeps that
+// list — the source is now the recipe's comma-joined line — but the card composes its value one identifier
+// per line, so the forgiveness is still load-bearing.
 // Accepting whitespace as a separator is not inventing a syntax the platform must understand; it is
 // accepting what the source of the value actually produces, and normalising it before anyone else sees it.
 // A subject containing INTERIOR whitespace would be split in two here and is refused by the shape check
@@ -254,7 +266,7 @@ func (s *server) cloudAllowlist(w http.ResponseWriter, r *http.Request) {
 		for _, r := range entry {
 			if !unicode.IsPrint(r) {
 				http.Error(w, "The access list contains a character that cannot appear in an account identifier — usually an invisible one picked up by copying. "+
-					"Nothing was changed. Copy the list again from the portal.", http.StatusBadRequest)
+					"Nothing was changed. Paste the DEPLOYMENT_ALLOWLIST value from a freshly generated deployment recipe again.", http.StatusBadRequest)
 				return
 			}
 		}

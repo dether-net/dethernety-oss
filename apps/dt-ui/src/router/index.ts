@@ -29,6 +29,9 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('@/pages/login.vue') },
     { path: '/auth/callback', name: 'auth-callback', component: () => import('@/pages/auth/callback.vue') },
     { path: '/auth/logout', name: 'auth-logout', component: () => import('@/pages/auth/logout.vue') },
+    // The sign-in worked and the deployment refused the account. Under /auth/ so the guard below lets a
+    // signed-in person reach it without a loop through the identity provider.
+    { path: '/auth/not-admitted', name: 'auth-not-admitted', component: () => import('@/pages/auth/not-admitted.vue') },
   ],
 })
 
