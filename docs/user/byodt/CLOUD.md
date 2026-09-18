@@ -338,6 +338,8 @@ Once the platform has restarted, a person whose account is not on the list still
 
 It tells them their sign-in worked, names the account it worked as, and says that who may sign in is chosen by an administrator of the team this deployment belongs to, on the deployment's console, and that the change takes effect when the platform is restarted. It offers two buttons: **Check again**, which tries the app once more, and **Sign out**. It does not send them back to sign in, because their sign-in is not the problem.
 
+A sign-in that has merely expired does not show this page. The app renews it without a word, and if it cannot, sends the person to the ordinary sign-in. The page appears only when a freshly renewed sign-in is refused too.
+
 So when a colleague reports that page, the deployment is doing what its list says. If they should have access:
 
 1. On the **Who may sign in** card, tick their row and click **Apply** — or, on a deployment that names no team, paste a list that includes them and click **Apply access list**.

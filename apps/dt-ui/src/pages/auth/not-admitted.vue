@@ -2,8 +2,10 @@
 /**
  * The sign-in worked and the deployment refused the account.
  *
- * Reached from the Apollo error link when the API answers UNAUTHENTICATED to a
- * token this browser knows to be current (see utils/deploymentRefusal). It is
+ * Reached from the Apollo error link only when a token the identity provider has
+ * just issued is refused: a refusal of the token the browser already held is first
+ * answered with a refresh and one retry, because an expired session looks the
+ * same from here (see utils/deploymentRefusal and plugins/refusalHandler). It is
  * its own page rather than a banner over the app, because the app behind it
  * cannot load anything — every gated query fails the same way — and a page of
  * empty lists with "try again" in each is what this replaces. And it is NOT
@@ -50,8 +52,11 @@ function checkAgain() {
         restarted — then check again.
       </p>
       <div class="d-flex justify-center ga-3">
-        <v-btn color="primary" data-not-admitted-check @click="checkAgain">Check again</v-btn>
-        <v-btn variant="outlined" data-not-admitted-sign-out @click="signOut">Sign out</v-btn>
+        <!-- SECONDARY, NOT PRIMARY. In the dark theme `primary` is the near-background teal meant for
+             header banners, and as a button on this page it all but disappeared. `secondary` is the
+             readable teal the app uses for every actionable control on a dark surface. -->
+        <v-btn color="secondary" data-not-admitted-check @click="checkAgain">Check again</v-btn>
+        <v-btn color="secondary" variant="outlined" data-not-admitted-sign-out @click="signOut">Sign out</v-btn>
       </div>
     </div>
   </div>

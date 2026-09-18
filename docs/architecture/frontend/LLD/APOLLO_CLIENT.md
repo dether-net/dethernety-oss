@@ -437,23 +437,20 @@ async function bootstrap() {
 
 ### Error Link
 
-**Source:** `apolloClient.ts` (`errorLink`), `utils/deploymentRefusal.ts`
+**Source:** `apolloClient.ts` (`errorLink`), `plugins/refusalHandler.ts` (`createRefusalHandler`), `utils/deploymentRefusal.ts` (`refusalAction`)
 
 ```typescript
-const errorLink = new ErrorLink(({ error }) => {
+const handleRefusal = createRefusalHandler({
+  auth: () => useAuthStore(),
+  leave: leaveForOnce,
+  basePath: import.meta.env.BASE_URL,
+})
+
+const errorLink = new ErrorLink(({ error, operation, forward }) => {
   if (CombinedGraphQLErrors.is(error)) {
-    // GraphQL errors: logged in DEV, then classified as a refusal or not
-    const authStore = useAuthStore()
-    const meaning = refusalMeaning(error.errors, {
-      authDisabled: authStore.authDisabled,
-      isAuthenticated: authStore.isAuthenticated,
-    })
-    if (meaning === 'not-admitted') {
-      leaveForOnce(`${import.meta.env.BASE_URL}auth/not-admitted`)
-    } else if (meaning === 'sign-in') {
-      authStore.clearState()
-      leaveForOnce(`${import.meta.env.BASE_URL}login`)
-    }
+    // GraphQL errors: logged in DEV, then handed to the refusal handler,
+    // which may return an Observable that retries the operation
+    return handleRefusal({ error, operation, forward })
   } else {
     // Network errors: a 401/403 status clears the session and redirects
     if (error && 'statusCode' in error && (error.statusCode === 401 || error.statusCode === 403)) {
@@ -467,44 +464,94 @@ const errorLink = new ErrorLink(({ error }) => {
 
 The link sits on the HTTP chain only (queries and mutations); the subscription transports handle their own auth failures ([above](#subscription-transports)).
 
-**A refusal for identity, classified client-side.** The API answers every refused credential the same way — `extensions.code: UNAUTHENTICATED`, whether the token is missing, invalid, expired, or valid but not on the deployment's access list (`DEPLOYMENT_ALLOWLIST`) — so the API itself is no oracle for "your token is real but you are not admitted". `refusalMeaning()` (`utils/deploymentRefusal.ts`, pure, unit-tested apart from the link) draws the distinction from what the browser already knows:
+**A refusal for identity, classified client-side.** The API answers every refused credential the same way — `extensions.code: UNAUTHENTICATED`, whether the token is missing, invalid, expired, or valid but not on the deployment's access list (`DEPLOYMENT_ALLOWLIST`) — so the API itself is no oracle for "your token is real but you are not admitted". The distinction is drawn in the browser, and only from something the browser has proved.
 
-| `UNAUTHENTICATED` seen and… | Meaning | Action |
+**Why the browser's belief is not enough.** `authStore.isAuthenticated` is a local calculation: the token's own `exp` against the browser's clock, with a refresh scheduled a few minutes early. The API checks the same expiry against the server's clock. Around expiry the two can disagree — clock skew, a scheduled refresh that did not run while the tab slept, a request that left just before a refresh landed. Treating "believed current" as "current" would send a person whose session had merely expired to a page saying the deployment refuses their account. So a refusal of a token believed current is first answered with a **forced token refresh and one retry**; only a freshly issued token that is refused again is shown as a refusal by the deployment.
+
+**The decision — `refusalAction()`** (`utils/deploymentRefusal.ts`, pure, unit-tested apart from the link). It reads the errors and a context the handler builds from the auth store and the operation:
+
+| Context field | Source |
+|---|---|
+| `authDisabled` | `authStore.authDisabled` |
+| `isAuthenticated` | `authStore.isAuthenticated` — the browser believes its token has not expired |
+| `alreadyRetried` | The operation context carries `RETRIED_AFTER_REFUSAL` (`'retriedAfterRefusal'`) |
+| `refusedTokenIsCurrent` | `bearerOf(context.headers) === authStore.token` — the bearer the request actually went out with is still the one the store holds |
+
+Arms, evaluated in order:
+
+| `UNAUTHENTICATED` seen and… | Action | What the handler does |
 |---|---|---|
-| `authStore.authDisabled` | `null` — the API cannot refuse for identity; this is something else | None |
-| The browser holds a token that has not expired (`isAuthenticated`) | `'not-admitted'` — the sign-in was fine; the deployment refuses the account | Navigate to `/auth/not-admitted` |
-| The token is stale or gone | `'sign-in'` — the ordinary refusal | Clear state, navigate to `/login` |
+| `authDisabled` | `null` — the API cannot refuse for identity; this is something else | None |
 | No `UNAUTHENTICATED` among the errors | `null` | None (propagates to the caller) |
+| `alreadyRetried` | `'not-admitted'` — a freshly issued token was refused too; the deployment refuses the account | Navigate to `/auth/not-admitted` |
+| Not `isAuthenticated` — the token is stale or gone | `'sign-in'` — the ordinary refusal | Clear state, navigate to `/login` (no retry) |
+| `refusedTokenIsCurrent` | `'refresh-and-retry'` | `authStore.performTokenRefresh()`, then retry once |
+| Otherwise — the refused token has already been replaced | `'retry'` — a refresh landed while this request was out; the current token has not been tried | Retry once, without another refresh |
 
 Only the code is read, never the message — production masking scrubs the message to "Internal server error". One refusal among several errors is enough.
+
+**Acting on it — `createRefusalHandler()`** (`plugins/refusalHandler.ts`). It returns nothing for `null`, `'sign-in'` and `'not-admitted'`, and an `Observable` for the two retry arms — ErrorLink's contract for "retry this operation". Inside that Observable:
+
+- **Refresh fails** — the identity provider will not issue a fresh token, so the session is over: clear state, navigate to `/login`, and error the Observable with the original error.
+- **Refresh succeeds (or no refresh was needed)** — mark the operation with `RETRIED_AFTER_REFUSAL` and `forward(operation)`. The rest of the chain runs again, so the auth link sets the `Authorization` header afresh from the token the store now holds.
+- **Retry succeeds** — the result goes to the caller; nothing is shown.
+- **Retry is refused again** — navigate to `/auth/not-admitted`. The result still goes on to its caller.
+
+**The handler reads the retry's answer itself.** Apollo's `ErrorLink` hands a retried result straight to the caller without running its handler on it again. Left to the link, a second refusal would reach the page as a plain "failed to load" error. So the handler's own subscriber to `forward(operation)` inspects the retried result and runs `refusalAction()` on it with `alreadyRetried: true`. The `RETRIED_AFTER_REFUSAL` marker is the second guard: however a second refusal comes back, it ends the matter instead of starting a third attempt.
+
+**Concurrent refusals share one refresh.** A page load fires several queries, and near expiry they are refused together. `performTokenRefresh()` is locked in the auth store — callers that arrive while a refresh is in flight await the same promise — so they share one refresh rather than starting one each. A request refused after that refresh has landed finds its bearer no longer matches the store's token and takes the `'retry'` arm.
+
+```mermaid
+sequenceDiagram
+    participant Q as Query
+    participant H as Refusal handler
+    participant S as Auth store
+    participant API as API
+
+    Q->>API: request (token A, believed current)
+    API-->>H: UNAUTHENTICATED
+    H->>S: performTokenRefresh()
+    alt refresh fails
+        S-->>H: rejected
+        H->>H: clearState, navigate to /login
+    else refresh succeeds
+        S-->>H: token B
+        H->>API: retry (token B, marked retriedAfterRefusal)
+        alt retry answered
+            API-->>H: result
+            H-->>Q: result (nothing shown)
+        else refused again
+            API-->>H: UNAUTHENTICATED
+            H->>H: navigate to /auth/not-admitted
+            H-->>Q: result (errors)
+        end
+    end
+```
 
 **Navigation is started once.** A page load fires several queries and every one of them is refused the same way; `leaveForOnce()` guards `window.location.href` so the second navigation does not cancel the first. The not-admitted page is its own route, deliberately not the login page: a redirect there would go silently through the identity provider, come back with an equally current token, and loop. See [`AUTHENTICATION.md` → Router Guard](./AUTHENTICATION.md#router-guard) for why `/auth/not-admitted` is reachable while signed in.
 
 ### Error Flow
 
-```
-┌─────────────────────────────────────────────────────────┐
-│           GraphQL Operation (query / mutation)          │
-└─────────────────────────────┬───────────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │   Error Occurs    │
-                    └─────────┬─────────┘
-                    ┌─────────┴─────────┐
-                    │                   │
-              GraphQL Error        Network Error
-                    │                   │
-            refusalMeaning()      ┌─────┴─────┐
-         ┌──────────┼──────────┐  │           │
-         │          │          │ 401/403    Other
-    not-admitted  sign-in    null │           │
-         │          │          │ Clear auth  Log error
-    /auth/        Clear auth   │ /login
-    not-admitted  /login       │  │
-         │          │          │  │
-         └──────────┴─────┬────┴──┘
-                          │
-                   Propagate to caller
+```mermaid
+graph TD
+    Op["GraphQL operation (query / mutation)"] --> Err{Error kind}
+    Err -->|GraphQL error| RA{"refusalAction()"}
+    Err -->|Network error| NS{Status}
+    NS -->|401 / 403| NL["Clear auth, navigate to /login"]
+    NS -->|Other| Log[Log error]
+    RA -->|null| Prop[Propagate to caller]
+    RA -->|sign-in| SL["Clear auth, navigate to /login"]
+    RA -->|not-admitted| NA["Navigate to /auth/not-admitted"]
+    RA -->|refresh-and-retry| Ref{"performTokenRefresh()"}
+    RA -->|retry| Retry["Retry once, marked retriedAfterRefusal"]
+    Ref -->|fails| SL
+    Ref -->|succeeds| Retry
+    Retry -->|answered| Prop
+    Retry -->|UNAUTHENTICATED again| NA
+    NA --> Prop
+    SL --> Prop
+    NL --> Prop
+    Log --> Prop
 ```
 
 ### HTTP Link Configuration

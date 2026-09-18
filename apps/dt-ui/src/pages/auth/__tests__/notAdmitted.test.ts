@@ -49,6 +49,14 @@ describe('the not-admitted page', () => {
     expect(text).not.toMatch(/log in again|sign in again|invalid/i)
   })
 
+  // In the dark theme `primary` is the near-background teal meant for header banners; as a button here it
+  // was barely visible. Controls on a dark surface are `secondary`.
+  it('draws both buttons in the readable secondary colour, not primary', () => {
+    const w = mount(NotAdmitted, { global: { stubs } })
+    expect(w.find('[data-not-admitted-check]').attributes('color')).toBe('secondary')
+    expect(w.find('[data-not-admitted-sign-out]').attributes('color')).toBe('secondary')
+  })
+
   it('offers a sign-out and a check-again, and neither is the login page', async () => {
     const w = mount(NotAdmitted, { global: { stubs } })
     await w.find('[data-not-admitted-sign-out]').trigger('click')

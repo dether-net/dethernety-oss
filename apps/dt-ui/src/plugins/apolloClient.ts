@@ -8,7 +8,7 @@ import { createClient as createWsClient } from 'graphql-ws'
 import { print } from 'graphql'
 import { useAuthStore } from '@/stores/authStore'
 import { getConfig } from '@/config/environment'
-import { refusalMeaning } from '@/utils/deploymentRefusal'
+import { createRefusalHandler } from '@/plugins/refusalHandler'
 
 // Initialize Apollo client with runtime configuration
 let apolloClient: ApolloClient | null = null;
@@ -75,32 +75,26 @@ async function createApolloClient() {
     }
   })
 
+  // A refusal for identity, answered as one. The API says UNAUTHENTICATED to a missing, stale and
+  // unlisted credential alike. A refusal of a token this browser believes current is answered with a
+  // fresh token and one retry, and only a fresh token refused again reaches the "not admitted" page —
+  // never the login page, which would loop through the identity provider. See deploymentRefusal.ts
+  // for why the belief alone is not enough.
+  const handleRefusal = createRefusalHandler({
+    auth: () => useAuthStore(),
+    leave: leaveForOnce,
+    basePath: import.meta.env.BASE_URL,
+  })
+
   // Error link to handle authentication errors
-  const errorLink = new ErrorLink(({ error }) => {
+  const errorLink = new ErrorLink(({ error, operation, forward }) => {
     if (CombinedGraphQLErrors.is(error)) {
       if (import.meta.env.DEV) {
         error.errors.forEach(({ message, locations, path }: { message: string, locations?: unknown, path?: unknown }) => {
           console.error(`GraphQL error: Message: ${message}, Location: ${locations}, Path: ${path}`)
         })
       }
-
-      // A refusal for identity, answered as one. The API says UNAUTHENTICATED to a missing, stale
-      // and unlisted credential alike; this browser knows which it holds. A current token that is
-      // still refused means the deployment does not admit the account — its own page, never the
-      // login page, which would loop through the identity provider. A stale one is the ordinary
-      // case and gets the ordinary answer. Every failing query in a page load reports the same
-      // thing, so the navigation is started once.
-      const authStore = useAuthStore()
-      const meaning = refusalMeaning(error.errors, {
-        authDisabled: authStore.authDisabled,
-        isAuthenticated: authStore.isAuthenticated,
-      })
-      if (meaning === 'not-admitted') {
-        leaveForOnce(`${import.meta.env.BASE_URL}auth/not-admitted`)
-      } else if (meaning === 'sign-in') {
-        authStore.clearState()
-        leaveForOnce(`${import.meta.env.BASE_URL}login`)
-      }
+      return handleRefusal({ error, operation, forward })
     } else {
       if (import.meta.env.DEV) {
         console.error(`[ApolloClient] Network error: ${error}`)
