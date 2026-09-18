@@ -653,19 +653,20 @@ const clearState = (): void => {
 | CSRF validation failure | No | Clear state, show error |
 | Token decode failure | No | Logout, show error |
 | GraphQL `UNAUTHENTICATED` with a stale or absent token | No | Clear state, redirect to login (Apollo error link) |
-| GraphQL `UNAUTHENTICATED` with a current, unexpired token | No | The sign-in was fine and the deployment does not admit the account (`DEPLOYMENT_ALLOWLIST`): navigate to `/auth/not-admitted`, never to login — see [APOLLO_CLIENT.md → Error Link](./APOLLO_CLIENT.md#error-link) |
+| GraphQL `UNAUTHENTICATED` with a token the browser believes current | Once | Force a token refresh (`performTokenRefresh()`, shared by concurrent refusals) and retry the request once — without a refresh if the refused token has already been replaced. Refresh fails: clear state, redirect to login. Retry succeeds: nothing shown. See [APOLLO_CLIENT.md → Error Link](./APOLLO_CLIENT.md#error-link) |
+| GraphQL `UNAUTHENTICATED` on that retry, with a freshly issued token | No | The sign-in was fine and the deployment does not admit the account (`DEPLOYMENT_ALLOWLIST`): navigate to `/auth/not-admitted`, never to login |
 
 ### The not-admitted page
 
-**Source:** `pages/auth/not-admitted.vue`, `utils/deploymentRefusal.ts`
+**Source:** `pages/auth/not-admitted.vue`, `utils/deploymentRefusal.ts`, `plugins/refusalHandler.ts`
 
-The API answers a validated-but-unlisted caller exactly as it answers a missing or invalid credential — `UNAUTHENTICATED` on every transport — so the distinction is drawn in the browser from the token's own expiry (`authStore.isAuthenticated`). A refusal of a current token reaches this page, which:
+The API answers a validated-but-unlisted caller exactly as it answers a missing or invalid credential — `UNAUTHENTICATED` on every transport — so the distinction is drawn in the browser. It is not drawn from the token's own expiry alone: `authStore.isAuthenticated` compares `exp` with the browser's clock, and around expiry that can disagree with the server (clock skew, a scheduled refresh that did not run while the tab slept, a request that left just before a refresh landed). A refusal of a token believed current is therefore answered with a forced refresh and one retry; only when the **freshly issued token is refused again** does the browser conclude that the deployment refuses the account (see [APOLLO_CLIENT.md → Error Link](./APOLLO_CLIENT.md#error-link)). That refusal reaches this page, which:
 
 - states that the sign-in worked and names the account (`authStore.user.email`, or `name`), so a person with several knows which one to ask about;
 - says who may sign in is chosen by an administrator of the team the deployment belongs to, on the deployment's console, and takes effect when the platform is restarted;
 - offers **Check again** (`router.push('/')` — the same token is admitted once the account is listed and the platform restarted) and **Sign out** (`authStore.logout(true)`).
 
-It is its own page rather than a banner over the app because every gated query fails the same way, so the app behind it cannot load anything. It is not the login page: a redirect there would go silently through the identity provider, come back with an equally current token, and loop. In auth-disabled mode nothing routes here — `refusalMeaning()` returns `null` before reading the errors.
+It is its own page rather than a banner over the app because every gated query fails the same way, so the app behind it cannot load anything. It is not the login page: a redirect there would go silently through the identity provider, come back with an equally current token, and loop. An expired session does not land here: the refresh either renews it silently or fails, and a failed refresh is the ordinary sign-in. In auth-disabled mode nothing routes here — `refusalAction()` returns `null` before reading the errors.
 
 ### Router Guard
 
