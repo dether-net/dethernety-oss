@@ -18,6 +18,8 @@ Connecting adds two things:
 
 What does not change: your data. The graph stays in your database, on your machine, in both modes.
 
+Connecting is four tasks, done in this order: [register the two callbacks](#register-the-two-callbacks), [paste the recipe and apply](#paste-the-recipe-and-apply), [recreate the stack](#recreate-the-stack), and [sign in](#sign-in). These tasks carry no numbers of their own. The numbered sections the guide names — **1 · Access and callbacks**, **2 · Configuration**, **3 · Who may sign in** — are sections of the console's **Cloud** tab, and section 3 is not the third task here: it is a later decision, covered under [Changing who may sign in](#changing-who-may-sign-in).
+
 ---
 
 ## Before you start
@@ -44,7 +46,7 @@ The two callbacks the console shows you are derived from the address in your bro
 
 ---
 
-## Step 1 — Register the two callbacks
+## Register the two callbacks
 
 1. Open the console and select the **Cloud** tab.
 2. Find section **1 · Access and callbacks**. It shows a read-only box with two URLs, one per line:
@@ -67,7 +69,7 @@ The two callbacks the console shows you are derived from the address in your bro
 
 > **The numbers on the Cloud tab match the portal's Deployment page.** Sections **1 · Access and callbacks** and **2 · Configuration** carry the same numbers on both, so with the two open side by side you read one sequence. Each has a third step, and the two are deliberately different decisions: on the portal it is **3 · Team** — who is on the team: members, roles and invitations, shown to the team's owner only — and on the console it is **3 · Who may sign in**, which of those members *this* deployment admits. The console's step 3 appears only once the deployment is connected, because it lists the team the connection names; it is covered under [Changing who may sign in](#changing-who-may-sign-in). Selecting is not inviting: adding someone to the team stays in the portal.
 
-## Step 2 — Paste the recipe and apply
+## Paste the recipe and apply
 
 1. Click **Get your deployment recipe ↗** at the top of the Cloud tab. It opens the portal page that issues the recipe for this deployment.
 2. Copy the whole recipe. It is a block of plain `NAME=value` lines.
@@ -89,9 +91,9 @@ It may add a sentence saying it kept this deployment's own exposure declaration 
 
 **If the recipe is rejected**, the message says exactly why — a line that is not `NAME=value`, a variable named twice, required variables missing, or variables the console will not write. In every case the fix is the same: copy the recipe again, whole and unedited, and paste it without modification.
 
-> **Other console tabs are signed out at this point.** The deployment's posture just changed, so every console session minted under the old one is dropped. The tab you applied from stays signed in for a short grace period — long enough to read the message above and run the next step — and then it, too, asks you to sign in. Nothing is wrong either way: you do not need to be signed in to the console to recreate the stack.
+> **Other console tabs are signed out at this point.** The deployment's posture just changed, so every console session minted under the old one is dropped. The tab you applied from stays signed in for a short grace period — long enough to read the message above and [recreate the stack](#recreate-the-stack) — and then it, too, asks you to sign in. Nothing is wrong either way: you do not need to be signed in to the console to recreate the stack.
 
-## Step 3 — Recreate the stack
+## Recreate the stack
 
 From your terminal, in the bundle directory:
 
@@ -105,7 +107,7 @@ This is what makes the change live. Until you run it, the console shows a standi
 
 Recreating takes the usual few moments. `./byodt status` shows the services healthy again when it is done.
 
-## Step 4 — Sign in
+## Sign in
 
 Reload the console. It now presents a sign-in card:
 

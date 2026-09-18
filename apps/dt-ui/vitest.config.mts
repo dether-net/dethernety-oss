@@ -12,5 +12,7 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
     environment: 'node',
+    // Drops the harness's "Failed to resolve component" warnings and nothing else — see the file.
+    setupFiles: ['./src/test-setup.ts'],
   },
 })

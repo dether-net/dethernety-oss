@@ -525,7 +525,7 @@ The same applies to a recipe value: `OIDC_ISSUER must be https (or http on local
 
 **Cause.** The identity provider rejected the sign-in because the console's callback URL is not registered. The provider rejects this before the request reaches your deployment, so nothing in your own logs explains it.
 
-**Fix.** The console shows the exact value to register. Copy it verbatim into your account's **Callback URLs** field, save, then sign in again. Both callbacks — the platform's and the console's — must be registered, and they must match exactly, including scheme, host, and port. See [Cloud → Step 1](./CLOUD.md#step-1--register-the-two-callbacks).
+**Fix.** The console shows the exact value to register. Copy it verbatim into your account's **Callback URLs** field, save, then sign in again. Both callbacks — the platform's and the console's — must be registered, and they must match exactly, including scheme, host, and port. See [Cloud → Register the two callbacks](./CLOUD.md#register-the-two-callbacks).
 
 ### `could not verify sign-in — the platform may be starting or busy; retry`
 
