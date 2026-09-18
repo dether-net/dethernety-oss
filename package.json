@@ -22,7 +22,7 @@
     "neo4j-driver": "^5.28.3",
     "prettier": "^3.9.6",
     "tsx": "^4.23.13",
-    "turbo": "^2.10.12",
+    "turbo": "^2.10.13",
     "typescript": "5.9.3"
   },
   "engines": {
