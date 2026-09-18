@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-09-18
+
+A person whose sign-in has simply expired is now signed in again, not told that the deployment
+does not admit them. Compared against the previous tag, `v0.9.1`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. The only line of `.env.example` that changed is
+`PLATFORM_VERSION`. The change is confined to the platform's web interface: the console, the
+backend's API and the configuration are as they were. No module, corpus or class policy moved, so
+no content hash changed and the reference-data ingest is skipped. `./byodt update` pulls the
+console image as well as the platform's, as usual, because the console follows `PLATFORM_VERSION`
+unless your `.env` pins `CONSOLE_IMAGE`; nothing regenerates and no saved recipe is invalidated. A
+browser that already has the interface open picks up the new one on its next page load after the
+update. The plugin does not move: `@dether.net/dethereal` stays at 0.4.5.
+
+### Changed
+
+- **The not-admitted page's buttons are readable.** **Check again** and **Sign out** on **This
+  deployment does not admit your account** used the dark theme's banner colour, which sits close
+  to the page background and left them barely visible. They now use the same teal as every other
+  control on a dark surface.
+
+### Fixed
+
+- **An expired sign-in no longer reads as a refusal.** Someone whose session had lapsed could be
+  shown **This deployment does not admit your account**, and pressing **Check again** then let
+  them straight in. The interface decided that page from its own belief that the token was
+  current — the token's expiry against the browser's clock — and at the expiry boundary that
+  belief can be wrong: a skewed clock, a tab that slept through its scheduled refresh, a request
+  sent just before a refresh landed. A refusal of a token the interface believes current now
+  triggers a forced token refresh from the identity provider and one retry of the request. A
+  refresh that fails is a session that has ended, and gets the ordinary sign-in; a retry that
+  succeeds shows nothing; only a freshly issued token that is refused again shows the not-admitted
+  page. Refusals that arrive together share one refresh, and a retry is never retried. The API is
+  unchanged: every refused credential still gets the same `UNAUTHENTICATED` code, so no oracle is
+  opened.
+
+### Documentation
+
+- **The refresh-and-retry is described where the refusal is.** The frontend references for the
+  Apollo error link, authentication and the frontend architecture describe the mechanism; the
+  security model and the configuration guide's `DEPLOYMENT_ALLOWLIST` notes, and the cloud and
+  troubleshooting guides, now say that an expired sign-in is renewed and does not reach the
+  not-admitted page.
+
 ## [0.9.1] - 2026-09-17
 
 An administrator now chooses who may sign in to a connected deployment from the team itself, on
@@ -1303,6 +1348,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.9.2]: https://github.com/dether-net/dethernety-oss/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/dether-net/dethernety-oss/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/dether-net/dethernety-oss/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/dether-net/dethernety-oss/compare/v0.7.0...v0.8.0
