@@ -240,8 +240,10 @@ _phishing_driven_mfa_bypass_via_aitm_reverse_proxy_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1598.003",
-            "attributes": {}
+            "value": "T1539",
+            "attributes": {
+                "justification": "Phishable MFA on the exchange lets an adversary-in-the-middle proxy relay the sign-in in real time and capture the session cookie issued after the second factor."
+            }
         }
     ],
     "attack_vector": "NETWORK"

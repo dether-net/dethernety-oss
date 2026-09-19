@@ -61,14 +61,6 @@ _cleartext_transport_starttls_stripping_mitm_def := {
             "property": "attack_id",
             "value": "T1557",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1040",
-            "attributes": {
-                "justification": "When STARTTLS is opportunistic and can be stripped, message content and SMTP AUTH credentials cross the network in cleartext, where a passive listener on the path captures them (Network Sniffing, T1040)."
-            }
         }
     ],
     "attack_vector": "NETWORK"
