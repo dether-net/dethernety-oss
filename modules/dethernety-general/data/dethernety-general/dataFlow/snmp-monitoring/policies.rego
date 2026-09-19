@@ -47,14 +47,6 @@ _default_guessable_community_string_public_private_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1110",
-            "attributes": {
-                "justification": "Guessable / dictionary community strings are reached by credential spraying and password guessing against UDP 161 \u2014 brute force (T1110) of the SNMP community secret."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1078.001",
             "attributes": {
                 "justification": "Vendor-default public and private community strings are known default credentials, so any scanner reaching UDP 161 authenticates as a legitimate SNMP principal and can dump the MIB or issue SET commands (Default Accounts, T1078.001)."
@@ -289,8 +281,10 @@ _spoofed_unauthenticated_trap_inform_injection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1685",
-            "attributes": {}
+            "value": "T1565",
+            "attributes": {
+                "justification": "Unauthenticated SNMP traps let an attacker insert forged events into monitoring, hiding real activity or triggering the wrong remediation."
+            }
         }
     ],
     "attack_vector": "NETWORK"
