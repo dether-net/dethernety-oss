@@ -15,12 +15,6 @@ _exposed_unauthenticated_management_plane_def := {
             "property": "attack_id",
             "value": "T1190",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1133",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"

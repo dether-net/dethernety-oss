@@ -161,12 +161,6 @@ _over_permissive_directory_acl_userpassword_hash_disclosure_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1087",
-            "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1552",
             "attributes": {}
         }

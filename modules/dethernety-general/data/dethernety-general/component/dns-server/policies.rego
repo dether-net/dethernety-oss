@@ -13,8 +13,10 @@ _cache_poisoning_spoofed_answer_injection_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1565.002",
-            "attributes": {}
+            "value": "T1557",
+            "attributes": {
+                "justification": "A resolver that does not validate DNSSEC accepts forged answers, so clients are sent to attacker-chosen endpoints that sit in the middle of their traffic."
+            }
         }
     ],
     "attack_vector": "NETWORK"

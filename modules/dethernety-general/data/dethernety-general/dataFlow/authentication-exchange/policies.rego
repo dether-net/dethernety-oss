@@ -186,14 +186,6 @@ _saml_signature_wrapping_replay_and_audience_confusion_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1550.001",
-            "attributes": {
-                "justification": "Replaying a still-valid AssertionID or presenting an assertion issued for a different service provider reuses a legitimately issued SAML token to authenticate without the user's credentials (Application Access Token, T1550.001)."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
             "value": "T1606",
             "attributes": {
                 "justification": "XML signature wrapping places attacker-authored assertion content beside a genuine signed element so the service provider accepts forged claims, producing a forged SAML credential (Forge Web Credentials, T1606)."

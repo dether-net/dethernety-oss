@@ -131,16 +131,7 @@ _writable_root_filesystem_def := {
     "category": "",
     "criticality": "medium",
     "score": 5.5,
-    "exploited_by": [
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1554",
-            "attributes": {
-                "justification": "With ReadonlyRootfs=false, an adversary with code execution in the container can overwrite the application's own binaries with trojanized versions that keep access for the life of the container (Compromise Host Software Binary, T1554)."
-            }
-        }
-    ],
+    "exploited_by": [],
     "attack_vector": "LOCAL"
 }
 

@@ -205,12 +205,6 @@ _unconstrained_abused_delegation_bronze_bit_def := {
             "property": "attack_id",
             "value": "T1558",
             "attributes": {}
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1550.003",
-            "attributes": {}
         }
     ],
     "attack_vector": "NETWORK"

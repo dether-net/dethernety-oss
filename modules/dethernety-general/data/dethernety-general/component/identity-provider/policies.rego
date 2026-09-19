@@ -189,17 +189,9 @@ _saml_assertion_forgery_signature_wrapping_replay_def := {
         {
             "label": "MitreAttackTechnique",
             "property": "attack_id",
-            "value": "T1550.001",
+            "value": "T1606.002",
             "attributes": {
-                "justification": "An identity provider with no replay cache, audience restriction or signature verification accepts a captured SAML assertion again, letting the adversary reuse it in place of logging in (Application Access Token, T1550.001)."
-            }
-        },
-        {
-            "label": "MitreAttackTechnique",
-            "property": "attack_id",
-            "value": "T1606",
-            "attributes": {
-                "justification": "Accepting unsigned, unverified or audience-unrestricted assertions lets an adversary author their own SAML assertions or wrap a signed one inside attacker XML, yielding forged credentials for every federated application (Forge Web Credentials, T1606)."
+                "justification": "Unsigned or unverified assertions without an audience restriction let an attacker forge a SAML assertion that relying parties accept as a legitimate sign-in."
             }
         }
     ],
