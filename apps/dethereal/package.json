@@ -33,13 +33,13 @@
     "CLAUDE.md"
   ],
   "dependencies": {
-    "@apollo/client": "^4.3.0",
+    "@apollo/client": "^4.3.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "cross-fetch": "^4.1.0",
     "graphql": "^16.14.2",
     "graphql-tag": "^2.12.7",
-    "open": "^11.0.3",
-    "zod": "^4.6.4"
+    "open": "^11.0.4",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@dethernety/dt-core": "workspace:*",
