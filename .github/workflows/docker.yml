@@ -154,7 +154,7 @@ jobs:
 
       - name: Log in to the container registry
         if: steps.meta.outputs.publish == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -342,7 +342,7 @@ jobs:
 
       - name: Log in to the container registry
         if: steps.meta.outputs.publish == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
