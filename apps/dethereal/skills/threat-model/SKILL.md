@@ -526,10 +526,10 @@ Before pushing, verify Gate 2 (sync-blocking) criteria: manifest completeness, s
 
 ### Auth Check
 
-Read `~/.dethernety/tokens.json`. Find the entry keyed by the platform URL (`DETHERNETY_URL` env var, default `http://localhost:3003`).
+Call `mcp__plugin_dethereal_dethereal__auth_status` with `verify: true`. Never read files under `~/.dethernety/` in your home directory — session credentials stay inside the MCP server. (The project's own `.dethernety/models.json` is fine.)
 
-- If valid token: proceed
-- If expired or missing: "Not authenticated. Run `/dethereal:login` first, or skip sync for now."
+- If `authenticated` is true (this includes platforms with `authDisabled: true`): proceed
+- Otherwise: "Not authenticated. Run `/dethereal:login` first, or skip sync for now."
 - If user skips: jump to README generation, then show final footer without sync-related next steps
 
 ### Push Consent

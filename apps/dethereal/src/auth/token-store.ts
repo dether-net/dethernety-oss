@@ -10,6 +10,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { debug } from '../config.js'
+import { registerSecret } from './redact.js'
 
 /** Directory for storing Dethernety config and tokens */
 const CONFIG_DIR = join(homedir(), '.dethernety')
@@ -75,7 +76,11 @@ async function ensureConfigDir(): Promise<void> {
 async function readTokenFile(): Promise<TokenFile> {
   try {
     const content = await readFile(TOKENS_FILE, 'utf-8')
-    return JSON.parse(content) as TokenFile
+    const parsed = JSON.parse(content) as Partial<TokenFile> | null
+    if (!parsed || typeof parsed.tokens !== 'object' || parsed.tokens === null) {
+      return { version: 1, tokens: {} }
+    }
+    return parsed as TokenFile
   } catch {
     // Return empty token file if doesn't exist or can't be read
     return { version: 1, tokens: {} }
@@ -94,6 +99,35 @@ async function writeTokenFile(tokenFile: TokenFile): Promise<void> {
   await writeFile(tmpFile, JSON.stringify(tokenFile, null, 2), { mode: 0o600 })
   await rename(tmpFile, TOKENS_FILE)
   await chmod(TOKENS_FILE, 0o600)
+}
+
+/**
+ * A filesystem error reduced to its code. The message of a Node fs error carries
+ * the absolute path of the file involved, and these errors reach the model
+ * through `login` and `logout`.
+ */
+function fsErrorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'string' ? code : 'unknown error'
+}
+
+/**
+ * Is this record usable as a session? A hand-edited or half-written store can hold
+ * anything, and a non-numeric `expiresAt` would otherwise read as "not expired".
+ */
+function isWellFormed(tokens: unknown): tokens is StoredTokens {
+  const t = tokens as Partial<StoredTokens> | null
+  return (
+    !!t &&
+    typeof t === 'object' &&
+    typeof t.accessToken === 'string' &&
+    typeof t.idToken === 'string' &&
+    typeof t.refreshToken === 'string' &&
+    typeof t.baseUrl === 'string' &&
+    typeof t.expiresAt === 'number' &&
+    !Number.isNaN(new Date(t.expiresAt).getTime()) &&
+    (t.grantedScope === undefined || typeof t.grantedScope === 'string')
+  )
 }
 
 /**
@@ -122,6 +156,12 @@ export async function loadStoredTokens(baseUrl: string): Promise<StoredTokens | 
       return null
     }
 
+    if (!isWellFormed(tokens)) {
+      debug(`Ignoring malformed stored session for ${key}`)
+      return null
+    }
+    registerSecret(tokens.accessToken, tokens.idToken, tokens.refreshToken)
+
     // Check if tokens match the requested baseUrl
     if (getTokenKey(tokens.baseUrl) !== key) {
       debug(`Token baseUrl mismatch`)
@@ -131,7 +171,7 @@ export async function loadStoredTokens(baseUrl: string): Promise<StoredTokens | 
     debug(`Loaded stored tokens for ${key}`)
     return tokens
   } catch (error) {
-    debug(`Error loading tokens: ${error}`)
+    debug(`Error loading tokens: ${fsErrorCode(error)}`)
     return null
   }
 }
@@ -142,6 +182,8 @@ export async function loadStoredTokens(baseUrl: string): Promise<StoredTokens | 
  * @param tokens - Tokens to save
  */
 export async function saveTokens(tokens: StoredTokens): Promise<void> {
+  // Registered before anything can fail, so no later error or log line can carry them.
+  registerSecret(tokens.accessToken, tokens.idToken, tokens.refreshToken)
   try {
     const tokenFile = await readTokenFile()
     const key = getTokenKey(tokens.baseUrl)
@@ -163,8 +205,8 @@ export async function saveTokens(tokens: StoredTokens): Promise<void> {
     await writeTokenFile(tokenFile)
     debug(`Saved tokens for ${key}`)
   } catch (error) {
-    debug(`Error saving tokens: ${error}`)
-    throw new Error(`Failed to save tokens: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error })
+    debug(`Error saving tokens: ${fsErrorCode(error)}`)
+    throw new Error(`Failed to save tokens: ${fsErrorCode(error)}`, { cause: error })
   }
 }
 
@@ -192,8 +234,8 @@ export async function clearTokens(baseUrl: string): Promise<void> {
 
     debug(`Cleared tokens for ${key}`)
   } catch (error) {
-    debug(`Error clearing tokens: ${error}`)
-    throw new Error(`Failed to clear tokens: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error })
+    debug(`Error clearing tokens: ${fsErrorCode(error)}`)
+    throw new Error(`Failed to clear tokens: ${fsErrorCode(error)}`, { cause: error })
   }
 }
 
@@ -207,8 +249,8 @@ export async function clearAllTokens(): Promise<void> {
       debug('Cleared all tokens (deleted token file)')
     }
   } catch (error) {
-    debug(`Error clearing all tokens: ${error}`)
-    throw new Error(`Failed to clear all tokens: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error })
+    debug(`Error clearing all tokens: ${fsErrorCode(error)}`)
+    throw new Error(`Failed to clear all tokens: ${fsErrorCode(error)}`, { cause: error })
   }
 }
 
@@ -248,7 +290,8 @@ export function isRefreshTokenValid(tokens: StoredTokens): boolean {
 }
 
 /**
- * Get the token storage file path (for debugging/info)
+ * Get the token storage file path. For tests and local tooling only — never put
+ * it in a tool result or description.
  */
 export function getTokenStoragePath(): string {
   return TOKENS_FILE

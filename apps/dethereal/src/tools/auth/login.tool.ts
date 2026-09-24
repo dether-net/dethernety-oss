@@ -1,13 +1,15 @@
 /**
  * Login Tool
  *
- * Authenticates the user via browser-based OAuth with Cognito.
- * Uses cached tokens if available, refreshes if expired, or opens browser for new login.
+ * Authenticates the user via browser-based OAuth (authorization code + PKCE).
+ * Uses the stored session if valid, refreshes it if expired, or opens the browser for a new login.
  */
 
 import { z } from 'zod'
 import { ClientFreeTool, ToolContext, ToolResult } from '../base-tool.js'
-import { performLogin, AuthTokens, getTokenStoragePath, isAuthDisabled } from '../../auth/index.js'
+import { getConfig } from '../../config.js'
+import { performLogin, isAuthDisabled } from '../../auth/index.js'
+import { emailClaimOf } from '../../auth/scope.js'
 
 /**
  * Input schema for login tool
@@ -33,8 +35,10 @@ interface LoginOutput {
   fromCache?: boolean
   /** Whether tokens were refreshed using refresh token */
   refreshed?: boolean
-  /** Where tokens are stored locally */
-  tokenStoragePath: string
+  /** Origin of the platform signed in to */
+  platformUrl: string
+  /** Signed-in user, from the identity token */
+  email?: string
   /** Status message */
   message: string
   /**
@@ -47,24 +51,26 @@ interface LoginOutput {
   scopeShortfall?: string
 }
 
+function platformOrigin(): string {
+  try {
+    return new URL(getConfig().baseUrl).origin
+  } catch {
+    return 'invalid URL'
+  }
+}
+
 /**
  * Login tool - authenticates user via browser OAuth
  */
 export class LoginTool extends ClientFreeTool<LoginInput, LoginOutput> {
   readonly name = 'login'
 
-  readonly description = `Authenticate with the Dethernety platform using browser-based OAuth.
+  readonly description = `Sign in to the Dethernety platform.
 
-Opens your default browser to the Cognito login page. After successful authentication,
-tokens are returned and cached locally for future use.
+- A valid stored session is reused (fromCache: true); an expired one is refreshed when possible (refreshed: true).
+- Otherwise the default browser opens the platform's sign-in page and this call waits for the sign-in to finish.
 
-Behavior:
-- If valid cached tokens exist, returns them immediately (no browser needed)
-- If cached tokens are expired but refresh token is valid, refreshes automatically
-- Otherwise, opens browser for new OAuth login
-
-The returned idToken should be used for authenticated API calls.
-Tokens are cached at: ~/.dethernety/tokens.json`
+Session credentials stay inside this server and are never returned. Use auth_status to check the session.`
 
   readonly inputSchema = InputSchema
 
@@ -75,7 +81,7 @@ Tokens are cached at: ~/.dethernety/tokens.json`
         data: {
           expiresIn: 0,
           tokenType: 'none',
-          tokenStoragePath: '',
+          platformUrl: platformOrigin(),
           message: 'Authentication is disabled. No login needed — all tools work without authentication.'
         }
       }
@@ -101,12 +107,13 @@ Tokens are cached at: ~/.dethernety/tokens.json`
           tokenType: result.tokens.tokenType,
           fromCache: result.fromCache,
           refreshed: result.refreshed,
-          tokenStoragePath: getTokenStoragePath(),
+          platformUrl: platformOrigin(),
+          email: emailClaimOf(result.tokens.idToken),
           scopeShortfall: result.scopeShortfall,
           message: result.scopeShortfall
             ? `Authentication successful, but the provider did not grant: ${result.scopeShortfall}. ` +
               'Features depending on those scopes will be refused.'
-            : 'Authentication successful. Tokens stored securely.'
+            : 'Authentication successful.'
         }
       }
     } catch (error) {

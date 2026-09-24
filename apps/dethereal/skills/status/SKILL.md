@@ -2,9 +2,10 @@
 name: status
 description: Show Dethernety connection status, auth state, and local model summary
 argument-hint: "[show models <controlId>]"
+allowed-tools: mcp__plugin_dethereal_dethereal__auth_status
 ---
 
-Show a status overview of the Dethereal plugin. Read all data from local files — do not call MCP tools.
+Show a status overview of the Dethereal plugin. Read model data from local files; for connection and auth state call only `mcp__plugin_dethereal_dethereal__auth_status`.
 
 ## Parse Arguments
 
@@ -13,12 +14,12 @@ Show a status overview of the Dethereal plugin. Read all data from local files �
 
 ## Steps
 
-1. **Platform URL**: Read the `DETHERNETY_URL` environment variable. If unset, default to `http://localhost:3003`.
+1. **Platform URL**: `platformUrl` from the `auth_status` result (step 2).
 
-2. **Auth status**: Read the token store at `~/.dethernety/tokens.json`. Find the entry keyed by the platform URL.
-   - If tokens exist and not expired: show "Authenticated" with the user email (decode the JWT payload — it's base64url, the `email` claim) and time remaining (compute from `expiresAt` minus current timestamp)
-   - If tokens exist but expired: show "Token expired — run /dethereal:login to re-authenticate"
-   - If no tokens: show "Not authenticated — run /dethereal:login"
+2. **Auth status**: Call `mcp__plugin_dethereal_dethereal__auth_status` with `verify: true`. Never read files under `~/.dethernety/` in your home directory — session credentials stay inside the MCP server. (The project's own `.dethernety/models.json` is fine.)
+   - `authDisabled: true`: show "Authentication disabled on this platform"
+   - `authenticated: true`: show "Authenticated" with `email` (if present) and the time remaining (`secondsRemaining` in minutes)
+   - Otherwise: show "Not authenticated — run /dethereal:login", followed by `detail` in parentheses if present
 
 3. **Local models**: Read `.dethernety/models.json` from the current working directory.
    - If file doesn't exist or has no models: show "No local models. Run /dethereal:create to get started."

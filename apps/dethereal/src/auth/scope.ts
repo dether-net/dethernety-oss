@@ -8,7 +8,7 @@
  * original authorization granted. The only way to gain a scope is a fresh
  * authorization request.
  *
- * These four functions are what lets the login flow notice that and act. They
+ * These functions are what lets the login flow notice that and act. They
  * are pure and dependency-free on purpose — the comparison is the part that
  * has to be exactly right, and it is easier to prove that about a function
  * than about a flow.
@@ -60,14 +60,34 @@ export function scopeSatisfies(granted: string | undefined, required: string): b
  * `scope`, which the caller must treat as "no provable grant".
  */
 export function scopeClaimOf(token?: string): string | undefined {
-  if (!token) return undefined
+  const scope = claimsOf(token)?.scope
+  return typeof scope === 'string' && scope.length > 0 ? scope : undefined
+}
+
+/**
+ * Read the `email` claim out of an identity token, for display only.
+ *
+ * Unverified decode, like `scopeClaimOf`. The value is shown to the operator, so
+ * anything that is not a plausible address — too long, or carrying control
+ * characters — is dropped rather than passed through.
+ */
+export function emailClaimOf(token?: string): string | undefined {
+  const email = claimsOf(token)?.email
+  if (typeof email !== 'string' || email.length === 0 || email.length > 254) return undefined
+  // eslint-disable-next-line no-control-regex
+  return /[\u0000-\u001f\u007f]/.test(email) ? undefined : email
+}
+
+/** The decoded payload of a JWT, or undefined for anything that is not one. */
+function claimsOf(token?: string): Record<string, unknown> | undefined {
+  if (typeof token !== 'string' || !token) return undefined
   try {
     const payload = token.split('.')[1]
     if (!payload) return undefined
-    const decoded = JSON.parse(
+    const decoded: unknown = JSON.parse(
       Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-    ) as { scope?: unknown }
-    return typeof decoded.scope === 'string' && decoded.scope.length > 0 ? decoded.scope : undefined
+    )
+    return decoded && typeof decoded === 'object' ? (decoded as Record<string, unknown>) : undefined
   } catch {
     return undefined
   }

@@ -68,6 +68,34 @@ export interface LoginResult {
 }
 
 /**
+ * Describe a failed token-endpoint response without its body.
+ *
+ * The body of a token-endpoint error can echo the submitted form — the
+ * authorization code, the verifier, or the refresh token — and this message
+ * reaches the model. Only the HTTP status and the OAuth `error` code survive,
+ * and the code only when it has the shape RFC 6749 gives it.
+ */
+async function tokenEndpointFailure(what: string, response: { status: number; text(): Promise<string> }): Promise<string> {
+  let code: string | undefined
+  try {
+    const parsed = JSON.parse(await response.text()) as { error?: unknown }
+    if (typeof parsed.error === 'string' && /^[a-z_]{1,64}$/.test(parsed.error)) code = parsed.error
+  } catch {
+    // Not JSON: the status alone is reported.
+  }
+  return `${what} failed: HTTP ${response.status}${code ? ` (${code})` : ''}`
+}
+
+/** Parse a token-endpoint success body; a parser error would quote the body. */
+async function tokenEndpointJson<T>(what: string, response: { json(): Promise<unknown> }): Promise<T> {
+  try {
+    return (await response.json()) as T
+  } catch {
+    throw new Error(`${what} failed: the token endpoint returned a malformed response`)
+  }
+}
+
+/**
  * Exchange authorization code for tokens
  *
  * @param code - Authorization code from OAuth callback
@@ -106,19 +134,19 @@ export async function exchangeCodeForTokens(
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    debug(`Token exchange failed: ${response.status} ${error}`)
-    throw new Error(`Token exchange failed: ${response.status} ${error}`)
+    const message = await tokenEndpointFailure('Token exchange', response)
+    debug(message)
+    throw new Error(message)
   }
 
-  const data = (await response.json()) as {
+  const data = await tokenEndpointJson<{
     access_token: string
     id_token: string
     refresh_token: string
     expires_in: number
     token_type: string
     scope?: string
-  }
+  }>('Token exchange', response)
 
   return {
     accessToken: data.access_token,
@@ -140,9 +168,13 @@ export async function exchangeCodeForTokens(
  * Refresh tokens using refresh token
  *
  * @param refreshToken - Refresh token from previous authentication
+ * @param options.signal - Aborts the request (e.g. a timeout)
  * @returns New auth tokens
  */
-export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
+export async function refreshTokens(
+  refreshToken: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<AuthTokens> {
   const platformConfig = getCachedPlatformConfig()
   if (!platformConfig) {
     throw new Error('Platform config not loaded')
@@ -163,23 +195,24 @@ export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body: body.toString()
+    body: body.toString(),
+    signal: options.signal
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    debug(`Token refresh failed: ${response.status} ${error}`)
-    throw new Error(`Token refresh failed: ${response.status}`)
+    const message = await tokenEndpointFailure('Token refresh', response)
+    debug(message)
+    throw new Error(message)
   }
 
-  const data = (await response.json()) as {
+  const data = await tokenEndpointJson<{
     access_token: string
     id_token: string
     refresh_token?: string
     expires_in: number
     token_type: string
     scope?: string
-  }
+  }>('Token refresh', response)
 
   return {
     accessToken: data.access_token,
@@ -193,6 +226,32 @@ export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
     // granted. Recording it keeps the stored value honest rather than stale.
     scope: data.scope ?? scopeClaimOf(data.access_token)
   }
+}
+
+/**
+ * Refresh a stored session and persist the result.
+ *
+ * @param stored - The stored session whose refresh token is used
+ * @param baseUrl - Platform the session belongs to
+ * @param options.signal - Aborts the token request (e.g. a timeout)
+ * @returns The new tokens, already saved
+ */
+export async function refreshStoredSession(
+  stored: StoredTokens,
+  baseUrl: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<AuthTokens> {
+  const newTokens = await refreshTokens(stored.refreshToken, options)
+  await saveTokens({
+    accessToken: newTokens.accessToken,
+    idToken: newTokens.idToken,
+    refreshToken: newTokens.refreshToken,
+    expiresAt: Date.now() + newTokens.expiresIn * 1000,
+    baseUrl,
+    storedAt: Date.now(),
+    grantedScope: newTokens.scope
+  })
+  return newTokens
 }
 
 /**
@@ -261,18 +320,7 @@ export async function performLogin(options: {
         if (isRefreshTokenValid(storedTokens)) {
           try {
             debug('Access token expired, attempting refresh')
-            const newTokens = await refreshTokens(storedTokens.refreshToken)
-
-            // Save the new tokens
-            await saveTokens({
-              accessToken: newTokens.accessToken,
-              idToken: newTokens.idToken,
-              refreshToken: newTokens.refreshToken,
-              expiresAt: Date.now() + newTokens.expiresIn * 1000,
-              baseUrl: config.baseUrl,
-              storedAt: Date.now(),
-              grantedScope: newTokens.scope
-            })
+            const newTokens = await refreshStoredSession(storedTokens, config.baseUrl)
 
             return {
               success: true,

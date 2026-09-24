@@ -154,10 +154,10 @@ The MCP (Model Context Protocol) server exposes 22 tools for platform communicat
 | Tool | Purpose |
 |------|---------|
 | `login` | Browser-based OAuth authentication with PKCE |
-| `logout` | Clear cached authentication tokens |
-| `refresh_token` | Refresh expired access tokens |
+| `logout` | Delete the locally stored session (does not revoke it at the identity provider) |
+| `auth_status` | Report the platform URL, whether you are signed in, as whom, and how long the session has left |
 
-Tokens are cached at `~/.dethernety/tokens.json`, keyed by platform URL. Refresh is automatic and transparent.
+The MCP server keeps your session in your home directory, keyed by platform URL, and refreshes an expired session automatically on the next tool call. Session tokens never leave the server: no tool returns them, and the agents check authentication through `auth_status` rather than by reading the token store.
 
 ### Reference (2 tools)
 

@@ -93,7 +93,7 @@ A `Control library (<model-name>):` block is rendered per model that has a `cont
 
 Lists the model IDs assigned to a Control, read from the `platformState.assignedModelIds` cached in the local `controls/<controlId>.json` — no fresh platform query. If the Control has not been pulled locally, the command says so and points you at `/dethereal:enrich --focus controls`. Model names, owners, and freshness are not shown (a V1 limitation).
 
-Reads all data from local files — does not call the platform.
+Model and control-library data come from local files. The connection and authentication lines come from the plugin's MCP server, which may contact the platform to load its configuration and refresh an expired session (bounded to 10 seconds). Session tokens are never read into the conversation.
 
 ---
 

@@ -1,6 +1,6 @@
 # Dethereal Plugin -- Architecture Decisions
 
-> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). D67 covers the drift-detection feature design. D68 relocates the per-component crown-jewel flag to `structure.json`. **All 68 decisions resolved.**
+> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). D67 covers the drift-detection feature design. D68 relocates the per-component crown-jewel flag to `structure.json`. D69 keeps session credentials out of model-visible text. **All 69 decisions resolved.**
 
 ---
 
@@ -76,6 +76,7 @@
 | D66 | [monitoring_tools V1 scope](#d66-monitoring_tools-v1-scope) | Engine integration vs. human review only vs. defer capture | V1: capture for human review only. No engine integration point exists. Engine integration is a future capability | Low — documented as human review, no false expectations | **Resolved** |
 | D67 | [Drift detection — simplified design](#d67-drift-detection--simplified-design) | Earlier complex implementation (verb-language grammar, ledger, advisory locks) vs. routing the delta through existing modeling skills | Adopt the simplified design per `DRIFT_DETECTION.md` | Low — earlier implementation is preserved at `archive/drift-reconciliation-v1-overengineered` and remains `git checkout`-able if needed | **Resolved** |
 | D68 | [Crown-jewel placement — `structure.json`, not the attribute bag](#d68-crown-jewel-placement--structurejson-not-the-attribute-bag) | Fix the lift to read the bag root vs. move the flag to the first-class `structure.json` field | Store `crownJewel` first-class on the component in `structure.json`; remove the bag path (supersedes the storage location in D21/D41) | Low — clean cut; existing local models re-tag via `/dethereal:classify` | **Resolved** |
+| D69 | [Session credentials never reach the model](#d69-session-credentials-never-reach-the-model) | Keep skills reading the token store and the `refresh_token` tool vs. a server-side status tool with no credential in or out | `auth_status` replaces token-file reads; `refresh_token` removed; no tool returns token material or the token-store path; session tokens redacted from tool results and stderr (extends D61 in the outbound direction) | High — tokens in the conversation reach the model provider and any transcript | **Resolved** |
 
 ---
 
@@ -1476,5 +1477,32 @@ The plugin captures `monitoring_tools` as a component attribute. The detection f
 - **The type already agreed.** `StructureComponent.crownJewel` predated this fix — the change aligns the producer, the lift, and the export with the existing type.
 
 **Supersedes:** the *storage location* in D21/D41 only. The lightweight-tagging concept and the Phase 3 / Phase 7 split are unchanged — the flag moves from the attribute bag to `structure.json`.
+
+**Status: Resolved**
+
+### D69: Session credentials never reach the model
+
+**Context:** D61 closed the inbound path — no tool accepts a `_token` argument. The outbound path stayed open. The `/dethereal:status`, `/dethereal:sync` and `/dethereal:threat-model` skills told the model to read `~/.dethernety/tokens.json` to check authentication, which put the session's access, ID and refresh tokens into the conversation and so into what is sent to the model provider. The `refresh_token` tool took a raw refresh token as model input. `login` and `logout` returned the token-store path, and error text could carry the sign-in URL (with the pending login's `state` and PKCE challenge), token-endpoint response bodies (which can echo the submitted form), or filesystem paths.
+
+**Options considered:**
+
+- (a) Keep the file reads and ask the model to use only the non-secret fields.
+- (b) Move every session question behind a server-side tool that never takes or returns a credential, and remove credential material from every other model-visible channel.
+
+**Decision: (b).**
+
+- **`auth_status` tool.** Read-only; answers from local state, or with `verify: true` loads the platform config and refreshes an expired session first, bounded to 10 seconds. Returns platform URL, sign-in state, user email and expiry — never token material or the token-store path. The skills call it and are told never to read `~/.dethernety/` in the home directory.
+- **`refresh_token` tool removed.** Refresh was already transparent on every tool call (D61); `login` refreshes too.
+- **`login` / `logout` outputs.** No token-store path; `login` returns `platformUrl` and `email`. `logout` states that it deletes the local session only and does not revoke it at the identity provider.
+- **Error and log hygiene.** Token-endpoint errors carry only the HTTP status and OAuth `error` code; token-store errors only the filesystem error code; the sign-in URL is never logged or put into an error, so a machine with no desktop browser gets a plain failure rather than a URL to open by hand.
+- **Redaction as a backstop.** Every session token the server loads or saves is registered, and tool results and stderr are redacted of those exact values — covering platform or proxy error text that echoes the bearer, which the server does not control.
+
+**Why this design:** An instruction not to use a secret the model has already read does not keep it out of the request to the model provider. The only reliable boundary is that credentials are never in model-visible text, which also makes it testable: a static guard rejects any token-store reference in the package's shipped prompt files and tool descriptions, and any credential-named tool input.
+
+**Known gaps:** `logout` does not revoke, so a session exposed before this change stays valid until its refresh token expires. The `npx` launch can resolve a copy of the package in the project's own `node_modules` before the registry one; a local request to the sign-in callback port can cancel a pending login; two servers writing the token store at the same moment can lose a session; and sign-in has no fallback for machines without a desktop browser.
+
+**Boundary:** MCP server auth tools, skill prompts, server error and log output.
+
+**Risk if wrong:** High — tokens in the conversation reach the model provider and any stored transcript.
 
 **Status: Resolved**

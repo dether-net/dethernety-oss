@@ -152,15 +152,17 @@ Token valid:  60 minutes remaining
 ### How Authentication Works
 
 - **OAuth 2.0 with PKCE** — secure browser-based login, no passwords in the terminal
-- **Token caching** — tokens are stored at `~/.dethernety/tokens.json`, keyed by platform URL
-- **Auto-refresh** — expired tokens are refreshed transparently when a valid refresh token exists
+- **Local session** — the plugin's MCP server keeps your session under `~/.dethernety/` in your home directory, keyed by platform URL. The tokens stay inside the server: no tool returns them, and the commands check your session through the server rather than by reading that directory
+- **Auto-refresh** — an expired session is refreshed transparently on the next command when a valid refresh token exists
+- **Desktop browser required** — sign-in opens the browser on the machine the plugin runs on, and there is no fallback yet. Over SSH or in a headless container, `/dethereal:login` fails (*Sign-in needs a desktop browser on this machine*) or times out waiting for the browser; run it where a browser is available
 - **Auth-disabled mode** — if the platform has auth disabled (no-auth), all tools work without login
 
 ### Token Security
 
-- Never commit `~/.dethernety/` to version control
+- Never commit `~/.dethernety/` to version control, and never copy its token file between machines by hand — sign in on each machine instead
 - Tokens are specific to each platform URL — switching instances requires separate auth
 - Use `/dethereal:login` to re-authenticate if your session expires
+- Signing out through the plugin deletes the local session only; it does not revoke it at the identity provider, and signing out of the platform's web interface does not necessarily end it either. A session copied elsewhere stays valid until its refresh token expires, unless an identity-provider administrator revokes it
 
 ---
 

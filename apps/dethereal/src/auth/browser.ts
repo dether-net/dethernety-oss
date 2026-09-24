@@ -16,36 +16,32 @@ async function getOpenModule(): Promise<typeof import('open')> {
 }
 
 /**
- * Open a URL in the default browser
+ * Open the sign-in page in the default browser
  *
- * Works on macOS, Windows, and Linux.
+ * Works on macOS, Windows, and Linux. The URL is never logged or put into an
+ * error: errors from here reach the model, and the URL carries the pending
+ * login's state and PKCE challenge.
  *
  * @param url - URL to open
  * @returns Promise that resolves when the browser is opened
- *
- * @example
- * await openBrowser('https://example.com/auth')
  */
 export async function openBrowser(url: string): Promise<void> {
-  debug(`Opening browser: ${url}`)
+  debug('Opening browser for sign-in')
 
   try {
     const open = await getOpenModule()
     await open.default(url)
     debug('Browser opened successfully')
   } catch (error) {
-    // Provide helpful error messages for common issues
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    // The launcher's own message is kept for diagnosis, with the URL cut out of it.
+    const reason = (error instanceof Error ? error.message : 'Unknown error').split(url).join('<sign-in URL>')
+    const hint = 'Sign-in needs a desktop browser on this machine; run login where one is available.'
 
-    if (message.includes('spawn')) {
-      throw new Error(
-        `Failed to open browser. No default browser found. ` +
-          `Please manually open: ${url}`,
-        { cause: error }
-      )
+    if (reason.includes('spawn')) {
+      throw new Error(`Failed to open browser: no default browser found. ${hint}`, { cause: error })
     }
 
-    throw new Error(`Failed to open browser: ${message}. Please manually open: ${url}`, { cause: error })
+    throw new Error(`Failed to open browser: ${reason}. ${hint}`, { cause: error })
   }
 }
 

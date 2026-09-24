@@ -53,8 +53,13 @@ let cacheBaseUrl: string | null = null
 /**
  * Fetch platform configuration from the /config endpoint
  * Caches the result for subsequent calls with the same baseUrl
+ *
+ * @param options.signal - Aborts the request (e.g. a timeout)
  */
-export async function fetchPlatformConfig(baseUrl?: string): Promise<PlatformConfig> {
+export async function fetchPlatformConfig(
+  baseUrl?: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<PlatformConfig> {
   const config = getConfig()
   const url = baseUrl || config.baseUrl
 
@@ -68,7 +73,7 @@ export async function fetchPlatformConfig(baseUrl?: string): Promise<PlatformCon
   debug(`Fetching platform config from ${configUrl}`)
 
   try {
-    const response = await fetch(configUrl)
+    const response = await fetch(configUrl, { signal: options.signal })
 
     if (!response.ok) {
       throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`)

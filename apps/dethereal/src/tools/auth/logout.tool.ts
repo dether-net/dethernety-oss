@@ -1,13 +1,13 @@
 /**
  * Logout Tool
  *
- * Clears cached tokens and optionally revokes them with Cognito.
+ * Deletes the stored session from the local cache.
  */
 
 import { z } from 'zod'
 import { ClientFreeTool, ToolContext, ToolResult } from '../base-tool.js'
 import { getConfig } from '../../config.js'
-import { clearTokens, clearAllTokens, getTokenStoragePath, isAuthDisabled } from '../../auth/index.js'
+import { clearTokens, clearAllTokens, isAuthDisabled } from '../../auth/index.js'
 import { clearClientCache } from '../../client/apollo-client.js'
 
 /**
@@ -26,8 +26,6 @@ type LogoutInput = z.infer<typeof InputSchema>
 interface LogoutOutput {
   /** Success message */
   message: string
-  /** Path where tokens were stored */
-  tokenStoragePath: string
 }
 
 /**
@@ -36,12 +34,9 @@ interface LogoutOutput {
 export class LogoutTool extends ClientFreeTool<LogoutInput, LogoutOutput> {
   readonly name = 'logout'
 
-  readonly description = `Log out and clear cached authentication tokens.
+  readonly description = `Sign out: delete the stored session for this platform (clear_all: for every platform) from the local cache. Platform tools then require a new login.
 
-Removes tokens from the local cache. Future API calls will require a new login.
-
-Note: This clears local tokens only. If you need to fully revoke access,
-you may also want to sign out from the Cognito hosted UI.`
+This does not revoke the session at the identity provider: a session copied elsewhere stays valid until it expires.`
 
   readonly inputSchema = InputSchema
 
@@ -50,8 +45,7 @@ you may also want to sign out from the Cognito hosted UI.`
       return {
         success: true,
         data: {
-          message: 'Authentication is disabled. No logout needed.',
-          tokenStoragePath: ''
+          message: 'Authentication is disabled. No logout needed.'
         }
       }
     }
@@ -74,8 +68,7 @@ you may also want to sign out from the Cognito hosted UI.`
         data: {
           message: input.clear_all
             ? 'Successfully logged out. Cached tokens for ALL platforms have been cleared.'
-            : 'Successfully logged out. Cached tokens have been cleared.',
-          tokenStoragePath: getTokenStoragePath()
+            : 'Successfully logged out. Cached tokens have been cleared.'
         }
       }
     } catch (error) {

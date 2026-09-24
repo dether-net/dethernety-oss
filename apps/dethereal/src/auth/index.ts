@@ -48,5 +48,6 @@ export {
   type LoginResult,
   exchangeCodeForTokens,
   refreshTokens,
+  refreshStoredSession,
   performLogin
 } from './oauth-flow.js'

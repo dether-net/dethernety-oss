@@ -109,7 +109,7 @@
 │  │  │ Client-Free Tools   │  │ Client-Dependent Tools                  │  │  │
 │  │  │ • login             │  │ • import_model    • get_classes         │  │  │
 │  │  │ • logout            │  │ • export_model    • update_attributes   │  │  │
-│  │  │ • refresh_token     │  │ • update_model    • generate_attribute_ │  │  │
+│  │  │ • auth_status       │  │ • update_model    • generate_attribute_ │  │  │
 │  │  │ • validate_model_   │  │ • create_threat_    stubs               │  │  │
 │  │  │   json              │  │   model           • manage_exposures    │  │  │
 │  │  │ • get_model_schema  │  │ • list_models     • manage_controls     │  │  │
@@ -244,7 +244,7 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 
 | Category | Tools | Base Class | Count |
 |----------|-------|------------|-------|
-| **Authentication** | `login`, `logout`, `refresh_token` | `ClientFreeTool` | 3 |
+| **Authentication** | `login`, `logout`, `auth_status` | `ClientFreeTool` | 3 |
 | **Reference** | `get_model_schema`, `get_example_models` | `ClientFreeTool` | 2 |
 | **Validation** | `validate_model_json` | `ClientFreeTool` | 1 |
 | **Model CRUD** | `create_threat_model`, `import_model`, `export_model`, `update_model`, `list_models` | `ClientDependentTool` | 5 |
@@ -269,14 +269,16 @@ oss/apps/dethereal/src/
 │   ├── pkce.ts                     # PKCE code_verifier/code_challenge generation
 │   ├── token-store.ts              # Local token caching (~/.dethernety/tokens.json)
 │   ├── platform-config.ts          # Platform /config endpoint fetching + caching
+│   ├── scope.ts                    # Granted-scope and email-claim helpers
+│   ├── redact.ts                   # Session-token redaction for tool results + stderr
 │   └── browser.ts                  # Cross-platform browser opening
 ├── tools/
 │   ├── base-tool.ts                # BaseTool, ClientFreeTool, ClientDependentTool
 │   ├── index.ts                    # Tool registry (allTools, clientFreeTools, clientDependentTools)
-│   ├── auth/                       # login, logout, refresh_token tools
+│   ├── auth/                       # login, logout, auth_status tools
 │   │   ├── login.tool.ts
 │   │   ├── logout.tool.ts
-│   │   ├── refresh-token.tool.ts
+│   │   ├── auth-status.tool.ts
 │   │   └── index.ts
 │   ├── get-schema.tool.ts          # get_model_schema
 │   ├── get-examples.tool.ts        # get_example_models
@@ -357,7 +359,9 @@ oss/apps/dethereal/src/
        │                   │ tokens.json       │                   │
        │                   │                   │                   │
        │<──────────────────│                   │                   │
-       │ Return tokens     │                   │                   │
+       │ Platform URL,     │                   │                   │
+       │ email, expiry     │                   │                   │
+       │ (never tokens)    │                   │                   │
        │                   │                   │                   │
 ```
 
@@ -395,7 +399,7 @@ In this mode:
 | **Apollo client** | Created without `Authorization` header |
 | **buildToolContext()** | Skips token resolution, creates unauthenticated client |
 | **Client-dependent tools** | Work without authentication (backend creates mock user) |
-| **Auth tools** (login, logout, refresh) | Return immediately with "auth not needed" message |
+| **Auth tools** | `login` and `logout` return immediately with an "auth not needed" message; `auth_status` reports `authDisabled: true, authenticated: true` |
 
 ### Token Management
 
@@ -438,6 +442,8 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
 
 > **Security (D61):** The `_token` argument is **not supported**. Tokens must only come from the secure token store, never from the conversation layer. Accepting tokens from tool arguments would allow prompt injection attacks to supply attacker-controlled JWTs.
 
+> **Security (D69):** Credentials do not flow the other way either. No tool takes a credential as input or returns token material or the token-store path; skills check the session with `auth_status` and are told never to read `~/.dethernety/`. Everything the server relays that it does not control — platform error text, a proxy's error page, the GraphQL layer's own logging — can echo the bearer, so every session token the process loads or saves is registered with `auth/redact.ts`, and both tool results and stderr pass through exact-value redaction. Token-endpoint errors carry only the HTTP status and the OAuth `error` code; token-store errors carry only the filesystem error code; the sign-in URL (which holds the pending login's `state` and PKCE challenge) is never logged or put into an error.
+
 ### Auth Component Files
 
 | File | Purpose |
@@ -447,7 +453,9 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
 | `auth/pkce.ts` | PKCE code_verifier/code_challenge generation and verification |
 | `auth/token-store.ts` | Local token caching and retrieval (`~/.dethernety/tokens.json`) |
 | `auth/platform-config.ts` | Fetches and caches OIDC provider config from platform `/config` endpoint |
-| `auth/browser.ts` | Cross-platform browser opening (macOS `open`, Linux `xdg-open`, Windows `start`) |
+| `auth/browser.ts` | Cross-platform browser opening (macOS `open`, Linux `xdg-open`, Windows `start`); errors never include the sign-in URL |
+| `auth/scope.ts` | Granted-scope parsing and the `email` claim of the ID token |
+| `auth/redact.ts` | Registers session tokens and redacts them from tool results and stderr |
 
 ---
 
@@ -468,6 +476,9 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
    │
    ▼
 3. Build ToolContext via buildToolContext(args)
+   ├─ Auth tools (login, logout, auth_status) skip this step: they get a bare
+   │  context and manage the session themselves, so auth_status never makes a
+   │  network call it was not asked for
    ├─ If authDisabled (cached from platform /config):
    │  └─ Create unauthenticated Apollo client (no Authorization header)
    ├─ Else:
@@ -496,6 +507,10 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
 7. Format MCP response
    ├─ Success: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
    └─ Error: { content: [{ type: 'text', text: JSON.stringify({ error, data }) }], isError: true }
+   │
+   ▼
+8. Redact: every registered session token is replaced with "[redacted]" in the
+   response text (the same pass runs on everything written to stderr)
 ```
 
 ### Tool Implementation Pattern
@@ -582,6 +597,8 @@ MCP tool errors propagate to the agent via `ToolResult`. Agent prompts include h
 
 ### Authentication Tools (Client-Free)
 
+None of the three tools accepts a credential as input or returns token material or the token-store path (D69).
+
 #### `login`
 
 Browser-based OAuth PKCE authentication.
@@ -589,37 +606,53 @@ Browser-based OAuth PKCE authentication.
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientFreeTool` |
-| **Input** | `{}` (no parameters) |
-| **Output** | `{ authenticated: true, expires_in: number }` |
+| **Input** | `{ timeout?: number, force_new?: boolean }` — callback wait in ms (default 120000); ignore a valid stored session |
+| **Output** | `{ expiresIn, tokenType, fromCache?, refreshed?, platformUrl, email?, message, scopeShortfall? }` |
 | **dt-core class** | None (uses auth module directly) |
 
-Starts the OAuth flow: generates PKCE codes, opens browser to OIDC provider's login page, starts localhost callback server on port 9876, exchanges authorization code for tokens, stores tokens at `~/.dethernety/tokens.json`. Returns immediately with "auth not needed" when `authDisabled` is true.
+Reuses a valid stored session (`fromCache: true`) or refreshes an expired one (`refreshed: true`). Otherwise starts the OAuth flow: generates PKCE codes, opens the browser to the OIDC provider's login page, starts the localhost callback server on port 9876, exchanges the authorization code for tokens and stores them in the local token store. `platformUrl` is the platform origin and `email` comes from the ID token. Returns immediately with "auth not needed" when `authDisabled` is true. Requires a desktop browser on the same machine: when none can be opened, the call fails with *Sign-in needs a desktop browser on this machine* — the sign-in URL is not printed as a fallback.
 
 #### `logout`
 
-Clear cached tokens.
+Delete the locally stored session.
 
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientFreeTool` |
-| **Input** | `{}` |
-| **Output** | `{ logged_out: true }` |
+| **Input** | `{ clear_all?: boolean }` — clear the stored sessions for every platform |
+| **Output** | `{ message }` |
 | **dt-core class** | None |
 
-Deletes stored tokens from `~/.dethernety/tokens.json`.
+Deletes the stored session for the current platform (or all platforms) from the local token store and clears the Apollo client cache. It does **not** revoke the session at the identity provider: a copy of the refresh token held elsewhere stays valid until it expires.
 
-#### `refresh_token`
+#### `auth_status`
 
-Refresh expired access token using stored refresh token.
+Read-only session report — the supported way for skills and agents to check authentication.
 
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientFreeTool` |
-| **Input** | `{}` |
-| **Output** | `{ refreshed: true, expires_in: number }` |
+| **Input** | `{ verify?: boolean }` |
+| **Output** | `{ platformUrl, urlSource, projectRoot, authDisabled, authenticated, pending, email?, expiresAt?, secondsRemaining?, scopeShortfall?, detail? }` |
 | **dt-core class** | None |
 
-Uses the stored `refreshToken` to obtain new access and ID tokens from the OIDC provider.
+| Field | Meaning |
+|-------|---------|
+| `platformUrl` | Origin of the platform this server talks to |
+| `urlSource` | `'env'` when `DETHERNETY_URL` is set, `'default'` otherwise |
+| `projectRoot` | Directory model paths are resolved against |
+| `authDisabled` | Whether the platform runs without authentication; `null` when the platform has not been reached |
+| `authenticated` | `true` for a live session, or when the platform has authentication disabled |
+| `pending` | Whether a sign-in is waiting for the browser (currently always `false`) |
+| `email` | Signed-in user, from the ID token |
+| `expiresAt` | Access-token expiry (ISO-8601) |
+| `secondsRemaining` | Seconds until the access token expires, never negative |
+| `scopeShortfall` | Scopes the platform asks for that the session was not granted |
+| `detail` | Why the session is not usable (e.g. `not signed in`, `session expired; sign in again`, `platform unreachable: timeout`) |
+
+Without `verify` the answer comes from local state only — no network. With `verify: true` it loads the platform config if it is not cached and refreshes an expired session first, both bounded to 10 seconds. `/dethereal:status`, `/dethereal:sync` (push, pull and status) and the push step of `/dethereal:threat-model` call it with `verify: true`.
+
+Token refresh has no tool of its own: every non-auth tool call refreshes an expired session transparently (see `buildToolContext()` above), and so do `login` and `auth_status` with `verify: true`.
 
 ### Reference Tools (Client-Free)
 
@@ -1192,10 +1225,11 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 | **PKCE** | Protects against authorization code interception |
 | **OAuth `state` parameter** | Generated alongside PKCE codes, validated on callback receipt. Callbacks with missing or mismatched `state` are rejected (D61) |
 | **Local Token Storage** | `~/.dethernety/tokens.json` keyed by platform URL, with `0600` filesystem permissions (D61) |
-| **Token Expiration** | Access tokens expire per OIDC provider config (typically hours), refresh tokens per provider (typically 30 days) |
+| **Token Expiration** | Access and refresh-token lifetimes are set by the OIDC provider's configuration. `logout` deletes the local session but does not revoke the refresh token |
 | **Token Resolution** | Stored token (keyed by `baseUrl`) → transparent refresh if expired → auth-disabled fallback. No argument-level tokens (D61) |
 | **Transparent Token Refresh** | When access token is expired but refresh token is valid, `buildToolContext()` refreshes automatically before creating the Apollo client |
 | **JWT Expiry Check** | Token `exp` claim decoded and checked before use |
+| **Credential Isolation** | Session tokens never reach the model: no tool takes a credential as input or returns token material or the token-store path; skills use `auth_status` instead of reading the token file; tool results and stderr are redacted of every registered session token (D69) |
 | **Auth-Disabled Mode** | For no-auth deployments only; backend creates mock user for unauthenticated requests |
 
 ### API Security
