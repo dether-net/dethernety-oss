@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **`@dether.net/dethereal` 0.4.7: session tokens no longer reach the model.** Earlier versions told
+  the model to read the local token store to check the sign-in, so the session's access, identity
+  and refresh tokens could be sent to the model provider; the `refresh_token` tool also took a raw
+  refresh token as model input. Skills now call a read-only `auth_status` tool that reports the
+  platform, the user and the time left and never returns token material; `refresh_token` is removed
+  (refresh stays automatic); `login` and `logout` no longer return the token store's path; and no
+  error carries a sign-in URL, token or file path. Session tokens are also redacted from every tool
+  result and from the server's log output.
+
+  **If you used an earlier version, treat that session as exposed.** `logout` deletes the local copy
+  but does not revoke it, and signing out of the platform's web interface revokes the browser's own
+  session, not necessarily the plugin's. The session stays valid until its refresh token expires —
+  about a day on the hosted service, otherwise the lifetime your identity provider sets — unless an
+  identity-provider administrator revokes the user's sessions sooner.
+
+  **Still open, for 0.5.0:** the `npx` launch can pick up a copy of the package in the project's own
+  `node_modules` ahead of the registry one; a local request to the sign-in callback port can cancel a
+  pending login; two servers writing the token store at once can lose a session; and login needs a
+  desktop browser on the same machine, with no fallback yet. Never copy the token store between
+  machines by hand — sign in on each one.
+
+  **Upgrading:** update the plugin. Its `.mcp.json` pins the exact server version, so the update is
+  what moves the server to 0.4.7.
+
+  0.4.6 was withdrawn: it was published with a server build from before this change, so its skills
+  called a tool its server did not have. Packing and publishing now always build the server, and the data-access layer bundled into it, first.
+
 ## [0.9.2] - 2026-09-18
 
 A person whose sign-in has simply expired is now signed in again, not told that the deployment

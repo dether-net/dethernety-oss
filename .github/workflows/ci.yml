@@ -155,6 +155,17 @@ jobs:
         working-directory: apps/dethereal
         run: pnpm vitest run src/__tests__/mcp-config.test.ts
 
+      # Session credentials must never reach the model. The guard reads every file the package
+      # publishes and every tool's description and input schema; the canary drives the built
+      # server over stdio against a platform that echoes the bearer back and scans every result
+      # and stderr for it. Both import the bundled data-access layer, which resolves to its build.
+      - name: Build the bundled data-access layer
+        run: pnpm --filter @dethernety/dt-core build
+
+      - name: No path from the model to session credentials
+        working-directory: apps/dethereal
+        run: pnpm vitest run src/__tests__/token-guard.test.ts src/__tests__/token-canary.test.ts src/tools/__tests__/auth-status.tool.test.ts
+
       # The guard below reads the manifest AND the source of every package tsup bundles into the
       # artifact. This proves it still does, against a throwaway repository in the same layout —
       # a guard that only checks declared ranges passed a platform-wide change to the bundled data

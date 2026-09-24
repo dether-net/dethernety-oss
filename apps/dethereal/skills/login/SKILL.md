@@ -9,7 +9,7 @@ Authenticate with the Dethernety platform using browser-based OAuth.
 
 1. Call the `mcp__plugin_dethereal_dethereal__login` tool with no arguments.
 
-2. Interpret the result:
+2. Interpret the result. Take `<platform_url>` from `platformUrl`, `<user_email>` from `email` (omit the line if absent) and `<minutes>` from `expiresIn` ÷ 60. Never read files under `~/.dethernety/` in your home directory — session credentials stay inside the MCP server.
 
    - **Already authenticated** (result contains `fromCache: true`): Display:
      ```

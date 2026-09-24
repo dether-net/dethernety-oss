@@ -17,9 +17,18 @@ Bin entry: `dethereal` (CLI executable via shebang)
 ### Plugin Testing
 
 ```bash
-claude --plugin-dir oss/apps/dethereal    # Test plugin locally
+claude --plugin-dir oss/apps/dethereal    # Local skills/agents/hooks; MCP server = published version via npx
 /reload-plugins                            # Reload after changes (inside session)
 ```
+
+`--plugin-dir oss/apps/dethereal` loads this checkout's prompts, but `.mcp.json` still starts the **published** server (`npx @dether.net/dethereal@<pinned version>`). To run the **local build**, `pnpm build` and then generate a dev plugin root (developer tooling, not published):
+
+```bash
+node dev/dev-plugin-root.mjs --out <dir outside the repo> --sandbox-home <dir> [--url <platform>]
+claude --plugin-dir <out dir>
+```
+
+Its `.mcp.json` runs `node <checkout>/dist/index.js` with `HOME` set to the sandbox, so the dev server's session store never touches your own. Skills, agents and hooks are copied, not linked — re-run the script after changing them.
 
 ## Plugin Structure
 
@@ -101,7 +110,7 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 
 | Category | Tools |
 |----------|-------|
-| Auth (3) | login, logout, refresh_token |
+| Auth (3) | login, logout, auth_status |
 | Reference (2) | get_model_schema, get_example_models |
 | Validation (1) | validate_model_json (validate + quality score + coverage) |
 | Model CRUD (5) | create_threat_model, import_model, export_model, update_model, list_models |
@@ -114,6 +123,8 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 ### Auth (`src/auth/`)
 
 OAuth 2.0 PKCE flow. Auth strategy: stored-token → transparent-refresh → auth-disabled fallback.
+
+Session credentials never reach the model (D69): prompts check the session with `auth_status` and never read the server's session store in the home directory; no tool takes a credential as input or returns one; `src/auth/redact.ts` scrubs registered session tokens from tool results and stderr. `src/__tests__/token-guard.test.ts` enforces this for everything the package ships — including this file.
 
 ### GraphQL Client
 

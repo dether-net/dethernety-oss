@@ -9,8 +9,8 @@ export * from './base-tool.js'
 
 // Authentication tools (client-free)
 export { LoginTool, loginTool } from './auth/login.tool.js'
-export { RefreshTokenTool, refreshTokenTool } from './auth/refresh-token.tool.js'
 export { LogoutTool, logoutTool } from './auth/logout.tool.js'
+export { AuthStatusTool, authStatusTool } from './auth/auth-status.tool.js'
 export { authTools } from './auth/index.js'
 
 // Client-free tools (no GraphQL connection required)
@@ -43,8 +43,8 @@ export { GetControlGapsTool, getControlGapsTool } from './get-control-gaps.tool.
 import { BaseTool } from './base-tool.js'
 // Auth tools
 import { loginTool } from './auth/login.tool.js'
-import { refreshTokenTool } from './auth/refresh-token.tool.js'
 import { logoutTool } from './auth/logout.tool.js'
+import { authStatusTool } from './auth/auth-status.tool.js'
 // Other client-free tools
 import { validateModelTool } from './validate-model.tool.js'
 import { getSchemaTool } from './get-schema.tool.js'
@@ -75,7 +75,7 @@ import { getControlGapsTool } from './get-control-gaps.tool.js'
 export const allTools: BaseTool[] = [
   // Authentication tools
   loginTool,
-  refreshTokenTool,
+  authStatusTool,
   logoutTool,
   // Client-free tools
   validateModelTool,
@@ -108,7 +108,7 @@ export const allTools: BaseTool[] = [
 export const clientFreeTools: BaseTool[] = [
   // Auth tools are client-free
   loginTool,
-  refreshTokenTool,
+  authStatusTool,
   logoutTool,
   // Other client-free tools
   validateModelTool,

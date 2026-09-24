@@ -531,7 +531,7 @@ Before pushing, the plugin verifies Gate 2 (sync-blocking) criteria: manifest co
 
 ### Authentication Check
 
-The plugin checks your token at `~/.dethernety/tokens.json`. If expired or missing:
+The plugin asks its MCP server whether you are signed in, refreshing an expired session if it can. If you are not signed in:
 
 ```
 Not authenticated. Run /dethereal:login first, or skip sync for now.

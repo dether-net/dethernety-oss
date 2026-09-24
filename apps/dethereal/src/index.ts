@@ -28,7 +28,20 @@ import {
   getCachedPlatformConfig,
   isAuthDisabled
 } from './auth/index.js'
-import { allTools, clientDependentTools, BaseTool, ToolContext } from './tools/index.js'
+import { redactSecrets, redactStderr } from './auth/redact.js'
+import { allTools, authTools, clientDependentTools, BaseTool, ToolContext } from './tools/index.js'
+
+// Before anything can log: the bundled GraphQL layer writes platform error text
+// to stderr on its own, and that text can echo the session's bearer.
+redactStderr()
+// Node prints a fatal error itself, without going through process.stderr.write, so
+// report it here instead and exit as Node would have.
+for (const event of ['uncaughtException', 'unhandledRejection'] as const) {
+  process.on(event, (error) => {
+    console.error('Fatal:', error)
+    process.exit(1)
+  })
+}
 
 // Server instance
 const server = new Server(
@@ -203,6 +216,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools }
 })
 
+type CallToolResponse = { content: { type: 'text'; text: string }[]; isError?: boolean }
+
+function textResponse(body: unknown, isError?: boolean): CallToolResponse {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(body, null, 2) }],
+    ...(isError ? { isError: true } : {})
+  }
+}
+
 /**
  * Handle tool calls
  */
@@ -218,103 +240,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`)
   }
 
-  // Check if tool requires client
-  const requiresClient = clientDependentTools.includes(tool)
-  const context = await buildToolContext()
-
-  if (requiresClient && !context.apolloClient) {
-    // Both client-construction catches record WHY the client is missing. Only
-    // say "Authentication required" when that is actually the cause — otherwise
-    // this message sends the operator to re-login for a fault re-login cannot
-    // fix, and in auth-disabled mode the advice cannot even be followed.
-    const reason = context.clientUnavailableReason
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            reason
-              ? { error: 'Platform client unavailable', message: reason, tool: name }
-              : {
-                  error: 'Authentication required',
-                  message:
-                    'This tool requires authentication. Please call the "login" tool first to authenticate via browser OAuth.',
-                  tool: name
-                },
-            null,
-            2
-          )
-        }
-      ],
-      isError: true
-    }
+  // Every result passes through redaction: tools relay platform text this
+  // server does not control, and that text can echo the session's bearer.
+  const response = await callTool(tool, name, args)
+  return {
+    ...response,
+    content: response.content.map((item) => ({ ...item, text: redactSecrets(item.text) }))
   }
+})
 
+async function callTool(tool: BaseTool, name: string, args: Record<string, unknown>): Promise<CallToolResponse> {
   try {
+    // The auth tools manage the session themselves. Building a session context
+    // for them would refresh an expired session first — a network call that
+    // auth_status must not make unless asked, and that would make login report a
+    // refresh it did not perform.
+    const context: ToolContext = (authTools as BaseTool[]).includes(tool)
+      ? { debug: getConfig().debug }
+      : await buildToolContext()
+
+    // Check if tool requires client
+    const requiresClient = clientDependentTools.includes(tool)
+
+    if (requiresClient && !context.apolloClient) {
+      // Both client-construction catches record WHY the client is missing. Only
+      // say "Authentication required" when that is actually the cause — otherwise
+      // this message sends the operator to re-login for a fault re-login cannot
+      // fix, and in auth-disabled mode the advice cannot even be followed.
+      const reason = context.clientUnavailableReason
+      return textResponse(
+        reason
+          ? { error: 'Platform client unavailable', message: reason, tool: name }
+          : {
+              error: 'Authentication required',
+              message:
+                'This tool requires authentication. Please call the "login" tool first to authenticate via browser OAuth.',
+              tool: name
+            },
+        true
+      )
+    }
+
     // Validate input and execute the tool
     const result = await tool.run(args, context)
 
-    if (result.success) {
-      // ToolResult carries an optional top-level `warnings`, but only `data`
-      // was serialized — so a tool that set warnings as a sibling of data (the
-      // shape the ToolResult type invites) had them silently dropped before
-      // they reached the caller. Merge them in rather than requiring every tool
-      // to remember to nest them, which is the mistake this shape encourages.
-      const payload = result.warnings?.length
-        ? (result.data && typeof result.data === 'object' && !Array.isArray(result.data)
-            // Nested warnings win: a tool that already put them in `data` has
-            // the richer, tool-specific list.
-            ? { warnings: result.warnings, ...(result.data as Record<string, unknown>) }
-            : { data: result.data, warnings: result.warnings })
-        : result.data
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(payload, null, 2)
-          }
-        ]
-      }
-    } else {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                error: result.error,
-                data: result.data
-              },
-              null,
-              2
-            )
-          }
-        ],
-        isError: true
-      }
+    if (!result.success) {
+      return textResponse({ error: result.error, data: result.data }, true)
     }
+
+    // ToolResult carries an optional top-level `warnings`, but only `data`
+    // was serialized — so a tool that set warnings as a sibling of data (the
+    // shape the ToolResult type invites) had them silently dropped before
+    // they reached the caller. Merge them in rather than requiring every tool
+    // to remember to nest them, which is the mistake this shape encourages.
+    const payload = result.warnings?.length
+      ? (result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+          // Nested warnings win: a tool that already put them in `data` has
+          // the richer, tool-specific list.
+          ? { warnings: result.warnings, ...(result.data as Record<string, unknown>) }
+          : { data: result.data, warnings: result.warnings })
+      : result.data
+
+    return textResponse(payload)
   } catch (error) {
     debug(`Tool execution error: ${error}`)
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            {
-              error: error instanceof Error ? error.message : 'Unknown error',
-              tool: name
-            },
-            null,
-            2
-          )
-        }
-      ],
-      isError: true
-    }
+    return textResponse({ error: error instanceof Error ? error.message : 'Unknown error', tool: name }, true)
   }
-})
+}
 
 /**
  * Main entry point

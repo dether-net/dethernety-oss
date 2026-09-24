@@ -40,10 +40,10 @@ For push and status: resolve the model directory using the Model Resolution Prot
 
 ### P0. Auth Check
 
-Read the token store at `~/.dethernety/tokens.json`. Find the entry keyed by the platform URL (`DETHERNETY_URL` environment variable, default `http://localhost:3003`).
+Call `mcp__plugin_dethereal_dethereal__auth_status` with `verify: true`. Never read files under `~/.dethernety/` in your home directory — session credentials stay inside the MCP server. (The project's own `.dethernety/models.json` is fine.)
 
-- If tokens exist and not expired: proceed
-- If tokens expired or missing: "Not authenticated. Run `/dethereal:login` first." Stop.
+- If `authenticated` is true (this includes platforms with `authDisabled: true`): proceed
+- Otherwise: "Not authenticated. Run `/dethereal:login` first." (append `detail` if present). Stop.
 
 ### P1. Resolve and Validate
 
@@ -755,10 +755,10 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
 ### L1. Auth Check
 
-Read the token store at `~/.dethernety/tokens.json`. Find the entry keyed by the platform URL (`DETHERNETY_URL` environment variable, default `http://localhost:3003`).
+Call `mcp__plugin_dethereal_dethereal__auth_status` with `verify: true`. Never read files under `~/.dethernety/` in your home directory — session credentials stay inside the MCP server. (The project's own `.dethernety/models.json` is fine.)
 
-- If tokens exist and not expired: proceed
-- If tokens expired or missing: "Not authenticated. Run `/dethereal:login` first." Stop.
+- If `authenticated` is true (this includes platforms with `authDisabled: true`): proceed
+- Otherwise: "Not authenticated. Run `/dethereal:login` first." (append `detail` if present). Stop.
 
 ### L2. Model Selection
 
@@ -1081,7 +1081,7 @@ If `sync.json` does not exist: "Never synced"
 
 ### S3. Display Status
 
-Also read auth status from `~/.dethernety/tokens.json` (same as L1).
+Also get the auth status and platform URL from `mcp__plugin_dethereal_dethereal__auth_status` with `verify: true` (same as L1; never read `~/.dethernety/` in your home directory).
 
 ```
 Sync Status: <directory-path>/

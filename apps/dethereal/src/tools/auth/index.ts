@@ -5,12 +5,12 @@
  */
 
 export { loginTool, LoginTool } from './login.tool.js'
-export { refreshTokenTool, RefreshTokenTool } from './refresh-token.tool.js'
 export { logoutTool, LogoutTool } from './logout.tool.js'
+export { authStatusTool, AuthStatusTool } from './auth-status.tool.js'
 
 import { loginTool } from './login.tool.js'
-import { refreshTokenTool } from './refresh-token.tool.js'
 import { logoutTool } from './logout.tool.js'
+import { authStatusTool } from './auth-status.tool.js'
 
 /** All authentication tools */
-export const authTools = [loginTool, refreshTokenTool, logoutTool]
+export const authTools = [loginTool, logoutTool, authStatusTool]

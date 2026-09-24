@@ -94,7 +94,7 @@
 │  │  │ Client-Free Tools   │  │ Client-Dependent Tools                  │  │  │
 │  │  │ • login             │  │ • import_model    • get_classes         │  │  │
 │  │  │ • logout            │  │ • export_model    • update_attributes   │  │  │
-│  │  │ • refresh_token     │  │ • update_model    • create_threat_model │  │  │
+│  │  │ • auth_status       │  │ • update_model    • create_threat_model │  │  │
 │  │  │ • validate_model    │  │                                         │  │  │
 │  │  │ • get_model_schema  │  │                                         │  │  │
 │  │  │ • get_example_models│  │                                         │  │  │
@@ -203,7 +203,7 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 
 | Category | Tools | Requires Auth |
 |----------|-------|---------------|
-| **Authentication** | `login`, `logout`, `refresh_token` | No |
+| **Authentication** | `login`, `logout`, `auth_status` | No |
 | **Schema/Reference** | `get_model_schema`, `get_example_models` | No |
 | **Validation** | `validate_model_json` | No |
 | **Model Management** | `import_model`, `export_model`, `update_model`, `create_threat_model` | Yes |
@@ -263,7 +263,9 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
        │                   │ tokens.json       │                   │
        │                   │                   │                   │
        │<──────────────────│                   │                   │
-       │ Return tokens     │                   │                   │
+       │ Platform URL,     │                   │                   │
+       │ email, expiry     │                   │                   │
+       │ (never tokens)    │                   │                   │
        │                   │                   │                   │
 ```
 
@@ -301,7 +303,7 @@ In this mode:
 | **Apollo client** | Created without `Authorization` header |
 | **buildToolContext()** | Skips token resolution, creates unauthenticated client |
 | **Client-dependent tools** | Work without authentication (backend creates mock user) |
-| **Auth tools** (login, logout, refresh) | Return immediately with "auth not needed" message |
+| **Auth tools** | `login` and `logout` return immediately with an "auth not needed" message; `auth_status` reports `authDisabled: true, authenticated: true` |
 
 See [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development) for the backend requirements.
 
@@ -325,7 +327,7 @@ interface StoredTokens {
 // 3. No token needed when authDisabled is true
 ```
 
-> **Security:** Tokens are never read from tool arguments -- a `_token` argument is **not supported**. Accepting tokens from the conversation layer would let prompt injection supply attacker-controlled JWTs. See [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#4-authentication-flow).
+> **Security:** Tokens are never read from tool arguments -- a `_token` argument is **not supported**. Accepting tokens from the conversation layer would let prompt injection supply attacker-controlled JWTs. The reverse direction is closed too: no tool returns token material or the token-store path, skills check the session through `auth_status` instead of reading the token file, and session tokens are redacted from every tool result and from stderr. See [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#4-authentication-flow) and [D69](DECISIONS.md#d69-session-credentials-never-reach-the-model).
 
 ### Auth Component Files
 
@@ -337,6 +339,7 @@ interface StoredTokens {
 | `token-store.ts` | Local token caching and retrieval |
 | `platform-config.ts` | Fetches OIDC provider config from platform |
 | `browser.ts` | Cross-platform browser opening |
+| `redact.ts` | Redacts session tokens from tool results and stderr |
 
 ---
 
@@ -560,8 +563,8 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 |-----------|----------------|
 | **OAuth 2.0 + OIDC** | Any OIDC-compliant provider (Cognito, Keycloak, Auth0, Zitadel) |
 | **PKCE** | Protects against authorization code interception |
-| **Local Token Storage** | `~/.dethernety/tokens.json` with filesystem permissions |
-| **Token Expiration** | Access tokens expire in hours, refresh tokens in 30 days |
+| **Local Token Storage** | `~/.dethernety/tokens.json` with filesystem permissions; read and written by the MCP server only, never by the model |
+| **Token Expiration** | Access and refresh-token lifetimes are set by the deployment's identity provider |
 | **Auth-Disabled Mode** | For no-auth deployments only; backend creates mock user for unauthenticated requests |
 
 ### API Security

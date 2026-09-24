@@ -520,8 +520,8 @@ The `threat-modeler` is the orchestrating agent (set via skill `agent` frontmatt
 | Tool | Auth | Purpose |
 |------|------|---------|
 | `login` | No | Browser-based OAuth PKCE authentication |
-| `logout` | No | Clear cached tokens |
-| `refresh_token` | No | Refresh expired tokens |
+| `logout` | No | Delete the locally stored session (no revocation at the identity provider) |
+| `auth_status` | No | Report platform URL, sign-in state, user and time left; `verify: true` refreshes an expired session. Never returns token material. Replaced `refresh_token` (D69) |
 | `get_model_schema` | No | Schema + modeling guidelines |
 | `get_example_models` | No | Example model templates |
 | `validate_model_json` | No | Offline structural validation, quality score, control-coverage, and boundary trust zoning. Input: `{ action: 'validate'\|'quality'\|'coverage'\|'zoning', directory_path: string, assets?: 'full'\|'skeleton' }`. `zoning` computes per-boundary trust determination + advisory findings offline (skeleton/full phases) — see [TRUST_ZONING.md](TRUST_ZONING.md) |
@@ -632,7 +632,7 @@ Wraps `DtAnalysis` dt-core class. Note: streaming/subscription-based result deli
 
 | Category | Tools | Count |
 |----------|-------|-------|
-| Auth | `login`, `logout`, `refresh_token` | 3 |
+| Auth | `login`, `logout`, `auth_status` | 3 |
 | Reference | `get_model_schema`, `get_example_models` | 2 |
 | Validation | `validate_model_json` | 1 |
 | Model CRUD | `create_threat_model`, `import_model`, `export_model`, `update_model`, `list_models` | 5 |
@@ -665,6 +665,7 @@ The OAuth PKCE flow starts a localhost HTTP server on a fixed port (9876) to rec
 - **Server lifetime**: The callback server auto-closes after receiving the callback or after a 2-minute timeout
 - **Port predictability**: Fixed port is required by most OIDC providers that restrict redirect URIs. The server only listens for the expected redirect path
 - **Token storage**: Tokens stored at `~/.dethernety/tokens.json` with `0600` permissions. The MCP server should verify file permissions on read and warn if permissions are too broad
+- **Credentials stay in the server**: only the MCP server reads the token store. Skills check the session with `auth_status` and never read `~/.dethernety/`; no tool takes a credential as input or returns one, and session tokens are redacted from tool results and stderr (D69)
 
 ---
 
@@ -743,9 +744,10 @@ Authentication works through the existing mechanism:
 
 1. **`DETHERNETY_URL`** environment variable set in `.mcp.json` env config
 2. **OAuth PKCE flow** triggered by `login` MCP tool (opens browser)
-3. **Tokens cached** at `~/.dethernety/tokens.json` (mode 0600)
+3. **Tokens cached** at `~/.dethernety/tokens.json` (mode 0600), read by the MCP server only
 4. **Auto-refresh** handled internally by the MCP server
-5. **Auth-disabled mode** supported for no-auth deployments
+5. **Session checks** through the `auth_status` tool — skills never read the token store
+6. **Auth-disabled mode** supported for no-auth deployments
 
 ### Persistent Plugin Data
 
