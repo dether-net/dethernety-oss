@@ -538,8 +538,8 @@ importers:
         specifier: ^2.12.7
         version: 2.12.7(graphql@16.14.2)
       js-yaml:
-        specifier: ^4.3.2
-        version: 4.3.2
+        specifier: ^5.4.1
+        version: 5.4.1
     devDependencies:
       '@types/js-yaml':
         specifier: ^4.0.9
@@ -6082,6 +6082,10 @@ packages:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
+  js-yaml@5.4.1:
+    resolution: {integrity: sha512-28R/k+NAjeuf7+CKlTxWZVExJGwVVLwY06DgEnOMz2gEpfNkDcD7QvyiVPT0xy0XXhU8vHsd4Ot42OOPdJG7dQ==}
+    hasBin: true
+
   jsdoc-type-pratt-parser@7.3.0:
     resolution: {integrity: sha512-DoyJXo7x/n48M3NsGOs9QnEws0ft0tV3YsSgvWMNxz2hZtz+Q6fpqUD96lVYX4a+jcEkzHeFNDJOn68TzXfbdA==}
     engines: {node: '>=20.0.0'}
@@ -8508,8 +8512,8 @@ snapshots:
 
   '@angular-devkit/core@19.2.27(chokidar@4.0.3)':
     dependencies:
-      ajv: 8.20.0
-      ajv-formats: 3.0.1(ajv@8.20.0)
+      ajv: 8.18.0
+      ajv-formats: 3.0.1(ajv@8.18.0)
       jsonc-parser: 3.3.1
       picomatch: 4.0.5
       rxjs: 7.8.1
@@ -14633,6 +14637,10 @@ snapshots:
   js-tokens@4.0.0: {}
 
   js-yaml@4.3.2:
+    dependencies:
+      argparse: 2.0.1
+
+  js-yaml@5.4.1:
     dependencies:
       argparse: 2.0.1
 
