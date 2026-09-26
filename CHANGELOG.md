@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`@dether.net/dethereal` 0.4.8: discovery is instructed never to read secret values.** The
+  discovery scout could run `docker compose config`, which prints values from `.env` and `env_file:`
+  files, and could open `.env` files and committed Kubernetes Secret manifests, so secret values could
+  reach the model provider. The scout is now told never to open secret files (env files, Terraform state
+  and variables, keys and certificates, cloud and registry credentials, Kubernetes Secret manifests and
+  similar), to take names from examples, references and code instead, and never to run commands that
+  print secret values. This is an instruction to the model, not an enforced control. **Upgrading:**
+  update the plugin; its `.mcp.json` pins the server to 0.4.8.
+
 - **`@dether.net/dethereal` 0.4.7: session tokens no longer reach the model.** Earlier versions told
   the model to read the local token store to check the sign-in, so the session's access, identity
   and refresh tokens could be sent to the model provider; the `refresh_token` tool also took a raw
