@@ -36,6 +36,7 @@ Every scoped invocation will include, in the prompt:
 - **Do not enumerate.** "Let me check what else is in this directory" is not an option — you lack `Glob`.
 - **No speculative cross-checks.** In full discovery mode the scout speculates about related infrastructure (CI config, env templates, etc.). In scoped mode that is the calling skill's job.
 - **Filesystem only.** Live-source re-verification (K8s/AWS/GCP) uses the full scout, which has `Bash`.
+- **Never read a secret file**, even if it is in your file list: `.env` and `.env.*` (not `.env.example`, `.env.template`, `.env.sample` or `.env.dist`), `*.env` and any file named by a compose `env_file:`, `.envrc`, `*.tfstate*`, `*.tfvars`, `*.tfvars.json`, `.terraformrc`, `credentials.tfrc.json`, keys and certificates (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, SSH `id_rsa`, `id_ed25519`, …), cloud credentials (`.aws/credentials`, `application_default_credentials.json`, `credentials.json`, `*service-account*.json`, `*-sa-key.json`, `.docker/config.json`), `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`, `.pgpass`, `.my.cnf`, `.htpasswd`, `.vault-token`, kubeconfig files, helm-secrets files (`secrets*.yaml`, `values*secret*.yaml`), and committed Kubernetes `kind: Secret` manifests. Report it as "`<file>` present, not read" and take names from `.env.example`/`.env.template`, compose and Kubernetes references or code.
 
 ## Security constraint (file-side)
 
@@ -44,7 +45,7 @@ When opening files with `Read`:
 - **Extract only variable NAMES and endpoint information** (hostnames, ports, protocols). **NEVER** include secret values (passwords, API keys, tokens, private keys, certificates) in your output or conversation context.
 - If you encounter a secret, reference it by variable name only.
 - Connection strings: extract host, port, protocol, database name — **never credentials**.
-- Config maps and secrets manifests: key names only; never decode or display values.
+- Config maps: list key names only, never display values; Secret manifests are never opened.
 
 ## IaC → Dethernety class mapping (for reclassification proposals)
 
