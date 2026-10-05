@@ -1,13 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { classEmbeddingText, hashEmbeddingText, slugifyModelName } from './embedding-text';
-
-/**
- * Maximum vector length accepted from a pre-computed file. Vectors longer than
- * this are rejected as malformed. Current embedding models top out around 4096
- * dimensions; 8192 is a comfortable sanity bound.
- */
-const MAX_VECTOR_DIMENSIONS = 8192;
+import {
+  MAX_EMBEDDING_DIMENSIONS,
+  classEmbeddingText,
+  embeddingVectorDefect,
+  hashEmbeddingText,
+  slugifyModelName,
+} from './embedding-text';
 
 export interface EmbeddingFileCacheOptions {
   /** Absolute path to the module's data root (already includes the moduleName segment). */
@@ -217,33 +216,16 @@ export class EmbeddingFileCache {
       return null;
     }
 
-    const arr = candidate as unknown[];
-    if (arr.length === 0 || arr.length > MAX_VECTOR_DIMENSIONS) {
-      this.logger.warn('Embedding vector length out of bounds', {
+    const defect = embeddingVectorDefect(candidate);
+    if (defect) {
+      this.logger.warn('Embedding vector rejected', {
         vectorPath,
-        length: arr.length,
-        max: MAX_VECTOR_DIMENSIONS,
+        reason: defect,
+        max: MAX_EMBEDDING_DIMENSIONS,
       });
       return null;
     }
 
-    let sumSq = 0;
-    for (const v of arr) {
-      if (typeof v !== 'number' || !Number.isFinite(v)) {
-        this.logger.warn('Embedding vector contains non-finite or non-numeric entry', {
-          vectorPath,
-        });
-        return null;
-      }
-      sumSq += v * v;
-    }
-
-    // A zero-magnitude vector yields degenerate/NaN cosine similarity downstream — reject it.
-    if (sumSq === 0) {
-      this.logger.warn('Embedding vector has zero magnitude', { vectorPath });
-      return null;
-    }
-
-    return { vector: arr as number[], contentHash };
+    return { vector: candidate as number[], contentHash };
   }
 }
