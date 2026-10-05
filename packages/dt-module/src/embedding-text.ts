@@ -195,6 +195,32 @@ export function hashEmbeddingText(text: string): string {
 }
 
 /**
+ * Maximum vector length accepted from a pre-computed source. Current embedding models top out
+ * around 4096 dimensions; 8192 is a comfortable sanity bound.
+ */
+export const MAX_EMBEDDING_DIMENSIONS = 8192;
+
+/**
+ * Why a candidate pre-computed vector is unusable, or `null` when it is a usable vector. Shared by
+ * every reader (file cache, remote module, publisher) so they agree on what a vector is: a
+ * non-empty, bounded array of finite numbers with non-zero magnitude. A zero-magnitude vector
+ * yields a degenerate/NaN cosine similarity downstream, so it is rejected too.
+ */
+export function embeddingVectorDefect(candidate: unknown): string | null {
+  if (!Array.isArray(candidate)) return 'not an array';
+  if (candidate.length === 0 || candidate.length > MAX_EMBEDDING_DIMENSIONS) {
+    return 'length out of bounds';
+  }
+  let sumSq = 0;
+  for (const v of candidate) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return 'non-finite or non-numeric entry';
+    sumSq += v * v;
+  }
+  if (sumSq === 0) return 'zero magnitude';
+  return null;
+}
+
+/**
  * Slugify a model identifier so it is safe to use as a filename path segment.
  *
  * Model names legitimately contain '/' (e.g. "sentence-transformers/all-MiniLM-L6-v2"),

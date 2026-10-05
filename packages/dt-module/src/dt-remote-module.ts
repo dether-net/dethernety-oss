@@ -19,7 +19,7 @@ import { DTMetadata } from './interfaces/module-metadata-interface';
 import { Exposure } from './interfaces/exposure-interface';
 import { Countermeasure } from './interfaces/countermeasure-interface';
 import { DbOps } from './db-ops';
-import { slugifyModelName } from './embedding-text';
+import { embeddingVectorDefect, slugifyModelName } from './embedding-text';
 import { FetchLike, WireClient } from './remote/wire-client';
 import { CachedModule, MetadataCache, SERVED_CLASS_ARRAYS, countClasses } from './remote/metadata-cache';
 import {
@@ -335,9 +335,28 @@ export class DtRemoteModule implements DTModule {
     for (const response of entry.embeddings) {
       const slug = slugifyModelName(response.model);
       const byName = next.get(slug) ?? new Map<string, number[]>();
+      let rejected = 0;
       for (const { classId, vector } of response.embeddings) {
         const className = idToName.get(classId);
-        if (className) byName.set(className, vector);
+        if (!className) continue;
+        // The wire carries a bare array, but a cached entry may hold a vector file's
+        // `{ vector, contentHash }` wrapper passed through verbatim. Unwrap it, and drop
+        // anything that is still not a usable vector: a dropped class is embedded on the
+        // fly, whereas a malformed one would throw on every lookup.
+        const candidate = Array.isArray(vector) ? vector : (vector as { vector?: unknown } | null)?.vector;
+        if (embeddingVectorDefect(candidate)) {
+          rejected++;
+          continue;
+        }
+        byName.set(className, candidate as number[]);
+      }
+      if (rejected > 0) {
+        // Wire-sourced values ride as structured metadata, never interpolated into the message.
+        this.logger.warn('Dropped malformed embedding vectors; those classes are embedded on the fly', {
+          moduleKey: this.moduleKey,
+          model: response.model,
+          rejected,
+        });
       }
       next.set(slug, byName);
     }
