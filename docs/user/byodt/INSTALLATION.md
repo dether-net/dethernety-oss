@@ -181,7 +181,7 @@ All of this is idempotent. Every later `./byodt up` repeats the checks silently,
 
 1. **`db` starts** and is not considered healthy until it answers a query — not merely until its process is up.
 2. **`ollama` starts** and pulls the embedding model. This is the longest single step on a fresh machine. Its health check is sized for a slow connection: forty attempts, at fifteen-second intervals, each allowed two minutes.
-3. **`console-init` runs** once the database is healthy. It places the schema, downloads the module payloads for this release, verifies every signature against the pinned release identity, checks each download's digest, installs them, and ingests the MITRE ATT&CK and D3FEND reference data. Then it exits.
+3. **`console-init` runs** once the database is healthy. It places the schema, downloads the module payloads for this release, verifies every signature against the pinned release identity, checks each download's digest, installs them, and ingests the MITRE ATT&CK, ATLAS and D3FEND reference data. Then it exits.
 4. **`platform` starts** — but only after the database and the embedding server are healthy *and* `console-init` has completed successfully. That dependency is declared, so the platform cannot start against an unseeded graph or a stale schema.
 5. **`proxy` starts** and publishes the front door.
 6. **`console` starts.** It has no dependency on any other service, so it can report on the deployment even while the rest is down.
