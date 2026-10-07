@@ -15,10 +15,10 @@
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
     "@dethernety/dt-module": "workspace:*",
-    "@nestjs/common": "^11.2.3"
+    "@nestjs/common": "^11.2.7"
   },
   "devDependencies": {
-    "@types/node": "^25.9.6",
+    "@types/node": "^25.9.9",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   }
