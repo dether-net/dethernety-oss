@@ -4,7 +4,9 @@ Third-Party Notices
 
 The Dethernety platform and operator console — the images published under
 ghcr.io/dether-net/ (dethernety, byodt-console) — are Dethernety's own work
-and are governed by the terms in LICENSE (GNU Affero General Public License v3.0).
+and are governed by the terms in LICENSE (GNU Affero General Public License v3.0),
+except for the MITRE reference data the byodt-console image embeds, which keeps
+its own licenses (see the last entry below).
 
 This deployment additionally *references* the third-party container images listed
 below. It does NOT redistribute them. Dethernety does not host, mirror, or embed
@@ -50,6 +52,17 @@ nginx — reverse proxy / TLS terminator (compose service: proxy)
   Image:     nginx:1.27-alpine  (Docker Hub Official Image)
   License:   BSD 2-Clause
   Homepage:  https://nginx.org
+
+------------------------------------------------------------------------------
+MITRE ATT&CK, MITRE ATLAS, MITRE D3FEND — reference data (inside the byodt-console image)
+  Distributed: yes. Unlike the images above, this data IS redistributed: the
+             byodt-console binary embeds it and loads it into the database.
+  Versions:  ATT&CK v19.2, ATLAS v2026.09, D3FEND 1.6.0
+  Licenses:  ATT&CK: MITRE's ATT&CK license; ATLAS: Apache License 2.0;
+             D3FEND: MIT License
+  Notice:    the full notice, with each license text, ships in the image at
+             /licenses/mitre-frameworks/NOTICE and in the source tree at
+             modules/mitre-frameworks/NOTICE
 
 ------------------------------------------------------------------------------
 

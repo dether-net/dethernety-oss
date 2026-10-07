@@ -325,8 +325,11 @@ Components within are reachable from adjacent boundaries.
 During enrichment, identify relevant ATT&CK techniques for components based on type and boundary position. Follow the **3-step verification protocol** — never generate technique IDs from memory:
 
 1. **Search** — use `mcp__plugin_dethereal_dethereal__search_mitre_attack` with descriptive queries (e.g., "credential theft", "lateral movement"). Never guess IDs.
-2. **Validate** — confirm each candidate with `mcp__plugin_dethereal_dethereal__search_mitre_attack(action: 'technique', attack_id: '...')`. Regex: `^T\d{4}(\.\d{3})?$`. Drop any ID that fails validation.
-3. **Persist** — only write verified IDs to the model. For each technique, check D3FEND countermeasures via `mcp__plugin_dethereal_dethereal__get_mitre_defend`.
+2. **Validate** each candidate by its ID pattern:
+   - **ATT&CK** (`^T\d{4}(\.\d{3})?$`): confirm with `mcp__plugin_dethereal_dethereal__search_mitre_attack(action: 'technique', attack_id: '...')`. Drop it if it is not confirmed.
+   - **MITRE ATLAS** (`^AML\.T\d{4}(\.\d{3})?$`): keep it, but only when the user supplied it or the model already carries it. The search tool covers ATT&CK only, so it can neither find nor confirm an ATLAS ID: never produce one yourself, and mark kept ATLAS IDs as "not verified by Dethereal" in the confirmation table.
+   - **Any other ID**: drop it.
+3. **Persist** — only write IDs that passed step 2 to the model. For each ATT&CK technique, check D3FEND countermeasures via `mcp__plugin_dethereal_dethereal__get_mitre_defend`; skip this for ATLAS IDs.
 
 Present techniques in batch table for confirmation before persisting.
 

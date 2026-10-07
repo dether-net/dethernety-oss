@@ -2,9 +2,8 @@
  * DtMitreAttack.getMitreAttackTactics ordering tests.
  *
  * Mirrors the dt-mitre.test harness — stub `dtUtils.performQuery` and inject
- * responses. The tactic list is sorted client-side against a hardcoded matrix
- * order, so these lock the two things that order depends on: the ATT&CK version
- * the names come from, and what happens to a name the list does not carry.
+ * responses. Tactics are ordered by the `matrix_order` the ingest stamps on each
+ * tactic from the ATT&CK bundle, so the order follows the data, not a list in code.
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -21,90 +20,60 @@ function buildHarness() {
   return { dt, performQuery }
 }
 
-/** Returns the tactics in the order the client sorted them. */
-async function sortNames(names: string[]): Promise<string[]> {
+/** Returns the tactic names in the order the client sorted them. */
+async function sortTactics(tactics: Array<{ name: string; matrix_order?: number | null }>): Promise<string[]> {
   const { dt, performQuery } = buildHarness()
-  performQuery.mockResolvedValue({
-    mitreAttackTactics: names.map((name) => ({ name })),
-  })
+  performQuery.mockResolvedValue({ mitreAttackTactics: tactics })
   const out = await dt.getMitreAttackTactics()
   return out.map((t) => t.name as string)
 }
 
 describe('DtMitreAttack.getMitreAttackTactics — matrix ordering', () => {
-  it('sorts a shuffled Enterprise matrix back into matrix order', async () => {
+  it('sorts the tactics by matrix_order', async () => {
     expect(
-      await sortNames(['Impact', 'Initial Access', 'Stealth', 'Reconnaissance']),
+      await sortTactics([
+        { name: 'Impact', matrix_order: 14 },
+        { name: 'Initial Access', matrix_order: 2 },
+        { name: 'Stealth', matrix_order: 6 },
+        { name: 'Reconnaissance', matrix_order: 0 },
+      ]),
     ).toEqual(['Reconnaissance', 'Initial Access', 'Stealth', 'Impact'])
   })
 
-  it('orders the v19 Defense Evasion split between Privilege Escalation and Credential Access', async () => {
-    // v19 retired Defense Evasion: Stealth kept TA0005, Defense Impairment is new.
+  it('places the v19 Defense Evasion split by data, whatever the names', async () => {
+    // v19 retired Defense Evasion: Stealth kept TA0005 at position 6, Defense Impairment is new at 7.
     expect(
-      await sortNames([
-        'Credential Access',
-        'Defense Impairment',
-        'Privilege Escalation',
-        'Stealth',
+      await sortTactics([
+        { name: 'Credential Access', matrix_order: 8 },
+        { name: 'Defense Impairment', matrix_order: 7 },
+        { name: 'Privilege Escalation', matrix_order: 5 },
+        { name: 'Stealth', matrix_order: 6 },
       ]),
-    ).toEqual([
-      'Privilege Escalation',
-      'Stealth',
-      'Defense Impairment',
-      'Credential Access',
-    ])
+    ).toEqual(['Privilege Escalation', 'Stealth', 'Defense Impairment', 'Credential Access'])
   })
 
-  it('carries all fifteen v19 Enterprise tactics', async () => {
-    const shuffled = [
-      'Impact', 'Exfiltration', 'Command and Control', 'Collection',
-      'Lateral Movement', 'Discovery', 'Credential Access', 'Defense Impairment',
-      'Stealth', 'Privilege Escalation', 'Persistence', 'Execution',
-      'Initial Access', 'Resource Development', 'Reconnaissance',
-    ]
-    expect(await sortNames(shuffled)).toEqual([
-      'Reconnaissance', 'Resource Development', 'Initial Access', 'Execution',
-      'Persistence', 'Privilege Escalation', 'Stealth', 'Defense Impairment',
-      'Credential Access', 'Discovery', 'Lateral Movement', 'Collection',
-      'Command and Control', 'Exfiltration', 'Impact',
-    ])
+  it('sorts tactics without matrix_order LAST, by ATT&CK id, and warns that the data predates matrix order', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { dt, performQuery } = buildHarness()
+    performQuery.mockResolvedValue({
+      mitreAttackTactics: [
+        { name: 'Zeta Tactic', attack_id: 'TA0040' },
+        { name: 'Impact', attack_id: 'TA0040x', matrix_order: 14 },
+        { name: 'Alpha Tactic', attack_id: 'TA0003', matrix_order: null },
+        { name: 'Reconnaissance', attack_id: 'TA0043', matrix_order: 0 },
+      ],
+    })
+    const out = await dt.getMitreAttackTactics()
+    expect(out.map((t) => t.name)).toEqual(['Reconnaissance', 'Impact', 'Alpha Tactic', 'Zeta Tactic'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('2 MITRE ATT&CK tactic(s) have no matrix_order'))
+    warn.mockRestore()
   })
 
-  it('sorts an unrecognized tactic LAST and still returns it', async () => {
-    // The regression this guards: a bare `indexOf` yields -1 for an unknown
-    // name, which sorts it to the FRONT — so a tactic renamed by an ATT&CK
-    // release would silently lead the matrix. Dropping it would be just as
-    // wrong: the caller asked for every tactic the server has.
-    expect(
-      await sortNames(['Impact', 'Tactic From A Later Release', 'Reconnaissance']),
-    ).toEqual(['Reconnaissance', 'Impact', 'Tactic From A Later Release'])
-  })
-
-  it('keeps every unrecognized tactic, in the order the server returned them', async () => {
-    expect(await sortNames(['Zeta Tactic', 'Impact', 'Alpha Tactic'])).toEqual([
-      'Impact',
-      'Zeta Tactic',
-      'Alpha Tactic',
-    ])
-  })
-
-  it('orders the retired Defense Evasion name at its successor slot', async () => {
-    // TRANSITIONAL: a pre-v19 dataset still reports the retired name. It must
-    // order where Stealth now sits, not lead the matrix (bare indexOf) and not
-    // trail it (unknown-name fallback), until the data catches up.
-    expect(
-      await sortNames(['Impact', 'Defense Evasion', 'Privilege Escalation']),
-    ).toEqual(['Privilege Escalation', 'Defense Evasion', 'Impact'])
-  })
-
-  it('sorts a whole pre-v19 tactic list into matrix order', async () => {
-    expect(
-      await sortNames([
-        'Impact', 'Defense Evasion', 'Reconnaissance', 'Credential Access',
-      ]),
-    ).toEqual([
-      'Reconnaissance', 'Defense Evasion', 'Credential Access', 'Impact',
-    ])
+  it('does not warn when every tactic has a matrix position', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await sortTactics([{ name: 'Impact', matrix_order: 14 }, { name: 'Reconnaissance', matrix_order: 0 }])
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('returns an empty list when the query yields no tactics', async () => {

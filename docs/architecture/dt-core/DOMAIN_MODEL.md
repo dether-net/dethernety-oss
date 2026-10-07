@@ -77,7 +77,7 @@ The domain model defines all entities in the Dethernety threat modeling framewor
 │  │        │                  │                  │                  │    │
 │  │        ▼                  │                  ▼                  │    │
 │  │  ┌────────────┐           │           ┌────────────┐            │    │
-│  │  │ATT&CK Tech │           │           │D3FEND Tech │            │    │
+│  │  │ATT&CK/ATLAS│           │           │D3FEND Tech │            │    │
 │  │  └────────────┘           │           └────────────┘            │    │
 │  │                           ▼                                     │    │
 │  │                    ┌────────────┐                               │    │
@@ -445,11 +445,14 @@ interface MitreAttackTactic extends Element {
   name?: string
   description?: string
   attack_id: string               // e.g., "TA0001"
+  matrix_order?: number | null    // 0-based position in the ATT&CK matrix (kill-chain order)
   attack_version?: string
   stix_id: string
   stix_spec_version?: string
 }
 ```
+
+`DtMitreAttack.getMitreAttackTactics` returns tactics sorted by `matrix_order`, which the ingest stamps from the ATT&CK bundle's own ordered tactic list.
 
 #### Technique
 
@@ -479,6 +482,37 @@ interface MitreAttackMitigation {
   attack_id: string               // e.g., "M1026"
   attackTechniqueMitigated?: MitreAttackTechnique[]
   countermeasure?: Countermeasure
+}
+```
+
+### MITRE ATLAS
+
+ATLAS covers attacks on AI-enabled systems. It is a separate framework with its own types and its own key, `atlas_id`, and its own matrix: its tactic ids and names overlap ATT&CK's but are other tactics. See [ADR-012](../decisions/012-mitre-atlas-third-framework.md). Read through [`DtMitreAtlas`](./GRAPHQL_OPERATIONS.md#dtmitreatlas).
+
+```typescript
+interface MitreAtlasTactic extends Element {
+  id: string
+  name?: string
+  description?: string
+  atlas_id: string                // e.g., "AML.TA0000"
+  matrix_order?: number | null    // 0-based position in the ATLAS matrix
+}
+
+interface MitreAtlasTechnique extends Element {
+  id: string
+  name: string
+  description?: string
+  atlas_id: string                // e.g., "AML.T0051", "AML.T0051.000"
+  ref_url?: string
+  tactics?: MitreAtlasTactic[]
+}
+
+interface MitreAtlasMitigation {
+  id: string
+  name: string
+  description?: string
+  atlas_id: string                // e.g., "AML.M0015"
+  ref_url?: string
 }
 ```
 
@@ -516,7 +550,12 @@ interface MitreDefendTechnique extends Element {
 Types for the `matchMitreTechniques` semantic-search surface (consumed by the technique picker via [`DtMitre`](./GRAPHQL_OPERATIONS.md#dtmitre)). The server matches user-typed queries against a MITRE corpus through a five-tier cascade and returns at most one tier per query.
 
 ```typescript
-type MitreKind = 'ATTACK_TECHNIQUE' | 'DEFEND_TECHNIQUE' | 'ATTACK_MITIGATION'
+type MitreKind =
+  | 'ATTACK_TECHNIQUE'
+  | 'DEFEND_TECHNIQUE'
+  | 'ATTACK_MITIGATION'
+  | 'ATLAS_TECHNIQUE'
+  | 'ATLAS_MITIGATION'
 
 type MitreMatchType =
   | 'EXACT_ID'            // deterministic tiers
@@ -542,10 +581,11 @@ interface MatchMitreTechniquesInput {
 }
 
 interface MitreCandidate {
-  mitreId: string         // T1003 / T1003.001 / D3-PMAD / M1041
+  mitreId: string         // T1003 / T1003.001 / D3-PMAD / M1041 / AML.T0051 / AML.M0015
   name: string
   description?: string | null
-  tactic?: string | null  // ATT&CK or D3FEND tactic name (same field, distinct vocabularies)
+  tactic?: string | null  // tactic name in the candidate's own framework (ATT&CK, ATLAS or D3FEND); null for mitigations
+  tacticOrder?: number | null  // 0-based matrix position of `tactic` (ATT&CK, ATLAS); null for D3FEND and mitigations
   kind: MitreKind
   matchType: MitreMatchType
   similarityScore?: number | null  // populated for VECTOR_SIMILARITY; null for deterministic tiers
@@ -564,7 +604,7 @@ interface MatchMitreTechniquesResult {
 }
 ```
 
-> **Graceful vector degradation.** When the HNSW index is absent or built against a different embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable.
+> **Graceful vector degradation.** When the HNSW index is absent or built against a different embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable. A kind whose framework is not loaded reports `NO_VECTORS` on its own; the other kinds keep the vector tier.
 
 ### Exposure
 
@@ -583,6 +623,7 @@ interface Exposure extends Element {
   detectionMethods?: string[]
   tags?: string[]
   exploitedBy?: MitreAttackTechnique[]  // Linked ATT&CK techniques
+  exploitedByAtlas?: MitreAtlasTechnique[]  // Linked ATLAS techniques (same EXPLOITED_BY edge type)
   createdBy?: string | null       // Provenance: 'USER' | 'SYSTEM' | null. Server-stamped at CREATE time; sealed against UPDATE-path forgery.
   authoredBy?: string | null      // USER findings: JWT sub claim. SYSTEM findings: optional module-provided attribution string. Same write-once seal as createdBy.
 
@@ -593,6 +634,8 @@ interface Exposure extends Element {
   dispositionedBy?: string | null      // JWT sub claim of the user who authored the disposition
   dispositionedAt?: string | null      // ISO-8601 timestamp of authoring / re-affirmation
   dispositionStale?: boolean | null    // True when an instantiation attribute changed since the disposition was set
+
+  unresolvedReferences?: string[] | null  // Read-only: class references the platform could not link
 }
 ```
 
@@ -613,6 +656,7 @@ interface Countermeasure extends Element {
   tags: string[]
   mitigations?: MitreAttackMitigation[]
   defendedTechniques?: MitreDefendTechnique[]
+  mitigationsAtlas?: MitreAtlasMitigation[]  // ATLAS mitigations (same RESPONDS_WITH edge type)
   control?: Control
   createdBy?: string | null       // Provenance: 'USER' | 'SYSTEM' | null. Same semantics as Exposure.createdBy.
   authoredBy?: string | null      // Same semantics as Exposure.authoredBy.
@@ -623,10 +667,44 @@ interface Countermeasure extends Element {
   dispositionedBy?: string | null
   dispositionedAt?: string | null
   dispositionStale?: boolean | null
+
+  unresolvedReferences?: string[] | null  // Read-only: same semantics as Exposure.unresolvedReferences
 }
 ```
 
 > **Provenance fields.** `createdBy` and `authoredBy` are populated server-side at CREATE time and are immutable thereafter. They drive the destructive-sweep predicate inside `changeElementBinding` (USER findings are preserved unconditionally; SYSTEM findings are diff-cleaned) and the provenance icon UX in the exposures and countermeasures tables. The full server-side mechanism is in [backend SCHEMA.md — Provenance fields](../backend/LLD/SCHEMA.md#provenance-fields-on-exposure-and-countermeasure).
+
+### Technique links
+
+A link from a finding to a MITRE node is an edge with an optional `justification`. dt-core reads and copies these links (for example in a supersede) through the following types:
+
+```typescript
+interface TechniqueLink {
+  id: string                      // the MITRE node's id
+  justification?: string | null   // the edge's justification, if the writer gave one
+}
+
+// The 19 relationship fields from a countermeasure to MITRE nodes: RESPONDS_WITH to the
+// mitigations and D3FEND techniques it implements, the eight COUNTERMEASURE_* verbs to the
+// ATT&CK techniques it acts on, and the ATLAS sibling of each (ATT&CK field name + `Atlas`).
+const COUNTERMEASURE_TECHNIQUE_LINK_FIELDS = [
+  'mitigations', 'defendedTechniques',
+  'mitigates', 'protectsAgainst', 'detects', 'isolates',
+  'deceives', 'evicts', 'restores', 'respondsTo',
+  'mitigationsAtlas',
+  'mitigatesAtlas', 'protectsAgainstAtlas', 'detectsAtlas', 'isolatesAtlas',
+  'deceivesAtlas', 'evictsAtlas', 'restoresAtlas', 'respondsToAtlas',
+] as const
+
+type CountermeasureTechniqueLinks = Partial<Record<CountermeasureTechniqueLinkField, TechniqueLink[]>>
+
+interface ExposureTechniqueLinks {
+  exploitedBy: TechniqueLink[]       // ATT&CK
+  exploitedByAtlas: TechniqueLink[]  // ATLAS
+}
+```
+
+See [`DtExposure`](./GRAPHQL_OPERATIONS.md#dtexposure) and [`DtCountermeasure`](./GRAPHQL_OPERATIONS.md#dtcountermeasure) for the methods that read and write them.
 
 ### Disposition fields
 

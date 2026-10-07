@@ -20,7 +20,7 @@
 
 Dethernety is a graph-native threat modeling tool. Your models are stored as actual graph structures (Neo4j or Memgraph) -- components, data flows, boundaries, and controls are nodes and relationships, not rows in a table. This is what makes attack path traversal, impact analysis, and dependency mapping across your architecture possible. You build models visually with a drag-and-drop editor, then run security analysis to surface findings mapped to MITRE ATT&CK techniques and D3FEND countermeasures.
 
-Everything domain-specific -- component types, analysis logic, security controls, issue types -- is provided by executable JavaScript modules. The platform ships with four: the Dethernety General module, which supplies every class you can pick from; a MITRE ATT&CK and D3FEND data pack; the Threat Report, which contributes the one analysis type in a stock deployment; and Coverage Tools, the backend module whose coverage facts that report reads. See [Module system](#module-system) for how to build your own.
+Everything domain-specific -- component types, analysis logic, security controls, issue types -- is provided by executable JavaScript modules. The platform ships with four: the Dethernety General module, which supplies every class you can pick from; a MITRE ATT&CK, ATLAS and D3FEND data pack; the Threat Report, which contributes the one analysis type in a stock deployment; and Coverage Tools, the backend module whose coverage facts that report reads. See [Module system](#module-system) for how to build your own.
 
 ## Quick start
 
@@ -44,7 +44,7 @@ cd byodt-<version>
 
 Open **<http://127.0.0.1:3000>**. The first run generates the database password,
 pulls the images, fetches and verifies the signed modules, and ingests the MITRE
-ATT&CK and D3FEND corpus, so it takes noticeably longer than later runs. The
+ATT&CK, ATLAS and D3FEND corpus, so it takes noticeably longer than later runs. The
 operator console lives at `/console/` on the same address.
 
 Full instructions, configuration reference, and day-to-day operations are in the
@@ -162,7 +162,7 @@ dethernety-oss/
 │   └── typescript-config/         Shared TypeScript configuration
 ├── modules/
 │   ├── dethernety-general/        Default threat modeling module -- the only module contributing classes
-│   ├── mitre-frameworks/          MITRE ATT&CK and D3FEND data pack (no runtime code)
+│   ├── mitre-frameworks/          MITRE ATT&CK, ATLAS and D3FEND data pack (no runtime code)
 │   ├── dethernety-threat-report/  The "Threat Report" analysis type and the report it renders
 │   └── dethernety-coverage-tools/ Backend-only; the coverage facts the Threat Report reads
 ├── docs/                          Documentation

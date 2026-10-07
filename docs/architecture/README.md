@@ -19,7 +19,7 @@
 
 Dethernety is a **graph-native threat modeling platform**. Components, data flows, trust boundaries, exposures, and controls are stored as nodes and edges in a Bolt/Cypher graph database. This makes it possible to run queries like "find all paths from internet-facing components to PII stores through unencrypted data flows" directly against the model.
 
-The platform ships with MITRE ATT&CK and D3FEND data, a visual threat modeling UI, and pluggable analysis backends (rule-based, query-based, or AI-powered).
+The platform ships with MITRE ATT&CK, ATLAS and D3FEND data, a visual threat modeling UI, and pluggable analysis backends (rule-based, query-based, or AI-powered).
 
 ### Design Philosophy
 

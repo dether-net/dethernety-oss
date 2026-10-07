@@ -1,9 +1,10 @@
 # Generated data files
 #
-# The graph export (01/02/03) and the default-model Memgraph embeddings (05,
-# embeddinggemma/768) ARE committed so a fresh checkout needn't regenerate the
-# corpus on every build. Regenerate with `pnpm build` (needs Docker + Ollama
-# with embeddinggemma) only when the MITRE source or embedding model changes.
+# The graph export (01/02/03, ATLAS 06/07/08) and the default-model Memgraph
+# embeddings (05, ATLAS 09; embeddinggemma/768) ARE committed so a fresh checkout
+# needn't regenerate the corpus on every build. Regenerate with `pnpm build:data`
+# (needs Docker + Ollama with embeddinggemma) only when the MITRE source or
+# embedding model changes.
 #
 # NOT committed:
 #   - data/.embedding-cache/      build-time idempotency cache, not a deliverable

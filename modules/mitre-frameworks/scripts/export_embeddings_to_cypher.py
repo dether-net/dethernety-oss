@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Export MITRE ATT&CK and D3FEND vector embeddings to Cypher (Memgraph HNSW path).
+Export MITRE ATT&CK, D3FEND and ATLAS vector embeddings to Cypher (Memgraph HNSW path).
 
-Generates `data/05-mitre-embeddings.cypher`. Consumed by the
-mitre-frameworks module install path; the file UNWIND-batches
-`embedding` + `embeddingModel` SETs onto the MITRE nodes already
-created by 01-/02-attack/defend-nodes.cypher.
+Generates `data/05-mitre-embeddings.cypher` (ATT&CK techniques and mitigations, D3FEND
+techniques) and `data/09-atlas-embeddings.cypher` (ATLAS techniques and mitigations).
+Consumed by the mitre-frameworks module install path; each file UNWIND-batches
+`embedding` + `embeddingModel` SETs onto the MITRE nodes already created by the node
+files that sort before it (01/02 and 06).
 
 The runtime side is `MatchMitreTechniquesResolverService` in dt-ws — it reads
 the `embeddingModel` property on each MITRE node to gate the model-coherence precheck and
 the `embedding` property as the source vector for HNSW similarity search.
 
 Provider selection lives in embedding_provider.py:
-  - default: sentence-transformers + nomic-embed-text-v1.5 (768-dim)
-  - override: ollama / openai / fixture
+  - default: Ollama + embeddinggemma (768-dim), skipped gracefully when unreachable
+  - override (EMBEDDING_PROVIDER): ollama / sentence-transformers / openai / fixture
 
 All-or-nothing failure mode: partial vector coverage is
 worse than no coverage (the model-coherence precheck would still see total > 0 but
@@ -92,6 +93,25 @@ ATTACK_MITIGATION_QUERY = """
 MATCH (n:MitreAttackMitigation)
 RETURN n.attack_id AS mitre_id, n.name AS name, n.description AS description, null AS tactic
 ORDER BY n.attack_id ASC
+"""
+
+# ATLAS techniques pick their tactic as ATT&CK's do: the earliest by the matrix position
+# stamped at ingest. ATLAS tactics and case studies are not embedded, as ATT&CK tactics
+# and campaigns are not.
+ATLAS_TECHNIQUE_QUERY = """
+MATCH (n:MitreAtlasTechnique)
+OPTIONAL MATCH (n)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAtlasTactic)
+WITH n, tac ORDER BY n.atlas_id ASC, tac.matrix_order ASC, tac.name ASC
+WITH n, collect(DISTINCT tac.name) AS tactics
+RETURN n.atlas_id AS mitre_id, n.name AS name, n.description AS description,
+       CASE WHEN size(tactics)=0 THEN null ELSE tactics[0] END AS tactic
+ORDER BY n.atlas_id ASC
+"""
+
+ATLAS_MITIGATION_QUERY = """
+MATCH (n:MitreAtlasMitigation)
+RETURN n.atlas_id AS mitre_id, n.name AS name, n.description AS description, null AS tactic
+ORDER BY n.atlas_id ASC
 """
 
 DEFEND_TECHNIQUE_QUERY = """
@@ -388,16 +408,13 @@ def write_unwind_chunks(
 def write_cypher_file(
     out_path: Path,
     provider: EmbeddingProvider,
-    attack_items: List[Dict[str, Any]],
-    attack_vectors: List[List[float]],
-    defend_items: List[Dict[str, Any]],
-    defend_vectors: List[List[float]],
-    mitigation_items: List[Dict[str, Any]],
-    mitigation_vectors: List[List[float]],
-) -> None:
+    sections: List[Tuple[str, str, List[Dict[str, Any]], List[List[float]]]],
+) -> Path:
     """
-    Write the cypher file atomically: serialize to a temp path, fsync, rename.
-    All-or-nothing — the temp file is removed on any exception before propagation.
+    Serialize one embeddings file to a temp path next to out_path and fsync it.
+    `sections` is [(label, id_field, items, vectors), ...]. Returns the temp path; the
+    caller renames every file only after all of them are written, so a failure leaves
+    no file changed. The temp file is removed on any exception before propagation.
     """
     tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
     try:
@@ -411,33 +428,17 @@ def write_cypher_file(
             )
             f.write("// Source: mitre-frameworks build\n\n")
 
-            write_unwind_chunks(
-                f,
-                attack_items,
-                attack_vectors,
-                label="MitreAttackTechnique",
-                id_field="attack_id",
-                model_name=provider.model_name,
-            )
-            write_unwind_chunks(
-                f,
-                defend_items,
-                defend_vectors,
-                label="MitreDefendTechnique",
-                id_field="d3fendId",
-                model_name=provider.model_name,
-            )
-            write_unwind_chunks(
-                f,
-                mitigation_items,
-                mitigation_vectors,
-                label="MitreAttackMitigation",
-                id_field="attack_id",
-                model_name=provider.model_name,
-            )
+            for label, id_field, items, vectors in sections:
+                write_unwind_chunks(
+                    f,
+                    items,
+                    vectors,
+                    label=label,
+                    id_field=id_field,
+                    model_name=provider.model_name,
+                )
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, out_path)
     except Exception:
         # All-or-nothing: leave NO partial artifact behind.
         if tmp_path.exists():
@@ -446,6 +447,7 @@ def write_cypher_file(
             except OSError:
                 pass
         raise
+    return tmp_path
 
 
 # ---------------------------------------------------------------------------
@@ -474,20 +476,43 @@ def prepare_items_with_text(
             )
 
 
+# (output file, selection, label, id field, query, kind, display name). Within a file the
+# sections are written in this order.
+CORPUS = [
+    ("05-mitre-embeddings.cypher", "attack-defend", "MitreAttackTechnique", "attack_id",
+     ATTACK_TECHNIQUE_QUERY, "technique", "ATT&CK techniques"),
+    ("05-mitre-embeddings.cypher", "attack-defend", "MitreDefendTechnique", "d3fendId",
+     DEFEND_TECHNIQUE_QUERY, "technique", "D3FEND techniques"),
+    ("05-mitre-embeddings.cypher", "attack-defend", "MitreAttackMitigation", "attack_id",
+     ATTACK_MITIGATION_QUERY, "mitigation", "ATT&CK mitigations"),
+    ("09-atlas-embeddings.cypher", "atlas", "MitreAtlasTechnique", "atlas_id",
+     ATLAS_TECHNIQUE_QUERY, "technique", "ATLAS techniques"),
+    ("09-atlas-embeddings.cypher", "atlas", "MitreAtlasMitigation", "atlas_id",
+     ATLAS_MITIGATION_QUERY, "mitigation", "ATLAS mitigations"),
+]
+FRAMEWORK_SELECTIONS = {"all": {"attack-defend", "atlas"}, "atlas": {"atlas"}}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Export MITRE ATT&CK + D3FEND embeddings to Cypher (Memgraph HNSW path)."
+        description="Export MITRE ATT&CK, D3FEND and ATLAS embeddings to Cypher (Memgraph HNSW path)."
     )
     parser.add_argument(
         "--output-dir",
         default="./data",
-        help="Output directory for the Cypher file (default ./data).",
+        help="Output directory for the Cypher files (default ./data).",
+    )
+    parser.add_argument(
+        "--frameworks",
+        choices=sorted(FRAMEWORK_SELECTIONS),
+        default="all",
+        help="Files to write: all, or atlas (09 only, leaving 05 untouched).",
     )
     args = parser.parse_args()
+    selected = [row for row in CORPUS if row[1] in FRAMEWORK_SELECTIONS[args.frameworks]]
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / "05-mitre-embeddings.cypher"
 
     # Provider selection. None → graceful skip with warning + zero exit.
     try:
@@ -499,10 +524,11 @@ def main() -> int:
     if provider is None:
         print(
             "[warn] MITRE Memgraph embeddings not generated — the committed "
-            "05-mitre-embeddings.cypher (if present) stays authoritative, else the "
-            "picker falls back to text matching at runtime. The default provider is "
-            "Ollama + embeddinggemma; start Ollama and `ollama pull embeddinggemma`, "
-            "or set EMBEDDING_PROVIDER (ollama, sentence-transformers, openai, fixture).",
+            "05-mitre-embeddings.cypher and 09-atlas-embeddings.cypher (if present) stay "
+            "authoritative, else the picker falls back to text matching at runtime. The "
+            "default provider is Ollama + embeddinggemma; start Ollama and `ollama pull "
+            "embeddinggemma`, or set EMBEDDING_PROVIDER (ollama, sentence-transformers, "
+            "openai, fixture).",
             file=sys.stderr,
         )
         return 0
@@ -520,59 +546,58 @@ def main() -> int:
     start = time.time()
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
     try:
-        attack_items = fetch_corpus(driver, ATTACK_TECHNIQUE_QUERY, "ATT&CK techniques")
-        defend_items = fetch_corpus(driver, DEFEND_TECHNIQUE_QUERY, "D3FEND techniques")
-        mitigation_items = fetch_corpus(driver, ATTACK_MITIGATION_QUERY, "ATT&CK mitigations")
+        corpora = [fetch_corpus(driver, row[4], row[6]) for row in selected]
     finally:
         driver.close()
 
-    if not attack_items and not defend_items and not mitigation_items:
+    # A selected kind with no nodes would ship a file that silently covers less than
+    # the graph the picker checks it against.
+    empty = [row[6] for row, items in zip(selected, corpora) if not items]
+    if empty:
         print(
-            "[warn] no MITRE nodes found in Memgraph — did you run ingest.py first?",
+            f"[error] no nodes for {', '.join(empty)} in Memgraph — did you run ingest.py first?",
             file=sys.stderr,
         )
-        return 0
+        return 1
 
-    prepare_items_with_text(attack_items, kind="technique")
-    prepare_items_with_text(defend_items, kind="technique")
-    prepare_items_with_text(mitigation_items, kind="mitigation")
-
+    results = []
     try:
-        attack_vectors, ah, am = embed_with_cache(provider, attack_items, cache, "ATT&CK techniques")
-        defend_vectors, dh, dm = embed_with_cache(provider, defend_items, cache, "D3FEND techniques")
-        mitigation_vectors, mh, mm = embed_with_cache(
-            provider, mitigation_items, cache, "ATT&CK mitigations"
-        )
+        for row, items in zip(selected, corpora):
+            prepare_items_with_text(items, kind=row[5])
+            vectors, hits, misses = embed_with_cache(provider, items, cache, row[6])
+            results.append((row, items, vectors, hits, misses))
     except RuntimeError as err:
         print(f"[error] {err}", file=sys.stderr)
         return 1
 
-    print(f"[info] writing {out_path}")
-    write_cypher_file(
-        out_path,
-        provider,
-        attack_items,
-        attack_vectors,
-        defend_items,
-        defend_vectors,
-        mitigation_items,
-        mitigation_vectors,
-    )
+    # All-or-nothing across files: every file is written to a temp path first, and only
+    # renamed once all of them exist.
+    files: Dict[str, List[Tuple[str, str, List[Dict[str, Any]], List[List[float]]]]] = {}
+    for row, items, vectors, _, _ in results:
+        files.setdefault(row[0], []).append((row[2], row[3], items, vectors))
+    written: List[Tuple[Path, Path]] = []
+    try:
+        for name, sections in files.items():
+            out_path = output_dir / name
+            print(f"[info] writing {out_path}")
+            written.append((write_cypher_file(out_path, provider, sections), out_path))
+    except Exception:
+        for tmp_path, _ in written:
+            tmp_path.unlink(missing_ok=True)
+        raise
+    for tmp_path, out_path in written:
+        os.replace(tmp_path, out_path)
 
     # Cache write happens last — only on full success.
     cache.save()
 
     elapsed = time.time() - start
-    total = len(attack_items) + len(defend_items) + len(mitigation_items)
-    hits = ah + dh + mh
-    misses = am + dm + mm
     print("=== Export complete ===")
-    print(f"  ATT&CK techniques: {len(attack_items)} ({ah} cache-hit, {am} embedded)")
-    print(f"  D3FEND techniques: {len(defend_items)} ({dh} cache-hit, {dm} embedded)")
-    print(f"  ATT&CK mitigations: {len(mitigation_items)} ({mh} cache-hit, {mm} embedded)")
-    print(f"  Total nodes: {total}  (cache hits {hits}, embedded {misses})")
+    for row, items, _, hits, misses in results:
+        print(f"  {row[6]}: {len(items)} ({hits} cache-hit, {misses} embedded) -> {row[0]}")
+    total = sum(len(items) for _, items, _, _, _ in results)
+    print(f"  Total nodes: {total}")
     print(f"  Cache size after run: {cache.size()}")
-    print(f"  Output: {out_path}")
     print(f"  Elapsed: {elapsed:.1f}s")
     return 0
 

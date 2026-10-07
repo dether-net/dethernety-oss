@@ -34,35 +34,16 @@ export const TIER_LABEL = {
   INDIRECT_D3FEND: 'D3FEND',
 }
 
-// Canonical ATT&CK enterprise tactic order, for stable matrix columns. Tactics
-// not in this list (or future additions) sort after, alphabetically — never dropped.
-const TACTIC_ORDER = [
-  'Reconnaissance',
-  'Resource Development',
-  'Initial Access',
-  'Execution',
-  'Persistence',
-  'Privilege Escalation',
-  'Defense Evasion',
-  'Credential Access',
-  'Discovery',
-  'Lateral Movement',
-  'Collection',
-  'Command and Control',
-  'Exfiltration',
-  'Impact',
-]
-
 const GRID_KINDS = new Set(['Component', 'DataFlow'])
 const ELEMENT_CLASSES = ['Component', 'DataFlow', 'SecurityBoundary']
 
-function tacticSort(a, b) {
-  const ia = TACTIC_ORDER.indexOf(a)
-  const ib = TACTIC_ORDER.indexOf(b)
-  if (ia !== -1 && ib !== -1) return ia - ib
-  if (ia !== -1) return -1
-  if (ib !== -1) return 1
-  return a.localeCompare(b)
+// Matrix columns are ATT&CK tactics as gradedCoverage emits them: { id, name, order },
+// `order` being the tactic's position in the ATT&CK matrix (stamped on the tactic at
+// ingest, so a new ATT&CK release reorders the columns without a code change). Columns
+// key on the id and sort by position, then id; never by name, which ATT&CK renames
+// between releases (v19: Defense Evasion became Stealth).
+export function compareTactics(a, b) {
+  return a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 }
 
 /**
@@ -93,17 +74,31 @@ function reduceTiers(tierFacts) {
 }
 
 /**
+ * True when the facts come from a coverage-tools release older than 2.0.0, which emits each
+ * technique's tactics as bare names instead of { id, name, order }. Reading those as objects
+ * would drop every tactic and render an empty grid with no error.
+ */
+function hasLegacyTactics(coverage) {
+  return coverage.exposures.some((e) =>
+    (e?.techniques ?? []).some((t) => Array.isArray(t?.tactics) && t.tactics.some((tac) => typeof tac === 'string')))
+}
+
+/**
  * Build the full coverage view-model consumed by the Coverage & Gaps matrix, the
  * Posture Summary coverage block, and the Residual Risk configured-mismatch column.
  *
  * @param {object|null} coverage  parsed gradedCoverage (or null when unavailable)
  * @param {Array}       ledger    SnapshotDoc.ledger (elements with findings + controls)
  * @returns {object} view-model (see fields inline). `available:false` ⇒ render the
- *   no-coverage affordance, never an empty/green grid.
+ *   no-coverage affordance, never an empty/green grid; `reason: 'incompatible'` when the
+ *   deployed coverage-tools is older than this report reads.
  */
 export function buildCoverageView(coverage, ledger) {
   if (!coverage || !Array.isArray(coverage.exposures)) {
     return { available: false }
+  }
+  if (hasLegacyTactics(coverage)) {
+    return { available: false, reason: 'incompatible' }
   }
   const ledgerEls = Array.isArray(ledger) ? ledger : []
   // attack_id -> { name, description } (deduped upstream) so each row can carry the
@@ -127,7 +122,7 @@ export function buildCoverageView(coverage, ledger) {
   const isLive = (exposureId) => isLiveKind(dispositionById.get(exposureId) ?? null)
 
   // --- per-technique accumulation over the GRID universe (live, Component/DataFlow) ---
-  // techniqueId -> { tactics:Set, elementsTotal:Set, elementsCovered:Set,
+  // techniqueId -> { tactics:Map(id -> tactic), elementsTotal:Set, elementsCovered:Set,
   //                  cms:Set, controls:Set, tierFacts:[] }
   const grid = new Map()
   // Posture Summary tier-segregated bucket sets, over LIVE non-Data exposures
@@ -220,10 +215,10 @@ export function buildCoverageView(coverage, ledger) {
       if (!inGrid) continue
       let g = grid.get(t.techniqueId)
       if (!g) grid.set(t.techniqueId, (g = {
-        tactics: new Set(), elementsTotal: new Set(), elementsCovered: new Set(),
+        tactics: new Map(), elementsTotal: new Set(), elementsCovered: new Set(),
         cms: new Set(), controls: new Set(), facts: [],
       }))
-      for (const tac of t.tactics ?? []) g.tactics.add(tac)
+      for (const tac of t.tactics ?? []) if (tac?.id) g.tactics.set(tac.id, tac)
       g.elementsTotal.add(e.elementId)
       if (red.covered) g.elementsCovered.add(e.elementId)
       for (const tf of tiers) {
@@ -236,11 +231,11 @@ export function buildCoverageView(coverage, ledger) {
 
   // --- materialise grid rows ---
   const rows = []
-  const tacticSet = new Set()
+  const tacticById = new Map()
   for (const [techniqueId, g] of grid) {
     const red = reduceTiers(g.facts)
-    const tactics = [...g.tactics].sort(tacticSort)
-    tactics.forEach((t) => tacticSet.add(t))
+    const tactics = [...g.tactics.values()].sort(compareTactics)
+    tactics.forEach((t) => tacticById.set(t.id, t))
     rows.push({
       techniqueId,
       name: techInfo[techniqueId]?.name ?? null,
@@ -268,7 +263,7 @@ export function buildCoverageView(coverage, ledger) {
     })
   }
   rows.sort((a, b) => a.techniqueId.localeCompare(b.techniqueId))
-  const tactics = [...tacticSet].sort(tacticSort)
+  const tactics = [...tacticById.values()].sort(compareTactics)
 
   // --- off-grid Data → ATT&CK disclosure: one drillable entry per Data element,
   //     its techniques deduped + id-sorted (the chips the Coverage & Gaps banner
@@ -343,12 +338,12 @@ export function buildCoverageView(coverage, ledger) {
  * "no techniques".
  *
  * @param {object|null} coverage parsed gradedCoverage (or null when unavailable)
- * @returns {Object<string, Array<{techniqueId:string,name:?string,tactics:string[],description:?string}>>}
- *   empty object when coverage is unavailable.
+ * @returns {Object<string, Array<{techniqueId:string,name:?string,tactics:Array<{id:string,name:string,order:number}>,description:?string}>>}
+ *   empty object when coverage is unavailable or incompatible.
  */
 export function buildExposureTechniqueIndex(coverage) {
   const out = {}
-  if (!coverage || !Array.isArray(coverage.exposures)) return out
+  if (!coverage || !Array.isArray(coverage.exposures) || hasLegacyTactics(coverage)) return out
   const techInfo = coverage.techniques ?? {}
   for (const e of coverage.exposures) {
     const techs = e.techniques ?? []

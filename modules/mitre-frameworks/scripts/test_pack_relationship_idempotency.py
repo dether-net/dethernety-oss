@@ -24,14 +24,18 @@ import sys
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-RELATIONSHIPS = DATA_DIR / "03-relationships.cypher"
+RELATIONSHIP_FILES = [
+    DATA_DIR / "03-relationships.cypher",
+    DATA_DIR / "07-atlas-relationships.cypher",
+    DATA_DIR / "08-atlas-crosswalk.cypher",
+]
 
 # A relationship MERGE whose pattern opens a property map — what must never appear.
 MERGE_REL_WITH_PROPS = re.compile(r"^MERGE \((?:\w+)?\)-\[[^\]]*\{")
 BANNED_IN_PATTERN = ("ontolocy_created", "ontolocy_merged")
 
 
-def main() -> int:
+def check(RELATIONSHIPS: Path) -> int:
     if not RELATIONSHIPS.exists():
         print(f"FAIL: {RELATIONSHIPS} not found")
         return 1
@@ -72,10 +76,14 @@ def main() -> int:
         return 1
 
     print(
-        f"pack relationship idempotency ok "
+        f"pack relationship idempotency ok: {RELATIONSHIPS.name} "
         f"({merge_count} MERGE statements, 0 with properties in the pattern)"
     )
     return 0
+
+
+def main() -> int:
+    return max(check(path) for path in RELATIONSHIP_FILES)
 
 
 if __name__ == "__main__":

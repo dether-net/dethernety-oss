@@ -156,13 +156,13 @@ The OSS distribution ships with four modules. Only the first contributes classes
 | Module | Identifier | Contributes |
 |--------|-----------|-------------|
 | **Dethernety General** | `dethernety-general` | Component, boundary, data flow, control, data, and issue classes, plus the Rego policies that turn their attributes into exposures and countermeasures |
-| **MITRE Frameworks** | `mitre-frameworks` | Pre-loaded ATT&CK and D3FEND data |
+| **MITRE Frameworks** | `mitre-frameworks` | Pre-loaded ATT&CK, ATLAS and D3FEND data |
 | **Dethernety Threat Report** | `dethernety-threat-report` | The **Threat Report** analysis type and the report it renders |
 | **Dethernety Coverage Tools** | `dethernety-coverage-tools` | The graded MITRE coverage facts the Threat Report's **Coverage & Gaps** matrix reads |
 
 The **identifier** is the name the platform uses, and the name to quote when asking an operator whether something is installed. A module that provides classes also appears under it on the **Module** facet chips in the **Browse classes** drawer.
 
-MITRE Frameworks is the odd one out: it is a **data pack** rather than a running module. It loads the ATT&CK and D3FEND content into the graph, provides no classes and no logic of its own, and so never appears as a facet chip — but everything that maps a finding or a countermeasure to a framework depends on it having been loaded.
+MITRE Frameworks is the odd one out: it is a **data pack** rather than a running module. It loads the ATT&CK, ATLAS and D3FEND content into the graph, provides no classes and no logic of its own, and so never appears as a facet chip — but everything that maps a finding or a countermeasure to a framework depends on it having been loaded.
 
 ### Dethernety General
 The default class-providing module:
@@ -172,10 +172,11 @@ The default class-providing module:
 - Core security analysis policies — every class carries the Rego rules that turn its configured attributes into exposures and countermeasures
 
 ### MITRE Frameworks
-Provides pre-loaded MITRE ATT&CK and D3FEND data:
+Provides pre-loaded MITRE ATT&CK, ATLAS and D3FEND data:
 - Attack technique definitions
 - Defensive technique mappings
 - Framework relationship data used by analysis and countermeasure generation
+- MITRE ATLAS techniques, tactics, mitigations and case studies for attacks on AI-enabled systems, linked to the ATT&CK techniques they cite. ATLAS is loaded but not yet offered in the technique picker.
 
 ### Dethernety Threat Report
 Contributes **one analysis type — "Threat Report"** — and the report it renders. It is the only analysis type the OSS distribution ships, and therefore the only entry in a stock deployment's **New Analysis** menu.

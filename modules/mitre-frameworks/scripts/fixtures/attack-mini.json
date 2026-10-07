@@ -1,0 +1,271 @@
+{
+ "type": "bundle",
+ "id": "bundle--6198013c-6f02-42a4-9713-38ea1301a1aa",
+ "objects": [
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--a2fdce72-04b2-409a-ac10-cc1695f4fce0",
+   "created": "2020-10-01T02:08:33.977Z",
+   "created_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1588/002",
+     "external_id": "T1588.002"
+    },
+    {
+     "source_name": "Sentinel Labs Top Tier Target 2025",
+     "description": " Tom Hegel, Aleksandar Milenkoski & Jim Walter. (2025, April 28). Top Tier Target | What It Takes to Defend a Cybersecurity Company from Today’s Adversaries. Retrieved May 22, 2025.",
+     "url": "https://www.sentinelone.com/labs/top-tier-target-what-it-takes-to-defend-a-cybersecurity-company-from-todays-adversaries/"
+    },
+    {
+     "source_name": "Analyzing CS Dec 2020",
+     "description": "Maynier, E. (2020, December 20). Analyzing Cobalt Strike for Fun and Profit. Retrieved October 12, 2021.",
+     "url": "https://www.randhome.io/blog/2020/12/20/analyzing-cobalt-strike-for-fun-and-profit/"
+    },
+    {
+     "source_name": "Recorded Future Beacon 2019",
+     "description": "Recorded Future. (2019, June 20). Out of the Blue: How Recorded Future Identified Rogue Cobalt Strike Servers. Retrieved September 16, 2024.",
+     "url": "https://www.recordedfuture.com/blog/identifying-cobalt-strike-servers"
+    },
+    {
+     "source_name": "Forescout Conti Leaks 2022",
+     "description": "Vedere Labs. (2022, March 11). Analysis of Conti Leaks. Retrieved May 22, 2025.",
+     "url": "https://www.forescout.com/resources/analysis-of-conti-leaks/"
+    }
+   ],
+   "object_marking_refs": [
+    "marking-definition--fa42a846-8d90-4e51-bc29-71d5b4802168"
+   ],
+   "modified": "2026-05-12T15:12:00.706Z",
+   "name": "Tool",
+   "description": "Adversaries may buy, steal, or download software tools that can be used during targeting. Tools can be open or closed source, free or commercial. A tool can be used for malicious purposes by an adversary, but (unlike malware) were not intended to be used for those purposes (ex: [PsExec](https://attack.mitre.org/software/S0029)). \n\nAdversaries may obtain tools to support their operations, including to support execution of post-compromise behaviors. Tools may also be leveraged for testing – for example, evaluating malware against commercial antivirus or endpoint detection and response (EDR) applications.(Citation: Forescout Conti Leaks 2022)(Citation: Sentinel Labs Top Tier Target 2025)\n\nTool acquisition may involve the procurement of commercial software licenses, including for red teaming tools such as Cobalt Strike. In addition to freely downloading or purchasing software, adversaries may steal software and/or software licenses from third-party entities (including other adversaries). Threat actors may also crack trial versions of software.(Citation: Recorded Future Beacon 2019)",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-attack",
+     "phase_name": "resource-development"
+    }
+   ],
+   "x_mitre_attack_spec_version": "3.3.0",
+   "x_mitre_contributors": [
+    "SOCCRATES",
+    "Mnemonic AS",
+    "Menachem Goldstein"
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "enterprise-attack"
+   ],
+   "x_mitre_is_subtechnique": true,
+   "x_mitre_modified_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "x_mitre_platforms": [
+    "PRE"
+   ],
+   "x_mitre_version": "1.2"
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--c9e0c59e-162e-40a4-b8b1-78fab4329ada",
+   "created": "2023-08-08T15:42:18.906Z",
+   "created_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "revoked": true,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1656",
+     "external_id": "T1656"
+    },
+    {
+     "source_name": "CrowdStrike-BEC",
+     "description": "Bart Lenaerts-Bergmans. (2023, March 10). What is Business Email Compromise?. Retrieved August 8, 2023.",
+     "url": "https://www.crowdstrike.com/cybersecurity-101/business-email-compromise-bec/"
+    },
+    {
+     "source_name": "VEC",
+     "description": "CloudFlare. (n.d.). What is vendor email compromise (VEC)?. Retrieved September 12, 2023.",
+     "url": "https://www.cloudflare.com/learning/email-security/what-is-vendor-email-compromise/#:~:text=Vendor%20email%20compromise%2C%20also%20referred,steal%20from%20that%20vendor%27s%20customers."
+    }
+   ],
+   "object_marking_refs": [
+    "marking-definition--fa42a846-8d90-4e51-bc29-71d5b4802168"
+   ],
+   "modified": "2026-04-14T22:54:38.372Z",
+   "name": "Impersonation",
+   "description": "Adversaries may impersonate a trusted person or organization in order to persuade and trick a target into performing some action on their behalf. For example, adversaries may communicate with victims (via [Phishing for Information](https://attack.mitre.org/techniques/T1598), [Phishing](https://attack.mitre.org/techniques/T1566), or [Internal Spearphishing](https://attack.mitre.org/techniques/T1534)) while impersonating a known sender such as an executive, colleague, or third-party vendor. Established trust can then be leveraged to accomplish an adversary’s ultimate goals, possibly against multiple victims. \n \nIn many cases of business email compromise or email fraud campaigns, adversaries use impersonation to defraud victims -- deceiving them into sending money or divulging information that ultimately enables [Financial Theft](https://attack.mitre.org/techniques/T1657).\n\nAdversaries will often also use social engineering techniques such as manipulative and persuasive language in email subject lines and body text such as `payment`, `request`, or `urgent` to push the victim to act quickly before malicious activity is detected. These campaigns are often specifically targeted against people who, due to job roles and/or accesses, can carry out the adversary’s goal.   \n \nImpersonation is typically preceded by reconnaissance techniques such as [Gather Victim Identity Information](https://attack.mitre.org/techniques/T1589) and [Gather Victim Org Information](https://attack.mitre.org/techniques/T1591) as well as acquiring infrastructure such as email domains (i.e. [Domains](https://attack.mitre.org/techniques/T1583/001)) to substantiate their false identity.(Citation: CrowdStrike-BEC)\n \nThere is the potential for multiple victims in campaigns involving impersonation. For example, an adversary may [Compromise Accounts](https://attack.mitre.org/techniques/T1586) targeting one organization which can then be used to support impersonation against other entities.(Citation: VEC)",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-attack",
+     "phase_name": "stealth"
+    }
+   ],
+   "x_mitre_attack_spec_version": "3.2.0",
+   "x_mitre_contributors": [
+    "Pawel Partyka, Microsoft Threat Intelligence",
+    "Blake Strom, Microsoft Threat Intelligence"
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "enterprise-attack"
+   ],
+   "x_mitre_is_subtechnique": false,
+   "x_mitre_modified_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "x_mitre_platforms": [
+    "Linux",
+    "macOS",
+    "Office Suite",
+    "SaaS",
+    "Windows"
+   ],
+   "x_mitre_version": "1.1"
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--cd92d2b8-ce43-4666-9472-f1b4b9f4f8be",
+   "created": "2026-04-14T22:54:01.082Z",
+   "created_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1684/001",
+     "external_id": "T1684.001"
+    },
+    {
+     "source_name": "Crowdstrike BEC",
+     "description": "Bart Lenaerts-Bergmans. (2023, August 8). What is Business Email Compromise?. Retrieved April 15, 2026.",
+     "url": "https://www.crowdstrike.com/en-us/cybersecurity-101/threat-intelligence/business-email-compromise-bec/"
+    },
+    {
+     "source_name": "VEC",
+     "description": "CloudFlare. (n.d.). What is vendor email compromise (VEC)?. Retrieved September 12, 2023.",
+     "url": "https://www.cloudflare.com/learning/email-security/what-is-vendor-email-compromise/#:~:text=Vendor%20email%20compromise%2C%20also%20referred,steal%20from%20that%20vendor%27s%20customers."
+    }
+   ],
+   "object_marking_refs": [
+    "marking-definition--fa42a846-8d90-4e51-bc29-71d5b4802168"
+   ],
+   "modified": "2026-05-12T15:12:00.717Z",
+   "name": "Impersonation",
+   "description": "Adversaries may impersonate a trusted person or organization in order to persuade and trick a target into performing some action on their behalf. For example, adversaries may communicate with victims (via [Phishing for Information](https://attack.mitre.org/techniques/T1598), [Phishing](https://attack.mitre.org/techniques/T1566), or [Internal Spearphishing](https://attack.mitre.org/techniques/T1534)) while impersonating a known sender such as an executive, colleague, or third-party vendor. Established trust can then be leveraged to accomplish an adversary’s ultimate goals, possibly against multiple victims.\n\nIn many cases of business email compromise or email fraud campaigns, adversaries use impersonation to defraud victims -- deceiving them into sending money or divulging information that ultimately enables [Financial Theft](https://attack.mitre.org/techniques/T1657).\n\nAdversaries will often also use social engineering techniques such as manipulative and persuasive language in email subject lines and body text such as `payment`, `request`, or `urgent` to push the victim to act quickly before malicious activity is detected. These campaigns are often specifically targeted against people who, due to job roles and/or accesses, can carry out the adversary’s goal.  \n\nImpersonation is typically preceded by reconnaissance techniques such as [Gather Victim Identity Information](https://attack.mitre.org/techniques/T1589) and [Gather Victim Org Information](https://attack.mitre.org/techniques/T1591) as well as acquiring infrastructure such as email domains (i.e. [Domains](https://attack.mitre.org/techniques/T1583/001)) to substantiate their false identity.(Citation: Crowdstrike BEC)\n\nThere is the potential for multiple victims in campaigns involving impersonation. For example, an adversary may Compromise Accounts targeting one organization which can then be used to support impersonation against other entities.(Citation: VEC)",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-attack",
+     "phase_name": "stealth"
+    }
+   ],
+   "x_mitre_attack_spec_version": "3.3.0",
+   "x_mitre_contributors": [
+    "Blake Strom, Microsoft Threat Intelligence",
+    "Pawel Partyka, Microsoft Threat Intelligence"
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "enterprise-attack"
+   ],
+   "x_mitre_is_subtechnique": true,
+   "x_mitre_modified_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "x_mitre_platforms": [
+    "Linux",
+    "macOS",
+    "Office Suite",
+    "SaaS",
+    "Windows"
+   ],
+   "x_mitre_version": "1.0"
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--ce0687a0-e692-4b77-964a-0784a8e54ff1",
+   "created": "2020-10-01T01:56:24.776Z",
+   "created_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1588",
+     "external_id": "T1588"
+    },
+    {
+     "source_name": "PegasusCitizenLab",
+     "description": "Bill Marczak and John Scott-Railton. (2016, August 24). The Million Dollar Dissident: NSO Group’s iPhone Zero-Days used against a UAE Human Rights Defender. Retrieved December 12, 2016.",
+     "url": "https://citizenlab.ca/2016/08/million-dollar-dissident-iphone-zero-day-nso-group-uae/"
+    },
+    {
+     "source_name": "FireEyeSupplyChain",
+     "description": "FireEye. (2014). SUPPLY CHAIN ANALYSIS: From Quartermaster to SunshopFireEye. Retrieved March 6, 2017.",
+     "url": "https://www.mandiant.com/resources/supply-chain-analysis-from-quartermaster-to-sunshop"
+    },
+    {
+     "source_name": "DiginotarCompromise",
+     "description": "Fisher, D. (2012, October 31). Final Report on DigiNotar Hack Shows Total Compromise of CA Servers. Retrieved March 6, 2017.",
+     "url": "https://threatpost.com/final-report-diginotar-hack-shows-total-compromise-ca-servers-103112/77170/"
+    },
+    {
+     "source_name": "Recorded Future Beacon Certificates",
+     "description": "Insikt Group. (2019, June 18). A Multi-Method Approach to Identifying Rogue Cobalt Strike Servers. Retrieved September 16, 2024.",
+     "url": "https://www.recordedfuture.com/research/cobalt-strike-servers"
+    },
+    {
+     "source_name": "Splunk Kovar Certificates 2017",
+     "description": "Kovar, R. (2017, December 11). Tall Tales of Hunting with TLS/SSL Certificates. Retrieved October 16, 2020.",
+     "url": "https://www.splunk.com/en_us/blog/security/tall-tales-of-hunting-with-tls-ssl-certificates.html"
+    },
+    {
+     "source_name": "Analyzing CS Dec 2020",
+     "description": "Maynier, E. (2020, December 20). Analyzing Cobalt Strike for Fun and Profit. Retrieved October 12, 2021.",
+     "url": "https://www.randhome.io/blog/2020/12/20/analyzing-cobalt-strike-for-fun-and-profit/"
+    },
+    {
+     "source_name": "NationsBuying",
+     "description": "Nicole Perlroth and David E. Sanger. (2013, July 12). Nations Buying as Hackers Sell Flaws in Computer Code. Retrieved March 9, 2017.",
+     "url": "https://www.nytimes.com/2013/07/14/world/europe/nations-buying-as-hackers-sell-computer-flaws.html"
+    }
+   ],
+   "object_marking_refs": [
+    "marking-definition--fa42a846-8d90-4e51-bc29-71d5b4802168"
+   ],
+   "modified": "2025-10-24T17:49:24.545Z",
+   "name": "Obtain Capabilities",
+   "description": "Adversaries may buy and/or steal capabilities that can be used during targeting. Rather than developing their own capabilities in-house, adversaries may purchase, freely download, or steal them. Activities may include the acquisition of malware, software (including licenses), exploits, certificates, and information relating to vulnerabilities. Adversaries may obtain capabilities to support their operations throughout numerous phases of the adversary lifecycle.\n\nIn addition to downloading free malware, software, and exploits from the internet, adversaries may purchase these capabilities from third-party entities. Third-party entities can include technology companies that specialize in malware and exploits, criminal marketplaces, or from individuals.(Citation: NationsBuying)(Citation: PegasusCitizenLab)\n\nIn addition to purchasing capabilities, adversaries may steal capabilities from third-party entities (including other adversaries). This can include stealing software licenses, malware, SSL/TLS and code-signing certificates, or raiding closed databases of vulnerabilities or exploits.(Citation: DiginotarCompromise)",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-attack",
+     "phase_name": "resource-development"
+    }
+   ],
+   "x_mitre_attack_spec_version": "3.2.0",
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "enterprise-attack"
+   ],
+   "x_mitre_is_subtechnique": false,
+   "x_mitre_modified_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "x_mitre_platforms": [
+    "PRE"
+   ],
+   "x_mitre_version": "1.1"
+  },
+  {
+   "type": "relationship",
+   "spec_version": "2.1",
+   "id": "relationship--40c3f213-a3e9-449a-9e9f-30afadc66205",
+   "created": "2026-04-14T22:54:38.499Z",
+   "created_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "revoked": false,
+   "object_marking_refs": [
+    "marking-definition--fa42a846-8d90-4e51-bc29-71d5b4802168"
+   ],
+   "modified": "2026-04-14T22:54:38.499Z",
+   "relationship_type": "revoked-by",
+   "source_ref": "attack-pattern--c9e0c59e-162e-40a4-b8b1-78fab4329ada",
+   "target_ref": "attack-pattern--cd92d2b8-ce43-4666-9472-f1b4b9f4f8be",
+   "x_mitre_modified_by_ref": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+   "x_mitre_attack_spec_version": "3.3.0"
+  }
+ ]
+}

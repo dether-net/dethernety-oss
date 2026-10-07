@@ -1,7 +1,7 @@
 {
   "name": "dethernety-threat-report",
   "type": "module",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "dist/dethernety/dethernety-threat-report/DethernetyThreatReportModule.js",
   "types": "dist/dethernety/dethernety-threat-report/DethernetyThreatReportModule.d.ts",
   "scripts": {

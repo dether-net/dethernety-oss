@@ -10,8 +10,10 @@ import { safeErrorMessage } from '../../common/utils/safe-error-message';
  *
  * Five-tier cascade per query — EXACT_ID → PREFIX_ID → NAME_MATCH →
  * DESCRIPTION_MATCH → VECTOR_SIMILARITY — short-circuiting at the first
- * non-empty tier. Three corpora (ATTACK_TECHNIQUE / DEFEND_TECHNIQUE /
- * ATTACK_MITIGATION) selected by the `kind` arg.
+ * non-empty tier. Five corpora (ATTACK_TECHNIQUE / DEFEND_TECHNIQUE /
+ * ATTACK_MITIGATION / ATLAS_TECHNIQUE / ATLAS_MITIGATION) selected by the
+ * `kind` arg. A kind whose corpus is not loaded (no nodes) is skipped by the
+ * vector tier rather than switching it off for every kind.
  *
  * Structural mirror of MatchClassesResolverService for the query path —
  * same auth + monitoring wrapping, same `ensureVectorIndexes` idempotency,
@@ -28,7 +30,12 @@ const MAX_QUERY_LENGTH = 500;
 const VECTOR_CHECK_TTL_MS = 10 * 60 * 1000;
 const MITRE_CORPUS_CACHE_TTL_MS = 5 * 60 * 1000;
 
-type MitreKind = 'ATTACK_TECHNIQUE' | 'DEFEND_TECHNIQUE' | 'ATTACK_MITIGATION';
+type MitreKind =
+  | 'ATTACK_TECHNIQUE'
+  | 'DEFEND_TECHNIQUE'
+  | 'ATTACK_MITIGATION'
+  | 'ATLAS_TECHNIQUE'
+  | 'ATLAS_MITIGATION';
 type MitreMatchType =
   | 'EXACT_ID'
   | 'PREFIX_ID'
@@ -45,18 +52,24 @@ const MITRE_KINDS: MitreKind[] = [
   'ATTACK_TECHNIQUE',
   'DEFEND_TECHNIQUE',
   'ATTACK_MITIGATION',
+  'ATLAS_TECHNIQUE',
+  'ATLAS_MITIGATION',
 ];
 
 const MITRE_LABEL_BY_KIND: Record<MitreKind, string> = {
   ATTACK_TECHNIQUE: 'MitreAttackTechnique',
   DEFEND_TECHNIQUE: 'MitreDefendTechnique',
   ATTACK_MITIGATION: 'MitreAttackMitigation',
+  ATLAS_TECHNIQUE: 'MitreAtlasTechnique',
+  ATLAS_MITIGATION: 'MitreAtlasMitigation',
 };
 
 const MITRE_INDEX_NAME_BY_KIND: Record<MitreKind, string> = {
   ATTACK_TECHNIQUE: 'mitre_attack_technique_embeddings',
   DEFEND_TECHNIQUE: 'mitre_defend_technique_embeddings',
   ATTACK_MITIGATION: 'mitre_attack_mitigation_embeddings',
+  ATLAS_TECHNIQUE: 'mitre_atlas_technique_embeddings',
+  ATLAS_MITIGATION: 'mitre_atlas_mitigation_embeddings',
 };
 
 // The MITRE corpus is keyed by these public ids. Taxonomy artifacts that have
@@ -71,12 +84,29 @@ const MITRE_KEY_PROPERTY_BY_KIND: Record<MitreKind, string> = {
   ATTACK_TECHNIQUE: 'attack_id',
   DEFEND_TECHNIQUE: 'd3fendId',
   ATTACK_MITIGATION: 'attack_id',
+  ATLAS_TECHNIQUE: 'atlas_id',
+  ATLAS_MITIGATION: 'atlas_id',
 };
 
-const MITRE_ID_FIELD_BY_KIND: Record<MitreKind, string> = {
-  ATTACK_TECHNIQUE: 'attack_id',
-  DEFEND_TECHNIQUE: 'd3fendId',
-  ATTACK_MITIGATION: 'attack_id',
+// The tactic hop of each technique kind (mitigations have no tactic). ATT&CK and
+// ATLAS order a multi-tactic technique's tactics by `matrix_order`, stamped at
+// ingest from each matrix's ordered tactic list, so the reported tactic is the
+// earliest stage and not the alphabetically first name; `coalesce(…, 999)` keeps a
+// corpus ingested before that stamp existed working (name order). D3FEND keys on
+// name: its tactics carry no matrix_order. Static, enum-keyed: safe to interpolate.
+const TACTIC_HOP_BY_KIND: Partial<Record<MitreKind, { pattern: string; orderBy: string }>> = {
+  ATTACK_TECHNIQUE: {
+    pattern: '<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)',
+    orderBy: 'coalesce(tac.matrix_order, 999) ASC, tac.name ASC',
+  },
+  ATLAS_TECHNIQUE: {
+    pattern: '<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAtlasTactic)',
+    orderBy: 'coalesce(tac.matrix_order, 999) ASC, tac.name ASC',
+  },
+  DEFEND_TECHNIQUE: {
+    pattern: '-[:ENABLES]->(tac:MitreDefendTactic)',
+    orderBy: 'tac.name ASC',
+  },
 };
 
 // Capacity is a pre-allocation hint to Memgraph's HNSW; exceeding it triggers
@@ -88,6 +118,8 @@ const MITRE_INDEX_CAPACITY_BY_KIND: Record<MitreKind, number> = {
   ATTACK_TECHNIQUE: 2500,
   DEFEND_TECHNIQUE: 1000,
   ATTACK_MITIGATION: 1000,
+  ATLAS_TECHNIQUE: 1000,
+  ATLAS_MITIGATION: 500,
 };
 
 // Priority order when aggregating per-label reasons into a single
@@ -116,6 +148,7 @@ interface MitreRecord {
   name: string;
   description: string | null;
   tactic: string | null;
+  tacticOrder: number | null;
 }
 
 interface MitreCandidate {
@@ -123,6 +156,7 @@ interface MitreCandidate {
   name: string;
   description: string | null;
   tactic: string | null;
+  tacticOrder: number | null;
   kind: MitreKind;
   matchType: MitreMatchType;
   similarityScore: number | null;
@@ -145,12 +179,20 @@ interface PrecheckState {
   checkedAt: number;
 }
 
+// A kind's precheck outcome: a disabled reason, null when healthy, or EMPTY when the
+// kind has no nodes at all (its framework is not loaded), which skips the kind.
+type KindPrecheck = VectorDisabledReason | null | 'EMPTY';
+
 // --- Helpers ---
 
 function toNumber(raw: any): number {
   if (typeof raw === 'number') return raw;
   if (raw && typeof raw.toNumber === 'function') return raw.toNumber();
   return Number(raw);
+}
+
+function toNullableNumber(raw: any): number | null {
+  return raw === null || raw === undefined ? null : toNumber(raw);
 }
 
 function clamp(n: number, min: number, max: number): number {
@@ -186,14 +228,20 @@ export class MatchMitreTechniquesResolverService {
   private vectorSearchAvailable: boolean | null = null;
   private vectorSearchAvailableCheckedAt = 0;
   private vectorIndexesEnsured = false;
-  private auxIndexesEnsured = false;
   // Single-flight handle so concurrent cold-cache callers await one ensure
   // pass instead of racing two CREATE VECTOR INDEX statements.
   private ensurePromise: Promise<void> | null = null;
-  // Aggregated precheck outcome across all 3 kinds. The boolean surface is
-  // global — any per-label failure flips the whole tier off and the dominant
-  // reason is surfaced.
+  // Global precheck outcome: null while at least one loaded kind is healthy
+  // (or a tier-wide fault such as a missing vector module or an index
+  // dimension mismatch otherwise).
   private vectorPrecheckResult: PrecheckState | null = null;
+  // Healthy kinds, indexed by the last precheck. A kind outside it has no
+  // vector tier of its own: either it has no nodes, or it is in kindReasons.
+  private vectorKinds = new Set<MitreKind>();
+  // Kinds with nodes whose corpus failed its own precheck (missing or
+  // mismatched embeddings). Each reports its own reason; the healthy kinds
+  // keep their vector tier.
+  private kindReasons = new Map<MitreKind, VectorDisabledReason>();
   private corpusCacheByKind = new Map<
     MitreKind,
     { records: MitreRecord[]; cachedAt: number }
@@ -281,12 +329,10 @@ export class MatchMitreTechniquesResolverService {
 
   /**
    * Per-label model-coherence precheck.
-   * Single Cypher per kind; returns the per-label disabled reason or
-   * `null` when the kind's corpus is healthy.
+   * Single Cypher per kind; returns the per-label disabled reason, `null`
+   * when the kind's corpus is healthy, or `EMPTY` when it has no nodes.
    */
-  private async runPrecheckForKind(
-    kind: MitreKind,
-  ): Promise<VectorDisabledReason | null> {
+  private async runPrecheckForKind(kind: MitreKind): Promise<KindPrecheck> {
     const label = MITRE_LABEL_BY_KIND[kind];
     const keyProperty = MITRE_KEY_PROPERTY_BY_KIND[kind];
     const runtimeModel = this.embeddingService.getModel();
@@ -316,7 +362,8 @@ export class MatchMitreTechniquesResolverService {
         (m): m is string => m != null,
       );
 
-      if (total === 0 || withModel === 0) return 'NO_VECTORS';
+      if (total === 0) return 'EMPTY';
+      if (withModel === 0) return 'NO_VECTORS';
       if (withModel < total) return 'NO_VECTORS';
       if (models.length > 1) return 'MODEL_MISMATCH';
       if (models[0] !== runtimeModel) return 'MODEL_MISMATCH';
@@ -327,9 +374,10 @@ export class MatchMitreTechniquesResolverService {
   }
 
   /**
-   * Lazy-idempotent ensure: run the per-label precheck, create the three
-   * HNSW indexes (only if all labels pass), and create the auxiliary
-   * label-property indexes for downstream seeks.
+   * Lazy-idempotent ensure: run the per-label precheck and create the HNSW
+   * index of every healthy kind. An unhealthy kind (nodes present, embeddings
+   * missing or from another model) is excluded on its own. The
+   * label-property key indexes are startup DDL (EnsureIndexesService).
    *
    * Sets vectorPrecheckResult on every call so the cascade can read the
    * aggregated reason; sets vectorIndexesEnsured only after a fully
@@ -360,11 +408,14 @@ export class MatchMitreTechniquesResolverService {
       return;
     }
 
-    // 2. Per-label precheck (all 3 kinds)
-    const reasons: Array<VectorDisabledReason | null> = [];
+    // 2. Per-label precheck. A kind with no nodes (its framework is not
+    // loaded) is skipped, not counted: a deployment without ATLAS keeps the
+    // vector tier for ATT&CK and D3FEND.
+    const checked: Array<{ kind: MitreKind; reason: VectorDisabledReason | null }> = [];
     for (const kind of MITRE_KINDS) {
+      let outcome: KindPrecheck;
       try {
-        reasons.push(await this.runPrecheckForKind(kind));
+        outcome = await this.runPrecheckForKind(kind);
       } catch (err) {
         this.logger.warn(`MITRE precheck failed for kind ${kind}`, {
           error: safeErrorMessage(err),
@@ -372,20 +423,40 @@ export class MatchMitreTechniquesResolverService {
         // Read failure on the precheck Cypher is treated conservatively
         // as NO_VECTORS — operator sees the warn in logs and the picker
         // gracefully degrades.
-        reasons.push('NO_VECTORS');
+        outcome = 'NO_VECTORS';
       }
+      if (outcome === 'EMPTY') {
+        this.logger.log(
+          `MITRE vector kind ${kind} skipped: no :${MITRE_LABEL_BY_KIND[kind]} nodes`,
+        );
+        continue;
+      }
+      checked.push({ kind, reason: outcome });
     }
-    const aggregate = dominantReason(reasons);
+    const healthy = checked.filter((c) => c.reason === null).map((c) => c.kind);
+    this.vectorKinds = new Set(healthy);
+    this.kindReasons = new Map(
+      checked
+        .filter((c): c is { kind: MitreKind; reason: VectorDisabledReason } => c.reason !== null)
+        .map((c) => [c.kind, c.reason]),
+    );
+    const perLabel = checked.map((c) => `${c.kind}: ${c.reason ?? 'OK'}`).join('; ');
+    // The tier is down only when no loaded kind is healthy; then the dominant
+    // per-kind reason is the tier's reason.
+    const aggregate =
+      healthy.length > 0
+        ? null
+        : checked.length === 0
+          ? 'NO_VECTORS'
+          : dominantReason(checked.map((c) => c.reason));
     this.vectorPrecheckResult = { reason: aggregate, checkedAt: Date.now() };
 
     if (aggregate !== null) {
-      this.logger.log('MITRE vector tier disabled', {
-        reason: aggregate,
-        perLabel: MITRE_KINDS.map(
-          (k, i) => `${k}: ${reasons[i] ?? 'OK'}`,
-        ).join('; '),
-      });
+      this.logger.log('MITRE vector tier disabled', { reason: aggregate, perLabel });
       return;
+    }
+    if (this.kindReasons.size > 0) {
+      this.logger.warn('MITRE vector tier disabled for some kinds; the others keep it', { perLabel });
     }
 
     // 3. Dimension cross-check + HNSW index creation
@@ -427,7 +498,7 @@ export class MatchMitreTechniquesResolverService {
 
       const dimensions = this.embeddingService.getDimensions();
 
-      for (const kind of MITRE_KINDS) {
+      for (const kind of this.vectorKinds) {
         const indexName = MITRE_INDEX_NAME_BY_KIND[kind];
         const label = MITRE_LABEL_BY_KIND[kind];
         const capacity = MITRE_INDEX_CAPACITY_BY_KIND[kind];
@@ -460,29 +531,6 @@ export class MatchMitreTechniquesResolverService {
         }
       }
 
-      // 4. Auxiliary label-property indexes (seek path).
-      // `CREATE INDEX ON :Label(prop)` is the Memgraph 3.8 syntax (Neo4j 5
-      // uses `CREATE INDEX name FOR (n:L) ON (n.p)` instead, with optional
-      // `IF NOT EXISTS`). We use the plain Memgraph form and swallow
-      // errors defensively — re-running against an existing Memgraph
-      // index is a no-op; running against Neo4j syntactically fails and
-      // is caught by the try/catch.
-      if (!this.auxIndexesEnsured) {
-        for (const kind of MITRE_KINDS) {
-          const label = MITRE_LABEL_BY_KIND[kind];
-          const idField = MITRE_ID_FIELD_BY_KIND[kind];
-          try {
-            await session.run(`CREATE INDEX ON :${label}(${idField})`);
-          } catch (err) {
-            this.logger.warn(
-              `Failed to create label-property index on :${label}(${idField})`,
-              { error: safeErrorMessage(err) },
-            );
-          }
-        }
-        this.auxIndexesEnsured = true;
-      }
-
       this.vectorIndexesEnsured = true;
     } finally {
       await session.close();
@@ -494,7 +542,7 @@ export class MatchMitreTechniquesResolverService {
    * envelope. Reads through the cached precheck state when fresh; refreshes
    * on TTL expiry.
    */
-  private async computeVectorAvailability(): Promise<{
+  private async computeVectorAvailability(kind: MitreKind): Promise<{
     vectorAvailable: boolean;
     vectorDisabledReason: VectorDisabledReason | null;
   }> {
@@ -522,6 +570,15 @@ export class MatchMitreTechniquesResolverService {
         vectorDisabledReason: cached?.reason ?? 'NO_VECTORS',
       };
     }
+    // The tier is up, but this kind's own corpus failed its precheck.
+    const kindReason = this.kindReasons.get(kind);
+    if (kindReason) {
+      return { vectorAvailable: false, vectorDisabledReason: kindReason };
+    }
+    // The tier is up, but this kind was skipped (no nodes): nothing to search.
+    if (!this.vectorKinds.has(kind)) {
+      return { vectorAvailable: false, vectorDisabledReason: 'NO_VECTORS' };
+    }
     return { vectorAvailable: true, vectorDisabledReason: null };
   }
 
@@ -537,43 +594,35 @@ export class MatchMitreTechniquesResolverService {
       // with d3fendId = NULL — they cannot be addressed from the picker and
       // they crash the deterministic-tier matchers (`r.mitreId.toUpperCase()`
       // on null throws). Mirrors the WHERE filter on the vector precheck.
-      let cypher: string;
-      if (kind === 'ATTACK_TECHNIQUE') {
-        cypher = `MATCH (n:MitreAttackTechnique)
-                  WHERE n.attack_id IS NOT NULL
-                  OPTIONAL MATCH (n)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
-                  WITH n, tac
-                  ORDER BY n.id ASC, coalesce(tac.matrix_order, 999) ASC, tac.name ASC
-                  WITH n, collect(DISTINCT tac.name) AS tactics
-                  RETURN n.attack_id AS mitreId,
-                         n.name AS name,
-                         n.description AS description,
-                         CASE WHEN size(tactics) = 0 THEN null ELSE tactics[0] END AS tactic`;
-      } else if (kind === 'DEFEND_TECHNIQUE') {
-        cypher = `MATCH (n:MitreDefendTechnique)
-                  WHERE n.d3fendId IS NOT NULL
-                  OPTIONAL MATCH (n)-[:ENABLES]->(tac:MitreDefendTactic)
-                  WITH n, tac
-                  ORDER BY n.id ASC, tac.name ASC
-                  WITH n, collect(DISTINCT tac.name) AS tactics
-                  RETURN n.d3fendId AS mitreId,
-                         n.name AS name,
-                         n.description AS description,
-                         CASE WHEN size(tactics) = 0 THEN null ELSE tactics[0] END AS tactic`;
-      } else {
-        cypher = `MATCH (n:MitreAttackMitigation)
-                  WHERE n.attack_id IS NOT NULL
-                  RETURN n.attack_id AS mitreId,
-                         n.name AS name,
-                         n.description AS description,
-                         null AS tactic`;
-      }
+      const label = MITRE_LABEL_BY_KIND[kind];
+      const key = MITRE_KEY_PROPERTY_BY_KIND[kind];
+      const hop = TACTIC_HOP_BY_KIND[kind];
+      const cypher = hop
+        ? `MATCH (n:${label})
+           WHERE n.${key} IS NOT NULL
+           OPTIONAL MATCH (n)${hop.pattern}
+           WITH n, tac
+           ORDER BY n.id ASC, ${hop.orderBy}
+           WITH n, collect(DISTINCT tac) AS tacs
+           RETURN n.${key} AS mitreId,
+                  n.name AS name,
+                  n.description AS description,
+                  CASE WHEN size(tacs) = 0 THEN null ELSE tacs[0].name END AS tactic,
+                  CASE WHEN size(tacs) = 0 THEN null ELSE tacs[0].matrix_order END AS tacticOrder`
+        : `MATCH (n:${label})
+           WHERE n.${key} IS NOT NULL
+           RETURN n.${key} AS mitreId,
+                  n.name AS name,
+                  n.description AS description,
+                  null AS tactic,
+                  null AS tacticOrder`;
       const r = await session.executeRead(async (tx: any) => tx.run(cypher));
       return r.records.map((rec: any) => ({
         mitreId: rec.get('mitreId'),
         name: rec.get('name'),
         description: rec.get('description') ?? null,
         tactic: rec.get('tactic') ?? null,
+        tacticOrder: toNullableNumber(rec.get('tacticOrder')),
       }));
     } finally {
       await session.close();
@@ -641,65 +690,41 @@ export class MatchMitreTechniquesResolverService {
   ): string {
     // The `WITH node, similarity` separator between YIELD and WHERE is
     // required by the Memgraph parser. The explicit ORDER BY before `collect()`
-    // makes tactic selection deterministic when a technique has multiple tactics.
-    //
-    // ATT&CK keys on `matrix_order` (stamped at ingest from the bundle's ordered
-    // tactic_refs) so the reported tactic is the earliest kill-chain stage rather than
-    // the alphabetically first name, matching what the build embedded. `coalesce(…, 999)`
-    // keeps a corpus ingested before that stamp existed working: unstamped tactics tie
-    // at the end and fall back to name order, the previous behaviour. D3FEND keys on
-    // name — its tactics carry no matrix_order.
-    if (kind === 'ATTACK_TECHNIQUE') {
-      return `
+    // makes tactic selection deterministic when a technique has multiple
+    // tactics; TACTIC_HOP_BY_KIND says how each kind orders them.
+    const key = MITRE_KEY_PROPERTY_BY_KIND[kind];
+    const hop = TACTIC_HOP_BY_KIND[kind];
+    const search = `
         CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
         YIELD node, similarity
         WITH node, similarity
-        WHERE similarity >= $threshold
-        OPTIONAL MATCH (node)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
+        WHERE similarity >= $threshold`;
+    if (hop) {
+      return `${search}
+        OPTIONAL MATCH (node)${hop.pattern}
         WITH node, similarity, tac
-        ORDER BY coalesce(tac.matrix_order, 999) ASC, tac.name ASC
-        WITH node, similarity, collect(DISTINCT tac.name) AS tactics
-        RETURN node.attack_id AS mitreId,
+        ORDER BY ${hop.orderBy}
+        WITH node, similarity, collect(DISTINCT tac) AS tacs
+        RETURN node.${key} AS mitreId,
                node.name AS name,
                node.description AS description,
-               CASE WHEN size(tactics) = 0 THEN null ELSE tactics[0] END AS tactic,
+               CASE WHEN size(tacs) = 0 THEN null ELSE tacs[0].name END AS tactic,
+               CASE WHEN size(tacs) = 0 THEN null ELSE tacs[0].matrix_order END AS tacticOrder,
                similarity
         ORDER BY similarity DESC
         LIMIT ${topN}
       `;
     }
-    if (kind === 'DEFEND_TECHNIQUE') {
-      return `
-        CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
-        YIELD node, similarity
-        WITH node, similarity
-        WHERE similarity >= $threshold
-        OPTIONAL MATCH (node)-[:ENABLES]->(tac:MitreDefendTactic)
-        WITH node, similarity, tac
-        ORDER BY tac.name ASC
-        WITH node, similarity, collect(DISTINCT tac.name) AS tactics
-        RETURN node.d3fendId AS mitreId,
+    return `${search}
+        RETURN node.${key} AS mitreId,
                node.name AS name,
                node.description AS description,
-               CASE WHEN size(tactics) = 0 THEN null ELSE tactics[0] END AS tactic,
+               null AS tactic,
+               null AS tacticOrder,
                similarity
         ORDER BY similarity DESC
         LIMIT ${topN}
       `;
-    }
-    return `
-      CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
-      YIELD node, similarity
-      WITH node, similarity
-      WHERE similarity >= $threshold
-      RETURN node.attack_id AS mitreId,
-             node.name AS name,
-             node.description AS description,
-             null AS tactic,
-             similarity
-      ORDER BY similarity DESC
-      LIMIT ${topN}
-    `;
   }
 
   private async vectorSimilarityMatch(
@@ -769,6 +794,7 @@ export class MatchMitreTechniquesResolverService {
           name: rec.get('name'),
           description: rec.get('description') ?? null,
           tactic: rec.get('tactic') ?? null,
+          tacticOrder: toNullableNumber(rec.get('tacticOrder')),
         },
         similarity: Number(rec.get('similarity')),
       }));
@@ -791,6 +817,7 @@ export class MatchMitreTechniquesResolverService {
       name: record.name,
       description: record.description,
       tactic: record.tactic,
+      tacticOrder: record.tacticOrder,
       kind,
       matchType,
       similarityScore,
@@ -817,7 +844,7 @@ export class MatchMitreTechniquesResolverService {
 
     // 1. Vector availability (drives the response envelope + tier-5 gate)
     const { vectorAvailable, vectorDisabledReason } =
-      await this.computeVectorAvailability();
+      await this.computeVectorAvailability(kind);
 
     // 2. Corpus fetch (cache-aware)
     const corpusStart = Date.now();

@@ -59,6 +59,8 @@
       case 'ATTACK_TECHNIQUE': return 'ATT&CK Techniques'
       case 'DEFEND_TECHNIQUE': return 'D3FEND Techniques'
       case 'ATTACK_MITIGATION': return 'ATT&CK Mitigations'
+      case 'ATLAS_TECHNIQUE': return 'ATLAS Techniques'
+      case 'ATLAS_MITIGATION': return 'ATLAS Mitigations'
       default: return ''
     }
   })

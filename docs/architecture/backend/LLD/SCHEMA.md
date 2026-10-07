@@ -337,11 +337,15 @@ Represents a potential security vulnerability.
 - `createdBy` (String) — Provenance marker, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 - `authoredBy` (String) — Author reference, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 - `dispositionKind` (DispositionKind), `dispositionReason` (String), `dispositionedBy` (String), `dispositionedAt` (DateTime), `dispositionStale` (Boolean) — User-recorded decision on a SYSTEM finding. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
+- `unresolvedReferences` ([String!]) — Read-only. References the class declares for this finding that the instantiation writer could not link (not in the loaded MITRE data, or not an allowed target for their field). Cleared when every reference links. See [Reference resolution](./SET_INSTANTIATION_ATTRIBUTES.md#reference-resolution).
 
 **Relationships:**
 - `(Exposure)<-[:HAS_EXPOSURE]-(Component|DataFlow|SecurityBoundary|Data)` — Element with this exposure
-- `(Exposure)-[:EXPLOITED_BY]->(MitreAttackTechnique)` — ATT&CK techniques exploiting this exposure
+- `(Exposure)-[:EXPLOITED_BY]->(MitreAttackTechnique)` — ATT&CK techniques exploiting this exposure (`exploitedBy`)
+- `(Exposure)-[:EXPLOITED_BY]->(MitreAtlasTechnique)` — ATLAS techniques exploiting this exposure (`exploitedByAtlas`)
 - `(Exposure)-[:HAS_ISSUE]->(Issue)` — Issues associated with this exposure
+
+Both `EXPLOITED_BY` fields carry [`TechniqueLinkProperties`](#techniquelinkproperties) and allow only nested `connect` / `disconnect` (see [MITRE types are read-only](#mitre-types-are-read-only)).
 
 ### Control
 
@@ -379,17 +383,38 @@ Represents a specific countermeasure implementation.
 - `createdBy` (String) — Provenance marker, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 - `authoredBy` (String) — Author reference, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 - `dispositionKind` (DispositionKind), `dispositionReason` (String), `dispositionedBy` (String), `dispositionedAt` (DateTime), `dispositionStale` (Boolean) — User-recorded decision on a SYSTEM finding. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
+- `unresolvedReferences` ([String!]) — Read-only. References the class declares for this finding that the instantiation writer could not link (not in the loaded MITRE data, or not an allowed target for their field). Cleared when every reference links. See [Reference resolution](./SET_INSTANTIATION_ATTRIBUTES.md#reference-resolution).
 
 **Relationships:**
-- `(Countermeasure)-[:RESPONDS_WITH]->(MitreAttackMitigation)` — ATT&CK mitigations
-- `(Countermeasure)-[:RESPONDS_WITH]->(MitreDefendTechnique)` — D3FEND techniques
-- `(Countermeasure)-[:COUNTERMEASURE_MITIGATES]->(MitreAttackTechnique)` — ATT&CK techniques mitigated (distinct from the `RESPONDS_WITH` Mitigation edge above)
-- `(Countermeasure)-[:COUNTERMEASURE_PROTECTS_AGAINST]->(MitreAttackTechnique)` — ATT&CK techniques hardened against
-- `(Countermeasure)-[:COUNTERMEASURE_DETECTS]->(MitreAttackTechnique)` — ATT&CK techniques detected
-- `(Countermeasure)-[:COUNTERMEASURE_ISOLATES]->(MitreAttackTechnique)` — ATT&CK techniques isolated
+- `(Countermeasure)-[:RESPONDS_WITH]->(MitreAttackMitigation)` — ATT&CK mitigations (`mitigations`)
+- `(Countermeasure)-[:RESPONDS_WITH]->(MitreDefendTechnique)` — D3FEND techniques (`defendedTechniques`)
+- `(Countermeasure)-[:RESPONDS_WITH]->(MitreAtlasMitigation)` — ATLAS mitigations (`mitigationsAtlas`)
+- `(Countermeasure)-[:COUNTERMEASURE_MITIGATES]->(MitreAttackTechnique)` — ATT&CK techniques mitigated (`mitigates`; distinct from the `RESPONDS_WITH` Mitigation edge above)
+- `(Countermeasure)-[:COUNTERMEASURE_PROTECTS_AGAINST]->(MitreAttackTechnique)` — ATT&CK techniques hardened against (`protectsAgainst`)
+- `(Countermeasure)-[:COUNTERMEASURE_DETECTS]->(MitreAttackTechnique)` — ATT&CK techniques detected (`detects`)
+- `(Countermeasure)-[:COUNTERMEASURE_ISOLATES]->(MitreAttackTechnique)` — ATT&CK techniques isolated (`isolates`)
+- `(Countermeasure)-[:COUNTERMEASURE_DECEIVES]->(MitreAttackTechnique)` — ATT&CK techniques the countermeasure deceives the adversary about (`deceives`)
+- `(Countermeasure)-[:COUNTERMEASURE_EVICTS]->(MitreAttackTechnique)` — ATT&CK techniques the countermeasure evicts the adversary from (`evicts`)
+- `(Countermeasure)-[:COUNTERMEASURE_RESTORES]->(MitreAttackTechnique)` — ATT&CK techniques the countermeasure restores from (`restores`)
+- `(Countermeasure)-[:COUNTERMEASURE_RESPONDS_TO]->(MitreAttackTechnique)` — ATT&CK techniques the countermeasure responds to (`respondsTo`)
+- `(Countermeasure)-[:COUNTERMEASURE_<VERB>]->(MitreAtlasTechnique)` — ATLAS techniques, one sibling field per verb, named after the ATT&CK field with an `Atlas` suffix: `mitigatesAtlas`, `protectsAgainstAtlas`, `detectsAtlas`, `isolatesAtlas`, `deceivesAtlas`, `evictsAtlas`, `restoresAtlas`, `respondsToAtlas`
 - `(Countermeasure)<-[:HAS_COUNTERMEASURE]-(Control)` — Parent control
 - `(Countermeasure)-[:IS_COUNTERMEASURE_OF]->(ControlClass)` — Control class
 - `(Countermeasure)-[:HAS_ISSUE]->(Issue)` — Issues associated with this countermeasure
+
+All nineteen MITRE link fields carry [`TechniqueLinkProperties`](#techniquelinkproperties) and allow only nested `connect` / `disconnect`. An ATT&CK field and its ATLAS sibling share one edge type and differ only in the target label: a disconnect-all on the ATT&CK field leaves the ATLAS edges of the same type in place.
+
+### TechniqueLinkProperties
+
+Edge type on every relationship from an `Exposure` or `Countermeasure` to a MITRE node (`@relationshipProperties`).
+
+```graphql
+type TechniqueLinkProperties @relationshipProperties {
+  justification: String
+}
+```
+
+- `justification` (String) — Why the link holds, as written by the module policy or the author; null for a bare reference. A connect without edge properties stays valid.
 
 ### Provenance fields on Exposure and Countermeasure
 
@@ -585,8 +610,8 @@ Runtime status of an analysis (not a graph relationship — resolved via custom 
 
 | Type | Properties | Key Relationships |
 |------|-----------|-------------------|
-| `MitreAttackTactic` | `attack_id`, `attack_version`, `stix_id`, `stix_spec_version`, `stix_type` | `-[:TACTIC_INCLUDES_TECHNIQUE]->` MitreAttackTechnique |
-| `MitreAttackTechnique` | `attack_id`, `attack_spec_version`, `attack_decreased`, `attack_subtechnique`, `attack_version`, `ref_url`, `stix_id`, `stix_spec_version`, `stix_type` | `<-[:SUBTECHNIQUE_OF]-` (subtechniques), `<-[:EXPLOITED_BY]-` Exposure, `<-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]-` MitreAttackMitigation, `<-[:COUNTERMEASURE_MITIGATES]-` / `<-[:COUNTERMEASURE_PROTECTS_AGAINST]-` / `<-[:COUNTERMEASURE_DETECTS]-` / `<-[:COUNTERMEASURE_ISOLATES]-` Countermeasure (the ingester also writes the currently-dormant `COUNTERMEASURE_DECEIVES` / `_EVICTS` / `_RESTORES` / `_RESPONDS_TO` verb edges, not yet surfaced as GraphQL fields) |
+| `MitreAttackTactic` | `attack_id`, `matrix_order` (0-based position in the ATT&CK matrix), `attack_version`, `stix_id`, `stix_spec_version`, `stix_type` | `-[:TACTIC_INCLUDES_TECHNIQUE]->` MitreAttackTechnique |
+| `MitreAttackTechnique` | `attack_id`, `attack_spec_version`, `attack_decreased`, `attack_subtechnique`, `attack_version`, `ref_url`, `stix_id`, `stix_spec_version`, `stix_type` | `<-[:SUBTECHNIQUE_OF]-` (subtechniques), `<-[:EXPLOITED_BY]-` Exposure, `<-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]-` MitreAttackMitigation, `<-[:COUNTERMEASURE_<VERB>]-` Countermeasure (all eight verbs), `<-[:ATLAS_TECHNIQUE_REFERENCES]-` MitreAtlasTechnique (`atlasTechniques`, the crosswalk) |
 | `MitreAttackMitigation` | `attack_id`, `attack_deprecated`, `ref_url`, `attack_spec_version`, `stix_spec_version`, `stix_modified`, `stix_id`, `attack_version`, `stix_created`, `stix_revoked`, `stix_type` | `-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->` MitreAttackTechnique, `<-[:RESPONDS_WITH]-` Countermeasure |
 
 ### D3FEND
@@ -596,16 +621,39 @@ Runtime status of an analysis (not a graph relationship — resolved via custom 
 | `MitreDefendTactic` | `attack_id`, `uri` | `<-[:ENABLES]-` MitreDefendTechnique |
 | `MitreDefendTechnique` | `d3fendId`, `uri` | `-[:ENABLES]->` MitreDefendTactic, `<-[:SUB_TECHNIQUE_OF]-` (subtechniques), `<-[:RESPONDS_WITH]-` Countermeasure |
 
+### ATLAS
+
+MITRE ATLAS (attacks on AI-enabled systems) is a third framework with its own labels and its own key, `atlas_id`; no ATLAS node carries `attack_id`. ATLAS is its own matrix: its tactic ids and names overlap ATT&CK's but are other tactics. See [ADR-012](../../decisions/012-mitre-atlas-third-framework.md).
+
+| Type | Properties | Key Relationships |
+|------|-----------|-------------------|
+| `MitreAtlasTactic` | `atlas_id` (e.g. `AML.TA0000`), `atlas_shortname`, `matrix_order` (0-based position in the ATLAS matrix), `ref_url`, `stix_id` | `-[:TACTIC_INCLUDES_TECHNIQUE]->` MitreAtlasTechnique |
+| `MitreAtlasTechnique` | `atlas_id` (e.g. `AML.T0051`, `AML.T0051.000`), `atlas_subtechnique`, `atlas_platforms`, `atlas_deprecated`, `ref_url`, `stix_id`, `stix_created`, `stix_modified`, `stix_revoked` | `<-[:SUBTECHNIQUE_OF]-` (subtechniques), `<-[:TACTIC_INCLUDES_TECHNIQUE]-` MitreAtlasTactic, `<-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]-` MitreAtlasMitigation, `<-[:CAMPAIGN_USES_TECHNIQUE]-` MitreAtlasCaseStudy, `-[:ATLAS_TECHNIQUE_REFERENCES]->` MitreAttackTechnique (`attackTechniques`, the crosswalk), `<-[:EXPLOITED_BY]-` Exposure |
+| `MitreAtlasMitigation` | `atlas_id` (e.g. `AML.M0015`), `atlas_deprecated`, `ref_url`, `stix_id` | `-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->` MitreAtlasTechnique, `<-[:RESPONDS_WITH]-` Countermeasure |
+| `MitreAtlasCaseStudy` | `atlas_id` (e.g. `AML.CS0000`), `ref_url`, `stix_id` | `-[:CAMPAIGN_USES_TECHNIQUE]->` MitreAtlasTechnique |
+
+The crosswalk edge carries `AtlasCrosswalkProperties { cited_attack_id }`: the ATT&CK id the ATLAS object cites. It differs from the edge's target only where ATT&CK revoked the cited technique and the crosswalk follows the revocation to its successor.
+
 All MITRE types implement the `Element` interface (`id`, `name`, `description`).
+
+### MITRE types are read-only
+
+MITRE reference data (ATT&CK, ATLAS, D3FEND) is loaded by the `mitre-frameworks` data module and shared by every model, so the API never writes it:
+
+- Every MITRE type is declared with `@mutation(operations: [])`: no generated `create*` / `update*` / `delete*` mutations.
+- The MITRE types' own relationship fields allow no nested operation (`nestedOperations: []`).
+- Every field that points at a MITRE type, or at the `Element` interface that MITRE types implement, allows only `CONNECT` and `DISCONNECT`. A nested create, update or delete would otherwise write the shared nodes.
+
+Clients link a finding to a MITRE node with a nested `connect` on the finding's field and unlink it with `disconnect`.
 
 ### Technique matching
 
-The [`matchMitreTechniques`](#queries) query resolves user-typed text to candidates from one of three corpora, selected by `MitreKind`. It returns a structured envelope rather than raw nodes — see [`MatchMitreTechniquesResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#9-matchmitretechniquesresolverservice) for the five-tier cascade and vector-tier mechanics.
+The [`matchMitreTechniques`](#queries) query resolves user-typed text to candidates from one of five corpora, selected by `MitreKind`. It returns a structured envelope rather than raw nodes — see [`MatchMitreTechniquesResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#9-matchmitretechniquesresolverservice) for the five-tier cascade and vector-tier mechanics.
 
 **Enums:**
 
 ```graphql
-enum MitreKind { ATTACK_TECHNIQUE, DEFEND_TECHNIQUE, ATTACK_MITIGATION }
+enum MitreKind { ATTACK_TECHNIQUE, DEFEND_TECHNIQUE, ATTACK_MITIGATION, ATLAS_TECHNIQUE, ATLAS_MITIGATION }
 enum MitreMatchType { EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH, VECTOR_SIMILARITY }
 enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MODEL_MISMATCH }
 ```
@@ -626,10 +674,10 @@ enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MOD
 |-------|------|-------------|
 | `matches` | `[TechniqueQueryMatch!]!` | Parallel to `queries` (same order, same length). Each carries the echoed `query` and a `[MitreCandidate!]!` list. |
 | `unmatched` | `[String!]!` | Queries that produced no candidates. |
-| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the `vector_search` module is absent, embedding is disabled, or shipped vectors mismatch the runtime model. |
+| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the `vector_search` module is absent, embedding is disabled, or shipped vectors mismatch the runtime model. Also false (`NO_VECTORS`) for a kind whose framework is not loaded, while the other kinds keep the vector tier. |
 | `vectorDisabledReason` | `VectorDisabledReason` | Set when `vectorAvailable` is false; null otherwise. |
 
-`MitreCandidate` carries `mitreId`, `name`, `description`, `tactic`, `kind`, `matchType`, and `similarityScore` (`Float`, populated only for `VECTOR_SIMILARITY` matches; null for the deterministic tiers). `mitreId` reads from `attack_id` (ATT&CK) or `d3fendId` (D3FEND).
+`MitreCandidate` carries `mitreId`, `name`, `description`, `tactic`, `tacticOrder`, `kind`, `matchType`, and `similarityScore` (`Float`, populated only for `VECTOR_SIMILARITY` matches; null for the deterministic tiers). `mitreId` reads from `attack_id` (ATT&CK), `d3fendId` (D3FEND) or `atlas_id` (ATLAS). `tactic` is the tactic name in the candidate's own framework — for a multi-tactic technique, the earliest in matrix order — and null for mitigations. `tacticOrder` is that tactic's 0-based matrix position (ATT&CK and ATLAS); it is null for D3FEND tactics, for mitigations, and for a corpus ingested without matrix positions. Order tactic facets by `tacticOrder`, never by name.
 
 ---
 

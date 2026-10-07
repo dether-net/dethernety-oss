@@ -75,20 +75,21 @@ describe('ClassPickerResults — vector_similarity tier 3-dot meter', () => {
     expect(filledDotsIn(wrapper)).toBe(3)
   })
 
-  it('similarityScore=0.82 → 2 filled dots', () => {
+  // The meter is anchored to the backend's similarity floor (0.40, the default threshold), the
+  // same scale as the technique picker: every returned match lights at least one dot.
+  it.each([
+    [0.75, 3],
+    [0.7, 3],
+    [0.6, 2],
+    [0.55, 2],
+    [0.45, 1],
+    [0.4, 1],
+  ])('similarityScore=%s → %s filled dot(s)', (similarityScore, dots) => {
     const wrapper = mount(ClassPickerResults, {
-      props: { candidates: [make({ matchType: 'vector_similarity', similarityScore: 0.82 })] },
+      props: { candidates: [make({ matchType: 'vector_similarity', similarityScore })] },
       global: { stubs },
     })
-    expect(filledDotsIn(wrapper)).toBe(2)
-  })
-
-  it('similarityScore=0.71 → 1 filled dot', () => {
-    const wrapper = mount(ClassPickerResults, {
-      props: { candidates: [make({ matchType: 'vector_similarity', similarityScore: 0.71 })] },
-      global: { stubs },
-    })
-    expect(filledDotsIn(wrapper)).toBe(1)
+    expect(filledDotsIn(wrapper)).toBe(dots)
   })
 })
 

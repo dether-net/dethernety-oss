@@ -240,7 +240,13 @@ blocks simply do not render (no dead "unavailable" tiles).
 **Coverage & Gaps** renders the MITRE ATT&CK coverage matrix. It consumes the
 live graded-coverage facts joined to the snapshot ledger through
 `buildCoverageView`, with rows = techniques the model's live exposures map to and
-columns = ATT&CK tactics in canonical order. The encoding is deliberately
+columns = ATT&CK tactics. Columns are keyed by tactic id, labelled by tactic
+name, and ordered by the ATT&CK matrix position the coverage facts carry for
+each tactic (then by id); there is no built-in tactic list, so a new ATT&CK
+release that renames, adds, or moves tactics (v19 renamed Defense Evasion to
+Stealth and added Defense Impairment) reorders the columns without a code
+change. Clicking a column header filters the rows to that tactic, matched by id.
+The encoding is deliberately
 constrained: tier is conveyed by fill, prevent/detect by a single glyph, and the
 grid stays monochrome so it never reads as a traffic-light dashboard. The library
 also does the off-grid accounting — data exposures and boundary exposures that do
@@ -547,6 +553,10 @@ produces two artifacts from the current snapshot. `buildJsonExport` and
 is the single DOM touch that triggers the browser download.
 
 - **JSON** — a structured serialization of the snapshot for downstream tooling.
+  In its coverage section, `tactics` (top level, and on each technique) are
+  ATT&CK tactic objects `{ id, name, order }` in matrix order, the same shape the
+  coverage facts carry (see
+  [`Tactic`](../dethernety-coverage-tools/coverage-facts.md#tactic)).
 - **Printable HTML** — a fully self-contained document: inline `<style>`,
   hard-coded hex colors (a standalone file cannot resolve the host theme tokens),
   and no external assets. It opens anywhere and prints to PDF via the browser's

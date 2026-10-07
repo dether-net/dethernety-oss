@@ -1,8 +1,16 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { Countermeasure, DispositionKind, DispositionMutationResult } from '../interfaces/core-types-interface.js'
-import { CREATE_COUNTERMEASURE, GET_COUNTERMEASURES_FROM_CONTROL, GET_COUNTERMEASURE, UPDATE_COUNTERMEASURE, DELETE_COUNTERMEASURE, DISPOSE_COUNTERMEASURE, CLEAR_COUNTERMEASURE_DISPOSITION, FLIP_SUPERSEDED_COUNTERMEASURE_STALE } from './dt-countermeasure-gql.js'
+import {
+  Countermeasure,
+  COUNTERMEASURE_TECHNIQUE_LINK_FIELDS,
+  CountermeasureTechniqueLinks,
+  DispositionKind,
+  DispositionMutationResult,
+} from '../interfaces/core-types-interface.js'
+import { fromLinkConnection, techniqueLinkConnect, TechniqueLinkConnection } from '../dt-utils/technique-links.js'
+import { buildLinkOps } from '../dt-utils/link-delta.js'
+import { CREATE_COUNTERMEASURE, GET_COUNTERMEASURES_FROM_CONTROL, GET_COUNTERMEASURE, GET_COUNTERMEASURE_TECHNIQUE_LINKS, GET_COUNTERMEASURE_RESPONSE_LINKS, UPDATE_COUNTERMEASURE, DELETE_COUNTERMEASURE, DISPOSE_COUNTERMEASURE, CLEAR_COUNTERMEASURE_DISPOSITION, FLIP_SUPERSEDED_COUNTERMEASURE_STALE } from './dt-countermeasure-gql.js'
 
 export class DtCountermeasure {
   private dtUtils: DtUtils
@@ -64,15 +72,55 @@ export class DtCountermeasure {
   }
 
   /**
+   * Every MITRE link of a countermeasure, with each edge's justification: every field in
+   * COUNTERMEASURE_TECHNIQUE_LINK_FIELDS (ATT&CK, D3FEND and their ATLAS siblings).
+   * @param countermeasureId - The ID of the countermeasure
+   * @returns The links by field, or null when the countermeasure does not exist
+   */
+  getCountermeasureTechniqueLinks = async (
+    { countermeasureId }: { countermeasureId: string }
+  ): Promise<CountermeasureTechniqueLinks | null> => {
+    const response = await this.dtUtils.performQuery<{ countermeasures: Array<Record<string, TechniqueLinkConnection>> }>({
+      query: GET_COUNTERMEASURE_TECHNIQUE_LINKS,
+      variables: { countermeasureId },
+      action: 'getCountermeasureTechniqueLinks',
+      fetchPolicy: 'network-only'
+    })
+    const row = response.countermeasures?.[0]
+    if (!row) return null
+    const links: CountermeasureTechniqueLinks = {}
+    for (const field of COUNTERMEASURE_TECHNIQUE_LINK_FIELDS) {
+      links[field] = fromLinkConnection(row[`${field}Connection`])
+    }
+    return links
+  }
+
+  /**
    * Create a countermeasure
    * @param controlId - The ID of the control
    * @param countermeasure - The countermeasure to create
+   * @param techniqueLinks - MITRE links to create with their justification, by field; a field given
+   *   here replaces the countermeasure's own `mitigations` / `defendedTechniques` / `mitigationsAtlas` list
    * @returns The created countermeasure or false if an error occurs
    */
   createCountermeasure = async (
-    { controlId, countermeasure }: { controlId: string, countermeasure: Countermeasure }
+    { controlId, countermeasure, techniqueLinks }:
+    { controlId: string, countermeasure: Countermeasure, techniqueLinks?: CountermeasureTechniqueLinks }
   ): Promise<Countermeasure | null> => {
     try {
+      const links: CountermeasureTechniqueLinks = {
+        mitigations: countermeasure.mitigations?.map(mitigation => ({ id: mitigation.id })),
+        defendedTechniques: countermeasure.defendedTechniques?.map(technique => ({ id: technique.id })),
+        mitigationsAtlas: countermeasure.mitigationsAtlas?.map(mitigation => ({ id: mitigation.id })),
+        ...techniqueLinks,
+      }
+      const linkInput: Record<string, { connect: ReturnType<typeof techniqueLinkConnect>[] }> = {}
+      for (const field of COUNTERMEASURE_TECHNIQUE_LINK_FIELDS) {
+        const fieldLinks = links[field]
+        if (fieldLinks?.length) {
+          linkInput[field] = { connect: fieldLinks.map(techniqueLinkConnect) }
+        }
+      }
       const mutuationInput = {
         name: countermeasure.name,
         description: countermeasure.description,
@@ -88,22 +136,9 @@ export class DtCountermeasure {
             },
           },
         },
-        defendedTechniques: {
-          connect: countermeasure.defendedTechniques?.map(technique => ({
-            where: {
-              node: { id: { eq: technique.id } },
-            },
-          })),
-        },
-        mitigations: {
-          connect: countermeasure.mitigations?.map(mitigation => ({
-            where: {
-              node: { id: { eq: mitigation.id } },
-            },
-          })),
-        },
+        ...linkInput,
       }
-      
+
       const createdCountermeasure = await this.dtUtils.performMutation<Countermeasure>({
         mutation: CREATE_COUNTERMEASURE,
         variables: { input: [mutuationInput] },
@@ -127,49 +162,69 @@ export class DtCountermeasure {
   updateCountermeasure = async (
     { countermeasureId, countermeasure }: { countermeasureId: string, countermeasure: Countermeasure }
   ): Promise<Countermeasure | null> => {
-    try {
-      // @neo4j/graphql v7 wraps every UPDATE-input field in a *Mutations
-      // type. Plain scalars become `StringScalarMutations` / `IntScalarMutations`
-      // (object with `{ set }`); scalar lists become `ListStringMutations`
-      // (object with `{ set, push, pop, popFront }`). Sending raw values fails
-      // coercion (`Expected type "StringScalarMutations" to be an object`).
-      // CREATE inputs still take plain types; only UPDATE is affected. Mirrors
-      // the pattern in dt-control.updateControl.
-      const mutuationInput = {
-        name: { set: countermeasure.name },
-        description: { set: countermeasure.description },
-        type: { set: countermeasure.type },
-        category: { set: countermeasure.category },
-        score: { set: Number(countermeasure.score) },
-        references: { set: countermeasure.references },
-        addressedExposures: { set: countermeasure.addressedExposures ?? [] },
-        mitigations: {
-          disconnect: {},
-          connect: countermeasure.mitigations?.map(mitigation => ({
-            where: { node: { id: { eq: mitigation.id } } },
-          })),
-        },
-        defendedTechniques: {
-          disconnect: {},
-          connect: countermeasure.defendedTechniques?.map(technique => ({
-            where: { node: { id: { eq: technique.id } } },
-          })),
-        },
+    return this.dtUtils.withMutex(`updateCountermeasure_${countermeasureId}`, async () => {
+      try {
+        // The MITRE links are written as a delta against the links the countermeasure has now:
+        // only ids that left a list are disconnected and only new ids are connected, so a link
+        // the user kept keeps its edge and the justification on it. A list the caller does not
+        // give (undefined) is not written at all.
+        // Read and write under one per-countermeasure mutex, as updateExposure does: two saves
+        // in flight would otherwise both see a new id as missing and both connect it.
+        const response = await this.dtUtils.performQuery<{ countermeasures: Array<Record<string, TechniqueLinkConnection>> }>({
+          query: GET_COUNTERMEASURE_RESPONSE_LINKS,
+          variables: { countermeasureId },
+          action: 'updateCountermeasure',
+          fetchPolicy: 'network-only'
+        })
+        const current = response.countermeasures?.[0]
+        if (!current) {
+          throw new Error(`updateCountermeasure: countermeasure ${countermeasureId} not found`)
+        }
+        const delta = (
+          field: 'mitigations' | 'defendedTechniques' | 'mitigationsAtlas',
+          list: Array<{ id: string }> | undefined,
+        ) => list === undefined
+          ? undefined
+          : buildLinkOps(list.map(item => item.id), fromLinkConnection(current[`${field}Connection`]).map(link => link.id))
+        const links = {
+          mitigations: delta('mitigations', countermeasure.mitigations),
+          defendedTechniques: delta('defendedTechniques', countermeasure.defendedTechniques),
+          mitigationsAtlas: delta('mitigationsAtlas', countermeasure.mitigationsAtlas),
+        }
+
+        // @neo4j/graphql v7 wraps every UPDATE-input field in a *Mutations
+        // type. Plain scalars become `StringScalarMutations` / `IntScalarMutations`
+        // (object with `{ set }`); scalar lists become `ListStringMutations`
+        // (object with `{ set, push, pop, popFront }`). Sending raw values fails
+        // coercion (`Expected type "StringScalarMutations" to be an object`).
+        // CREATE inputs still take plain types; only UPDATE is affected. Mirrors
+        // the pattern in dt-control.updateControl.
+        const mutuationInput = {
+          name: { set: countermeasure.name },
+          description: { set: countermeasure.description },
+          type: { set: countermeasure.type },
+          category: { set: countermeasure.category },
+          score: { set: Number(countermeasure.score) },
+          references: { set: countermeasure.references },
+          addressedExposures: { set: countermeasure.addressedExposures ?? [] },
+          ...Object.fromEntries(Object.entries(links).filter(([, ops]) => ops !== undefined)),
+        }
+
+        const updatedCountermeasure = await this.dtUtils.performMutation<Countermeasure>({
+          mutation: UPDATE_COUNTERMEASURE,
+          variables: { countermeasureId, input: mutuationInput },
+          dataPath: 'updateCountermeasures.countermeasures[0]',
+          action: 'updateCountermeasure',
+          deduplicationKey: `update-countermeasure-${countermeasureId}`
+        })
+
+        return updatedCountermeasure || null
+      } catch (error) {
+        throw error
       }
-      
-      const updatedCountermeasure = await this.dtUtils.performMutation<Countermeasure>({
-        mutation: UPDATE_COUNTERMEASURE,
-        variables: { countermeasureId, input: mutuationInput },
-        dataPath: 'updateCountermeasures.countermeasures[0]',
-        action: 'updateCountermeasure',
-        deduplicationKey: `update-countermeasure-${countermeasureId}`
-      })
-      
-      return updatedCountermeasure || null
-    } catch (error) {
-      throw error
-    }
+    })
   }
+
 
   /**
    * Delete a countermeasure.

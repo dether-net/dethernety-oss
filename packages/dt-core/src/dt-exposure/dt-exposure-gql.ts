@@ -18,11 +18,18 @@ export const GET_EXPOSURES = gql`
       dispositionedBy
       dispositionedAt
       dispositionStale
+      unresolvedReferences
       exploitedBy {
         id
         name
         description
         attack_id
+      }
+      exploitedByAtlas {
+        id
+        name
+        description
+        atlas_id
       }
     }
   }
@@ -45,11 +52,18 @@ export const GET_EXPOSURE = gql`
       dispositionedBy
       dispositionedAt
       dispositionStale
+      unresolvedReferences
       exploitedBy {
         id
         name
         description
         attack_id
+      }
+      exploitedByAtlas {
+        id
+        name
+        description
+        atlas_id
       }
     }
   }
@@ -71,11 +85,18 @@ export const ADD_EXPOSURE = gql`
         dispositionedBy
         dispositionedAt
         dispositionStale
+        unresolvedReferences
         exploitedBy {
           id
           name
           description
           attack_id
+        }
+        exploitedByAtlas {
+          id
+          name
+          description
+          atlas_id
         }
       }
     }
@@ -103,11 +124,18 @@ export const UPDATE_EXPOSURE = gql`
         dispositionedBy
         dispositionedAt
         dispositionStale
+        unresolvedReferences
         exploitedBy {
           id
           name
           description
           attack_id
+        }
+        exploitedByAtlas {
+          id
+          name
+          description
+          atlas_id
         }
       }
     }
@@ -171,6 +199,16 @@ export const FLIP_SUPERSEDED_STALE = gql`
       exposures {
         id
       }
+    }
+  }
+`
+
+// The ATT&CK and ATLAS techniques that exploit one exposure, with each edge's justification: what a supersede copies.
+export const GET_EXPOSURE_TECHNIQUE_LINKS = gql`
+  query GetExposureTechniqueLinks($exposureId: ID!) {
+    exposures(where: { id: { eq: $exposureId } }) {
+      exploitedByConnection { edges { node { id } properties { justification } } }
+      exploitedByAtlasConnection { edges { node { id } properties { justification } } }
     }
   }
 `

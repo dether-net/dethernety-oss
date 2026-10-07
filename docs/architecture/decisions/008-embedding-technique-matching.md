@@ -52,3 +52,12 @@ Tiers 1–4 are deterministic and need no embedding backend. Tier 5 is the seman
 - [ADR-002: GraphQL API layer](002-graphql-api-layer.md)
 - [Backend GraphQL API reference](../backend/GRAPHQL_API_REFERENCE.md) — the `matchMitreTechniques` query
 - [Working with Security Controls](../../user/WORKING_WITH_SECURITY_CONTROLS.md) — the picker workflow
+- [ADR-012: MITRE ATLAS as a third framework](012-mitre-atlas-third-framework.md)
+
+## Update (2026-10-07)
+
+[ADR-012](012-mitre-atlas-third-framework.md) adds MITRE ATLAS as a third framework. The decision above stands; three details changed:
+
+- **Five corpora.** `MitreKind` gains `ATLAS_TECHNIQUE` and `ATLAS_MITIGATION`, read from `MitreAtlasTechnique` / `MitreAtlasMitigation` by `atlas_id` and searched through their own HNSW indexes, `mitre_atlas_technique_embeddings` and `mitre_atlas_mitigation_embeddings`. Every candidate also carries `tacticOrder`, the matrix position of its tactic (ATT&CK and ATLAS; null for D3FEND and mitigations).
+- **A kind with no nodes is skipped.** When a framework is not loaded, its kind is left out of the vector precheck with a log line, and no vector index is created for it; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes the precheck is still global: one failing kind disables the tier for all of them.
+- **Key indexes are startup DDL.** The auxiliary label-property indexes are no longer created lazily by the picker (that path ran on Memgraph only). They are created at application bootstrap on both graph engines, for every MITRE lookup key: ATT&CK technique and mitigation `attack_id`, D3FEND technique `d3fendId`, and ATLAS technique and mitigation `atlas_id`. The HNSW vector indexes are still created lazily.

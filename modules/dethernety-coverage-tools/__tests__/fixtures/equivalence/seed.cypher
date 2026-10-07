@@ -46,10 +46,15 @@ MATCH (m:Model {id: 'model-eq-fixture'})
 CREATE (m)-[:CONTAINS]->(:Data {id: 'd-records', name: 'Customer Records'});
 
 // ── MITRE ATT&CK catalogue (synthetic) ──────────────────────────────────────
-CREATE (:MitreAttackTactic {id: 'tac-ia', name: 'Initial Access'});
-CREATE (:MitreAttackTactic {id: 'tac-pe', name: 'Privilege Escalation'});
-CREATE (:MitreAttackTactic {id: 'tac-ex', name: 'Exfiltration'});
-CREATE (:MitreAttackTactic {id: 'tac-cr', name: 'Credential Access'});
+// attack_id and matrix_order are the real ATT&CK v19 values. Tactic columns key on the
+// id and sort by matrix_order: T9001 carries Stealth and Defense Impairment, whose
+// alphabetical order is the reverse of their matrix order.
+CREATE (:MitreAttackTactic {id: 'tac-ia', attack_id: 'TA0001', name: 'Initial Access', matrix_order: 2});
+CREATE (:MitreAttackTactic {id: 'tac-pe', attack_id: 'TA0004', name: 'Privilege Escalation', matrix_order: 5});
+CREATE (:MitreAttackTactic {id: 'tac-st', attack_id: 'TA0005', name: 'Stealth', matrix_order: 6});
+CREATE (:MitreAttackTactic {id: 'tac-di', attack_id: 'TA0112', name: 'Defense Impairment', matrix_order: 7});
+CREATE (:MitreAttackTactic {id: 'tac-ex', attack_id: 'TA0010', name: 'Exfiltration', matrix_order: 13});
+CREATE (:MitreAttackTactic {id: 'tac-cr', attack_id: 'TA0006', name: 'Credential Access', matrix_order: 8});
 
 CREATE (:MitreAttackTechnique {attack_id: 'T9001', name: 'Exploit Edge Service', description: 'Adversaries may exploit an internet-facing edge service.'});
 CREATE (:MitreAttackTechnique {attack_id: 'T9002', name: 'Valid Accounts', description: 'Adversaries may abuse valid accounts.'});
@@ -64,6 +69,10 @@ MATCH (s:MitreAttackTechnique {attack_id: 'T9002.004'}), (p:MitreAttackTechnique
 CREATE (s)-[:SUBTECHNIQUE_OF]->(p);
 
 MATCH (tac:MitreAttackTactic {id: 'tac-ia'}), (t:MitreAttackTechnique {attack_id: 'T9001'})
+CREATE (tac)-[:TACTIC_INCLUDES_TECHNIQUE]->(t);
+MATCH (tac:MitreAttackTactic {id: 'tac-di'}), (t:MitreAttackTechnique {attack_id: 'T9001'})
+CREATE (tac)-[:TACTIC_INCLUDES_TECHNIQUE]->(t);
+MATCH (tac:MitreAttackTactic {id: 'tac-st'}), (t:MitreAttackTechnique {attack_id: 'T9001'})
 CREATE (tac)-[:TACTIC_INCLUDES_TECHNIQUE]->(t);
 MATCH (tac:MitreAttackTactic {id: 'tac-ia'}), (t:MitreAttackTechnique {attack_id: 'T9002'})
 CREATE (tac)-[:TACTIC_INCLUDES_TECHNIQUE]->(t);

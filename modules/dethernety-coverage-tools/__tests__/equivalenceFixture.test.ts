@@ -61,7 +61,10 @@ describe('equivalence fixture (shared cross-implementation contract)', () => {
     const sub = byId['exp-web-cloudacct'].techniques[0];
     expect(sub.techniqueId).toBe('T9002.004');
     expect(sub.tiers.some((f) => f.tier === 'INDIRECT_MITIGATION')).toBe(true);
-    expect(sub.tactics).toEqual(['Initial Access', 'Privilege Escalation']);
+    expect(sub.tactics.map((t) => t.id)).toEqual(['TA0001', 'TA0004']);
+    // Matrix order, not name order: Stealth (TA0005) precedes Defense Impairment (TA0112).
+    const edge = byId['exp-web-rce'].techniques[0];
+    expect(edge.tactics.map((t) => t.name)).toEqual(['Initial Access', 'Stealth', 'Defense Impairment']);
     // Both-function D3FEND evidence on the same technique.
     const rce = byId['exp-web-rce'].techniques[0];
     const d3fFns = rce.tiers.filter((f) => f.tier === 'INDIRECT_D3FEND').map((f) => f.function);

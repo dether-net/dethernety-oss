@@ -622,7 +622,7 @@ MITRE data lives natively in the graph database (populated by `mitre-frameworks`
 ### Preventing Hallucinated References
 
 1. **Never generate technique IDs from memory.** Use `search_mitre_attack` / `get_mitre_defend` MCP tools to query the platform's graph database.
-2. **Canonical ID validation.** ATT&CK: `^T\d{4}(\.\d{3})?$`, Tactics: `^TA\d{4}$`, Mitigations: `^M\d{4}$`, D3FEND: `^D3-[A-Z]{2,}$`
+2. **Canonical ID validation.** ATT&CK: `^T\d{4}(\.\d{3})?$`, Tactics: `^TA\d{4}$`, Mitigations: `^M\d{4}$`, D3FEND: `^D3-[A-Z]{2,}$`, MITRE ATLAS techniques: `^AML\.T\d{4}(\.\d{3})?$`. Any other technique ID is dropped.
 3. **Platform verification.** Before persisting any MITRE reference, confirm it exists in the database. For ATT&CK: use `search_mitre_attack(action: 'technique', attack_id: '...')`. For D3FEND: use `get_mitre_defend(action: 'technique', d3fend_id: '...')`. The same three-step guardrail applies to both frameworks.
 4. **Disclosure.** Indicate whether references are verified or pending verification.
 
@@ -638,7 +638,7 @@ Plugin identifies threat category (STRIDE mapping)
   -> Plugin writes exploitedBy references to exposure
 ```
 
-**ID validation short-circuit:** When the user provides a specific technique ID (matching `^T\d{4}(\.\d{3})?$`), skip search and ranking — use `search_mitre_attack(action: 'technique', attack_id: '...')` directly. Present the technique details for confirmation. This saves one MCP tool call and one ranking reasoning pass per direct ID reference. Direct ID references are common in security_review and incident_response contexts where the user already knows the relevant techniques.
+**ID validation short-circuit:** When the user provides a specific technique ID (matching `^T\d{4}(\.\d{3})?$`), skip search and ranking — use `search_mitre_attack(action: 'technique', attack_id: '...')` directly. Present the technique details for confirmation. A user-supplied MITRE ATLAS technique ID (matching `^AML\.T\d{4}(\.\d{3})?$`) is kept and marked not verified by Dethereal: `search_mitre_attack` covers ATT&CK only, so it can neither find nor confirm one, and Dethereal never produces an ATLAS ID itself. This saves one MCP tool call and one ranking reasoning pass per direct ID reference. Direct ID references are common in security_review and incident_response contexts where the user already knows the relevant techniques.
 
 ---
 

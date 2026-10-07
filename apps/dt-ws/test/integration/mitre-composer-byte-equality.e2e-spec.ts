@@ -37,6 +37,15 @@ const TECHNIQUE_FIXTURES: { in: TechniqueInput; out: string }[] = [
     in: { name: 'Bare name' },
     out: 'Bare name. . Tactic: Unknown.',
   },
+  {
+    // ATLAS: a markdown link in the description and an ATLAS-only tactic.
+    in: {
+      name: 'LLM Prompt Injection',
+      description: 'An adversary may craft prompts ([LLM Jailbreak](/techniques/AML.T0054)).',
+      tactic: 'AI Model Access',
+    },
+    out: 'LLM Prompt Injection. An adversary may craft prompts ([LLM Jailbreak](/techniques/AML.T0054)).. Tactic: AI Model Access.',
+  },
 ];
 
 const MITIGATION_FIXTURES: { in: MitigationInput; out: string }[] = [
@@ -51,6 +60,10 @@ const MITIGATION_FIXTURES: { in: MitigationInput; out: string }[] = [
   {
     in: { name: 'Empty description', description: '' },
     out: 'Empty description. .',
+  },
+  {
+    in: { name: 'Generative AI Guardrails', description: 'Guardrails are safety controls.' },
+    out: 'Generative AI Guardrails. Guardrails are safety controls..',
   },
 ];
 

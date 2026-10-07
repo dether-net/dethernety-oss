@@ -41,7 +41,23 @@ const doc = (over = {}) => ({
 const tier = (t, fn, cms = ['cm1'], controls = ['k1']) => ({
   tier: t, function: fn, countermeasureIds: cms, controlIds: controls,
 })
-const technique = (id, tactics = ['Initial Access'], tiers = []) => ({
+// ATT&CK tactics as gradedCoverage emits them: { id, name, order } (v19 matrix positions).
+const TACTIC = {
+  'Initial Access': { id: 'TA0001', name: 'Initial Access', order: 2 },
+  'Execution': { id: 'TA0002', name: 'Execution', order: 3 },
+  'Persistence': { id: 'TA0003', name: 'Persistence', order: 4 },
+  'Stealth': { id: 'TA0005', name: 'Stealth', order: 6 },
+  'Defense Impairment': { id: 'TA0112', name: 'Defense Impairment', order: 7 },
+  'Command and Control': { id: 'TA0011', name: 'Command and Control', order: 12 },
+  'Impact': { id: 'TA0040', name: 'Impact', order: 14 },
+  'Collection': { id: 'TA0009', name: 'Collection', order: 11 },
+  'Exfiltration': { id: 'TA0010', name: 'Exfiltration', order: 13 },
+  'Credential Access': { id: 'TA0006', name: 'Credential Access', order: 8 },
+  'Discovery': { id: 'TA0007', name: 'Discovery', order: 9 },
+  'Privilege Escalation': { id: 'TA0004', name: 'Privilege Escalation', order: 5 },
+  'Lateral Movement': { id: 'TA0008', name: 'Lateral Movement', order: 10 },
+}
+const technique = (id, tactics = [TACTIC['Initial Access']], tiers = []) => ({
   techniqueId: id, tactics, covered: tiers.length > 0, tiers,
 })
 const exposure = (over = {}) => ({
@@ -54,7 +70,7 @@ const coverage = (exposures, over = {}) => ({
 // A coverage fixture that joins to the default doc's single live exposure (e1 on c1)
 // and yields one grid row (so the matrix actually renders).
 const COVERAGE = coverage([
-  exposure({ exposureId: 'e1', elementId: 'c1', techniques: [technique('T1190', ['Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
+  exposure({ exposureId: 'e1', elementId: 'c1', techniques: [technique('T1190', [TACTIC['Initial Access']], [tier('DIRECT', 'PREVENT')])] }),
 ])
 
 // --- 1. HTML escaping (the security-relevant sink) --------------------------

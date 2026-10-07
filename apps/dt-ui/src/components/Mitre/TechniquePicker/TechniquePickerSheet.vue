@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+  import { tacticFacetsOf } from './tacticFacets'
   import { useTechniqueSuggestionsStore, type CatalogEntry } from '@/stores/techniqueSuggestionsStore'
   import TechniquePickerResults from './TechniquePickerResults.vue'
   import TechniquePickerFacets from './TechniquePickerFacets.vue'
@@ -66,40 +67,17 @@
     computedWidth.value = computeSheetWidth(window.innerWidth)
   }
 
-  const sheetTitle = computed(() => {
-    if (props.kind === 'ATTACK_MITIGATION') return 'Browse mitigations'
-    if (props.kind === 'DEFEND_TECHNIQUE') return 'Browse defenses'
-    return 'Browse techniques'
+  const noun = computed(() => {
+    if (props.kind === 'ATTACK_MITIGATION') return 'mitigations'
+    if (props.kind === 'ATLAS_MITIGATION') return 'ATLAS mitigations'
+    if (props.kind === 'DEFEND_TECHNIQUE') return 'defenses'
+    if (props.kind === 'ATLAS_TECHNIQUE') return 'ATLAS techniques'
+    return 'techniques'
   })
 
-  const searchAriaLabel = computed(() => {
-    if (props.kind === 'ATTACK_MITIGATION') return 'Search mitigations'
-    if (props.kind === 'DEFEND_TECHNIQUE') return 'Search defenses'
-    return 'Search techniques'
-  })
-
-  const emptyHint = computed(() => {
-    if (props.kind === 'ATTACK_MITIGATION') return 'No mitigations match the current filters.'
-    if (props.kind === 'DEFEND_TECHNIQUE') return 'No defenses match the current filters.'
-    return 'No techniques match the current filters.'
-  })
-
-  // Static killchain ordering — used to sort the derived tactic facets so
-  // the chip rendering stays in canonical MITRE order even though the
-  // facet list itself is data-driven.
-  const ATTACK_TACTICS_ORDER = [
-    'Reconnaissance', 'Resource Development', 'Initial Access', 'Execution',
-    'Persistence', 'Privilege Escalation', 'Defense Evasion', 'Credential Access',
-    'Discovery', 'Lateral Movement', 'Collection', 'Command and Control',
-    'Exfiltration', 'Impact',
-  ]
-  const DEFEND_TACTICS_ORDER = ['Model', 'Harden', 'Detect', 'Isolate', 'Deceive', 'Evict', 'Restore']
-
-  const tacticsOrder = computed<readonly string[]>(() => {
-    if (props.kind === 'ATTACK_TECHNIQUE') return ATTACK_TACTICS_ORDER
-    if (props.kind === 'DEFEND_TECHNIQUE') return DEFEND_TACTICS_ORDER
-    return []
-  })
+  const sheetTitle = computed(() => `Browse ${noun.value}`)
+  const searchAriaLabel = computed(() => `Search ${noun.value}`)
+  const emptyHint = computed(() => `No ${noun.value} match the current filters.`)
 
   watch(() => props.initialSearch, val => {
     searchQuery.value = val
@@ -139,17 +117,8 @@
   // Mirrors ClassPickerFacets behaviour: tactics are derived from the
   // currently-filtered entry set, so once a tactic is selected the
   // unselected chips disappear (same drill-down UX as category chips).
-  // Sorted into killchain order.
-  const tacticFacets = computed(() => {
-    if (tacticsOrder.value.length === 0) return []
-    const counts = new Map<string, number>()
-    for (const e of filteredEntries.value) {
-      if (e.tactic) counts.set(e.tactic, (counts.get(e.tactic) ?? 0) + 1)
-    }
-    return tacticsOrder.value
-      .filter(t => counts.has(t))
-      .map(t => ({ value: t, count: counts.get(t)! }))
-  })
+  // Sorted into matrix order (tacticFacets.ts).
+  const tacticFacets = computed(() => tacticFacetsOf(filteredEntries.value, props.kind))
 
   // CatalogEntry → MitreCandidate cast for the Results component. The component
   // only reads {mitreId, name, description, tactic, kind, matchType?, similarityScore?}

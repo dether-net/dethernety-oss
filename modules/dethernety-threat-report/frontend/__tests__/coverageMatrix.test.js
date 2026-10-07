@@ -9,7 +9,23 @@ const tier = (t, fn, cms = ['cm1'], controls = ['k1']) => ({
 const exposure = (over = {}) => ({
   exposureId: 'e1', elementId: 'c1', elementKind: 'Component', soft: false, techniques: [], ...over,
 })
-const technique = (id, tactics = ['Initial Access'], tiers = []) => ({ techniqueId: id, tactics, covered: tiers.length > 0, tiers })
+// ATT&CK tactics as gradedCoverage emits them: { id, name, order } (v19 matrix positions).
+const TACTIC = {
+  'Initial Access': { id: 'TA0001', name: 'Initial Access', order: 2 },
+  'Execution': { id: 'TA0002', name: 'Execution', order: 3 },
+  'Persistence': { id: 'TA0003', name: 'Persistence', order: 4 },
+  'Stealth': { id: 'TA0005', name: 'Stealth', order: 6 },
+  'Defense Impairment': { id: 'TA0112', name: 'Defense Impairment', order: 7 },
+  'Command and Control': { id: 'TA0011', name: 'Command and Control', order: 12 },
+  'Impact': { id: 'TA0040', name: 'Impact', order: 14 },
+  'Collection': { id: 'TA0009', name: 'Collection', order: 11 },
+  'Exfiltration': { id: 'TA0010', name: 'Exfiltration', order: 13 },
+  'Credential Access': { id: 'TA0006', name: 'Credential Access', order: 8 },
+  'Discovery': { id: 'TA0007', name: 'Discovery', order: 9 },
+  'Privilege Escalation': { id: 'TA0004', name: 'Privilege Escalation', order: 5 },
+  'Lateral Movement': { id: 'TA0008', name: 'Lateral Movement', order: 10 },
+}
+const technique = (id, tactics = [TACTIC['Initial Access']], tiers = []) => ({ techniqueId: id, tactics, covered: tiers.length > 0, tiers })
 const coverage = (exposures, over = {}) => ({ modelId: 'm', generatedAt: '2026-06-04T00:00:00Z', exposures, meta: {}, ...over })
 const ledgerEl = (over = {}) => ({ id: 'c1', name: 'C1', type: 'Component', findings: [], supportingControls: [], ...over })
 
@@ -21,12 +37,21 @@ describe('buildCoverageView — availability', () => {
   it('coverage present ⇒ available:true', () => {
     expect(buildCoverageView(coverage([]), []).available).toBe(true)
   })
+  it('tactics as bare names (coverage-tools 1.x) ⇒ available:false, incompatible (never an empty grid)', () => {
+    const legacy = coverage([exposure({ techniques: [technique('T1190', ['Initial Access', 'Execution'])] })])
+    const v = buildCoverageView(legacy, [ledgerEl()])
+    expect(v.available).toBe(false)
+    expect(v.reason).toBe('incompatible')
+  })
+  it('coverage null ⇒ no incompatible reason', () => {
+    expect(buildCoverageView(null, []).reason).toBeUndefined()
+  })
 })
 
 describe('buildCoverageView — live-only disposition filter', () => {
   const cov = coverage([
-    exposure({ exposureId: 'live1', techniques: [technique('T1190', ['Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
-    exposure({ exposureId: 'disp1', techniques: [technique('T1059', ['Execution'], [tier('DIRECT', 'PREVENT')])] }),
+    exposure({ exposureId: 'live1', techniques: [technique('T1190', [TACTIC['Initial Access']], [tier('DIRECT', 'PREVENT')])] }),
+    exposure({ exposureId: 'disp1', techniques: [technique('T1059', [TACTIC['Execution']], [tier('DIRECT', 'PREVENT')])] }),
   ])
   const ledger = [ledgerEl({
     findings: [
@@ -45,8 +70,8 @@ describe('buildCoverageView — live-only disposition filter', () => {
   })
   it('an AFFIRMED exposure stays in the live grid (not excluded)', () => {
     const affCov = coverage([
-      exposure({ exposureId: 'aff1', techniques: [technique('T1078', ['Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
-      exposure({ exposureId: 'disp1', techniques: [technique('T1059', ['Execution'], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ exposureId: 'aff1', techniques: [technique('T1078', [TACTIC['Initial Access']], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ exposureId: 'disp1', techniques: [technique('T1059', [TACTIC['Execution']], [tier('DIRECT', 'PREVENT')])] }),
     ])
     const v = buildCoverageView(affCov, [ledgerEl({
       findings: [
@@ -85,7 +110,7 @@ describe('buildCoverageView — element-scope routing', () => {
     ])
     const pii = v.offGrid.dataMapped.find((d) => d.elementId === 'data1')
     expect(pii.techniques.map((t) => t.techniqueId)).toEqual(['T1213', 'T1530']) // unioned, deduped, id-sorted
-    expect(pii.techniques.find((t) => t.techniqueId === 'T1530')).toMatchObject({ name: 'Data from Cloud Storage', tactics: ['Initial Access'] })
+    expect(pii.techniques.find((t) => t.techniqueId === 'T1530')).toMatchObject({ name: 'Data from Cloud Storage', tactics: [TACTIC['Initial Access']] })
   })
   it('a dispositioned Data exposure does not enter the off-grid disclosure (live-only, like the grid)', () => {
     const v = buildCoverageView(coverage([
@@ -98,7 +123,7 @@ describe('buildCoverageView — element-scope routing', () => {
   it('SecurityBoundary exposures fold into Posture Summary counts but get no matrix row', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'b1', elementId: 'bnd1', elementKind: 'SecurityBoundary',
-        techniques: [technique('T1190', ['Initial Access'], [tier('INDIRECT_MITIGATION', 'PREVENT')])] }),
+        techniques: [technique('T1190', [TACTIC['Initial Access']], [tier('INDIRECT_MITIGATION', 'PREVENT')])] }),
     ]), [{ id: 'bnd1', type: 'SecurityBoundary', findings: [{ id: 'b1', dispositionKind: null }], supportingControls: [] }])
     expect(v.rows).toEqual([]) // no boundary row
     expect(v.summary.mitigation).toBe(1) // but counted in the Posture Summary
@@ -108,7 +133,7 @@ describe('buildCoverageView — element-scope routing', () => {
 describe('buildCoverageView — detect-only reduction + best tier', () => {
   it('PREVENT at any tier ⇒ PREVENT', () => {
     const v = buildCoverageView(coverage([
-      exposure({ techniques: [technique('T1', ['Execution'], [tier('INDIRECT_D3FEND', 'DETECT'), tier('INDIRECT_MITIGATION', 'PREVENT')])] }),
+      exposure({ techniques: [technique('T1', [TACTIC['Execution']], [tier('INDIRECT_D3FEND', 'DETECT'), tier('INDIRECT_MITIGATION', 'PREVENT')])] }),
     ]), [ledgerEl({ findings: [{ id: 'e1', dispositionKind: null }] })])
     const row = v.rows[0]
     expect(row.status).toBe('PREVENT')
@@ -116,14 +141,14 @@ describe('buildCoverageView — detect-only reduction + best tier', () => {
   })
   it('only detective edges (no prevent anywhere) ⇒ DETECT_ONLY', () => {
     const v = buildCoverageView(coverage([
-      exposure({ techniques: [technique('T1', ['Execution'], [tier('INDIRECT_D3FEND', 'DETECT')])] }),
+      exposure({ techniques: [technique('T1', [TACTIC['Execution']], [tier('INDIRECT_D3FEND', 'DETECT')])] }),
     ]), [ledgerEl({ findings: [{ id: 'e1', dispositionKind: null }] })])
     expect(v.rows[0].status).toBe('DETECT_ONLY')
     expect(v.summary.detectOnly).toBe(1)
   })
   it('no covering edge ⇒ UNCOVERED', () => {
     const v = buildCoverageView(coverage([
-      exposure({ techniques: [technique('T1', ['Execution'], [])] }),
+      exposure({ techniques: [technique('T1', [TACTIC['Execution']], [])] }),
     ]), [ledgerEl({ findings: [{ id: 'e1', dispositionKind: null }] })])
     expect(v.rows[0].status).toBe('UNCOVERED')
     expect(v.summary.uncovered).toBe(1)
@@ -132,7 +157,7 @@ describe('buildCoverageView — detect-only reduction + best tier', () => {
     // a future/foreign function value must default to detect-only (seen-not-stopped),
     // never silently fall out of every Posture Summary bucket.
     const v = buildCoverageView(coverage([
-      exposure({ techniques: [technique('T1', ['Execution'], [{ tier: 'INDIRECT_D3FEND', function: 'RESPOND', countermeasureIds: ['c'], controlIds: ['k'] }])] }),
+      exposure({ techniques: [technique('T1', [TACTIC['Execution']], [{ tier: 'INDIRECT_D3FEND', function: 'RESPOND', countermeasureIds: ['c'], controlIds: ['k'] }])] }),
     ]), [ledgerEl({ findings: [{ id: 'e1', dispositionKind: null }] })])
     expect(v.rows[0].covered).toBe(true)
     expect(v.rows[0].status).toBe('DETECT_ONLY')
@@ -144,8 +169,8 @@ describe('buildCoverageView — detect-only reduction + best tier', () => {
 describe('buildCoverageView — residual element breakdown (cell title)', () => {
   it('aggregates a technique across elements: covered for X of Y', () => {
     const v = buildCoverageView(coverage([
-      exposure({ exposureId: 'e1', elementId: 'c1', techniques: [technique('T1190', ['Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
-      exposure({ exposureId: 'e2', elementId: 'c2', techniques: [technique('T1190', ['Initial Access'], [])] }),
+      exposure({ exposureId: 'e1', elementId: 'c1', techniques: [technique('T1190', [TACTIC['Initial Access']], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ exposureId: 'e2', elementId: 'c2', techniques: [technique('T1190', [TACTIC['Initial Access']], [])] }),
     ]), [
       ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }] }),
       ledgerEl({ id: 'c2', findings: [{ id: 'e2', dispositionKind: null }] }),
@@ -156,8 +181,8 @@ describe('buildCoverageView — residual element breakdown (cell title)', () => 
   })
   it('names each impacted element with its covered status (gaps first), each a drill target', () => {
     const v = buildCoverageView(coverage([
-      exposure({ exposureId: 'e1', elementId: 'c1', techniques: [technique('T1190', ['Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
-      exposure({ exposureId: 'e2', elementId: 'c2', techniques: [technique('T1190', ['Initial Access'], [])] }),
+      exposure({ exposureId: 'e1', elementId: 'c1', techniques: [technique('T1190', [TACTIC['Initial Access']], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ exposureId: 'e2', elementId: 'c2', techniques: [technique('T1190', [TACTIC['Initial Access']], [])] }),
     ]), [
       ledgerEl({ id: 'c1', name: 'API Gateway', findings: [{ id: 'e1', dispositionKind: null }] }),
       ledgerEl({ id: 'c2', name: 'Redis', findings: [{ id: 'e2', dispositionKind: null }] }),
@@ -172,16 +197,33 @@ describe('buildCoverageView — residual element breakdown (cell title)', () => 
 })
 
 describe('buildCoverageView — tactic columns', () => {
-  it('columns are the reached tactics in canonical ATT&CK order; a technique fills multiple', () => {
+  it('columns are the reached tactics in ATT&CK matrix order; a technique fills multiple', () => {
     const v = buildCoverageView(coverage([
-      exposure({ exposureId: 'e1', techniques: [technique('T1078', ['Persistence', 'Initial Access'], [tier('DIRECT', 'PREVENT')])] }),
-      exposure({ exposureId: 'e2', elementId: 'c2', techniques: [technique('T1071', ['Command and Control'], [])] }),
+      exposure({ exposureId: 'e1', techniques: [technique('T1078', [TACTIC['Persistence'], TACTIC['Initial Access']], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ exposureId: 'e2', elementId: 'c2', techniques: [technique('T1071', [TACTIC['Command and Control']], [])] }),
     ]), [
       ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }] }),
       ledgerEl({ id: 'c2', findings: [{ id: 'e2', dispositionKind: null }] }),
     ])
-    expect(v.tactics).toEqual(['Initial Access', 'Persistence', 'Command and Control']) // canonical order
-    expect(v.rows.find((r) => r.techniqueId === 'T1078').tactics).toEqual(['Initial Access', 'Persistence'])
+    expect(v.tactics.map((t) => t.name)).toEqual(['Initial Access', 'Persistence', 'Command and Control'])
+    expect(v.rows.find((r) => r.techniqueId === 'T1078').tactics.map((t) => t.id)).toEqual(['TA0001', 'TA0003'])
+  })
+
+  it('orders by matrix position, not by name: Stealth precedes Defense Impairment (ATT&CK v19)', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'e1', techniques: [technique('T1562', [TACTIC['Defense Impairment'], TACTIC['Stealth']], [])] }),
+    ]), [ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }] })])
+    expect(v.tactics.map((t) => t.id)).toEqual(['TA0005', 'TA0112'])
+  })
+
+  it('keys columns by tactic id: one tactic from two techniques is one column', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'e1', techniques: [
+        technique('T1190', [TACTIC['Initial Access']], []),
+        technique('T1133', [{ ...TACTIC['Initial Access'] }], []),
+      ] }),
+    ]), [ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }] })])
+    expect(v.tactics).toEqual([TACTIC['Initial Access']])
   })
 })
 
@@ -197,7 +239,7 @@ describe('buildCoverageView — soft / structural / defense-in-depth honesty', (
   it('an element CLASS with zero supporting controls model-wide is ONE structural line, not N cells', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'e1', elementId: 'df1', elementKind: 'DataFlow',
-        techniques: [technique('T1', ['Execution'], []), technique('T2', ['Impact'], [])] }),
+        techniques: [technique('T1', [TACTIC['Execution']], []), technique('T2', [TACTIC['Impact']], [])] }),
     ]), [
       { id: 'df1', type: 'DataFlow', findings: [{ id: 'e1', dispositionKind: null }], supportingControls: [] },
       { id: 'c1', type: 'Component', findings: [], supportingControls: [{ id: 'k1' }] },
@@ -208,7 +250,7 @@ describe('buildCoverageView — soft / structural / defense-in-depth honesty', (
   it('defense-in-depth = supporting controls covering nothing, on its own count', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'e1', elementId: 'c1',
-        techniques: [technique('T1', ['Execution'], [tier('DIRECT', 'PREVENT', ['cm1'], ['kCover'])])] }),
+        techniques: [technique('T1', [TACTIC['Execution']], [tier('DIRECT', 'PREVENT', ['cm1'], ['kCover'])])] }),
     ]), [ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }], supportingControls: [{ id: 'kCover' }, { id: 'kIdle' }] })])
     expect(v.summary.defenseInDepth).toBe(1) // kIdle supports but covers nothing
   })
@@ -218,7 +260,7 @@ describe('buildCoverageView — Residual Risk configured-mismatch', () => {
   it('a control supporting an element but covering none of its gaps is mismatched', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'e1', elementId: 'c1',
-        techniques: [technique('T1', ['Execution'], [tier('DIRECT', 'PREVENT', ['cm1'], ['kCover'])])] }),
+        techniques: [technique('T1', [TACTIC['Execution']], [tier('DIRECT', 'PREVENT', ['cm1'], ['kCover'])])] }),
     ]), [ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }], supportingControls: [{ id: 'kCover' }, { id: 'kMismatch' }] })])
     expect(v.mismatchByElement.c1).toEqual(['kMismatch'])
   })
@@ -254,7 +296,7 @@ describe('filterByTier — the Tier control partitions rows (parts sum to "all")
 describe('coverage view — no percentage / no rollup (honesty lint)', () => {
   it('the view-model carries no percentage and no single "covered" aggregate', () => {
     const v = buildCoverageView(coverage([
-      exposure({ techniques: [technique('T1', ['Execution'], [tier('DIRECT', 'PREVENT')])] }),
+      exposure({ techniques: [technique('T1', [TACTIC['Execution']], [tier('DIRECT', 'PREVENT')])] }),
     ]), [ledgerEl({ findings: [{ id: 'e1', dispositionKind: null }] })])
     const json = JSON.stringify(v)
     expect(json).not.toMatch(/coveragePct|percent|"covered"\s*:\s*\d/i)
@@ -268,6 +310,10 @@ describe('coverage view — no percentage / no rollup (honesty lint)', () => {
 })
 
 describe('buildExposureTechniqueIndex — per-exposure technique chips', () => {
+  it('tactics as bare names (coverage-tools 1.x) ⇒ {} (no chips with nameless tactics)', () => {
+    const legacy = coverage([exposure({ techniques: [technique('T1190', ['Initial Access'])] })])
+    expect(buildExposureTechniqueIndex(legacy)).toEqual({})
+  })
   it('coverage null/unavailable ⇒ {} (chips simply do not render, never a false "no techniques")', () => {
     expect(buildExposureTechniqueIndex(null)).toEqual({})
     expect(buildExposureTechniqueIndex(undefined)).toEqual({})
@@ -276,12 +322,12 @@ describe('buildExposureTechniqueIndex — per-exposure technique chips', () => {
 
   it('resolves each exposure to its techniques with name + tactics + description', () => {
     const cov = coverage(
-      [exposure({ exposureId: 'x1', techniques: [technique('T1190', ['Initial Access'])] })],
+      [exposure({ exposureId: 'x1', techniques: [technique('T1190', [TACTIC['Initial Access']])] })],
       { techniques: { T1190: { name: 'Exploit Public-Facing Application', description: 'desc-1190' } } },
     )
     const idx = buildExposureTechniqueIndex(cov)
     expect(idx.x1).toEqual([
-      { techniqueId: 'T1190', name: 'Exploit Public-Facing Application', tactics: ['Initial Access'], description: 'desc-1190' },
+      { techniqueId: 'T1190', name: 'Exploit Public-Facing Application', tactics: [TACTIC['Initial Access']], description: 'desc-1190' },
     ])
   })
 
@@ -310,7 +356,7 @@ describe('buildExposureTechniqueIndex — per-exposure technique chips', () => {
   })
 
   it('missing technique-dict entry ⇒ name/description null (id + tactics still usable)', () => {
-    const cov = coverage([exposure({ exposureId: 'x1', techniques: [technique('T9999', ['Impact'])] })], { techniques: {} })
-    expect(buildExposureTechniqueIndex(cov).x1[0]).toEqual({ techniqueId: 'T9999', name: null, tactics: ['Impact'], description: null })
+    const cov = coverage([exposure({ exposureId: 'x1', techniques: [technique('T9999', [TACTIC['Impact']])] })], { techniques: {} })
+    expect(buildExposureTechniqueIndex(cov).x1[0]).toEqual({ techniqueId: 'T9999', name: null, tactics: [TACTIC['Impact']], description: null })
   })
 })

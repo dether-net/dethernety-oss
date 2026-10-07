@@ -141,6 +141,16 @@ describe('bootstrap DDL on Neo4j 5 (e2e)', () => {
     expect(plainIndexFor('ComponentClass', 'name')).toBe(true);
     expect(plainIndexFor('Module', 'id')).toBe(true);
     expect(plainIndexFor('Exposure', 'name')).toBe(true);
+    // MITRE key indexes (ATT&CK, D3FEND, ATLAS): startup DDL on both engines.
+    for (const [label, property] of [
+      ['MitreAttackTechnique', 'attack_id'],
+      ['MitreAttackMitigation', 'attack_id'],
+      ['MitreDefendTechnique', 'd3fendId'],
+      ['MitreAtlasTechnique', 'atlas_id'],
+      ['MitreAtlasMitigation', 'atlas_id'],
+    ] as const) {
+      expect(plainIndexFor(label, property)).toBe(true);
+    }
 
     // Covered pairs: index exists but is constraint-owned; no plain twin
     // (a plain index there would have BLOCKED the constraint creation).

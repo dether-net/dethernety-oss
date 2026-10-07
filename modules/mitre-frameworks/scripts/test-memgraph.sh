@@ -187,9 +187,6 @@ if __name__ == "__main__":
     main()
 PYTHON_EOF
 
-# Execute cypher files
-echo -e "\n\033[1;33m2. Executing Cypher scripts...\033[0m"
-
 # Use the module's venv which has neo4j installed
 PYTHON="$MODULE_DIR/.venv/bin/python"
 if [ ! -f "$PYTHON" ]; then
@@ -197,45 +194,31 @@ if [ ! -f "$PYTHON" ]; then
     PYTHON="python3"
 fi
 
-for cypher_file in $CYPHER_FILES; do
-    filename=$(basename "$cypher_file")
-    echo "   Executing $filename..."
+load_all() {
+    for cypher_file in $CYPHER_FILES; do
+        filename=$(basename "$cypher_file")
+        echo "   Executing $filename..."
 
-    "$PYTHON" "$PARSER_SCRIPT" "bolt://localhost:$MG_PORT" "$cypher_file"
-done
-
-rm -f "$PARSER_SCRIPT"
-
-# Verify loaded data
-echo -e "\n\033[1;33m3. Verifying loaded data...\033[0m"
-
-verify_count() {
-    local label=$1
-    local count=$(echo "MATCH (n:$label) RETURN count(n) AS c;" | docker exec -i "$CONTAINER_NAME" mgconsole --output-format=csv 2>/dev/null | tail -1)
-    if [ -n "$count" ] && [ "$count" != "0" ]; then
-        echo -e "   $label: \033[0;32m$count\033[0m"
-    else
-        echo -e "   $label: $count"
-    fi
+        "$PYTHON" "$PARSER_SCRIPT" "bolt://localhost:$MG_PORT" "$cypher_file"
+    done
 }
 
-# ATT&CK nodes
-verify_count "MitreAttackTactic"
-verify_count "MitreAttackTechnique"
-verify_count "MitreAttackGroup"
-verify_count "MitreAttackSoftware"
-verify_count "MitreAttackMitigation"
-verify_count "MitreAttackCampaign"
-verify_count "MitreAttackDataSource"
-verify_count "MitreAttackDataComponent"
+# Execute cypher files
+echo -e "\n\033[1;33m2. Executing Cypher scripts...\033[0m"
+load_all
 
-# D3FEND nodes
-verify_count "MitreDefendTactic"
-verify_count "MitreDefendTechnique"
+# Verify loaded data against the counts pinned for the shipped releases.
+echo -e "\n\033[1;33m3. Verifying loaded data...\033[0m"
+"$PYTHON" "$SCRIPT_DIR/check_loaded_corpus.py" "bolt://localhost:$MG_PORT"
 
-# Relationships
-REL_COUNT=$(echo "MATCH ()-[r]->() RETURN count(r) AS c;" | docker exec -i "$CONTAINER_NAME" mgconsole --output-format=csv 2>/dev/null | tail -1)
-echo -e "   Relationships: \033[0;32m$REL_COUNT\033[0m"
+# Load everything again: a pack that is not idempotent (a parallel edge per MERGE,
+# a duplicate node) moves the counts, so the same pins must hold.
+echo -e "\n\033[1;33m4. Re-executing Cypher scripts (idempotency)...\033[0m"
+load_all
+echo -e "\n\033[1;33m5. Verifying loaded data after the second load...\033[0m"
+"$PYTHON" "$SCRIPT_DIR/check_loaded_corpus.py" "bolt://localhost:$MG_PORT"
+
+rm -f "$PARSER_SCRIPT"
 
 echo -e "\n\033[0;32m=============================================="
 echo "Test completed!"

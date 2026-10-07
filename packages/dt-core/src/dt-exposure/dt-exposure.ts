@@ -1,11 +1,14 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { DispositionKind, DispositionMutationResult, Exposure } from '../interfaces/core-types-interface.js'
+import { DispositionKind, DispositionMutationResult, Exposure, ExposureTechniqueLinks, TechniqueLink } from '../interfaces/core-types-interface.js'
+import { fromLinkConnection, techniqueLinkConnect, TechniqueLinkConnection } from '../dt-utils/technique-links.js'
+import { buildLinkOps } from '../dt-utils/link-delta.js'
 import {
   GET_EXPOSURES,
   GET_EXPOSURE,
   ADD_EXPOSURE,
+  GET_EXPOSURE_TECHNIQUE_LINKS,
   UPDATE_EXPOSURE,
   DELETE_EXPOSURE,
   DISPOSE_EXPOSURE,
@@ -65,17 +68,51 @@ export class DtExposure {
   }
 
   /**
+   * The ATT&CK and ATLAS techniques that exploit an exposure, with each EXPLOITED_BY edge's justification
+   * @param exposureId - The ID of the exposure
+   * @returns The links by field, or null when the exposure does not exist
+   */
+  getExposureTechniqueLinks = async (
+    { exposureId }: { exposureId: string }
+  ): Promise<ExposureTechniqueLinks | null> => {
+    const response = await this.dtUtils.performQuery<{
+      exposures: Array<{ exploitedByConnection: TechniqueLinkConnection, exploitedByAtlasConnection: TechniqueLinkConnection }>
+    }>({
+      query: GET_EXPOSURE_TECHNIQUE_LINKS,
+      variables: { exposureId },
+      action: 'getExposureTechniqueLinks',
+      fetchPolicy: 'network-only'
+    })
+    const row = response.exposures?.[0]
+    return row
+      ? {
+          exploitedBy: fromLinkConnection(row.exploitedByConnection),
+          exploitedByAtlas: fromLinkConnection(row.exploitedByAtlasConnection),
+        }
+      : null
+  }
+
+  /**
    * Create an exposure
    * @param exposure - The exposure to create
    * @param elementId - The ID of the element to create the exposure for
-   * @param attackTechniqueIds - The IDs of the attack techniques to connect to the exposure
+   * @param attackTechniqueIds - The IDs of the attack techniques to connect to the exposure; read
+   *   only when attackTechniqueLinks is not given
+   * @param attackTechniqueLinks - The techniques to connect with each edge's justification; when
+   *   given, it replaces attackTechniqueIds
+   * @param atlasTechniqueLinks - The ATLAS techniques to connect (exploitedByAtlas), each with its
+   *   edge's justification
    * @returns The created exposure
    */
   createExposure = async (
-    { exposure, elementId, attackTechniqueIds }:
-    { exposure: Exposure, elementId: string, attackTechniqueIds: string[] }
+    { exposure, elementId, attackTechniqueIds, attackTechniqueLinks, atlasTechniqueLinks }:
+    {
+      exposure: Exposure, elementId: string, attackTechniqueIds?: string[],
+      attackTechniqueLinks?: TechniqueLink[], atlasTechniqueLinks?: TechniqueLink[]
+    }
   ): Promise<Exposure> => {
     try {
+      const links: TechniqueLink[] = attackTechniqueLinks ?? (attackTechniqueIds ?? []).map(id => ({ id }))
       const variables = {
         input: {
           name: exposure.name,
@@ -91,8 +128,11 @@ export class DtExposure {
             connect: { where: { node: { id: { eq: elementId } } } },
           },
           exploitedBy: {
-            connect: attackTechniqueIds.map(attackTechniqueId => ({ where: { node: { id: { eq: attackTechniqueId } } } })),
+            connect: links.map(techniqueLinkConnect),
           },
+          ...(atlasTechniqueLinks?.length
+            ? { exploitedByAtlas: { connect: atlasTechniqueLinks.map(techniqueLinkConnect) } }
+            : {}),
         },
       }
       
@@ -114,16 +154,29 @@ export class DtExposure {
    * Update an exposure
    * @param exposureId - The ID of the exposure to update
    * @param exposure - The exposure to update
-   * @param attackTechniqueIds - The IDs of the attack techniques to connect to the exposure
+   * @param attackTechniqueIds - The full list of ATT&CK techniques the exposure should be exploited by
+   * @param atlasTechniqueIds - The full list of ATLAS techniques; omitted, the ATLAS links are left as they are
    * @returns The updated exposure
+   *
+   * The technique links are written as a delta against the links the exposure has now: only the
+   * ids that left the list are disconnected and only new ids are connected, so a link the user
+   * kept keeps its edge (and the justification the module wrote on it).
    */
   updateExposure = async (
-    { exposureId, exposure, attackTechniqueIds }:
-    { exposureId: string, exposure: Exposure, attackTechniqueIds: string[] }
+    { exposureId, exposure, attackTechniqueIds, atlasTechniqueIds }:
+    { exposureId: string, exposure: Exposure, attackTechniqueIds: string[], atlasTechniqueIds?: string[] }
   ): Promise<Exposure> => {
     const mutexKey = `updateExposure_${exposureId}`
     return this.dtUtils.withMutex(mutexKey, async () => {
       try {
+        const current = await this.getExposureTechniqueLinks({ exposureId })
+        if (!current) {
+          throw new Error(`updateExposure: exposure ${exposureId} not found`)
+        }
+        const exploitedBy = buildLinkOps(attackTechniqueIds, current.exploitedBy.map(link => link.id))
+        const exploitedByAtlas = atlasTechniqueIds === undefined
+          ? undefined
+          : buildLinkOps(atlasTechniqueIds, current.exploitedByAtlas.map(link => link.id))
         const variables = {
           exposureId,
           input: {
@@ -133,10 +186,8 @@ export class DtExposure {
             category: { set: exposure.category },
             score: { set: exposure.score },
             attackVector: { set: exposure.attackVector },
-            exploitedBy: {
-              disconnect: {},
-              connect: attackTechniqueIds.map(id => ({ where: { node: { id: { eq: id } } } })),
-            },
+            ...(exploitedBy ? { exploitedBy } : {}),
+            ...(exploitedByAtlas ? { exploitedByAtlas } : {}),
           },
         }
         const response = await this.dtUtils.performMutation<Exposure>({

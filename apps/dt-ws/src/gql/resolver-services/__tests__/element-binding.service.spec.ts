@@ -134,8 +134,8 @@ function makeFixture(opts: FixtureOptions) {
   const getModuleByName = jest.fn(() => moduleInstance);
 
   const setInstantiation = {
-    upsertExposuresInTx: jest.fn(async () => []),
-    upsertCountermeasuresInTx: jest.fn(async () => []),
+    upsertExposuresInTx: jest.fn(async () => ({ instantiated: [], unresolved: [] })),
+    upsertCountermeasuresInTx: jest.fn(async () => ({ instantiated: [], unresolved: [] })),
     // The per-element lock the binding call now takes. Passed straight through here: exclusion is not
     // what any case in this file is about, and it is proven against the real lock in element-lock.spec.
     runExclusive: jest.fn(async (_elementId: string, _type: string, operation: () => Promise<any>) =>

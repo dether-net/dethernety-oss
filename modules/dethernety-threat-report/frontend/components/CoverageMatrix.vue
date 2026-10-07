@@ -25,8 +25,13 @@
 -->
 <template>
   <div class="trd-coverage">
-    <!-- Coverage unavailable (module not deployed / not yet fetched): never a green grid. -->
-    <p v-if="!view.available" class="trd-empty">
+    <!-- Coverage unavailable (module not deployed / not yet fetched / too old): never a green grid. -->
+    <p v-if="!view.available && view.reason === 'incompatible'" class="trd-empty">
+      Coverage facts are unavailable — the deployed <code>dethernety-coverage-tools</code> module is older than this
+      report reads (it needs 2.x), so the MITRE coverage matrix cannot be rendered. Upgrade both modules together.
+      (The rest of the report is unaffected.)
+    </p>
+    <p v-else-if="!view.available" class="trd-empty">
       Coverage facts are unavailable — the <code>dethernety-coverage-tools</code> module is not deployed for this
       instance, so the MITRE coverage matrix cannot be rendered. (The rest of the report is unaffected.)
     </p>
@@ -174,18 +179,18 @@
               <th class="trd-matrix-corner" scope="col">Technique</th>
               <th
                 v-for="tac in tactics"
-                :key="tac"
+                :key="tac.id"
                 scope="col"
                 tabindex="0"
                 role="button"
                 class="trd-matrix-col trd-matrix-col--btn"
-                :class="{ 'trd-matrix-col--active': tacticFilter === tac }"
-                :aria-pressed="tacticFilter === tac"
-                :title="tacticFilter === tac ? `showing only ${tac} techniques — click to clear` : `show only techniques in ${tac}`"
-                @click="toggleTactic(tac)"
-                @keydown.enter.prevent="toggleTactic(tac)"
-                @keydown.space.prevent="toggleTactic(tac)"
-              >{{ tac }}<span v-if="tacticFilter === tac" class="trd-matrix-col-x" aria-hidden="true"> ✕</span></th>
+                :class="{ 'trd-matrix-col--active': tacticFilter === tac.id }"
+                :aria-pressed="tacticFilter === tac.id"
+                :title="tacticFilter === tac.id ? `showing only ${tac.name} techniques — click to clear` : `show only techniques in ${tac.name}`"
+                @click="toggleTactic(tac.id)"
+                @keydown.enter.prevent="toggleTactic(tac.id)"
+                @keydown.space.prevent="toggleTactic(tac.id)"
+              >{{ tac.name }}<span v-if="tacticFilter === tac.id" class="trd-matrix-col-x" aria-hidden="true"> ✕</span></th>
               <th scope="col" class="trd-matrix-best">Best</th>
             </tr>
           </thead>
@@ -242,9 +247,9 @@
                   </div>
                 </template>
               </th>
-              <td v-for="tac in tactics" :key="tac" class="trd-matrix-cell">
+              <td v-for="tac in tactics" :key="tac.id" class="trd-matrix-cell">
                 <span
-                  v-if="r.tactics.includes(tac)"
+                  v-if="r.tactics.some((t) => t.id === tac.id)"
                   class="cov-cell"
                   :class="`cov-${r.bestTier || 'UNCOVERED'}`"
                   :title="rowTitle(r)"
@@ -290,8 +295,8 @@
   const showLegend = ref(false)
   const tierFilter = ref('all')
   const gapsOnly = ref(false)
-  // Click a tactic column header to filter the rows to techniques in that tactic
-  // (null = all tactics). A second click on the same header clears it.
+  // Click a tactic column header to filter the rows to techniques in that tactic,
+  // by tactic id (null = all tactics). A second click on the same header clears it.
   const tacticFilter = ref(null)
   const toggleTactic = (tac) => { tacticFilter.value = tacticFilter.value === tac ? null : tac }
   // Expand state for the off-grid Data → ATT&CK disclosure (collapsed by default —
@@ -342,7 +347,7 @@
       out = out.filter((r) => r.status === 'UNCOVERED' || r.status === 'DETECT_ONLY')
     }
     if (tacticFilter.value) {
-      out = out.filter((r) => r.tactics.includes(tacticFilter.value))
+      out = out.filter((r) => r.tactics.some((t) => t.id === tacticFilter.value))
     }
     return out
   })

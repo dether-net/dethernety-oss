@@ -25,6 +25,19 @@ describe('EmbeddingService', () => {
     return moduleRef.get(EmbeddingService);
   }
 
+  describe('similarity threshold', () => {
+    it('defaults to 0.40, the value tuned for the default model, when unset', async () => {
+      const svc = await buildService({ EMBEDDING_MODEL: undefined, EMBEDDING_SIMILARITY_THRESHOLD: undefined } as any);
+      expect(svc.getModel()).toBe('embeddinggemma');
+      expect(svc.getThreshold()).toBe(0.4);
+    });
+
+    it('takes EMBEDDING_SIMILARITY_THRESHOLD when set', async () => {
+      const svc = await buildService({ EMBEDDING_SIMILARITY_THRESHOLD: '0.55' });
+      expect(svc.getThreshold()).toBe(0.55);
+    });
+  });
+
   describe('disableForSession', () => {
     it('flips isEnabled() to false and is idempotent', async () => {
       const svc = await buildService();

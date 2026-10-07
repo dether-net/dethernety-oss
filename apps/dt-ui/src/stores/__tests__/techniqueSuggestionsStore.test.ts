@@ -15,6 +15,8 @@ const findAttackTechniquesMock = vi.fn()
 const fetchDefendTacticsMock = vi.fn()
 const getDefendTechniquesByTacticMock = vi.fn()
 const getMitigationsMock = vi.fn()
+const findAtlasTechniquesMock = vi.fn()
+const getAtlasMitigationsMock = vi.fn()
 
 class MockCancelledError extends Error {
   readonly name = 'CancelledError' as const
@@ -34,6 +36,10 @@ vi.mock('@dethernety/dt-core', () => ({
   DtMitreDefend: class {
     fetchMitreDefendTactics = fetchDefendTacticsMock
     getMitreDefendTechniquesByTactic = getDefendTechniquesByTacticMock
+  },
+  DtMitreAtlas: class {
+    findMitreAtlasTechniques = findAtlasTechniquesMock
+    getMitreAtlasMitigations = getAtlasMitigationsMock
   },
   CancelledError: MockCancelledError,
 }))
@@ -73,6 +79,8 @@ describe('techniqueSuggestionsStore — initial state', () => {
       ATTACK_TECHNIQUE: false,
       DEFEND_TECHNIQUE: false,
       ATTACK_MITIGATION: false,
+      ATLAS_TECHNIQUE: false,
+      ATLAS_MITIGATION: false,
     })
   })
 })
@@ -143,6 +151,38 @@ describe('techniqueSuggestionsStore.matchTechniques', () => {
 })
 
 describe('techniqueSuggestionsStore.hydrateCatalog', () => {
+  it('ATTACK_TECHNIQUE catalog: a multi-tactic technique takes its earliest tactic in matrix order', async () => {
+    findAttackTechniquesMock.mockResolvedValueOnce([{
+      id: 't-1', name: 'Valid Accounts', description: '', attack_id: 'T1078',
+      tactics: [{ name: 'Privilege Escalation', matrix_order: 5 }, { name: 'Initial Access', matrix_order: 2 }],
+    }])
+    const store = useTechniqueSuggestionsStore()
+    await store.hydrateCatalog('ATTACK_TECHNIQUE')
+    expect(store.catalog.get('ATTACK_TECHNIQUE')?.[0]).toMatchObject({ tactic: 'Initial Access', tacticOrder: 2 })
+  })
+
+  it('hydrates the ATLAS catalogs through DtMitreAtlas', async () => {
+    findAtlasTechniquesMock.mockResolvedValueOnce([{
+      id: 'a-1', name: 'LLM Prompt Injection', description: 'd', atlas_id: 'AML.T0051',
+      tactics: [{ name: 'AI Model Access', matrix_order: 4 }, { name: 'Execution', matrix_order: 5 }],
+    }])
+    getAtlasMitigationsMock.mockResolvedValueOnce([{ id: 'am-1', name: 'Adversarial Input Detection', atlas_id: 'AML.M0015' }])
+    const store = useTechniqueSuggestionsStore()
+    await store.hydrateCatalog('ATLAS_TECHNIQUE')
+    await store.hydrateCatalog('ATLAS_MITIGATION')
+
+    expect(findAtlasTechniquesMock).toHaveBeenCalledWith({ query: {} })
+    expect(store.catalog.get('ATLAS_TECHNIQUE')).toEqual([{
+      mitreId: 'AML.T0051', internalId: 'a-1', name: 'LLM Prompt Injection', description: 'd',
+      tactic: 'AI Model Access', tacticOrder: 4, kind: 'ATLAS_TECHNIQUE',
+    }])
+    expect(store.catalog.get('ATLAS_MITIGATION')).toEqual([{
+      mitreId: 'AML.M0015', internalId: 'am-1', name: 'Adversarial Input Detection', description: null,
+      tactic: null, kind: 'ATLAS_MITIGATION',
+    }])
+    expect(store.isCatalogReady.ATLAS_TECHNIQUE && store.isCatalogReady.ATLAS_MITIGATION).toBe(true)
+  })
+
   it('hydrates ATTACK_TECHNIQUE catalog with empty filter and maps fields', async () => {
     findAttackTechniquesMock.mockResolvedValueOnce([
       {
@@ -172,6 +212,7 @@ describe('techniqueSuggestionsStore.hydrateCatalog', () => {
       name: 'OS Credential Dumping',
       description: 'desc',
       tactic: 'Credential Access',
+      tacticOrder: null,
       kind: 'ATTACK_TECHNIQUE',
     })
     expect(store.isCatalogReady.ATTACK_TECHNIQUE).toBe(true)

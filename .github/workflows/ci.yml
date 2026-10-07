@@ -294,6 +294,31 @@ jobs:
       - name: Packaging and module-hash unit tests
         run: node --test scripts/*.test.mjs
 
+  # Every MITRE reference a shipped module's policies declare must exist in the pinned
+  # MITRE data. The platform links only references it can resolve and marks the rest on
+  # the finding as unlinked, so a missing id is a content defect that would otherwise
+  # reach users. The floor is a positive assertion: a module tree that failed to check
+  # out would otherwise pass as "0 failures". Stdlib-only, so no install step.
+  mitre-references:
+    name: MITRE references resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Reference check unit tests
+        run: python3 modules/mitre-frameworks/scripts/test_check_module_refs.py
+
+      - name: Module references against the pinned MITRE data
+        run: python3 modules/mitre-frameworks/scripts/check_module_refs.py --min-references 1000 modules/*/
+
   # The Go module rooted here: the console binary and the shared packages it builds on
   # (payload digest, Cypher parsing, archive extraction, signature verification). Its own
   # job — the Node jobs above never build Go — pinned to the toolchain the module declares.

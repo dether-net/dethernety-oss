@@ -56,11 +56,29 @@ One per `(exposure, technique)` — a single cell of the consuming coverage matr
 | Field | Type | Description |
 |-------|------|-------------|
 | `techniqueId` | `string` | The ATT&CK id of the technique (the matrix row). |
-| `tactics` | `string[]` | The ATT&CK tactic name(s) this technique fills — the matrix columns. Includes tactics inherited from a parent technique via the sub-technique hierarchy. |
+| `tactics` | `Tactic[]` | The ATT&CK tactics this technique fills — the matrix columns (see [`Tactic`](#tactic)). Includes tactics inherited from a parent technique via the sub-technique hierarchy. Unioned by tactic `id` and sorted by `order`, then `id`. |
 | `covered` | `boolean` | `true` when at least one `TierFact` exists for this technique; `false` for an uncovered technique. |
 | `tiers` | `TierFact[]` | The covering evidence, one entry per `(tier, function)` that has at least one contributing countermeasure. Empty when `covered` is `false`. |
 
 `tiers` is ordered deterministically: tier order is DIRECT, then INDIRECT_MITIGATION, then INDIRECT_D3FEND; within a tier, PREVENT before DETECT.
+
+---
+
+## `Tactic`
+
+One ATT&CK tactic — a matrix column.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | The ATT&CK tactic id (for example `"TA0005"`). The column key. |
+| `name` | `string` | The tactic's name, for the column label. |
+| `order` | `number` | The tactic's 0-based position in the ATT&CK matrix: the `matrix_order` the MITRE ingest stamps on each tactic, or `999` when the tactic carries none. |
+
+A consumer keys columns on `id` and orders them by `order`, then `id` — never by `name`. Names change between ATT&CK releases (v19 renamed Defense Evasion to Stealth and added Defense Impairment), so a name-keyed or fixed-list ordering breaks on the next release; the stamped position moves with the data.
+
+```json
+{ "id": "TA0005", "name": "Stealth", "order": 6 }
+```
 
 ---
 
@@ -148,7 +166,7 @@ consumer finding/exposure id  ===  ExposureCoverage.exposureId
 From there:
 
 - `elementId` / `elementKind` locate the finding on the model.
-- `techniques[].techniqueId` is the matrix row; `techniques[].tactics` are the columns.
+- `techniques[].techniqueId` is the matrix row; `techniques[].tactics` are the columns, keyed by `id`, labelled by `name`, and ordered by `order` (see [`Tactic`](#tactic)).
 - `techniques[].tiers[].countermeasureIds` and `.controlIds` give the provenance to render and to cross-check against the consumer's own record of which controls support the element.
 - `CoverageResult.techniques[techniqueId]` supplies the technique's name and description for display.
 

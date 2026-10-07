@@ -329,7 +329,7 @@ Always present on the payload. It carries producer-side roll-up counts; the repo
 | Field | Type | Meaning |
 |---|---|---|
 | `techniqueId` | `string` | ATT&CK technique id. |
-| `tactics` | `string[]` | The technique's tactics (the matrix columns). |
+| `tactics` | `{ id, name, order }[]` | The technique's ATT&CK tactics (the matrix columns): tactic id (e.g. `TA0005`), name, and 0-based ATT&CK matrix position (`999` when unknown), sorted by `order`, then `id`. The report keys columns on `id`, labels them by `name`, and orders them by `order`. See [`Tactic`](../dethernety-coverage-tools/coverage-facts.md#tactic). |
 | `covered` | `boolean` | Whether any covering edge exists for this technique. |
 | `tiers` | `CoverageTier[]` | The graded covering edges (see below). Empty means uncovered. |
 

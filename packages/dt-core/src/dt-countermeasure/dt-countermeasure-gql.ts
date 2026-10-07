@@ -19,6 +19,7 @@ export const GET_COUNTERMEASURE = gql`
       dispositionedBy
       dispositionedAt
       dispositionStale
+      unresolvedReferences
       mitigations {
         id
         name
@@ -31,6 +32,12 @@ export const GET_COUNTERMEASURE = gql`
         description
         uri
         d3fendId
+      }
+      mitigationsAtlas {
+        id
+        name
+        description
+        atlas_id
       }
     }
   }
@@ -55,6 +62,7 @@ export const CREATE_COUNTERMEASURE = gql`
         dispositionedBy
         dispositionedAt
         dispositionStale
+        unresolvedReferences
         mitigations {
           id
           name
@@ -67,6 +75,12 @@ export const CREATE_COUNTERMEASURE = gql`
           description
           uri
           d3fendId
+        }
+        mitigationsAtlas {
+          id
+          name
+          description
+          atlas_id
         }
       }
     }
@@ -95,6 +109,7 @@ export const UPDATE_COUNTERMEASURE = gql`
         dispositionedBy
         dispositionedAt
         dispositionStale
+        unresolvedReferences
         mitigations {
           id
           name
@@ -107,6 +122,12 @@ export const UPDATE_COUNTERMEASURE = gql`
           description
           uri
           d3fendId
+        }
+        mitigationsAtlas {
+          id
+          name
+          description
+          atlas_id
         }
       }
     }
@@ -142,6 +163,7 @@ export const GET_COUNTERMEASURES_FROM_CONTROL = gql`
         dispositionedBy
         dispositionedAt
         dispositionStale
+        unresolvedReferences
         mitigations {
           id
           name
@@ -154,6 +176,12 @@ export const GET_COUNTERMEASURES_FROM_CONTROL = gql`
           description
           uri
           d3fendId
+        }
+        mitigationsAtlas {
+          id
+          name
+          description
+          atlas_id
         }
       }
     }
@@ -210,6 +238,44 @@ export const FLIP_SUPERSEDED_COUNTERMEASURE_STALE = gql`
       countermeasures {
         id
       }
+    }
+  }
+`
+
+// The links updateCountermeasure writes (its delta base): only the fields it can change.
+export const GET_COUNTERMEASURE_RESPONSE_LINKS = gql`
+  query GetCountermeasureResponseLinks($countermeasureId: ID!) {
+    countermeasures(where: { id: { eq: $countermeasureId } }) {
+      mitigationsConnection { edges { node { id } } }
+      defendedTechniquesConnection { edges { node { id } } }
+      mitigationsAtlasConnection { edges { node { id } } }
+    }
+  }
+`
+
+// Every MITRE link of one countermeasure with its edge justification: what a supersede copies.
+export const GET_COUNTERMEASURE_TECHNIQUE_LINKS = gql`
+  query GetCountermeasureTechniqueLinks($countermeasureId: ID!) {
+    countermeasures(where: { id: { eq: $countermeasureId } }) {
+      mitigationsConnection { edges { node { id } properties { justification } } }
+      defendedTechniquesConnection { edges { node { id } properties { justification } } }
+      mitigatesConnection { edges { node { id } properties { justification } } }
+      protectsAgainstConnection { edges { node { id } properties { justification } } }
+      detectsConnection { edges { node { id } properties { justification } } }
+      isolatesConnection { edges { node { id } properties { justification } } }
+      deceivesConnection { edges { node { id } properties { justification } } }
+      evictsConnection { edges { node { id } properties { justification } } }
+      restoresConnection { edges { node { id } properties { justification } } }
+      respondsToConnection { edges { node { id } properties { justification } } }
+      mitigationsAtlasConnection { edges { node { id } properties { justification } } }
+      mitigatesAtlasConnection { edges { node { id } properties { justification } } }
+      protectsAgainstAtlasConnection { edges { node { id } properties { justification } } }
+      detectsAtlasConnection { edges { node { id } properties { justification } } }
+      isolatesAtlasConnection { edges { node { id } properties { justification } } }
+      deceivesAtlasConnection { edges { node { id } properties { justification } } }
+      evictsAtlasConnection { edges { node { id } properties { justification } } }
+      restoresAtlasConnection { edges { node { id } properties { justification } } }
+      respondsToAtlasConnection { edges { node { id } properties { justification } } }
     }
   }
 `

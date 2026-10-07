@@ -219,6 +219,10 @@ describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () =
     const tx = {
       run: jest.fn(async (query: string, params: any) => {
         calls.push({ query, params });
+        if (query.includes('pairIndex')) {
+          // Reference pre-pass — T1078 exists.
+          return { records: [toRecord({ pairIndex: 0, value: 'T1078', found: true })] };
+        }
         if (query.includes('EXPLOITED_BY')) {
           // Link statement — empty result (target-not-found path) is fine.
           return { records: [] };
@@ -345,5 +349,192 @@ describe('SetInstantiationAttributesService — per-request token threading', ()
     );
 
     expect(processSpy.mock.calls[0][5]).toBeUndefined();
+  });
+});
+
+describe('SetInstantiationAttributesService — reference pre-pass', () => {
+  // Every reference is resolved in one statement before any edge is written. A
+  // resolved ref is linked; an unresolved or disallowed one is not written, is
+  // recorded on its finding and returned; an unresolved RegulatoryRequirement is
+  // only warned about. The save itself never fails on a reference.
+  function makeTxWith(existing: Array<[number, string]>) {
+    const calls: Array<{ query: string; params: any }> = [];
+    const tx = {
+      run: jest.fn(async (query: string, params: any) => {
+        calls.push({ query, params });
+        if (query.includes('pairIndex')) {
+          const records = existing
+            .filter(([i, value]) => (params[`p${i}`] as string[]).includes(value))
+            .map(([pairIndex, value]) => toRecord({ pairIndex, value, found: true }));
+          return { records };
+        }
+        if (query.includes('instantiatedName')) {
+          return { records: [toRecord({ instantiatedName: params.attributes.name })] };
+        }
+        return { records: [toRecord({ relationshipsCreated: { toNumber: () => 1 } })] };
+      }),
+    };
+    return { tx, calls };
+  }
+
+  const links = (calls: Array<{ query: string; params: any }>) =>
+    calls
+      .filter(c => c.query.includes('MERGE (e)-[rel:'))
+      .map(c => `${c.query.match(/MERGE \(e\)-\[rel:(\w+)\]/)![1]}->${c.params.value}`);
+  const upserts = (calls: Array<{ query: string; params: any }>) =>
+    calls.filter(c => c.query.includes('instantiatedName'));
+
+  it('resolves once, links only what exists, records the rest on the exposure', async () => {
+    const { service } = makeService();
+    const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+    const { tx, calls } = makeTxWith([[0, 'T1078'], [1, 'AML.T0051']]);
+
+    const result = await service.upsertExposuresInTx(tx as any, {
+      componentId: 'comp-1',
+      classId: 'cls-1',
+      exposures: [
+        {
+          name: 'A',
+          exploitedBy: [
+            'T1078',
+            { label: 'MitreAtlasTechnique', property: 'atlas_id', value: 'AML.T0051', attributes: { justification: 'j' } },
+            'T9999',
+            { label: 'MitreAttackTechnique', property: 'attack_iexposured', value: 'T1078' },
+            'T9999',
+          ],
+        } as any,
+        { name: 'B', exploitedBy: ['T1078'] } as any,
+      ],
+    });
+
+    expect(calls.filter(c => c.query.includes('pairIndex'))).toHaveLength(1);
+    expect(calls[0].query).toContain('pairIndex');
+    expect(links(calls)).toEqual(['EXPLOITED_BY->T1078', 'EXPLOITED_BY->AML.T0051', 'EXPLOITED_BY->T1078']);
+    const atlasLink = calls.find(c => c.params?.value === 'AML.T0051')!;
+    expect(atlasLink.query).toContain('OPTIONAL MATCH (t:MitreAtlasTechnique) WHERE t.atlas_id = $value');
+    expect(atlasLink.params.attributes).toEqual({ justification: 'j' });
+
+    const [a, b] = upserts(calls);
+    expect(a.query).toContain('SET e.unresolvedReferences = $unresolvedReferences');
+    expect(a.params.unresolvedReferences).toEqual(['T9999', 'MitreAttackTechnique.attack_iexposured=T1078']);
+    expect(b.params.unresolvedReferences).toBeNull();
+
+    expect(result).toEqual({
+      instantiated: ['A', 'B'],
+      unresolved: ['T9999', 'MitreAttackTechnique.attack_iexposured=T1078'],
+    });
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][1]).toMatchObject({
+      elementId: 'comp-1',
+      classId: 'cls-1',
+      findingKind: 'exposure',
+      references: [
+        { finding: 'A', field: 'exploitedBy', reference: 'T9999' },
+        { finding: 'A', field: 'exploitedBy', reference: 'MitreAttackTechnique.attack_iexposured=T1078' },
+        { finding: 'A', field: 'exploitedBy', reference: 'T9999' },
+      ],
+    });
+  });
+
+  it('skips the resolve statement when no reference is allowed, and clears the marker', async () => {
+    const { service } = makeService();
+    const { tx, calls } = makeTxWith([]);
+
+    const result = await service.upsertExposuresInTx(tx as any, {
+      componentId: 'comp-1',
+      classId: 'cls-1',
+      exposures: [{ name: 'A', exploitedBy: [] } as any],
+    });
+
+    expect(calls.some(c => c.query.includes('pairIndex'))).toBe(false);
+    expect(upserts(calls)[0].params.unresolvedReferences).toBeNull();
+    expect(result).toEqual({ instantiated: ['A'], unresolved: [] });
+  });
+
+  it('countermeasures: respondsWith and verbs share the pass; a missing requirement is only warned', async () => {
+    const { service } = makeService();
+    const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+    const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+    const { tx, calls } = makeTxWith([[2, 'M1037'], [4, 'D3-NTA'], [5, 'iso:A.8.20'], [0, 'T1021']]);
+
+    const result = await service.upsertCountermeasuresInTx(tx as any, {
+      componentId: 'ctl-1',
+      classId: 'ccls-1',
+      countermeasures: [
+        {
+          name: 'C',
+          respondsWith: [
+            'M1037',
+            { label: 'MitreDefendTechnique', property: 'd3fendId', value: 'D3-NTA' },
+            { label: 'RegulatoryRequirement', property: 'id', value: 'iso:A.8.20' },
+            { label: 'RegulatoryRequirement', property: 'id', value: 'iso:A.9.99' },
+            { label: 'MitreAtlasMitigation', property: 'atlas_id', value: 'AML.M0099' },
+          ],
+          mitigates: ['T1021', 'T1562.010'],
+          detects: [{ label: 'MitreAttackMitigation', property: 'attack_id', value: 'M1037' }],
+        } as any,
+      ],
+    });
+
+    expect(calls.filter(c => c.query.includes('pairIndex'))).toHaveLength(1);
+    expect(links(calls)).toEqual([
+      'RESPONDS_WITH->M1037',
+      'RESPONDS_WITH->D3-NTA',
+      'RESPONDS_WITH->iso:A.8.20',
+      'COUNTERMEASURE_MITIGATES->T1021',
+    ]);
+    const [cm] = upserts(calls);
+    expect(cm.query).toContain('SET cm.unresolvedReferences = $unresolvedReferences');
+    expect(cm.params.unresolvedReferences).toEqual([
+      'AML.M0099',
+      'T1562.010',
+      'MitreAttackMitigation.attack_id=M1037',
+    ]);
+    expect(result.unresolved).toEqual(['AML.M0099', 'T1562.010', 'MitreAttackMitigation.attack_id=M1037']);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Regulatory requirement references not in the graph; not linked',
+      expect.objectContaining({
+        references: [{ finding: 'C', field: 'respondsWith', reference: 'iso:A.9.99' }],
+      }),
+    );
+  });
+
+  it('setAttributes returns the unresolved references with success, and the resolver surfaces them', async () => {
+    const { service } = makeService();
+    (service as any).neo4jDriver.session = jest.fn(() => ({
+      executeWrite: jest.fn(async () => ({
+        moduleName: 'mod-1',
+        componentType: 'Component',
+        valueChanged: false,
+        changedKeys: [],
+        staleFlippedCount: 0,
+      })),
+      close: jest.fn(async () => {}),
+    }));
+    (service as any).moduleRegistry.getModuleByName = jest.fn(() => ({}));
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue(['T9999']);
+
+    const result = await service.setAttributes({ componentId: 'c', classId: 'k', attributes: { k: 'v' } });
+    expect(result).toMatchObject({ success: true, unresolvedReferences: ['T9999'] });
+
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue([]);
+    const clean = await service.setAttributes({ componentId: 'c', classId: 'k', attributes: { k: 'v' } });
+    expect(clean.success).toBe(true);
+    expect(clean.unresolvedReferences).toBeUndefined();
+
+    jest.spyOn(service, 'runExclusive').mockResolvedValue({ success: true, unresolvedReferences: ['T9999'] } as any);
+    const envelope = await service.getResolvers().Mutation.setInstantiationAttributes(
+      null,
+      { componentId: 'c', classId: 'k', attributes: {} },
+      {},
+    );
+    expect(envelope).toEqual({
+      success: true,
+      staleFlippedCount: null,
+      unresolvedReferences: ['T9999'],
+      errorCode: null,
+      errorMessage: null,
+    });
   });
 });

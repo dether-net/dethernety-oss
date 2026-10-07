@@ -125,6 +125,14 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     // OPTIONAL MATCH branch would fall back to a label scan per UNWIND row.
     { label: 'Exposure', property: 'id' },
     { label: 'Countermeasure', property: 'id' },
+    // MITRE reference keys: the instantiation writer and the technique picker look
+    // MITRE nodes up by their framework id, on every engine. The ingest declares no
+    // key index, so it is ensured here.
+    { label: 'MitreAttackTechnique', property: 'attack_id' },
+    { label: 'MitreAttackMitigation', property: 'attack_id' },
+    { label: 'MitreDefendTechnique', property: 'd3fendId' },
+    { label: 'MitreAtlasTechnique', property: 'atlas_id' },
+    { label: 'MitreAtlasMitigation', property: 'atlas_id' },
   ];
 
   constructor(private readonly databaseService: DatabaseService) {}
@@ -158,7 +166,7 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     const skippedCovered = EnsureIndexesService.REQUIRED_INDEXES.length - targets.length;
 
     this.logger.log(
-      `Ensuring ${targets.length} ${engineInfo.engine} indexes for control-library queries` +
+      `Ensuring ${targets.length} ${engineInfo.engine} indexes for control-library and MITRE lookups` +
         (skippedCovered > 0
           ? ` (${skippedCovered} pairs covered by uniqueness constraints — skipped)`
           : ''),
@@ -183,7 +191,7 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
           failed += 1;
           this.logger.error(
             `Failed to ensure index on :${label}(${property}): ${message}. ` +
-            'Downstream control-library queries will fall back to full label scans.'
+            'Downstream control-library and MITRE lookups will fall back to full label scans.'
           );
         }
       }

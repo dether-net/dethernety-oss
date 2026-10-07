@@ -6,6 +6,15 @@ import {
   sanitiseExposureAttrs,
   sanitiseCountermeasureAttrs,
 } from './shared/finding-attrs';
+import {
+  ReferenceKind,
+  classifyReference,
+  isToleratedWhenUnresolved,
+  referenceKey,
+  RESOLVE_REFERENCES_CYPHER,
+  resolveReferencesParams,
+  ALL_REFERENCE_PAIRS,
+} from './shared/reference-resolution';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import {
@@ -18,6 +27,7 @@ import {
   ComponentMetadata,
   UpsertExposuresRequest,
   UpsertCountermeasuresRequest,
+  UpsertFindingsResult,
   DeleteObsoleteObjectsRequest,
   DatabaseOperationResult,
   SetAttributesValidationResult,
@@ -141,6 +151,21 @@ const COUNTERMEASURE_VERB_EDGES = {
   // field in the dt-module interface becomes a compile error here rather than a
   // silently-dropped edge.
 } satisfies Partial<Record<keyof Countermeasure, string>>;
+
+/** One reference of a derived finding, as the module declared it. */
+interface PlannedReference {
+  finding: string;
+  field: string;
+  relationName: string;
+  kind: ReferenceKind;
+  ref: unknown;
+}
+
+/** What the writer does with a batch of references, keyed by finding name. */
+interface ReferencePlan {
+  links: Map<string, { relationName: string; target: ExternalObjectTarget }[]>;
+  unresolved: Map<string, string[]>;
+}
 
 @Injectable()
 export class SetInstantiationAttributesService implements OnModuleInit, OnModuleDestroy {
@@ -304,11 +329,11 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       const duration = Date.now() - startTime;
       
       if (relationshipsCreated === 0) {
-        // Zero can mean the target node is absent OR the origin finding is
-        // outside the link scope (not bound to $classId, or USER-authored) —
-        // the single-statement writer cannot distinguish them cheaply.
+        // The reference pre-pass already confirmed the target exists, so zero
+        // means the origin finding is outside the link scope (not bound to
+        // $classId, or USER-authored), or the target was removed in between.
         this.logger.warn(
-          'External link wrote no edge (target absent, or origin finding not in class/SYSTEM scope)',
+          'External link wrote no edge (origin finding not in class/SYSTEM scope, or target removed since the pre-pass)',
           {
           elementId: request.elementId,
           originName: request.originName,
@@ -450,6 +475,76 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
+   * Resolve every reference of a batch of derived findings in one statement, before
+   * any edge is written. A reference is linked when it maps onto the closed set of
+   * label/key pairs for its field and its node exists. Anything else is not written
+   * and does not fail the save: an unresolved RegulatoryRequirement is tolerated
+   * (warning only); every other miss is logged at error level, recorded on its
+   * finding and returned to the caller.
+   */
+  private async planReferences(
+    tx: DatabaseTransaction,
+    scope: { componentId: string; classId: string; findingKind: 'exposure' | 'countermeasure' },
+    refs: PlannedReference[],
+  ): Promise<ReferencePlan> {
+    const classified = refs.map(r => ({ r, c: classifyReference(r.kind, r.ref) }));
+
+    const found = new Set<string>();
+    const linkable = classified.flatMap(({ c }) => (c.status === 'allowed' ? [c] : []));
+    if (linkable.length > 0) {
+      const result = await tx.run(RESOLVE_REFERENCES_CYPHER, resolveReferencesParams(linkable));
+      for (const record of result.records) {
+        if (!record.get('found')) continue;
+        const raw = record.get('pairIndex');
+        const pairIndex = typeof raw === 'number' ? raw : raw.toNumber();
+        found.add(referenceKey(ALL_REFERENCE_PAIRS[pairIndex], record.get('value')));
+      }
+    }
+
+    const plan: ReferencePlan = { links: new Map(), unresolved: new Map() };
+    const notWritten: { finding: string; field: string; reference: string }[] = [];
+    const toleratedMisses: { finding: string; field: string; reference: string }[] = [];
+    for (const { r, c } of classified) {
+      if (c.status === 'allowed' && found.has(referenceKey(c.pair, c.target.value))) {
+        const links = plan.links.get(r.finding) ?? [];
+        links.push({ relationName: r.relationName, target: c.target });
+        plan.links.set(r.finding, links);
+      } else if (c.status === 'allowed' && isToleratedWhenUnresolved(c.pair)) {
+        toleratedMisses.push({ finding: r.finding, field: r.field, reference: c.target.value });
+      } else {
+        const reference = c.status === 'allowed' ? c.target.value : c.display;
+        notWritten.push({ finding: r.finding, field: r.field, reference });
+        const unresolved = plan.unresolved.get(r.finding) ?? [];
+        if (!unresolved.includes(reference)) unresolved.push(reference);
+        plan.unresolved.set(r.finding, unresolved);
+      }
+    }
+
+    if (notWritten.length > 0) {
+      this.logger.error('Finding references not written: not in the graph, or not an allowed target for their field', {
+        elementId: scope.componentId,
+        classId: scope.classId,
+        findingKind: scope.findingKind,
+        references: notWritten,
+      });
+    }
+    if (toleratedMisses.length > 0) {
+      this.logger.warn('Regulatory requirement references not in the graph; not linked', {
+        elementId: scope.componentId,
+        classId: scope.classId,
+        findingKind: scope.findingKind,
+        references: toleratedMisses,
+      });
+    }
+    return plan;
+  }
+
+  /** The distinct unresolved references across a plan, in first-seen order. */
+  private static unresolvedOf(plan: ReferencePlan): string[] {
+    return [...new Set([...plan.unresolved.values()].flat())];
+  }
+
+  /**
    * Tx-bound exposure upsert primitive. Runs the scoped Cypher upsert
    * + MITRE technique linking for each exposure in `request.exposures`.
    * Does NOT run obsolete-finding cleanup — that semantic belongs to the
@@ -464,7 +559,21 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   public async upsertExposuresInTx(
     tx: DatabaseTransaction,
     request: UpsertExposuresRequest,
-  ): Promise<string[]> {
+  ): Promise<UpsertFindingsResult> {
+    const plan = await this.planReferences(
+      tx,
+      { componentId: request.componentId, classId: request.classId, findingKind: 'exposure' },
+      request.exposures.flatMap(exposure =>
+        (exposure.exploitedBy || []).map(ref => ({
+          finding: exposure.name,
+          field: 'exploitedBy',
+          relationName: 'EXPLOITED_BY',
+          kind: 'technique' as const,
+          ref,
+        })),
+      ),
+    );
+
     const instantiated: string[] = [];
     for (const exposure of request.exposures) {
       const attributes = sanitiseExposureAttrs(exposure);
@@ -500,12 +609,14 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         WHERE e.createdBy = 'SYSTEM' OR e.createdBy IS NULL
         SET e += $attributes
         SET e.createdBy = 'SYSTEM'
+        SET e.unresolvedReferences = $unresolvedReferences
         RETURN DISTINCT e.name AS instantiatedName
         `,
         {
           componentId: request.componentId,
           attributes,
           classId: request.classId,
+          unresolvedReferences: plan.unresolved.get(exposure.name) ?? null,
         },
       );
       for (const record of result.records) {
@@ -513,29 +624,19 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         if (name) instantiated.push(name);
       }
 
-      // Link to MITRE techniques
-      for (const technique of exposure.exploitedBy || []) {
-        const target: ExternalObjectTarget = typeof technique === 'string'
-          ? {
-              label: 'MitreAttackTechnique',
-              property: 'attack_id',
-              value: technique,
-            }
-          : technique;
-
-        const linkRequest: LinkExternalObjectRequest = {
+      // Link the techniques the pre-pass resolved.
+      for (const { relationName, target } of plan.links.get(exposure.name) ?? []) {
+        await this.linkToExternalObject(tx, {
           elementId: request.componentId,
           elementToOriginRelation: 'HAS_EXPOSURE',
           originName: exposure.name,
-          relationName: 'EXPLOITED_BY',
+          relationName,
           classId: request.classId,
           target,
-        };
-
-        await this.linkToExternalObject(tx, linkRequest);
+        });
       }
     }
-    return instantiated;
+    return { instantiated, unresolved: SetInstantiationAttributesService.unresolvedOf(plan) };
   }
 
   /**
@@ -561,10 +662,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const exposureNames = request.exposures.map((exposure) => exposure.name);
       let totalProcessed = 0;
+      let unresolvedReferences: string[] = [];
 
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        const instantiated = await this.upsertExposuresInTx(tx, request);
+        const { instantiated, unresolved } = await this.upsertExposuresInTx(tx, request);
         totalProcessed = instantiated.length;
+        unresolvedReferences = unresolved;
 
         // Clean up obsolete exposures (rebuild-to-match semantic — owned
         // by setInstantiationAttributes; ElementBindingService runs an
@@ -604,6 +707,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       return {
         success: true,
         recordsAffected: totalProcessed,
+        unresolvedReferences,
       };
 
     } catch (error) {
@@ -638,7 +742,33 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   public async upsertCountermeasuresInTx(
     tx: DatabaseTransaction,
     request: UpsertCountermeasuresRequest,
-  ): Promise<string[]> {
+  ): Promise<UpsertFindingsResult> {
+    // respondsWith is the identity block (mitigations, D3FEND techniques, regulatory
+    // requirements); each verb block → COUNTERMEASURE_<VERB> edges to techniques.
+    // relationName comes only from the closed COUNTERMEASURE_VERB_EDGES map.
+    const plan = await this.planReferences(
+      tx,
+      { componentId: request.componentId, classId: request.classId, findingKind: 'countermeasure' },
+      request.countermeasures.flatMap(countermeasure => [
+        ...(countermeasure.respondsWith || []).map(ref => ({
+          finding: countermeasure.name,
+          field: 'respondsWith',
+          relationName: 'RESPONDS_WITH',
+          kind: 'response' as const,
+          ref,
+        })),
+        ...(Object.keys(COUNTERMEASURE_VERB_EDGES) as (keyof typeof COUNTERMEASURE_VERB_EDGES)[]).flatMap(field =>
+          ((countermeasure[field] as unknown[] | undefined) || []).map(ref => ({
+            finding: countermeasure.name,
+            field,
+            relationName: COUNTERMEASURE_VERB_EDGES[field],
+            kind: 'technique' as const,
+            ref,
+          })),
+        ),
+      ]),
+    );
+
     const instantiated: string[] = [];
     for (const countermeasure of request.countermeasures) {
       const attributes = sanitiseCountermeasureAttrs(countermeasure);
@@ -665,12 +795,14 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         WHERE cm.createdBy = 'SYSTEM' OR cm.createdBy IS NULL
         SET cm += $attributes
         SET cm.createdBy = 'SYSTEM'
+        SET cm.unresolvedReferences = $unresolvedReferences
         RETURN DISTINCT cm.name AS instantiatedName
         `,
         {
           componentId: request.componentId,
           attributes,
           classId: request.classId,
+          unresolvedReferences: plan.unresolved.get(countermeasure.name) ?? null,
         },
       );
       for (const record of result.records) {
@@ -678,52 +810,20 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         if (name) instantiated.push(name);
       }
 
-      // Link to MITRE mitigations
-      for (const response of countermeasure.respondsWith || []) {
-        const target: ExternalObjectTarget = typeof response === 'string'
-          ? {
-              label: 'MitreAttackMitigation',
-              property: 'attack_id',
-              value: response,
-            }
-          : response;
-
-        const linkRequest: LinkExternalObjectRequest = {
+      // Link the references the pre-pass resolved; each ref's attributes (e.g.
+      // justification) ride onto the edge via linkToExternalObject.
+      for (const { relationName, target } of plan.links.get(countermeasure.name) ?? []) {
+        await this.linkToExternalObject(tx, {
           elementId: request.componentId,
           elementToOriginRelation: 'HAS_COUNTERMEASURE',
           originName: countermeasure.name,
-          relationName: 'RESPONDS_WITH',
+          relationName,
           classId: request.classId,
           target,
-        };
-
-        await this.linkToExternalObject(tx, linkRequest);
-      }
-
-      // Link verb blocks → COUNTERMEASURE_<VERB> edges to the ATT&CK techniques this
-      // countermeasure counters. relationName comes only from the closed
-      // COUNTERMEASURE_VERB_EDGES map (never data-derived); each ref's attributes (e.g.
-      // justification) ride onto the edge via linkToExternalObject.
-      for (const field of Object.keys(COUNTERMEASURE_VERB_EDGES) as (keyof typeof COUNTERMEASURE_VERB_EDGES)[]) {
-        const relationName = COUNTERMEASURE_VERB_EDGES[field];
-        const refs = countermeasure[field] as (ExternalObjectTarget | string)[] | undefined;
-        for (const ref of refs || []) {
-          const target: ExternalObjectTarget = typeof ref === 'string'
-            ? { label: 'MitreAttackTechnique', property: 'attack_id', value: ref }
-            : ref;
-
-          await this.linkToExternalObject(tx, {
-            elementId: request.componentId,
-            elementToOriginRelation: 'HAS_COUNTERMEASURE',
-            originName: countermeasure.name,
-            relationName,
-            classId: request.classId,
-            target,
-          });
-        }
+        });
       }
     }
-    return instantiated;
+    return { instantiated, unresolved: SetInstantiationAttributesService.unresolvedOf(plan) };
   }
 
   /**
@@ -749,10 +849,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         (countermeasure) => countermeasure.name,
       );
       let totalProcessed = 0;
+      let unresolvedReferences: string[] = [];
 
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        const instantiated = await this.upsertCountermeasuresInTx(tx, request);
+        const { instantiated, unresolved } = await this.upsertCountermeasuresInTx(tx, request);
         totalProcessed = instantiated.length;
+        unresolvedReferences = unresolved;
 
         const deleteRequest: DeleteObsoleteObjectsRequest = {
           elementId: request.componentId,
@@ -789,6 +891,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       return {
         success: true,
         recordsAffected: totalProcessed,
+        unresolvedReferences,
       };
 
     } catch (error) {
@@ -1039,7 +1142,10 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         );
       }
 
-      // Process based on component type (preserving existing business logic)
+      // Process based on component type (preserving existing business logic).
+      // Unresolved references never fail the save: they are recorded on their
+      // findings and returned alongside success.
+      let unresolvedReferences: string[] | undefined;
       if (metadata.componentType === 'Issue') {
         // Issues don't require additional processing
         this.logger.debug('Issue component processed', {
@@ -1048,7 +1154,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         });
       } else if (metadata.componentType === 'Control') {
         // Handle countermeasures for controls
-        await this.processControlCountermeasures(
+        unresolvedReferences = await this.processControlCountermeasures(
           session,
           request.componentId,
           request.classId,
@@ -1058,7 +1164,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         );
       } else {
         // Handle exposures for other component types
-        await this.processComponentExposures(
+        unresolvedReferences = await this.processComponentExposures(
           session,
           request.componentId,
           request.classId,
@@ -1089,6 +1195,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       return {
         success: true,
         staleFlippedCount,
+        unresolvedReferences: unresolvedReferences?.length ? unresolvedReferences : undefined,
         metadata: {
           operationId,
           timestamp: new Date().toISOString(),
@@ -1152,7 +1259,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     moduleInstance: any,
     operationId: string,
     token?: string,
-  ): Promise<void> {
+  ): Promise<string[]> {
     this.logger.debug('Processing control countermeasures', {
       componentId,
       classId,
@@ -1191,6 +1298,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       recordsAffected: result.recordsAffected,
       operationId,
     });
+    return result.unresolvedReferences ?? [];
   }
 
   /**
@@ -1203,7 +1311,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     moduleInstance: any,
     operationId: string,
     token?: string,
-  ): Promise<void> {
+  ): Promise<string[]> {
     this.logger.debug('Processing component exposures', {
       componentId,
       classId,
@@ -1242,6 +1350,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       recordsAffected: result.recordsAffected,
       operationId,
     });
+    return result.unresolvedReferences ?? [];
   }
 
   // ============================================================================
@@ -1829,6 +1938,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             return {
               success: result.success,
               staleFlippedCount: result.staleFlippedCount ?? null,
+              unresolvedReferences: result.unresolvedReferences ?? null,
               errorCode: result.success ? null : (result.errorCode ?? 'UNKNOWN_ERROR'),
               errorMessage: result.success ? null : (result.error ?? null),
             };
@@ -1849,6 +1959,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             return {
               success: false,
               staleFlippedCount: null,
+              unresolvedReferences: null,
               errorCode: structured ? error.type : 'UNKNOWN_ERROR',
               errorMessage: structured ? error.message : safeErrorMessage(error),
             };

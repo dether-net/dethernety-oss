@@ -28,7 +28,7 @@
         <button type="button" class="trd-info-close" @click="$emit('close')" aria-label="Close">✕</button>
       </div>
       <p v-if="technique.tactics && technique.tactics.length" class="trd-info-tactics">
-        Tactics: {{ technique.tactics.join(' · ') }}
+        Tactics: {{ technique.tactics.map((t) => t.name).join(' · ') }}
       </p>
       <p class="trd-info-desc">{{ cleanDescription }}</p>
       <p class="trd-info-foot">MITRE ATT&amp;CK technique · {{ technique.techniqueId }}</p>

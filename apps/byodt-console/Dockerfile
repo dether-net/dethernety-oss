@@ -29,6 +29,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpat
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/byodt-console /byodt-console
+# The binary embeds the MITRE reference data; its notice and licence texts ship beside it.
+COPY --from=build /src/apps/byodt-console/internal/assets/embed/data-modules/mitre-frameworks/NOTICE /licenses/mitre-frameworks/NOTICE
 # Run as a non-root numeric uid:gid — this one-shot fetches over the network, extracts
 # archives, and writes into a shared mount, so it should not run as root. scratch has no
 # user database, so the id must be numeric. The bind-mounted modules directory, the schema

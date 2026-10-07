@@ -246,6 +246,48 @@ async function seedMitigation(driver: any, m: MitigationSeed): Promise<void> {
   );
 }
 
+// ATLAS: two tactics whose matrix order differs from their name order, a technique in
+// both (its reported tactic must be the earlier in the ATLAS matrix), a sub-technique,
+// a technique carrying the V_MATCH vector, and a mitigation.
+async function seedAtlasFixture(
+  driver: any,
+  opts: { withEmbeddings?: boolean } = {},
+): Promise<void> {
+  const emb = (vec: number[]) =>
+    opts.withEmbeddings ? ', n.embedding = $embedding, n.embeddingModel = $model' : '';
+  const params = (vec: number[]) => ({ embedding: vec, model: RUNTIME_MODEL });
+  await runWrite(
+    driver,
+    `CREATE (:MitreAtlasTactic {id: 'atac-0', atlas_id: 'AML.TA0000', name: 'AI Model Access', matrix_order: 4}),
+            (:MitreAtlasTactic {id: 'atac-5', atlas_id: 'AML.TA0005', name: 'Execution', matrix_order: 5})`,
+  );
+  for (const [atlasId, name, description, vec, tactics] of [
+    ['AML.T0051', 'LLM Prompt Injection', 'An adversary may craft malicious prompts as inputs to an LLM.', V_OTHER, ['AML.TA0005', 'AML.TA0000']],
+    ['AML.T0051.000', 'Direct', 'An adversary may inject prompts directly.', V_OTHER, ['AML.TA0005']],
+    ['AML.T0054', 'LLM Jailbreak', 'An adversary may use a carefully crafted prompt to bypass guardrails.', V_MATCH, []],
+  ] as Array<[string, string, string, number[], string[]]>) {
+    await runWrite(
+      driver,
+      `CREATE (n:MitreAtlasTechnique {atlas_id: $atlasId}) SET n.id = $id, n.name = $name, n.description = $description${emb(vec)}`,
+      { atlasId, id: `atlas-${atlasId}`, name, description, ...params(vec) },
+    );
+    for (const tac of tactics) {
+      await runWrite(
+        driver,
+        `MATCH (tac:MitreAtlasTactic {atlas_id: $tac}), (t:MitreAtlasTechnique {atlas_id: $atlasId})
+         MERGE (tac)-[:TACTIC_INCLUDES_TECHNIQUE]->(t)`,
+        { tac, atlasId },
+      );
+    }
+  }
+  await runWrite(
+    driver,
+    `CREATE (n:MitreAtlasMitigation {atlas_id: 'AML.M0015'})
+     SET n.id = 'atlasm-15', n.name = 'Adversarial Input Detection', n.description = 'Detect and block adversarial inputs.'${emb(V_OTHER)}`,
+    params(V_OTHER),
+  );
+}
+
 async function seedBaseFixture(
   driver: any,
   opts: { withEmbeddings?: boolean; embeddingModel?: string } = {},
@@ -390,7 +432,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
 
   async function runQuery(input: {
     queries: { query: string }[];
-    kind: 'ATTACK_TECHNIQUE' | 'DEFEND_TECHNIQUE' | 'ATTACK_MITIGATION';
+    kind: 'ATTACK_TECHNIQUE' | 'DEFEND_TECHNIQUE' | 'ATTACK_MITIGATION' | 'ATLAS_TECHNIQUE' | 'ATLAS_MITIGATION';
     topN?: number;
   }) {
     const resolvers = svc.getResolvers();
@@ -641,6 +683,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
         'name',
         'similarityScore',
         'tactic',
+        'tacticOrder',
       ].sort(),
     );
   });
@@ -773,6 +816,105 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
   });
 
   // ===== Validation =====
+
+  // ===== ATLAS kinds =====
+
+  it('ATLAS_TECHNIQUE: EXACT_ID on an AML id; the tactic is the earliest in the ATLAS matrix', async () => {
+    await seedBaseFixture(mg.driver);
+    await seedAtlasFixture(mg.driver);
+    const out = await runQuery({ queries: [{ query: 'aml.t0051' }], kind: 'ATLAS_TECHNIQUE' });
+    const c = out.matches[0].candidates[0];
+    expect(c).toMatchObject({ mitreId: 'AML.T0051', matchType: 'EXACT_ID', kind: 'ATLAS_TECHNIQUE' });
+    // Execution sorts before "AI Model Access" by name; the matrix puts AI Model Access first.
+    expect(c.tactic).toBe('AI Model Access');
+    expect(c.tacticOrder).toBe(4);
+  });
+
+  it('ATLAS_TECHNIQUE: PREFIX_ID covers the sub-techniques; ATT&CK ids are not in the corpus', async () => {
+    await seedBaseFixture(mg.driver);
+    await seedAtlasFixture(mg.driver);
+    const out = await runQuery({ queries: [{ query: 'AML.T0051' }, { query: 'T1003' }], kind: 'ATLAS_TECHNIQUE', topN: 10 });
+    const byQuery = Object.fromEntries(out.matches.map((m: any) => [m.query, m.candidates.map((c: any) => c.mitreId)]));
+    expect(byQuery['AML.T0051']).toEqual(['AML.T0051']);
+    expect(out.unmatched).toEqual(['T1003']);
+    const prefix = await runQuery({ queries: [{ query: 'AML.T005' }], kind: 'ATLAS_TECHNIQUE', topN: 10 });
+    expect(prefix.matches[0].candidates.map((c: any) => c.mitreId)).toEqual(['AML.T0051', 'AML.T0051.000', 'AML.T0054']);
+  });
+
+  it('ATLAS_MITIGATION returns ATLAS mitigations with no tactic', async () => {
+    await seedBaseFixture(mg.driver);
+    await seedAtlasFixture(mg.driver);
+    const out = await runQuery({ queries: [{ query: 'Adversarial Input' }], kind: 'ATLAS_MITIGATION' });
+    expect(out.matches[0].candidates[0]).toMatchObject({ mitreId: 'AML.M0015', tactic: null, tacticOrder: null, kind: 'ATLAS_MITIGATION' });
+  });
+
+  it('a kind with no nodes is skipped: ATT&CK keeps its vector tier, the absent kind reports NO_VECTORS', async () => {
+    await seedBaseFixture(mg.driver, { withEmbeddings: true });
+    stubEmbedding.setFixedVector(V_MATCH);
+
+    const attack = await runQuery({ queries: [{ query: 'completely unrelated semantic query xyzzy' }], kind: 'ATTACK_TECHNIQUE' });
+    expect(attack.vectorAvailable).toBe(true);
+    expect(attack.matches[0].candidates[0].mitreId).toBe('T2000');
+
+    const atlas = await runQuery({ queries: [{ query: 'completely unrelated semantic query xyzzy' }], kind: 'ATLAS_TECHNIQUE' });
+    expect(atlas.vectorAvailable).toBe(false);
+    expect(atlas.vectorDisabledReason).toBe('NO_VECTORS');
+    expect(atlas.unmatched).toEqual(['completely unrelated semantic query xyzzy']);
+
+    const info = await runWrite(mg.driver, 'CALL vector_search.show_index_info() YIELD index_name RETURN index_name');
+    const names = (info.records as any[]).map((r) => r.get('index_name'));
+    expect(names).toContain('mitre_attack_technique_embeddings');
+    expect(names).not.toContain('mitre_atlas_technique_embeddings');
+  });
+
+  // A kind whose nodes are loaded but whose embeddings are missing or made with another model is
+  // unhealthy on its own: it reports its reason, and the healthy kinds keep their vector tier.
+  it.each([
+    ['without embeddings', 'NO_VECTORS', false],
+    ['with another model', 'MODEL_MISMATCH', true],
+  ] as const)(
+    'an unhealthy kind (ATLAS %s) reports %s; ATT&CK keeps its vector tier',
+    async (_label, reason, withEmbeddings) => {
+      await seedBaseFixture(mg.driver, { withEmbeddings: true });
+      await seedAtlasFixture(mg.driver, { withEmbeddings });
+      if (withEmbeddings) {
+        await runWrite(
+          mg.driver,
+          `MATCH (n) WHERE n:MitreAtlasTechnique OR n:MitreAtlasMitigation SET n.embeddingModel = 'other-model-v2'`,
+        );
+      }
+      stubEmbedding.setFixedVector(V_MATCH);
+
+      const attack = await runQuery({ queries: [{ query: 'completely unrelated semantic query xyzzy' }], kind: 'ATTACK_TECHNIQUE' });
+      expect(attack.vectorAvailable).toBe(true);
+      expect(attack.vectorDisabledReason).toBeNull();
+      expect(attack.matches[0].candidates[0]).toMatchObject({ mitreId: 'T2000', matchType: 'VECTOR_SIMILARITY' });
+
+      const atlas = await runQuery({ queries: [{ query: 'completely unrelated semantic query xyzzy' }], kind: 'ATLAS_TECHNIQUE' });
+      expect(atlas.vectorAvailable).toBe(false);
+      expect(atlas.vectorDisabledReason).toBe(reason);
+      expect(atlas.unmatched).toEqual(['completely unrelated semantic query xyzzy']);
+
+      const info = await runWrite(mg.driver, 'CALL vector_search.show_index_info() YIELD index_name RETURN index_name');
+      const names = (info.records as any[]).map((r) => r.get('index_name'));
+      expect(names).toContain('mitre_attack_technique_embeddings');
+      expect(names).not.toContain('mitre_atlas_technique_embeddings');
+    },
+  );
+
+  it('ATLAS_TECHNIQUE: the vector tier searches its own index', async () => {
+    await seedBaseFixture(mg.driver, { withEmbeddings: true });
+    await seedAtlasFixture(mg.driver, { withEmbeddings: true });
+    stubEmbedding.setFixedVector(V_MATCH);
+
+    const out = await runQuery({ queries: [{ query: 'completely unrelated semantic query xyzzy' }], kind: 'ATLAS_TECHNIQUE' });
+    expect(out.vectorAvailable).toBe(true);
+    expect(out.matches[0].candidates[0]).toMatchObject({ mitreId: 'AML.T0054', matchType: 'VECTOR_SIMILARITY' });
+
+    const info = await runWrite(mg.driver, 'CALL vector_search.show_index_info() YIELD index_name RETURN index_name');
+    const names = (info.records as any[]).map((r) => r.get('index_name'));
+    expect(names).toEqual(expect.arrayContaining(['mitre_atlas_technique_embeddings', 'mitre_atlas_mitigation_embeddings']));
+  });
 
   it('MAX_QUERIES limit: 26 queries throws', async () => {
     await seedBaseFixture(mg.driver);

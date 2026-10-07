@@ -27,11 +27,19 @@ cp "$OSS_ROOT/apps/dt-ws/schema/schema-noauth.graphql" "$EMBED/schema-noauth.gra
 
 # 2. Ingest corpus per data module — .cypher only. The sibling .sql is a Postgres
 #    artifact the console does not ingest, and embedding it would bloat the binary.
+#    The module's NOTICE travels with its data: a data module redistributes third-party
+#    data, and its terms require the notice in every copy. The Dockerfile also places it
+#    in the image, where an operator can read it.
 for mod in "${DATA_MODULES[@]}"; do
   src="$OSS_ROOT/modules/$mod/data"
+  if [ ! -f "$OSS_ROOT/modules/$mod/NOTICE" ]; then
+    echo "ERROR: data module '$mod' has no NOTICE; its data may not ship without one" >&2
+    exit 1
+  fi
   if compgen -G "$src/*.cypher" > /dev/null; then
     mkdir -p "$EMBED/data-modules/$mod/data"
     cp "$src"/*.cypher "$EMBED/data-modules/$mod/data/"
+    cp "$OSS_ROOT/modules/$mod/NOTICE" "$EMBED/data-modules/$mod/NOTICE"
   else
     # A declared data module with no .cypher is a build error, not a warning: the schema
     # embed guard would still let the image build with an empty corpus. Fail loudly.

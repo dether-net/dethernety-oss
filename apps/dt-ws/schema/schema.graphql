@@ -164,6 +164,10 @@ enum MitreKind {
   DEFEND_TECHNIQUE
   "MITRE ATT&CK mitigation (M-codes; e.g. M1041)"
   ATTACK_MITIGATION
+  "MITRE ATLAS technique (AML.T-codes; e.g. AML.T0051, AML.T0051.000)"
+  ATLAS_TECHNIQUE
+  "MITRE ATLAS mitigation (AML.M-codes; e.g. AML.M0015)"
+  ATLAS_MITIGATION
 }
 
 """How a MITRE candidate matched the user's query. Distinct vocabulary from MatchType (matchClasses): MITRE matching cascades through id / name / description / vector tiers."""
@@ -279,7 +283,7 @@ type Model implements Element  @authentication @node {
   "Data elements defined in this model"
   dataItems: [Data!]! @relationship(type: "CONTAINS", direction: OUT)
   "Components that represent this model (for model-in-model composition)"
-  representedBy: [Element!]! @relationship(type: "REPRESENTS_MODEL", direction: IN)
+  representedBy: [Element!]! @relationship(type: "REPRESENTS_MODEL", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Analyses run against this model"
   analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
   "Issues associated with this model"
@@ -479,6 +483,12 @@ type ConduitProperties @relationshipProperties {
   controlRefs: [ID!]
 }
 
+"Properties of an edge from an exposure or countermeasure to a MITRE node (EXPLOITED_BY, RESPONDS_WITH, COUNTERMEASURE_*)."
+type TechniqueLinkProperties @relationshipProperties {
+  "Why the link holds, as written by the module policy or the author; null for a bare reference."
+  justification: String
+}
+
 """A data element handled by components and data flows (e.g., PII, credentials, API keys)."""
 type Data implements Element  @authentication @node {
   "Unique identifier"
@@ -498,7 +508,7 @@ type Data implements Element  @authentication @node {
   "Boundaries that contain this data"
   securityBoundary: [SecurityBoundary!]! @relationship(type: "HANDLES", direction: IN)
   "All elements that handle this data"
-  elements: [Element!]! @relationship(type: "HANDLES", direction: IN)
+  elements: [Element!]! @relationship(type: "HANDLES", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Security exposures related to this data"
   exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
   "Analyses involving this data"
@@ -526,7 +536,7 @@ type Control implements Element  @authentication @node {
   "Class this control is an instance of"
   controlClasses: [ControlClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
   "Elements this control is applied to (polymorphic). Note: the auto-generated resolver for this interface field has correctness and performance issues against Memgraph — prefer the typed fields below for production queries. Retained for backward compatibility with external consumers."
-  elements: [Element!]! @relationship(type: "SUPPORTS", direction: OUT)
+  elements: [Element!]! @relationship(type: "SUPPORTS", direction: OUT, nestedOperations: [CONNECT, DISCONNECT])
   "Components this control is applied to"
   supportedComponents: [Component!]! @relationship(type: "SUPPORTS", direction: OUT)
   "Security boundaries this control is applied to"
@@ -897,6 +907,9 @@ type Exposure implements Element  @authentication @node {
     @settable(onCreate: false, onUpdate: false)
   "True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeExposure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked)."
   dispositionStale: Boolean
+  "Technique references the class declares for this exposure that could not be linked: the id is not in the loaded MITRE data, or the reference is not an allowed target for its field (written `Label.key=value`). Set by the instantiation writer on every save of a class-derived exposure and cleared when every reference links. Read-only."
+  unresolvedReferences: [String!]
+    @settable(onCreate: false, onUpdate: false)
 
   "Components affected by this exposure"
   component: [Component!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
@@ -907,15 +920,22 @@ type Exposure implements Element  @authentication @node {
   "Data elements affected by this exposure"
   data: [Data!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
   "All elements affected by this exposure"
-  element: [Element!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  element: [Element!]! @relationship(type: "HAS_EXPOSURE", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "ATT&CK techniques that exploit this exposure"
-  exploitedBy: [MitreAttackTechnique!]! @relationship(type: "EXPLOITED_BY", direction: OUT)
+  exploitedBy: [MitreAttackTechnique!]! @relationship(type: "EXPLOITED_BY", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques that exploit this exposure (EXPLOITED_BY)"
+  exploitedByAtlas: [MitreAtlasTechnique!]! @relationship(type: "EXPLOITED_BY", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "Issues associated with this exposure"
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
 }
 
+# MITRE reference data (ATT&CK, ATLAS, D3FEND) is loaded by the mitre-frameworks data module and is
+# shared by every model, so the API never writes it: MITRE types have no generated mutations,
+# their own relationship fields allow no nested operation, and every field that points at a
+# MITRE type (or at the Element interface, which MITRE types implement) allows only CONNECT
+# and DISCONNECT. A nested create, update or delete would otherwise write the shared nodes.
 """A MITRE ATT&CK tactic (e.g., Initial Access, Persistence, Exfiltration)."""
-type MitreAttackTactic implements Element  @authentication @node {
+type MitreAttackTactic implements Element  @authentication @mutation(operations: []) @node {
   "Unique identifier"
   id: ID! @id
   "Tactic name"
@@ -924,6 +944,8 @@ type MitreAttackTactic implements Element  @authentication @node {
   description: String
   "ATT&CK tactic ID (e.g., TA0001)"
   attack_id: String
+  "0-based position in the ATT&CK matrix (kill-chain order)"
+  matrix_order: Int
   "ATT&CK version this tactic was introduced or updated in"
   attack_version: String
   "STIX identifier"
@@ -933,11 +955,11 @@ type MitreAttackTactic implements Element  @authentication @node {
   "STIX object type"
   stix_type: String
   "Techniques associated with this tactic"
-  techniques: [MitreAttackTechnique!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: OUT)
+  techniques: [MitreAttackTechnique!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: OUT, nestedOperations: [])
 }
 
 """A MITRE ATT&CK technique or sub-technique (e.g., T1566 Phishing)."""
-type MitreAttackTechnique implements Element  @authentication @node {
+type MitreAttackTechnique implements Element  @authentication @mutation(operations: []) @node {
   "Unique identifier"
   id: ID! @id
   "Technique name"
@@ -963,19 +985,21 @@ type MitreAttackTechnique implements Element  @authentication @node {
   "STIX object type"
   stix_type: String
   "Sub-techniques of this technique"
-  subTechniques: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: IN)
+  subTechniques: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: IN, nestedOperations: [])
   "Parent technique (if this is a sub-technique)"
-  parentTechnique: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: OUT)
+  parentTechnique: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: OUT, nestedOperations: [])
   "Exposures that this technique can exploit"
-  exposures: [Exposure!]! @relationship(type: "EXPLOITED_BY", direction: IN)
+  exposures: [Exposure!]! @relationship(type: "EXPLOITED_BY", direction: IN, nestedOperations: [])
   "ATT&CK mitigations that defend against this technique"
-  mitigations: [MitreAttackMitigation!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: IN)
+  mitigations: [MitreAttackMitigation!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: IN, nestedOperations: [])
   "Tactics this technique belongs to"
-  tactics: [MitreAttackTactic!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: IN)
+  tactics: [MitreAttackTactic!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: IN, nestedOperations: [])
+  "ATLAS techniques that cite this technique (the crosswalk)"
+  atlasTechniques: [MitreAtlasTechnique!]! @relationship(type: "ATLAS_TECHNIQUE_REFERENCES", direction: IN, properties: "AtlasCrosswalkProperties", nestedOperations: [])
 }
 
 """A MITRE ATT&CK mitigation (e.g., M1036 Account Use Policies)."""
-type MitreAttackMitigation implements Element  @authentication @node {
+type MitreAttackMitigation implements Element  @authentication @mutation(operations: []) @node {
   "Unique identifier"
   id: ID! @id
   "Mitigation name"
@@ -1005,13 +1029,123 @@ type MitreAttackMitigation implements Element  @authentication @node {
   "STIX object type"
   stix_type: String
   "Techniques this mitigation defends against"
-  attackTechniqueMitigated: [MitreAttackTechnique!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: OUT)
+  attackTechniqueMitigated: [MitreAttackTechnique!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: OUT, nestedOperations: [])
   "Countermeasures that implement this mitigation"
-  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN)
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN, nestedOperations: [])
+}
+
+"""A MITRE ATLAS technique or sub-technique: an attack on an AI-enabled system (e.g., AML.T0051 LLM Prompt Injection)."""
+type MitreAtlasTechnique implements Element  @authentication @mutation(operations: []) @node {
+  "Unique identifier"
+  id: ID! @id
+  "Technique name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATLAS technique ID (e.g., AML.T0051, AML.T0051.000)"
+  atlas_id: String
+  "Whether this is a sub-technique"
+  atlas_subtechnique: Boolean
+  "AI system kinds the technique applies to (e.g., Agentic AI, Generative AI)"
+  atlas_platforms: [String!]
+  "Whether this technique has been deprecated"
+  atlas_deprecated: Boolean
+  "Reference URL on atlas.mitre.org"
+  ref_url: String
+  "STIX identifier"
+  stix_id: String
+  "STIX creation timestamp"
+  stix_created: String
+  "STIX last-modified timestamp"
+  stix_modified: String
+  "Whether this STIX object has been revoked"
+  stix_revoked: Boolean
+  "Sub-techniques of this technique"
+  subTechniques: [MitreAtlasTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: IN, nestedOperations: [])
+  "Parent technique (if this is a sub-technique)"
+  parentTechnique: [MitreAtlasTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: OUT, nestedOperations: [])
+  "ATLAS tactics this technique belongs to"
+  tactics: [MitreAtlasTactic!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: IN, nestedOperations: [])
+  "ATLAS mitigations that defend against this technique"
+  mitigations: [MitreAtlasMitigation!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: IN, nestedOperations: [])
+  "ATLAS case studies (documented incidents) that used this technique"
+  caseStudies: [MitreAtlasCaseStudy!]! @relationship(type: "CAMPAIGN_USES_TECHNIQUE", direction: IN, nestedOperations: [])
+  "The ATT&CK techniques this ATLAS technique cites (the crosswalk, resolved through ATT&CK revocations)"
+  attackTechniques: [MitreAttackTechnique!]! @relationship(type: "ATLAS_TECHNIQUE_REFERENCES", direction: OUT, properties: "AtlasCrosswalkProperties", nestedOperations: [])
+  "Exposures that this technique can exploit"
+  exposures: [Exposure!]! @relationship(type: "EXPLOITED_BY", direction: IN, nestedOperations: [])
+}
+
+"""A MITRE ATLAS tactic (e.g., AI Model Access, Exfiltration). ATLAS is its own matrix: tactic ids and names overlap ATT&CK's but are not the same tactics."""
+type MitreAtlasTactic implements Element  @authentication @mutation(operations: []) @node {
+  "Unique identifier"
+  id: ID! @id
+  "Tactic name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATLAS tactic ID (e.g., AML.TA0000)"
+  atlas_id: String
+  "Short name used by technique kill-chain phases (e.g., ai-model-access)"
+  atlas_shortname: String
+  "0-based position in the ATLAS matrix"
+  matrix_order: Int
+  "Reference URL on atlas.mitre.org"
+  ref_url: String
+  "STIX identifier"
+  stix_id: String
+  "Techniques associated with this tactic"
+  techniques: [MitreAtlasTechnique!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: OUT, nestedOperations: [])
+}
+
+"""A MITRE ATLAS mitigation (e.g., AML.M0015 Adversarial Input Detection)."""
+type MitreAtlasMitigation implements Element  @authentication @mutation(operations: []) @node {
+  "Unique identifier"
+  id: ID! @id
+  "Mitigation name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATLAS mitigation ID (e.g., AML.M0015)"
+  atlas_id: String
+  "Whether this mitigation has been deprecated"
+  atlas_deprecated: Boolean
+  "Reference URL on atlas.mitre.org"
+  ref_url: String
+  "STIX identifier"
+  stix_id: String
+  "Techniques this mitigation defends against"
+  techniquesMitigated: [MitreAtlasTechnique!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: OUT, nestedOperations: [])
+  "Countermeasures that implement this mitigation"
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN, nestedOperations: [])
+}
+
+"""A MITRE ATLAS case study: a documented attack on an AI-enabled system (e.g., AML.CS0000)."""
+type MitreAtlasCaseStudy implements Element  @authentication @mutation(operations: []) @node {
+  "Unique identifier"
+  id: ID! @id
+  "Case study name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATLAS case study ID (e.g., AML.CS0000)"
+  atlas_id: String
+  "Reference URL on atlas.mitre.org"
+  ref_url: String
+  "STIX identifier"
+  stix_id: String
+  "Techniques used in this case study"
+  techniques: [MitreAtlasTechnique!]! @relationship(type: "CAMPAIGN_USES_TECHNIQUE", direction: OUT, nestedOperations: [])
+}
+
+"Properties of an ATLAS_TECHNIQUE_REFERENCES crosswalk edge."
+type AtlasCrosswalkProperties @relationshipProperties {
+  "The ATT&CK ID the ATLAS object cites; differs from the edge's target only where ATT&CK revoked the cited technique."
+  cited_attack_id: String
 }
 
 """A MITRE D3FEND tactic (e.g., Detect, Isolate, Deceive)."""
-type MitreDefendTactic implements Element  @authentication @node {
+type MitreDefendTactic implements Element  @authentication @mutation(operations: []) @node {
   "Unique identifier"
   id: ID! @id
   "Tactic name"
@@ -1023,11 +1157,11 @@ type MitreDefendTactic implements Element  @authentication @node {
   "D3FEND knowledge graph URI"
   uri: String
   "Techniques that enable this tactic"
-  techniques: [MitreDefendTechnique!]! @relationship(type: "ENABLES", direction: IN)
+  techniques: [MitreDefendTechnique!]! @relationship(type: "ENABLES", direction: IN, nestedOperations: [])
 }
 
 """A MITRE D3FEND defensive technique (e.g., Network Traffic Filtering)."""
-type MitreDefendTechnique implements Element  @authentication @node {
+type MitreDefendTechnique implements Element  @authentication @mutation(operations: []) @node {
   "Unique identifier"
   id: ID! @id
   "Technique name"
@@ -1039,13 +1173,13 @@ type MitreDefendTechnique implements Element  @authentication @node {
   "D3FEND knowledge graph URI"
   uri: String
   "Tactics this technique enables"
-  tactics: [MitreDefendTactic!]! @relationship(type: "ENABLES", direction: OUT)
+  tactics: [MitreDefendTactic!]! @relationship(type: "ENABLES", direction: OUT, nestedOperations: [])
   "Sub-techniques of this technique"
-  subTechniques: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: IN)
+  subTechniques: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: IN, nestedOperations: [])
   "Parent technique (if this is a sub-technique)"
-  parentTechnique: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: OUT)
+  parentTechnique: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: OUT, nestedOperations: [])
   "Countermeasures that implement this technique"
-  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN)
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN, nestedOperations: [])
 }
 
 """A defensive countermeasure linked to MITRE ATT&CK mitigations and D3FEND techniques."""
@@ -1089,19 +1223,48 @@ type Countermeasure implements Element  @authentication @node {
     @settable(onCreate: false, onUpdate: false)
   "True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeCountermeasure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearCountermeasureDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked)."
   dispositionStale: Boolean
+  "References the class declares for this countermeasure (mitigations, D3FEND techniques, countered techniques) that could not be linked: the id is not in the loaded MITRE data, or the reference is not an allowed target for its field (written `Label.key=value`). Set by the instantiation writer on every save of a class-derived countermeasure and cleared when every reference links. An unresolved regulatory requirement is not recorded here. Read-only."
+  unresolvedReferences: [String!]
+    @settable(onCreate: false, onUpdate: false)
 
   "ATT&CK mitigations implemented by this countermeasure"
-  mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "D3FEND techniques implemented by this countermeasure"
-  defendedTechniques: [MitreDefendTechnique!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  defendedTechniques: [MitreDefendTechnique!]! @relationship(type: "RESPONDS_WITH", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "ATT&CK techniques this countermeasure mitigates (COUNTERMEASURE_MITIGATES). Distinct from `mitigations` — those are the ATT&CK Mitigation nodes this countermeasure implements, via RESPONDS_WITH; these are the ATT&CK Techniques it counters."
-  mitigates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_MITIGATES", direction: OUT)
+  mitigates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_MITIGATES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "ATT&CK techniques this countermeasure hardens against (COUNTERMEASURE_PROTECTS_AGAINST)"
-  protectsAgainst: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_PROTECTS_AGAINST", direction: OUT)
+  protectsAgainst: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_PROTECTS_AGAINST", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "ATT&CK techniques this countermeasure detects (COUNTERMEASURE_DETECTS)"
-  detects: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_DETECTS", direction: OUT)
+  detects: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_DETECTS", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "ATT&CK techniques this countermeasure isolates (COUNTERMEASURE_ISOLATES)"
-  isolates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_ISOLATES", direction: OUT)
+  isolates: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_ISOLATES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATT&CK techniques this countermeasure deceives the adversary about (COUNTERMEASURE_DECEIVES)"
+  deceives: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_DECEIVES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATT&CK techniques this countermeasure evicts the adversary from (COUNTERMEASURE_EVICTS)"
+  evicts: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_EVICTS", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATT&CK techniques this countermeasure restores from (COUNTERMEASURE_RESTORES)"
+  restores: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_RESTORES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATT&CK techniques this countermeasure responds to (COUNTERMEASURE_RESPONDS_TO)"
+  respondsTo: [MitreAttackTechnique!]! @relationship(type: "COUNTERMEASURE_RESPONDS_TO", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS mitigations implemented by this countermeasure (RESPONDS_WITH)"
+  mitigationsAtlas: [MitreAtlasMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure mitigates (COUNTERMEASURE_MITIGATES)"
+  mitigatesAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_MITIGATES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure hardens against (COUNTERMEASURE_PROTECTS_AGAINST)"
+  protectsAgainstAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_PROTECTS_AGAINST", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure detects (COUNTERMEASURE_DETECTS)"
+  detectsAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_DETECTS", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure isolates (COUNTERMEASURE_ISOLATES)"
+  isolatesAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_ISOLATES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure deceives the adversary about (COUNTERMEASURE_DECEIVES)"
+  deceivesAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_DECEIVES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure evicts the adversary from (COUNTERMEASURE_EVICTS)"
+  evictsAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_EVICTS", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure restores from (COUNTERMEASURE_RESTORES)"
+  restoresAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_RESTORES", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
+  "ATLAS techniques this countermeasure responds to (COUNTERMEASURE_RESPONDS_TO)"
+  respondsToAtlas: [MitreAtlasTechnique!]! @relationship(type: "COUNTERMEASURE_RESPONDS_TO", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
   "Control that provides this countermeasure"
   control: [Control!]! @relationship(type: "HAS_COUNTERMEASURE", direction: IN)
   "Control class this countermeasure belongs to"
@@ -1159,7 +1322,7 @@ type Analysis implements Element  @authentication @node {
   "Data elements being analyzed"
   data: [Data!]! @relationship(type: "ANALYZED_BY", direction: IN)
   "All elements being analyzed"
-  element: [Element!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  element: [Element!]! @relationship(type: "ANALYZED_BY", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Issues associated with this analysis"
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
   "Analysis lifecycle status (active, complete, archived)"
@@ -2434,6 +2597,8 @@ type SetInstantiationAttributesResult {
   success: Boolean!
   "Number of dispositioned exposures on the element whose `dispositionStale` was flipped to true. Zero on no-op saves or when the element carries no dispositions."
   staleFlippedCount: Int
+  "References of the element's class-derived findings that could not be linked (not in the loaded MITRE data, or not an allowed target for their field). They do not fail the save; each is also recorded on its finding's `unresolvedReferences`. Null when every reference linked."
+  unresolvedReferences: [String!]
   "Stable failure category (e.g. DATABASE_ERROR, VALIDATION_ERROR). Null on success."
   errorCode: String
   "Human-readable diagnosis of the failure, naming the offending id and the precise reason. Null on success."
@@ -2513,14 +2678,16 @@ type TechniqueQueryMatch {
   candidates: [MitreCandidate!]!
 }
 
-"""A single MITRE candidate. Shape is uniform across the three MitreKind values; mitreId reads from attack_id (ATT&CK) or d3fendId (D3FEND)."""
+"""A single MITRE candidate. Shape is uniform across the MitreKind values; mitreId reads from attack_id (ATT&CK), d3fendId (D3FEND) or atlas_id (ATLAS)."""
 type MitreCandidate {
-  "T1003 / T1003.001 / D3-PMAD / M1041 — read from attack_id (ATT&CK) or d3fendId (D3FEND)."
+  "T1003 / T1003.001 / D3-PMAD / M1041 / AML.T0051 / AML.M0015 — read from attack_id (ATT&CK), d3fendId (D3FEND) or atlas_id (ATLAS)."
   mitreId: String!
   name: String!
   description: String
-  "ATT&CK tactic name or D3FEND tactic name (same field; distinct vocabularies)."
+  "Tactic name in the candidate's own framework (ATT&CK, ATLAS or D3FEND; distinct vocabularies). For a multi-tactic technique, the earliest in matrix order. Null for mitigations."
   tactic: String
+  "0-based position of `tactic` in its framework's matrix (ATT&CK and ATLAS); null for D3FEND tactics, for mitigations, and for a corpus ingested without matrix positions. Order tactic facets by this, never by name."
+  tacticOrder: Int
   kind: MitreKind!
   matchType: MitreMatchType!
   "Populated for VECTOR_SIMILARITY matches; null for the deterministic tiers (EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH)."

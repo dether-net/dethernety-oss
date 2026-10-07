@@ -301,6 +301,8 @@ export interface MitreAttackTactic extends Element {
   name?: string
   description?: string
   attack_id: string
+  /** 0-based position in the ATT&CK matrix (kill-chain order). */
+  matrix_order?: number | null
   attack_version?: string
   stix_id: string
   stix_spec_version?: string
@@ -332,6 +334,8 @@ export interface Exposure extends Element {
   detectionMethods?: string[]
   tags?: string[]
   exploitedBy?: MitreAttackTechnique[]
+  // eslint-disable-next-line no-use-before-define
+  exploitedByAtlas?: MitreAtlasTechnique[]
   /** Authorship kind. SYSTEM = module-instantiated. USER = hand-authored. Nullable for legacy data. */
   createdBy?: 'SYSTEM' | 'USER'
   /** For USER findings: the authenticated user id. For SYSTEM: optional module-provided attribution. */
@@ -354,6 +358,41 @@ export interface Exposure extends Element {
   dispositionedAt?: string | null
   /** True when an instantiation attribute changed since the disposition was authored / re-affirmed. */
   dispositionStale?: boolean | null
+  /**
+   * Read-only. References the class declares for this finding that could not be
+   * linked (not in the loaded MITRE data, or not an allowed target for their
+   * field). Set by the platform when it instantiates class-derived findings.
+   */
+  unresolvedReferences?: string[] | null
+}
+
+/** A MITRE ATLAS tactic. ATLAS is its own matrix: its ids and names overlap ATT&CK's but are other tactics. */
+export interface MitreAtlasTactic extends Element {
+  id: string
+  name?: string
+  description?: string
+  atlas_id: string
+  /** 0-based position in the ATLAS matrix. */
+  matrix_order?: number | null
+}
+
+/** A MITRE ATLAS technique or sub-technique (AML.T0051, AML.T0051.000). */
+export interface MitreAtlasTechnique extends Element {
+  id: string
+  name: string
+  description?: string
+  atlas_id: string
+  ref_url?: string
+  tactics?: MitreAtlasTactic[]
+}
+
+/** A MITRE ATLAS mitigation (AML.M0015). */
+export interface MitreAtlasMitigation {
+  id: string
+  name: string
+  description?: string
+  atlas_id: string
+  ref_url?: string
 }
 
 export interface MitreAttackMitigation {
@@ -386,6 +425,50 @@ export interface MitreDefendTechnique extends Element {
   countermeasures?: Countermeasure[];
 }
 
+/**
+ * The relationship fields that link a countermeasure to MITRE nodes: RESPONDS_WITH to the
+ * mitigations and D3FEND techniques it implements, the eight COUNTERMEASURE_* verbs to the
+ * ATT&CK techniques it acts on, and the ATLAS siblings of the mitigations and the verbs
+ * (the ATT&CK field name with an `Atlas` suffix).
+ */
+export const COUNTERMEASURE_TECHNIQUE_LINK_FIELDS = [
+  'mitigations',
+  'defendedTechniques',
+  'mitigates',
+  'protectsAgainst',
+  'detects',
+  'isolates',
+  'deceives',
+  'evicts',
+  'restores',
+  'respondsTo',
+  'mitigationsAtlas',
+  'mitigatesAtlas',
+  'protectsAgainstAtlas',
+  'detectsAtlas',
+  'isolatesAtlas',
+  'deceivesAtlas',
+  'evictsAtlas',
+  'restoresAtlas',
+  'respondsToAtlas',
+] as const
+
+export type CountermeasureTechniqueLinkField = (typeof COUNTERMEASURE_TECHNIQUE_LINK_FIELDS)[number]
+
+/** One edge to a MITRE node: the target's id and the edge's justification, if the writer gave one. */
+export interface TechniqueLink {
+  id: string
+  justification?: string | null
+}
+
+export type CountermeasureTechniqueLinks = Partial<Record<CountermeasureTechniqueLinkField, TechniqueLink[]>>
+
+/** The links of an exposure to the techniques that exploit it, by framework field. */
+export interface ExposureTechniqueLinks {
+  exploitedBy: TechniqueLink[]
+  exploitedByAtlas: TechniqueLink[]
+}
+
 export interface Countermeasure extends Element {
   id: string;
   name: string;
@@ -398,6 +481,7 @@ export interface Countermeasure extends Element {
   tags: string[];
   mitigations?: MitreAttackMitigation[];
   defendedTechniques?: MitreDefendTechnique[];
+  mitigationsAtlas?: MitreAtlasMitigation[];
   control?: Control;
   /** Authorship kind. SYSTEM = module-instantiated. USER = hand-authored. Nullable for legacy data. */
   createdBy?: 'SYSTEM' | 'USER';
@@ -420,6 +504,12 @@ export interface Countermeasure extends Element {
   dispositionedAt?: string | null;
   /** True when an instantiation attribute changed since the disposition was authored / re-affirmed. */
   dispositionStale?: boolean | null;
+  /**
+   * Read-only. References the class declares for this finding that could not be
+   * linked (not in the loaded MITRE data, or not an allowed target for their
+   * field). Set by the platform when it instantiates class-derived findings.
+   */
+  unresolvedReferences?: string[] | null;
 }
 
 
@@ -644,6 +734,8 @@ export type MitreKind =
   | 'ATTACK_TECHNIQUE'
   | 'DEFEND_TECHNIQUE'
   | 'ATTACK_MITIGATION'
+  | 'ATLAS_TECHNIQUE'
+  | 'ATLAS_MITIGATION'
 
 export type MitreMatchType =
   | 'EXACT_ID'
@@ -671,14 +763,16 @@ export interface MatchMitreTechniquesInput {
   topN?: number
 }
 
-/** A single MITRE candidate. Uniform shape across the three MitreKind values. */
+/** A single MITRE candidate. Uniform shape across the MitreKind values. */
 export interface MitreCandidate {
-  /** T1003 / T1003.001 / D3-PMAD / M1041. */
+  /** T1003 / T1003.001 / D3-PMAD / M1041 / AML.T0051 / AML.M0015. */
   mitreId: string
   name: string
   description?: string | null
-  /** ATT&CK or D3FEND tactic name (same field, distinct vocabularies). */
+  /** Tactic name in the candidate's own framework (ATT&CK, ATLAS or D3FEND); null for mitigations. */
   tactic?: string | null
+  /** 0-based matrix position of `tactic` (ATT&CK, ATLAS); null for D3FEND and mitigations. */
+  tacticOrder?: number | null
   kind: MitreKind
   matchType: MitreMatchType
   /** Populated for VECTOR_SIMILARITY; null for the deterministic tiers. */

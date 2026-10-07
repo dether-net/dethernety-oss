@@ -8,7 +8,7 @@ This is the frontend component of the Dethernety cybersecurity threat modeling f
 - **Module Integration**: Support for component classes provided by loaded modules
 - **Threat Visualization**: View and analyze security exposures and countermeasures
 - **AI Analysis Integration**: Interface with the LangGraph analysis server
-- **MITRE Framework Mapping**: Visualize connections between components, ATT&CK techniques, and D3FEND mitigations
+- **MITRE Framework Mapping**: Visualize connections between components, ATT&CK techniques, and D3FEND mitigations; ATLAS techniques and mitigations are shown, linked to atlas.mitre.org, but not edited
 
 ## Architecture
 
@@ -45,7 +45,7 @@ pnpm dev
 - **Model Editor**: Main interface for creating and editing system models
 - **Component Configuration**: Forms for configuring components based on their class definitions
 - **Analysis View**: Interface for running and viewing AI-powered analyses
-- **MITRE Integration**: Visualization of ATT&CK and D3FEND mappings
+- **MITRE Integration**: Visualization of ATT&CK, ATLAS and D3FEND mappings
 
 ## Building for Production
 
@@ -60,4 +60,4 @@ The frontend communicates with the dt-ws backend service via GraphQL APIs to:
 - Load module definitions
 - Retrieve component classes and templates
 - Run AI-powered analyses
-- Query MITRE ATT&CK and D3FEND data
+- Query MITRE ATT&CK, ATLAS and D3FEND data

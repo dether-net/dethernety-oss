@@ -126,7 +126,7 @@ The **password is not here.** It is generated into `.env.secrets` on the first s
 | Setting | What it does | Default | Change it when |
 |---|---|---|---|
 | `EMBEDDING_MODEL` | The model the embedding server serves **and** the model the platform queries. One value drives both, so they cannot drift apart. | `embeddinggemma` | You have a reason to use a different model. |
-| `EMBEDDING_SIMILARITY_THRESHOLD` | The similarity cut-off for class matching. | `0.40` | Only alongside a model change — the threshold is model-dependent, and the default is tuned for the default model. |
+| `EMBEDDING_SIMILARITY_THRESHOLD` | The similarity cut-off for class and MITRE technique matching. | `0.40` | Only alongside a model change — the threshold is model-dependent, and the default is tuned for the default model. |
 
 Changing the model triggers a fresh download inside the `ollama` container on the next start, exactly like the first run.
 

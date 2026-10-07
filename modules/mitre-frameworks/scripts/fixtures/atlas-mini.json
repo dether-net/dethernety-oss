@@ -1,0 +1,257 @@
+{
+ "type": "bundle",
+ "id": "bundle--605de3ac-53fd-5ac4-8e2a-5298846423cc",
+ "objects": [
+  {
+   "type": "x-mitre-tactic",
+   "spec_version": "2.1",
+   "id": "x-mitre-tactic--39099d7c-9fb7-5836-8e8a-9f6b594bf01b",
+   "created": "2022-01-24T00:00:00.000Z",
+   "modified": "2025-04-09T00:00:00.000Z",
+   "name": "Resource Development",
+   "description": "The adversary is trying to establish resources they can use to support operations.\n\nResource Development consists of techniques that involve adversaries creating,\npurchasing, or compromising/stealing resources that can be used to support targeting.\nSuch resources include AI artifacts, infrastructure, accounts, or capabilities.\nThese resources can be leveraged by the adversary to aid in other phases of the adversary lifecycle, such as [AI Attack Staging](/tactics/AML.TA0001).",
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/tactics/AML.TA0003",
+     "external_id": "AML.TA0003"
+    },
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/tactics/TA0042/",
+     "external_id": "TA0042"
+    }
+   ],
+   "x_mitre_domains": [
+    "ATLAS"
+   ],
+   "x_mitre_shortname": "resource-development"
+  },
+  {
+   "type": "x-mitre-tactic",
+   "spec_version": "2.1",
+   "id": "x-mitre-tactic--22a483dc-1102-5fd0-94bd-b4259c537274",
+   "created": "2022-01-24T00:00:00.000Z",
+   "modified": "2025-04-09T00:00:00.000Z",
+   "name": "Defense Evasion",
+   "description": "The adversary is trying to avoid being detected by AI-enabled security software.\n\nDefense Evasion consists of techniques that adversaries use to avoid detection throughout their compromise.\nTechniques used for defense evasion include evading AI-enabled security software such as malware detectors.",
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/tactics/AML.TA0007",
+     "external_id": "AML.TA0007"
+    },
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/tactics/TA0005/",
+     "external_id": "TA0005"
+    }
+   ],
+   "x_mitre_domains": [
+    "ATLAS"
+   ],
+   "x_mitre_shortname": "defense-evasion"
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--94e1836d-1749-5d64-8f2f-de06a218ded7",
+   "created": "2021-05-13T00:00:00.000Z",
+   "modified": "2026-05-27T00:00:00.000Z",
+   "name": "Obtain Capabilities",
+   "description": "Adversaries may search for and obtain software capabilities for use in their operations.\nCapabilities may be specific to AI-based attacks [Adversarial AI Attack Implementations](/techniques/AML.T0016.000) or generic software tools repurposed for malicious intent ([Software Tools](/techniques/AML.T0016.001)). In both instances, an adversary may modify or customize the capability to aid in targeting a particular AI-enabled system.",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-atlas",
+     "phase_name": "resource-development"
+    }
+   ],
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/techniques/AML.T0016",
+     "external_id": "AML.T0016"
+    },
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1588/",
+     "external_id": "T1588"
+    }
+   ],
+   "x_mitre_domains": [
+    "ATLAS"
+   ],
+   "x_mitre_platforms": [
+    "Predictive AI",
+    "Generative AI",
+    "Agentic AI",
+    "Enterprise"
+   ]
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--f321adfd-7fd1-5a86-91e0-c8aa32fbe421",
+   "created": "2021-05-13T00:00:00.000Z",
+   "modified": "2026-05-27T00:00:00.000Z",
+   "name": "Software Tools",
+   "description": "Adversaries may search for and obtain software tools to support their operations.\nSoftware designed for legitimate use may be repurposed by an adversary for malicious intent.\nAn adversary may modify or customize software tools to achieve their purpose.\nSoftware tools used to support attacks on AI systems are not necessarily AI-based themselves.",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-atlas",
+     "phase_name": "resource-development"
+    }
+   ],
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/techniques/AML.T0016.001",
+     "external_id": "AML.T0016.001"
+    },
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1588/002/",
+     "external_id": "T1588.002"
+    }
+   ],
+   "x_mitre_domains": [
+    "ATLAS"
+   ],
+   "x_mitre_is_subtechnique": true,
+   "x_mitre_platforms": [
+    "Enterprise"
+   ]
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--cb172e61-1612-58ae-a022-2ef35b237987",
+   "created": "2025-04-14T00:00:00.000Z",
+   "modified": "2026-05-27T00:00:00.000Z",
+   "name": "Impersonation",
+   "description": "Adversaries may impersonate a trusted person or organization in order to persuade and trick a target into performing some action on their behalf. For example, adversaries may communicate with victims (via [Phishing](/techniques/AML.T0052), or [Spearphishing via Social Engineering LLM](/techniques/AML.T0052.000)) while impersonating a known sender such as an executive, colleague, or third-party vendor. Established trust can then be leveraged to accomplish an adversary's ultimate goals, possibly against multiple victims.\n\nAdversaries may target resources that are part of the AI DevOps lifecycle, such as model repositories, container registries, and software registries.",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-atlas",
+     "phase_name": "defense-evasion"
+    }
+   ],
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/techniques/AML.T0073",
+     "external_id": "AML.T0073"
+    },
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1656/",
+     "external_id": "T1656"
+    }
+   ],
+   "x_mitre_domains": [
+    "ATLAS"
+   ],
+   "x_mitre_platforms": [
+    "Enterprise"
+   ]
+  },
+  {
+   "type": "course-of-action",
+   "spec_version": "2.1",
+   "id": "course-of-action--68a1c707-b05e-5588-b0a3-01aa35182ed0",
+   "created": "2023-04-12T00:00:00.000Z",
+   "modified": "2026-07-31T00:00:00.000Z",
+   "name": "Limit Model Artifact Release",
+   "description": "Limit public release of technical project details including data, algorithms, model architectures, and model checkpoints that are used in production, or that are representative of those used in production.",
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/mitigations/AML.M0001",
+     "external_id": "AML.M0001"
+    }
+   ],
+   "x_mitre_domains": [
+    "ATLAS"
+   ]
+  },
+  {
+   "type": "campaign",
+   "spec_version": "2.1",
+   "id": "campaign--861228c8-adac-54d6-9fa9-cb6523848fac",
+   "created": "2025-04-22T00:00:00.000Z",
+   "modified": "2025-12-24T00:00:00.000Z",
+   "name": "LLM Jacking",
+   "description": "The Sysdig Threat Research Team discovered that malicious actors utilized stolen credentials to gain access to cloud-hosted large language models (LLMs). The actors covertly gathered information about which models were enabled on the cloud service and created a reverse proxy for LLMs that would allow them to provide model access to cybercriminals.\n\nThe Sysdig researchers identified tools used by the unknown actors that could target a broad range of cloud services including AI21 Labs, Anthropic, AWS Bedrock, Azure, ElevenLabs, MakerSuite, Mistral, OpenAI, OpenRouter, and GCP Vertex AI. Their technical analysis represented in the procedure below looked at at Amazon CloudTrail logs from the Amazon Bedrock service.\n\nThe Sysdig researchers estimated that the worst-case financial harm for the unauthorized use of a single Claude 2.x model could be up to $46,000 a day.\n\nUpdate as of April 2025: This attack is ongoing and evolving. This case study only covers the initial reporting from Sysdig.",
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/studies/AML.CS0030",
+     "external_id": "AML.CS0030"
+    }
+   ]
+  },
+  {
+   "type": "relationship",
+   "spec_version": "2.1",
+   "id": "relationship--c41fbb5a-cd29-53ca-9fb2-3137523d28d8",
+   "created": "2021-05-13T00:00:00.000Z",
+   "modified": "2026-05-27T00:00:00.000Z",
+   "relationship_type": "subtechnique-of",
+   "source_ref": "attack-pattern--f321adfd-7fd1-5a86-91e0-c8aa32fbe421",
+   "target_ref": "attack-pattern--94e1836d-1749-5d64-8f2f-de06a218ded7"
+  },
+  {
+   "type": "relationship",
+   "spec_version": "2.1",
+   "id": "relationship--4965ba2b-a235-59e6-bf91-8a8c9916a218",
+   "created": "2023-04-12T00:00:00.000Z",
+   "modified": "2026-07-31T00:00:00.000Z",
+   "relationship_type": "mitigates",
+   "description": "Limit public release of production model artifacts that adversaries could acquire and adapt as operational capabilities.",
+   "source_ref": "course-of-action--68a1c707-b05e-5588-b0a3-01aa35182ed0",
+   "target_ref": "attack-pattern--94e1836d-1749-5d64-8f2f-de06a218ded7"
+  },
+  {
+   "type": "relationship",
+   "spec_version": "2.1",
+   "id": "relationship--263309eb-f4cd-533d-9841-c5e5beec2606",
+   "created": "2025-04-22T00:00:00.000Z",
+   "modified": "2025-12-24T00:00:00.000Z",
+   "relationship_type": "uses",
+   "description": "The adversaries obtained [keychecker](https://github.com/cunnymessiah/keychecker), a bulk key checker for various AI services which is capable of testing if the key is valid and retrieving some attributes of the account (e.g. account balance and available models).",
+   "source_ref": "campaign--861228c8-adac-54d6-9fa9-cb6523848fac",
+   "target_ref": "attack-pattern--f321adfd-7fd1-5a86-91e0-c8aa32fbe421"
+  },
+  {
+   "type": "relationship",
+   "spec_version": "2.1",
+   "id": "relationship--263309eb-f4cd-533d-9841-c5e5beec2606",
+   "created": "2025-04-22T00:00:00.000Z",
+   "modified": "2025-12-24T00:00:00.000Z",
+   "relationship_type": "uses",
+   "description": "The adversaries then used [OAI Reverse Proxy](https://gitgud.io/khanon/oai-reverse-proxy)  to create a reverse proxy service in front of the stolen LLM resources. The reverse proxy service could be used to sell access to cybercriminals who could exploit the LLMs for malicious purposes.",
+   "source_ref": "campaign--861228c8-adac-54d6-9fa9-cb6523848fac",
+   "target_ref": "attack-pattern--f321adfd-7fd1-5a86-91e0-c8aa32fbe421"
+  },
+  {
+   "type": "x-mitre-matrix",
+   "spec_version": "2.1",
+   "id": "x-mitre-matrix--967c63ff-22bd-5ff8-aa59-1e1fca8dec78",
+   "created": "2020-10-23T00:00:00.000Z",
+   "modified": "2026-08-31T00:00:00.000Z",
+   "name": "ATLAS",
+   "description": "Adversarial Threat Landscape for AI Systems",
+   "external_references": [
+    {
+     "source_name": "mitre-atlas",
+     "url": "https://atlas.mitre.org/matrix/ATLAS-matrix",
+     "external_id": "ATLAS-matrix"
+    }
+   ],
+   "tactic_refs": [
+    "x-mitre-tactic--39099d7c-9fb7-5836-8e8a-9f6b594bf01b",
+    "x-mitre-tactic--22a483dc-1102-5fd0-94bd-b4259c537274"
+   ]
+  }
+ ]
+}

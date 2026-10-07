@@ -219,7 +219,7 @@ Two Cypher fragments are shared across the reads:
 
 ### The four reads
 
-1. **Base / anchor query** — one row per `(element, exposure, exploited technique)`, carrying the technique's ATT&CK tactic name(s) (the matrix columns), name, and description. An exposure with no `EXPLOITED_BY` technique yields a single row with a null technique id — the soft/unmapped marker. Tactics are resolved through `SUBTECHNIQUE_OF*0..1` so a sub-technique inherits its parent's tactic columns as well as its own.
+1. **Base / anchor query** — one row per `(element, exposure, exploited technique)`, carrying the technique's ATT&CK tactics (the matrix columns), name, and description. Each tactic is returned as `{ id, name, order }`: its ATT&CK id, its name, and its matrix position (the tactic's `matrix_order`, `999` when absent), so consumers key and order columns by data rather than by name. An exposure with no `EXPLOITED_BY` technique yields a single row with a null technique id — the soft/unmapped marker. Tactics are resolved through `SUBTECHNIQUE_OF*0..1` so a sub-technique inherits its parent's tactic columns as well as its own.
 2. **DIRECT tier query** — element-anchored countermeasures with an author-asserted edge (`type(r) IN [...]`, the most engine-portable form) to the exposed technique or its parent, returning the relationship type so the function classification can read it.
 3. **INDIRECT-Mitigation tier query** — element-anchored countermeasures that respond with a mitigation defending against the exposed technique.
 4. **INDIRECT-D3FEND tier query** — element-anchored countermeasures whose D3FEND technique artifact-bridges to the exposed technique, returning the D3FEND tactic name(s) for prevent/detect derivation.
@@ -237,6 +237,10 @@ Each tier query also returns the covering countermeasure's parent `Control` via 
 - computes `meta`: exposure and soft-exposure counts, distinct covered `(exposure, technique)` pairs per tier, and distinct contributing countermeasures per tier.
 
 Keeping this assembly in a pure function — rather than in deeply nested Cypher `collect`s — is what makes the tier merge, the soft/uncovered partition, and the prevent/detect mapping **unit-testable against fixtures**. The split is deliberate: the *graph* correctness of the four reads is verified against a live graph, while the *assembly* correctness is verified deterministically in the test suite. Neither half has to carry the other's complexity.
+
+The aggregator merges the tactics of a technique by tactic `id` across base rows and sorts them by `order`, then `id`; the `Tactic` shape is in [coverage-facts.md](./coverage-facts.md#tactic).
+
+The two halves meet in one **equivalence fixture**, `__tests__/fixtures/equivalence/`: a seeded scenario (`seed.cypher`), the rows the four reads return for it (`rows.json`), and the resulting `CoverageResult` (`expected.json`). The module's own suite pins `aggregateCoverage` to `rows.json` → `expected.json` and never runs the Cypher. The live run — the module's real queries on a Memgraph seeded with `seed.cypher`, compared field for field with `expected.json` — lives in the threat report's e2e suite, [`coverage-equivalence.e2e.spec.ts`](../../../modules/dethernety-threat-report/test/coverage-equivalence.e2e.spec.ts). The fixture includes a technique with three tactics whose matrix order differs from their alphabetical order, so the live run also pins the tactic objects and their order.
 
 ---
 
@@ -273,6 +277,7 @@ Every query is written to run unchanged on both Neo4j and Memgraph:
 - **Bounded variable-length walks** — `BELONGS_TO*0..50` for the boundary forest, `SUBTECHNIQUE_OF*0..1` for sub-technique inheritance — rather than unbounded `*`.
 - **`type(r) IN [...]`** for the DIRECT relationship set, the most portable way to match a relationship-type union.
 - **Relationship-isomorphism within a single `MATCH`** for the D3FEND artifact bridge, a guarantee both engines honor.
+- **Tactic nodes collected, then projected** in the base query: `collect(DISTINCT tac)` gathers the tactic nodes, and a map projection (`x {id: x.attack_id, .name, order: …}`) builds each `{ id, name, order }` afterwards. Collecting maps directly fails on Memgraph when the map is null (no tactic matched), and a map *literal* inside the list comprehension returns the first tactic's properties for every element on Memgraph 3.8; the map projection avoids both.
 - **Read-only transactions** with a defensive timeout that Neo4j honors directly and Memgraph backstops server-side.
 
 The result is a primitive that behaves identically across the platform's supported graph backends.

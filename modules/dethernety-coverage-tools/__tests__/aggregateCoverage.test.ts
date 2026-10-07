@@ -15,6 +15,12 @@ const base = (over: Partial<AggregateInput> = {}): AggregateInput => ({
   ...over,
 });
 
+// ATT&CK v19 tactics as the base query returns them: id, name, matrix position.
+const IA = { id: 'TA0001', name: 'Initial Access', order: 2 };
+const PE = { id: 'TA0003', name: 'Persistence', order: 4 };
+const ST = { id: 'TA0005', name: 'Stealth', order: 6 };
+const DI = { id: 'TA0112', name: 'Defense Impairment', order: 7 };
+
 const exp = (r: CoverageResult, id: string) =>
   r.exposures.find((e) => e.exposureId === id)!;
 const tech = (r: CoverageResult, eid: string, tid: string) =>
@@ -32,7 +38,7 @@ describe('aggregateCoverage — partitions', () => {
 
   it('exposure with a technique but no covering edge → covered:false, empty tiers', () => {
     const r = aggregateCoverage(
-      base({ baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1190', tactics: ['Initial Access'] }] }),
+      base({ baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1190', tactics: [IA] }] }),
     );
     expect(exp(r, 'e1').soft).toBe(false);
     expect(tech(r, 'e1', 'T1190')).toMatchObject({ covered: false, tiers: [] });
@@ -51,8 +57,8 @@ describe('aggregateCoverage — technique info dictionary (deduped name/descript
     const r = aggregateCoverage(
       base({
         baseRows: [
-          { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1005', techniqueName: 'Data from Local System', techniqueDescription: 'Adversaries may search...', tactics: ['Collection'] },
-          { elementId: 'c2', elementKind: 'Component', exposureId: 'e2', techniqueId: 'T1005', techniqueName: 'Data from Local System', techniqueDescription: 'Adversaries may search...', tactics: ['Collection'] },
+          { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1005', techniqueName: 'Data from Local System', techniqueDescription: 'Adversaries may search...', tactics: [{ id: 'TA0009', name: 'Collection', order: 11 }] },
+          { elementId: 'c2', elementKind: 'Component', exposureId: 'e2', techniqueId: 'T1005', techniqueName: 'Data from Local System', techniqueDescription: 'Adversaries may search...', tactics: [{ id: 'TA0009', name: 'Collection', order: 11 }] },
         ],
       }),
     );
@@ -67,29 +73,39 @@ describe('aggregateCoverage — technique info dictionary (deduped name/descript
 });
 
 describe('aggregateCoverage — tactics (matrix columns)', () => {
-  it('surfaces the technique tactic(s) on the covered technique', () => {
+  it('orders a technique\'s tactics by ATT&CK matrix position, not by name', () => {
     const r = aggregateCoverage(
-      base({ baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078', tactics: ['Defense Evasion', 'Persistence'] }] }),
+      base({ baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078', tactics: [DI, PE, ST] }] }),
     );
-    expect(tech(r, 'e1', 'T1078').tactics).toEqual(['Defense Evasion', 'Persistence']); // sorted
+    // Alphabetical would put Defense Impairment first; the v19 matrix puts Stealth before it.
+    expect(tech(r, 'e1', 'T1078').tactics).toEqual([PE, ST, DI]);
   });
 
-  it('unions tactic names across duplicate base rows for the same (exposure, technique)', () => {
+  it('unions tactics by id across duplicate base rows for the same (exposure, technique)', () => {
     const r = aggregateCoverage(
       base({
         baseRows: [
-          { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078', tactics: ['Persistence'] },
-          { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078', tactics: ['Initial Access'] },
+          { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078', tactics: [PE, IA] },
+          { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078', tactics: [IA] },
         ],
       }),
     );
-    expect(tech(r, 'e1', 'T1078').tactics).toEqual(['Initial Access', 'Persistence']);
+    expect(tech(r, 'e1', 'T1078').tactics).toEqual([IA, PE]);
+  });
+
+  it('breaks an order tie by id (a tactic without matrix_order arrives as 999)', () => {
+    const late = { id: 'TA9999', name: 'Unplaced', order: 999 };
+    const later = { id: 'TA9998', name: 'Also unplaced', order: 999 };
+    const r = aggregateCoverage(
+      base({ baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1', tactics: [late, IA, later] }] }),
+    );
+    expect(tech(r, 'e1', 'T1').tactics).toEqual([IA, later, late]);
   });
 });
 
 describe('aggregateCoverage — tiers & functions', () => {
   const baseRows = [
-    { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1190', tactics: ['Initial Access'] },
+    { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1190', tactics: [IA] },
   ];
 
   it('DIRECT: _DETECTS ⇒ DETECT, the other three ⇒ PREVENT; controlIds thread through', () => {
@@ -176,7 +192,7 @@ describe('aggregateCoverage — sub-technique inheritance is attributed to the r
   it('a covering row for a sub-technique exposure stays on that sub-technique', () => {
     const r = aggregateCoverage(
       base({
-        baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078.004', tactics: ['Defense Evasion'] }],
+        baseRows: [{ elementId: 'c1', elementKind: 'Component', exposureId: 'e1', techniqueId: 'T1078.004', tactics: [ST] }],
         mitigationRows: [{ exposureId: 'e1', techniqueId: 'T1078.004', cmId: 'cmM', controlId: 'kM' }],
       }),
     );

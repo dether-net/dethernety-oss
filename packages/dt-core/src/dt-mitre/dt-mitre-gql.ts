@@ -20,6 +20,7 @@ export const MATCH_MITRE_TECHNIQUES = gql`
           name
           description
           tactic
+          tacticOrder
           kind
           matchType
           similarityScore

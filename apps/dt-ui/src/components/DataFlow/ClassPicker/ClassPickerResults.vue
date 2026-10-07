@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import { computed } from 'vue'
+  import { similarityMeterLevel } from '@/utils/similarityMeter'
   import type { ClassCandidate } from '@/stores/classSuggestionsStore'
 
   interface Props {
@@ -17,8 +18,6 @@
     confirm: [candidate: ClassCandidate]
   }>()
 
-  const VECTOR_SIMILARITY_THRESHOLD = 0.7
-
   const allTypeMatch = computed(() =>
     props.candidates.length > 0 && props.candidates.every(c => c.matchType === 'type_match'),
   )
@@ -31,13 +30,7 @@
       : props.candidates,
   )
 
-  const meterLevel = (score?: number): number => {
-    if (score == null) return 0
-    if (score >= 0.9) return 3
-    if (score >= 0.8) return 2
-    if (score >= VECTOR_SIMILARITY_THRESHOLD) return 1
-    return 0
-  }
+  const meterLevel = similarityMeterLevel
 </script>
 
 <template>

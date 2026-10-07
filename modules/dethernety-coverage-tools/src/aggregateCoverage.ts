@@ -27,8 +27,8 @@ export type CoverageFunction = 'PREVENT' | 'DETECT';
 
 /** One (element, exposure, exploited-technique) row. `techniqueId === null`
  *  marks a soft/unmapped exposure (no EXPLOITED_BY — cannot enter the bridge);
- *  `tactics` are the technique's ATT&CK tactic name(s), inheriting the parent's
- *  via SUBTECHNIQUE_OF (the matrix columns). */
+ *  `tactics` are the technique's ATT&CK tactics, inheriting the parent's via
+ *  SUBTECHNIQUE_OF (the matrix columns). */
 export interface BaseRow {
   elementId: string;
   elementKind: string | null; // Component | DataFlow | SecurityBoundary | Data
@@ -36,7 +36,22 @@ export interface BaseRow {
   techniqueId: string | null; // EXPLOITED_BY attack_id (e.g. "T1190"); null ⇒ soft
   techniqueName?: string | null; // human-readable ATT&CK name (e.g. "Data from Local System")
   techniqueDescription?: string | null; // full ATT&CK description
-  tactics: string[]; // ATT&CK tactic names for this technique (incl. inherited)
+  tactics: Tactic[]; // ATT&CK tactics for this technique (incl. inherited)
+}
+
+/** An ATT&CK tactic as a matrix column: its id (TA0005), name, and position in the
+ *  ATT&CK matrix (`matrix_order`, stamped at ingest; 999 when absent). Columns are
+ *  keyed and ordered by id and position, never by name: names repeat across
+ *  frameworks and change between ATT&CK releases. */
+export interface Tactic {
+  id: string;
+  name: string;
+  order: number;
+}
+
+/** Matrix order, then id: the stable sort for tactic columns. */
+export function compareTactics(a: Tactic, b: Tactic): number {
+  return a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 /** Human-readable technique info, deduped to one entry per technique (so the full
@@ -87,7 +102,7 @@ export interface TierFact {
 
 export interface TechniqueCoverage {
   techniqueId: string;
-  tactics: string[]; // ATT&CK tactic name(s) — the matrix columns this technique fills
+  tactics: Tactic[]; // ATT&CK tactics in matrix order — the matrix columns this technique fills
   covered: boolean;
   tiers: TierFact[];
 }
@@ -214,7 +229,7 @@ export function aggregateCoverage(input: AggregateInput): CoverageResult {
   // union of its tactic names) accumulated across the base rows for that exposure.
   const byExposure = new Map<
     string,
-    { elementId: string; elementKind: string | null; techniques: Map<string, Set<string>> }
+    { elementId: string; elementKind: string | null; techniques: Map<string, Map<string, Tactic>> }
   >();
   // deduped technique info (name/description) — one entry per technique.
   const techniqueInfo = new Map<string, TechniqueInfo>();
@@ -223,8 +238,8 @@ export function aggregateCoverage(input: AggregateInput): CoverageResult {
     if (!e) byExposure.set(r.exposureId, (e = { elementId: r.elementId, elementKind: r.elementKind, techniques: new Map() }));
     if (r.techniqueId) {
       let tac = e.techniques.get(r.techniqueId);
-      if (!tac) e.techniques.set(r.techniqueId, (tac = new Set()));
-      for (const name of r.tactics ?? []) if (name) tac.add(name);
+      if (!tac) e.techniques.set(r.techniqueId, (tac = new Map()));
+      for (const tactic of r.tactics ?? []) if (tactic?.id) tac.set(tactic.id, tactic);
       if (!techniqueInfo.has(r.techniqueId)) {
         techniqueInfo.set(r.techniqueId, { name: r.techniqueName ?? null, description: r.techniqueDescription ?? null });
       }
@@ -241,7 +256,7 @@ export function aggregateCoverage(input: AggregateInput): CoverageResult {
       const tiers = tierFactsFor(exposureId, techniqueId);
       return {
         techniqueId,
-        tactics: [...(e.techniques.get(techniqueId) ?? [])].sort(),
+        tactics: [...(e.techniques.get(techniqueId)?.values() ?? [])].sort(compareTactics),
         covered: tiers.length > 0,
         tiers,
       };

@@ -5,12 +5,14 @@
   import { Class, Control, Countermeasure, type DispositionMutationResult } from '@dethernety/dt-core'
   import { unflattenProperties } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
+  import { mitreUrl } from '@/utils/mitreUrl'
   import type { UISchemaElement } from '@jsonforms/core'
   import ClassPickerSheet from '@/components/DataFlow/ClassPicker/ClassPickerSheet.vue'
   import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
   import StaleBadge from '@/components/Disposition/StaleBadge.vue'
   import PendingBadge from '@/components/Disposition/PendingBadge.vue'
   import LifecycleBadge from '@/components/Disposition/LifecycleBadge.vue'
+  import UnresolvedReferencesBadge from '@/components/Disposition/UnresolvedReferencesBadge.vue'
   import {
     useFindingDisposition,
     emptyDispositionDialogState,
@@ -961,6 +963,19 @@
                         >
                           {{ technique.name }} ({{ technique.d3fendId }})
                         </v-chip>
+                        <!-- ATLAS mitigations: shown with a link to atlas.mitre.org; there is no in-app ATLAS detail view. -->
+                        <v-chip
+                          v-for="mitigation in item.mitigationsAtlas || []"
+                          :key="mitigation.id"
+                          class="ma-1"
+                          :href="mitreUrl(mitigation.atlas_id) ?? undefined"
+                          rel="noopener noreferrer"
+                          target="_blank"
+                          variant="outlined"
+                        >
+                          {{ mitigation.name }} ({{ mitigation.atlas_id }})
+                        </v-chip>
+                        <UnresolvedReferencesBadge :references="item.unresolvedReferences" />
                       </template>
                       <template #item.actions="{ item }">
                         <!-- Compact 2-col grid (mirrors the exposures tab): the triage

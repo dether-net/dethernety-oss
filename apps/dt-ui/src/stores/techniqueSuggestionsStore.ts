@@ -16,6 +16,7 @@ import { ref, readonly } from 'vue'
 import { defineStore } from 'pinia'
 import {
   DtMitre,
+  DtMitreAtlas,
   DtMitreAttack,
   DtMitreDefend,
   CancelledError,
@@ -39,7 +40,22 @@ export interface CatalogEntry {
   name: string
   description?: string | null
   tactic?: string | null
+  /** 0-based matrix position of `tactic` (ATT&CK, ATLAS); null for D3FEND and mitigations. */
+  tacticOrder?: number | null
   kind: MitreKind
+}
+
+/** The earliest of a technique's tactics in matrix order (a tactic without a position sorts last). */
+function earliestTactic(
+  tactics: ReadonlyArray<{ name?: string | null; matrix_order?: number | null }> | null | undefined,
+): { tactic: string | null; tacticOrder: number | null } {
+  const rank = (t: { matrix_order?: number | null }) =>
+    typeof t.matrix_order === 'number' ? t.matrix_order : Number.MAX_SAFE_INTEGER
+  const first = [...(tactics ?? [])].sort((a, b) => rank(a) - rank(b))[0]
+  return {
+    tactic: first?.name ?? null,
+    tacticOrder: typeof first?.matrix_order === 'number' ? first.matrix_order : null,
+  }
 }
 
 // Per-(kind, query) match results live here. Empty string query is used by the
@@ -59,6 +75,7 @@ export const useTechniqueSuggestionsStore = defineStore('techniqueSuggestions', 
   const dtMitre = new DtMitre(apolloClient)
   const dtMitreAttack = new DtMitreAttack(apolloClient)
   const dtMitreDefend = new DtMitreDefend(apolloClient)
+  const dtMitreAtlas = new DtMitreAtlas(apolloClient)
 
   // Vector-tier match results, keyed by `${kind}:${query}`.
   const matchResults = ref<Map<string, MitreCandidate[]>>(new Map())
@@ -68,6 +85,8 @@ export const useTechniqueSuggestionsStore = defineStore('techniqueSuggestions', 
     ATTACK_TECHNIQUE: false,
     DEFEND_TECHNIQUE: false,
     ATTACK_MITIGATION: false,
+    ATLAS_TECHNIQUE: false,
+    ATLAS_MITIGATION: false,
   })
 
   const isLoading = ref<Record<string, boolean>>({})
@@ -115,13 +134,14 @@ export const useTechniqueSuggestionsStore = defineStore('techniqueSuggestions', 
    *     trip rather than serial.
    *   - ATTACK_MITIGATION: existing `getMitreAttackMitigations` returns all
    *     mitigation nodes in one round trip.
+   *   - ATLAS_TECHNIQUE / ATLAS_MITIGATION: DtMitreAtlas, one round trip each.
    *
    * The `tactic` field on catalog entries is populated from:
-   *   - ATTACK_TECHNIQUE: the technique's `tactics[0].name` projection
-   *     (a single fetch with `tactics { name }` selected — see dt-mitreattack-gql.ts).
+   *   - ATTACK_TECHNIQUE / ATLAS_TECHNIQUE: the technique's earliest tactic by
+   *     `matrix_order`, with that position as `tacticOrder` (facets sort by it).
    *   - DEFEND_TECHNIQUE: the tactic name from the per-tactic fan-out iteration
    *     (free — we already walked tactics to fetch the techniques).
-   *   - ATTACK_MITIGATION: null (mitigations have no tactic; facets hidden).
+   *   - ATTACK_MITIGATION / ATLAS_MITIGATION: null (mitigations have no tactic; facets hidden).
    * A technique can belong to multiple tactics; the picker uses the first one,
    * mirroring the deterministic-tactic projection used by the backend.
    */
@@ -140,7 +160,7 @@ export const useTechniqueSuggestionsStore = defineStore('techniqueSuggestions', 
           internalId: t.id,
           name: t.name,
           description: t.description ?? null,
-          tactic: t.tactics?.[0]?.name ?? null,
+          ...earliestTactic(t.tactics),
           kind: 'ATTACK_TECHNIQUE' as const,
         }))
       } else if (kind === 'DEFEND_TECHNIQUE') {
@@ -222,6 +242,26 @@ export const useTechniqueSuggestionsStore = defineStore('techniqueSuggestions', 
           description: m.description ?? null,
           tactic: null,
           kind: 'ATTACK_MITIGATION' as const,
+        }))
+      } else if (kind === 'ATLAS_TECHNIQUE') {
+        const techniques = await dtMitreAtlas.findMitreAtlasTechniques({ query: {} })
+        entries = (techniques ?? []).map(t => ({
+          mitreId: t.atlas_id,
+          internalId: t.id,
+          name: t.name,
+          description: t.description ?? null,
+          ...earliestTactic(t.tactics),
+          kind: 'ATLAS_TECHNIQUE' as const,
+        }))
+      } else if (kind === 'ATLAS_MITIGATION') {
+        const mitigations = await dtMitreAtlas.getMitreAtlasMitigations()
+        entries = (mitigations ?? []).map(m => ({
+          mitreId: m.atlas_id,
+          internalId: m.id,
+          name: m.name,
+          description: m.description ?? null,
+          tactic: null,
+          kind: 'ATLAS_MITIGATION' as const,
         }))
       }
       catalog.value.set(kind, entries)

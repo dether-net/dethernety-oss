@@ -4,20 +4,39 @@
  * Mirrors execute-supersede-flow.test.ts. Verifies the clone is attached to the
  * originating Control (controlId passed through), the " (custom)" suffix +
  * source-note description, and the single-quote-wrapped disposition reason
- * (load-bearing for the USER-copy-delete companion match).
+ * (load-bearing for the USER-copy-delete companion match), and that every MITRE
+ * link of the original, every link field with each edge's justification, reaches
+ * the copy.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { executeSupersedeCountermeasureFlow } from '../execute-supersede-countermeasure-flow.js'
 import type { DtCountermeasure } from '../../dt-countermeasure/dt-countermeasure.js'
-import type { Countermeasure } from '../../interfaces/core-types-interface.js'
+import { COUNTERMEASURE_TECHNIQUE_LINK_FIELDS } from '../../interfaces/core-types-interface.js'
+import type { Countermeasure, CountermeasureTechniqueLinks } from '../../interfaces/core-types-interface.js'
+
+// Every MITRE link field of a countermeasure, each with a justified and a bare edge.
+const LINKS: CountermeasureTechniqueLinks = Object.fromEntries(
+  COUNTERMEASURE_TECHNIQUE_LINK_FIELDS.map(field => [
+    field,
+    [
+      { id: `${field}-a`, justification: `because ${field}` },
+      { id: `${field}-b`, justification: null },
+    ],
+  ]),
+)
 
 function buildMockDtCountermeasure() {
   const createCountermeasure = vi.fn()
   const disposeCountermeasure = vi.fn()
-  const dtCountermeasure = { createCountermeasure, disposeCountermeasure } as unknown as DtCountermeasure
-  return { dtCountermeasure, createCountermeasure, disposeCountermeasure }
+  const getCountermeasureTechniqueLinks = vi.fn().mockResolvedValue(LINKS)
+  const dtCountermeasure = {
+    createCountermeasure,
+    disposeCountermeasure,
+    getCountermeasureTechniqueLinks,
+  } as unknown as DtCountermeasure
+  return { dtCountermeasure, createCountermeasure, disposeCountermeasure, getCountermeasureTechniqueLinks }
 }
 
 const SYSTEM_CM: Countermeasure = {
@@ -35,6 +54,42 @@ const SYSTEM_CM: Countermeasure = {
 
 describe('executeSupersedeCountermeasureFlow', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('copies every MITRE link of the original, with each justification, onto the copy', async () => {
+    const { dtCountermeasure, createCountermeasure, disposeCountermeasure, getCountermeasureTechniqueLinks } =
+      buildMockDtCountermeasure()
+    createCountermeasure.mockResolvedValueOnce({ ...SYSTEM_CM, id: 'user-cm-1' })
+    disposeCountermeasure.mockResolvedValueOnce({ success: true })
+
+    await executeSupersedeCountermeasureFlow({
+      systemCountermeasureId: 'sys-cm-1',
+      systemCountermeasure: SYSTEM_CM,
+      controlId: 'ctl-1',
+      dtCountermeasure,
+    })
+
+    expect(getCountermeasureTechniqueLinks).toHaveBeenCalledWith({ countermeasureId: 'sys-cm-1' })
+    expect(createCountermeasure.mock.calls[0][0].techniqueLinks).toEqual(LINKS)
+    expect(Object.keys(createCountermeasure.mock.calls[0][0].techniqueLinks)).toHaveLength(COUNTERMEASURE_TECHNIQUE_LINK_FIELDS.length)
+    expect(createCountermeasure.mock.calls[0][0].techniqueLinks.evictsAtlas).toEqual(LINKS.evictsAtlas)
+  })
+
+  it('creates nothing and disposes nothing when the original is gone', async () => {
+    const { dtCountermeasure, createCountermeasure, disposeCountermeasure, getCountermeasureTechniqueLinks } =
+      buildMockDtCountermeasure()
+    getCountermeasureTechniqueLinks.mockResolvedValueOnce(null)
+
+    await expect(
+      executeSupersedeCountermeasureFlow({
+        systemCountermeasureId: 'sys-cm-1',
+        systemCountermeasure: SYSTEM_CM,
+        controlId: 'ctl-1',
+        dtCountermeasure,
+      }),
+    ).rejects.toThrow(/not found/)
+    expect(createCountermeasure).not.toHaveBeenCalled()
+    expect(disposeCountermeasure).not.toHaveBeenCalled()
+  })
 
   it('clones the SYSTEM countermeasure onto the originating Control with " (custom)" suffix + source note', async () => {
     const { dtCountermeasure, createCountermeasure, disposeCountermeasure } = buildMockDtCountermeasure()
