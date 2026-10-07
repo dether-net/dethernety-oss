@@ -797,7 +797,7 @@ EMBEDDING_URL=http://localhost:11434/api/embeddings  // any OpenAI-compatible en
 EMBEDDING_API_KEY=                  // empty for local (Ollama), set for cloud (OpenAI, Bedrock)
 EMBEDDING_MODEL=embeddinggemma     // model name passed in the request body
 EMBEDDING_DIMENSIONS=768            // must match model output
-EMBEDDING_SIMILARITY_THRESHOLD=0.75 // configurable
+EMBEDDING_SIMILARITY_THRESHOLD=0.40 // per model: tuned for embeddinggemma; retune when EMBEDDING_MODEL changes
 ```
 
 **Deployment examples:**

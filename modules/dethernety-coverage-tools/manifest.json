@@ -1,6 +1,6 @@
 {
   "name": "dethernety-coverage-tools",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "displayName": "Dethernety Coverage Tools",
   "description": "Graded, element-scoped, disposition-agnostic MITRE coverage facts (a reusable query primitive).",
   "tags": ["coverage", "mitre"],

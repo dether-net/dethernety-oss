@@ -10,6 +10,8 @@
 // analyze their Data) and guard the rewrite against over-reporting on the
 // mitigated path.
 
+import { readFileSync } from 'fs';
+import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
 import { ControlGapsResolverService } from '../../src/gql/resolver-services/control-gaps-resolver.service';
@@ -244,5 +246,43 @@ describe('ControlGapsResolverService — live Memgraph (e2e)', () => {
     expect(result.unaddressableExposures).toEqual([]);
     expect(result.recommendedControls).toEqual([]);
     expect(s.coveragePct).toBe(100);
+  });
+
+  // ATLAS links reuse the ATT&CK edge types; controlGaps reads ATT&CK only. On the
+  // shared ATLAS smoke fixture the result must equal the result with every MitreAtlas*
+  // node removed: the ATLAS-only exposure has no ATT&CK chain, the mixed exposure is
+  // mitigated through its ATT&CK technique, and no ATLAS id or mitigation surfaces.
+  it('ATLAS links are skipped: the result equals the result without any ATLAS node', async () => {
+    const seedFile = path.join(
+      __dirname, '..', '..', '..', '..', 'modules', 'dethernety-coverage-tools',
+      '__tests__', 'fixtures', 'atlas-smoke', 'seed.cypher',
+    );
+    const statements = readFileSync(seedFile, 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n')
+      .split(';')
+      .map((st) => st.trim())
+      .filter(Boolean);
+    const seed = async (withAtlas: boolean) => {
+      await clearGraph(mg.driver);
+      for (const statement of statements) await runWrite(statement);
+      if (!withAtlas) {
+        await runWrite(`MATCH (n) WHERE any(l IN labels(n) WHERE l STARTS WITH 'MitreAtlas') DETACH DELETE n`);
+      }
+    };
+
+    await seed(true);
+    const withAtlas = await gaps('model-atlas-smoke');
+    await seed(false);
+    const withoutAtlas = await gaps('model-atlas-smoke');
+
+    expect(withAtlas).toEqual(withoutAtlas);
+    const s = withAtlas.coverageSummary;
+    expect(s.totalExposures).toBe(2);
+    expect(s.noMitreChain).toBe(1);
+    expect(s.mitigated).toBe(1);
+    expect(sumOf(s)).toBe(s.totalExposures);
+    expect(JSON.stringify(withAtlas)).not.toContain('AML.');
   });
 });

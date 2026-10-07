@@ -10,7 +10,11 @@
       "techniqueName": "Record Harvesting",
       "techniqueDescription": "Adversaries may harvest stored records.",
       "tactics": [
-        "Exfiltration"
+        {
+          "id": "TA0010",
+          "name": "Exfiltration",
+          "order": 13
+        }
       ]
     },
     {
@@ -21,7 +25,11 @@
       "techniqueName": "Stage and Exfiltrate",
       "techniqueDescription": "Adversaries may stage and exfiltrate collected data.",
       "tactics": [
-        "Exfiltration"
+        {
+          "id": "TA0010",
+          "name": "Exfiltration",
+          "order": 13
+        }
       ]
     },
     {
@@ -32,7 +40,11 @@
       "techniqueName": "Flow Interception",
       "techniqueDescription": "Adversaries may intercept data in transit.",
       "tactics": [
-        "Credential Access"
+        {
+          "id": "TA0006",
+          "name": "Credential Access",
+          "order": 8
+        }
       ]
     },
     {
@@ -43,8 +55,16 @@
       "techniqueName": "Cloud Accounts",
       "techniqueDescription": "Adversaries may abuse cloud accounts.",
       "tactics": [
-        "Initial Access",
-        "Privilege Escalation"
+        {
+          "id": "TA0001",
+          "name": "Initial Access",
+          "order": 2
+        },
+        {
+          "id": "TA0004",
+          "name": "Privilege Escalation",
+          "order": 5
+        }
       ]
     },
     {
@@ -55,7 +75,21 @@
       "techniqueName": "Exploit Edge Service",
       "techniqueDescription": "Adversaries may exploit an internet-facing edge service.",
       "tactics": [
-        "Initial Access"
+        {
+          "id": "TA0001",
+          "name": "Initial Access",
+          "order": 2
+        },
+        {
+          "id": "TA0112",
+          "name": "Defense Impairment",
+          "order": 7
+        },
+        {
+          "id": "TA0005",
+          "name": "Stealth",
+          "order": 6
+        }
       ]
     },
     {

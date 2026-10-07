@@ -53,6 +53,7 @@ export const FIND_MITRE_ATTACK_TECHNIQUE = gql`
       stix_type
       tactics {
         name
+        matrix_order
       }
     }
   }
@@ -65,6 +66,7 @@ export const GET_MITRE_ATTACK_TACTICS = gql`
       name
       description
       attack_id
+      matrix_order
       attack_version
       stix_id
       stix_spec_version

@@ -2,7 +2,9 @@
  * Supersede orchestration helper.
  *
  * Composes the two backend mutations behind a Supersede operation:
- *   1. createExposure  — clone the SYSTEM exposure into a USER copy
+ *   1. createExposure  — clone the SYSTEM exposure into a USER copy, with every
+ *      technique that exploits it (ATT&CK and ATLAS) and each EXPLOITED_BY edge's
+ *      justification
  *   2. disposeExposure — mark the SYSTEM original as SUPERSEDED
  *
  * Pure helper: no Vue / Pinia dependency. The picker save path
@@ -50,6 +52,14 @@ export async function executeSupersedeFlow(
     ? `${args.systemExposure.description}\n\n${sourceNote}`
     : sourceNote
 
+  // Every technique that exploits the original, ATT&CK and ATLAS, with each edge's justification.
+  const links = await args.dtExposure.getExposureTechniqueLinks({
+    exposureId: args.systemExposureId,
+  })
+  if (!links) {
+    throw new Error('Supersede failed: the exposure to supersede was not found')
+  }
+
   // Step 1 — create the USER copy. createExposure throws on transport / network
   // failure; step 2 is not reached in that case (no rollback needed since step 1
   // never produced a node).
@@ -71,7 +81,8 @@ export async function executeSupersedeFlow(
       description: cloneDescription,
     },
     elementId: args.elementId,
-    attackTechniqueIds: (args.systemExposure.exploitedBy ?? []).map(t => t.id),
+    attackTechniqueLinks: links.exploitedBy,
+    atlasTechniqueLinks: links.exploitedByAtlas,
   })
 
   // Step 2 — dispose the SYSTEM original as SUPERSEDED. The single-quote wrapping

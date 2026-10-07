@@ -575,22 +575,22 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
                 countermeasures: findings,
                 classId,
               };
-              const names = await this.setInstantiation.upsertCountermeasuresInTx(
+              const { instantiated } = await this.setInstantiation.upsertCountermeasuresInTx(
                 tx,
                 upsertReq,
               );
-              deltas.instantiatedDerivedCountermeasures += names.length;
+              deltas.instantiatedDerivedCountermeasures += instantiated.length;
             } else {
               const upsertReq: UpsertExposuresRequest = {
                 componentId: elementId,
                 exposures: findings,
                 classId,
               };
-              const names = await this.setInstantiation.upsertExposuresInTx(
+              const { instantiated } = await this.setInstantiation.upsertExposuresInTx(
                 tx,
                 upsertReq,
               );
-              deltas.instantiatedDerivedExposures += names.length;
+              deltas.instantiatedDerivedExposures += instantiated.length;
             }
           }
 

@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import json
 import rdflib # type: ignore
 import argparse
 import requests # type: ignore
+from pathlib import Path
 
 from rdflib import Namespace, RDF, RDFS, OWL # type: ignore
 from neo4j import GraphDatabase # type: ignore
 from dotenv import load_dotenv # type: ignore
 from neontology import init_neontology, Neo4jConfig # type: ignore
 from ontolocy.tools import MitreAttackParser # type: ignore
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+from atlas_stix import (  # noqa: E402
+    CROSSWALK_EDGE_TYPE,
+    TECHNIQUE_LABEL as ATLAS_TECHNIQUE_LABEL,
+    NODE_TYPES as ATLAS_NODE_TYPES,
+    parse_atlas_bundle,
+    resolve_attack_refs,
+    verify_sha256,
+)
 
 load_dotenv()
 
@@ -154,6 +166,26 @@ ATTACK_STIX_BUNDLE_URL = (
     "https://github.com/mitre-attack/attack-stix-data/raw/master/"
     "enterprise-attack/enterprise-attack-19.2.json"
 )
+ATTACK_STIX_BUNDLE_SHA256 = "dc1639caa5501d720e280cf1cbd8fbe009884a0c9b3e6e9ed9d0c25166c3d8f4"
+
+# ATLAS is pinned the same way, to a release asset. Never the release's
+# stix-atlas-attack-enterprise.json: it embeds its own copy of ATT&CK, which would
+# overwrite the pinned one.
+ATLAS_VERSION = "v2026.09"
+ATLAS_STIX_BUNDLE_URL = (
+    "https://github.com/mitre-atlas/atlas-data/releases/download/"
+    f"{ATLAS_VERSION}/stix-atlas.json"
+)
+ATLAS_STIX_BUNDLE_SHA256 = "827995ff5b753916a411a854f9f1b0d83fe272043bff2090ca45f2e424477e75"
+ATLAS_LABELS = [label for label, _ in ATLAS_NODE_TYPES.values()]
+
+
+def fetch_pinned(url, sha256, what):
+    """Download a pinned source and verify its SHA-256 before anything parses it."""
+    response = requests.get(url, timeout=300)
+    response.raise_for_status()
+    verify_sha256(response.content, sha256, what)
+    return response.content
 
 # ontolocy 0.9.3 (the latest release) cannot parse a v19 bundle unaided.
 #
@@ -227,7 +259,7 @@ def _matrix_tactic_order(stix_json):
 # MAIN FUNCTIONS
 # ------------------------------------------------
 
-def ingest_attack():
+def ingest_attack(bundle_bytes):
     # 1. Initialize neontology 
     graph_config = Neo4jConfig(
         uri=NEO4J_URI,
@@ -236,9 +268,9 @@ def ingest_attack():
     )
     init_neontology(graph_config)
 
-    # Fetched once and used twice: handed to the parser, and read for the matrix order
-    # the parser discards. parse_data takes the raw text, exactly as parse_url would.
-    bundle_text = requests.get(ATTACK_STIX_BUNDLE_URL, timeout=300).text
+    # The verified bundle is used twice: handed to the parser, and read for the matrix
+    # order the parser discards. parse_data takes the raw text, exactly as parse_url would.
+    bundle_text = bundle_bytes.decode("utf-8")
     tactic_order = _matrix_tactic_order(json.loads(bundle_text))
 
     parser = MitreAttackParser()
@@ -321,6 +353,82 @@ def cleanup_attack():
             )
 
     print("Done! Neo4j database has been updated with custom labels, relationships, and 'id' properties.")
+
+def ingest_atlas(attack_bundle):
+    """
+    Load MITRE ATLAS as its own framework: own labels and atlas_id key, intra-ATLAS
+    structure on ATT&CK's relationship types, and the crosswalk to the ATT&CK techniques
+    the ATLAS objects cite. Runs after ingest_attack: the crosswalk targets its nodes.
+    """
+    corpus = parse_atlas_bundle(
+        fetch_pinned(ATLAS_STIX_BUNDLE_URL, ATLAS_STIX_BUNDLE_SHA256, "ATLAS bundle")
+    )
+    crosswalk = resolve_attack_refs(corpus["attack_refs"], attack_bundle)
+    print(f"ATLAS {ATLAS_VERSION} crosswalk to ATT&CK ({len(crosswalk)} technique references):")
+    for atlas_id, cited, resolved in crosswalk:
+        via = f" (cited {cited}, revoked)" if cited != resolved else ""
+        print(f"  {atlas_id} -> {resolved}{via}")
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
+    with driver.session() as session:
+        for label, rows in corpus["nodes"].items():
+            session.run(
+                f"""
+                UNWIND $rows AS row
+                MERGE (n:{label} {{atlas_id: row.atlas_id}})
+                ON CREATE SET n.id = randomUUID()
+                SET n += row
+                """,
+                rows=rows,
+            )
+            print(f"  {label}: {len(rows)} nodes")
+
+        # Every edge is checked as written: a MATCH that finds no endpoint writes nothing
+        # and raises nothing, which is how an edge set goes missing without a trace.
+        groups = {}
+        for rel_type, src_label, src_id, tgt_label, tgt_id in corpus["edges"]:
+            groups.setdefault((rel_type, src_label, tgt_label), []).append({"s": src_id, "t": tgt_id})
+        for (rel_type, src_label, tgt_label), rows in sorted(groups.items()):
+            written = session.run(
+                f"""
+                UNWIND $rows AS row
+                MATCH (a:{src_label} {{atlas_id: row.s}})
+                MATCH (b:{tgt_label} {{atlas_id: row.t}})
+                MERGE (a)-[:{rel_type}]->(b)
+                RETURN count(*) AS n
+                """,
+                rows=rows,
+            ).single()["n"]
+            if written != len(rows):
+                raise SystemExit(f"Error: {rel_type}: wrote {written} of {len(rows)} edges")
+            print(f"  {rel_type}: {written} edges")
+
+        rows = [{"s": a, "cited": c, "t": r} for a, c, r in crosswalk]
+        written = session.run(
+            f"""
+            UNWIND $rows AS row
+            MATCH (a:{ATLAS_TECHNIQUE_LABEL} {{atlas_id: row.s}})
+            MATCH (b:MitreAttackTechnique {{attack_id: row.t}})
+            MERGE (a)-[r:{CROSSWALK_EDGE_TYPE}]->(b)
+            SET r.cited_attack_id = row.cited
+            RETURN count(*) AS n
+            """,
+            rows=rows,
+        ).single()["n"]
+        if written != len(rows):
+            raise SystemExit(f"Error: {CROSSWALK_EDGE_TYPE}: wrote {written} of {len(rows)} edges")
+        print(f"  {CROSSWALK_EDGE_TYPE}: {written} edges")
+    driver.close()
+
+
+def cleanup_atlas():
+    """Dev only, like cleanup_attack: never run against a database with platform edges."""
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
+    with driver.session() as session:
+        for label in ATLAS_LABELS:
+            session.run(f"MATCH (n:{label}) DETACH DELETE n")
+    driver.close()
+
 
 def ingest_defend():
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
@@ -511,14 +619,17 @@ def cleanup_defend():
     print("Done! Deleted all nodes in the graph.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Ingest D3FEND OWL file into Neo4j")
+    parser = argparse.ArgumentParser(description="Ingest MITRE ATT&CK, ATLAS and D3FEND into Neo4j or Memgraph")
     parser.add_argument("--cleanup", action="store_true", help="Cleanup Neo4j database")
     args = parser.parse_args()
     if args.cleanup:
+        cleanup_atlas()
         cleanup_defend()
         cleanup_attack()
     else:
-        ingest_attack()
+        attack_bundle = fetch_pinned(ATTACK_STIX_BUNDLE_URL, ATTACK_STIX_BUNDLE_SHA256, "ATT&CK bundle")
+        ingest_attack(attack_bundle)
+        ingest_atlas(json.loads(attack_bundle))
         ingest_defend()
 
 if __name__ == "__main__":

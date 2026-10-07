@@ -10,42 +10,11 @@ import {
   GET_MITRE_ATTACK_MITIGATION,
   GET_MITRE_ATTACK_TECHNIQUE,
 } from './dt-mitreattack-gql.js'
+import { sortByMatrixOrder, warnUnplacedTactics } from '../dt-utils/matrix-order.js'
 
 export class DtMitreAttack {
   private dtUtils: DtUtils
   private apolloClient: Apollo.ApolloClient
-  // MITRE ATT&CK Enterprise tactics in matrix order. ATT&CK v19 retired Defense
-  // Evasion, splitting it into Stealth (which kept the TA0005 id) and the new
-  // Defense Impairment (TA0112).
-  private  tacticsOrder = (['Reconnaissance', 'Resource Development', 'Initial Access', 'Execution', 'Persistence', 'Privilege Escalation', 'Stealth', 'Defense Impairment', 'Credential Access', 'Discovery', 'Lateral Movement', 'Collection', 'Command and Control', 'Exfiltration', 'Impact'])
-
-  /**
-   * Retired tactic names mapped to the current name that occupies their slot.
-   *
-   * TRANSITIONAL: a dataset built before v19 still reports `Defense Evasion`,
-   * and this client sorts by NAME, so without the alias that list would order
-   * the tactic last until the data catches up. Drop an entry once no reachable
-   * dataset reports it.
-   */
-  private retiredTacticNames: Record<string, string> = {
-    'Defense Evasion': 'Stealth',
-  }
-
-  /**
-   * Matrix rank for a tactic name, for ordering only.
-   *
-   * A name this list does not carry sorts to the END and is still returned.
-   * `indexOf` on its own yields -1, which would sort an unrecognized tactic to
-   * the FRONT of the matrix — so a tactic renamed by an ATT&CK release silently
-   * leads the list instead of trailing it. Unknown names tie, so their relative
-   * order is left as the server returned it.
-   */
-  private tacticRank = (name?: string | null): number => {
-    const current = this.retiredTacticNames[name || ''] ?? name ?? ''
-    const index = this.tacticsOrder.indexOf(current)
-    return index === -1 ? Number.MAX_SAFE_INTEGER : index
-  }
-
   constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
@@ -84,11 +53,10 @@ export class DtMitreAttack {
       })
       
       if (response.mitreAttackTactics) {
-        // Create a mutable copy before sorting since GraphQL responses are often frozen
-        return [...response.mitreAttackTactics].sort(
-          (a: MitreAttackTactic, b: MitreAttackTactic) =>
-            this.tacticRank(a.name) - this.tacticRank(b.name)
-        )
+        // Matrix order comes from the `matrix_order` the ingest stamps from the ATT&CK bundle's
+        // own ordered tactic list, so a new release reorders the matrix without a code change.
+        warnUnplacedTactics(response.mitreAttackTactics, 'MITRE ATT&CK')
+        return sortByMatrixOrder(response.mitreAttackTactics, tactic => tactic.attack_id)
       }
       return []
     } catch (error) {

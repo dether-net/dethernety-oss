@@ -19,10 +19,11 @@ We use the [Nygard template](https://cognitect.com/blog/2011/11/15/documenting-a
 | [009](009-model-delete-lifecycle-hooks.md) | Model-delete semantics and module lifecycle hooks | Accepted |
 | [010](010-finding-affirmation-lifecycle.md) | Finding affirmation lifecycle | Accepted |
 | [011](011-post-commit-module-install-hook.md) | Post-commit module install hook (`afterInstall`) | Accepted |
+| [012](012-mitre-atlas-third-framework.md) | MITRE ATLAS as a third framework | Accepted |
 
 ## Adding new ADRs
 
 1. Copy an existing ADR as a template
-2. Number sequentially (next: 012)
+2. Number sequentially (next: 013)
 3. Set status to "Proposed" until reviewed
 4. Add the entry to the index table above

@@ -173,6 +173,10 @@ has no earlier state to compare against.
 │  │  │DtCounter.│  │DtClassId.│  │ DtMitre  │  │DtCtrlLib.│         │   │
 │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │   │
 │  │                                                                 │   │
+│  │  ┌──────────┐                                                   │   │
+│  │  │DtMitreAtl│                                                   │   │
+│  │  └──────────┘                                                   │   │
+│  │                                                                 │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                        │
 └────────────────────────────────────────────────────────────────────────┘
@@ -181,7 +185,7 @@ has no earlier state to compare against.
 `DtExport` and `DtImport` appear above to place them in the hierarchy, but they — together with
 `DtUpdate` and the `*Split` siblings of all three — are the model file round-trip and are documented in
 [Import & Export](./IMPORT_EXPORT.md) rather than here. `DtControlLibrary` (`DtCtrlLib.` above) has no
-section in this document yet.
+section in this document yet. `DtMitreAt.` is `DtMitreAttack` and `DtMitreAtl` is `DtMitreAtlas`.
 
 ---
 
@@ -534,8 +538,10 @@ Manages entity classifications, templates, and atomic class / model binding.
 
 > **Two instantiation writers, one mutation.** `setInstantiationAttributes` selects only `{ success }`
 > from `SetInstantiationAttributesResult` so its callers keep binding a boolean.
-> `setInstantiationAttributesWithStaleCount` selects the full result and is what the frontend picker
-> save path uses, because it needs `staleFlippedCount` and propagates `errorMessage`.
+> `setInstantiationAttributesWithStaleCount` selects `{ success, staleFlippedCount, errorCode, errorMessage }`
+> and is what the frontend picker save path uses, because it needs `staleFlippedCount` and propagates
+> `errorMessage`. Neither selects the result's `unresolvedReferences`: the UI reads that marker on the
+> exposures and countermeasures themselves.
 
 ### `changeElementBinding` — atomic class / model binding
 
@@ -822,7 +828,7 @@ Manages security issue tracking.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `getMitreAttackTactics` | Get all ATT&CK tactics | `none` | `Promise<MitreAttackTactic[]>` |
+| `getMitreAttackTactics` | Get all ATT&CK tactics, in matrix order (`matrix_order`; a tactic without one sorts last) | `none` | `Promise<MitreAttackTactic[]>` |
 | `getMitreAttackTechniquesByTactic` | Get the techniques of one tactic | `{ tacticId }` | `Promise<MitreAttackTechnique[]>` |
 | `getMitreAttackTechnique` | Get one technique by its ATT&CK id | `{ attackId }` | `Promise<MitreAttackTechnique \| null>` |
 | `findMitreAttackTechniques` | Search techniques with a raw GraphQL filter object | `{ query: object }` | `Promise<MitreAttackTechnique[]>` |
@@ -831,6 +837,22 @@ Manages security issue tracking.
 
 The `attackId` parameters carry an ATT&CK id (`T1566`, `M1049`) and are sent as the schema's `attack_id`
 variable, not the node's internal id.
+
+The matrix order is the `matrix_order` the ingest stamps on each tactic from the ATT&CK bundle's own ordered
+tactic list, so a new ATT&CK release reorders the matrix without a code change.
+
+### DtMitreAtlas
+
+**Source:** `packages/dt-core/src/dt-mitreatlas/`
+
+Read access to the MITRE ATLAS reference data. ATLAS is its own framework, keyed by `atlas_id`, with its own
+matrix ordered by `matrix_order` as ATT&CK's is.
+
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `findMitreAtlasTechniques` | Search techniques with a raw `MitreAtlasTechniqueWhere` filter object; each technique's `tactics` come back in matrix order | `{ query: object }` | `Promise<MitreAtlasTechnique[]>` |
+| `getMitreAtlasMitigations` | Get all ATLAS mitigations | `none` | `Promise<MitreAtlasMitigation[]>` |
+| `getMitreAtlasTactics` | Get all ATLAS tactics, in ATLAS matrix order (a tactic without a position sorts last) | `none` | `Promise<MitreAtlasTactic[]>` |
 
 ### DtMitreDefend
 
@@ -842,9 +864,9 @@ variable, not the node's internal id.
 | `getMitreDefendTechniquesByTactic` | Get the techniques of one tactic | `{ tacticId }` | `Promise<MitreDefendTechnique[]>` |
 | `getMitreDefendTechnique` | Get one technique by its D3FEND id | `{ d3fendId }` | `Promise<MitreDefendTechnique \| null>` |
 
-Neither class exposes a keyword search of its own — the ATT&CK side's `findMitreAttackTechniques` takes a
-raw GraphQL filter rather than a search string, and D3FEND has no equivalent. Free-text matching against
-either corpus goes through [`DtMitre.matchTechniques`](#dtmitre).
+None of these classes exposes a keyword search of its own — `findMitreAttackTechniques` and
+`findMitreAtlasTechniques` take a raw GraphQL filter rather than a search string, and D3FEND has no
+equivalent. Free-text matching against any corpus goes through [`DtMitre.matchTechniques`](#dtmitre).
 
 ---
 
@@ -858,12 +880,15 @@ Manages exposures (security weaknesses) attached to model elements, plus their d
 |--------|-------------|------------|---------|
 | `getExposures` | Get all exposures for an element | `{ elementId }` | `Promise<Exposure[]>` |
 | `getExposure` | Get exposure by ID | `{ exposureId }` | `Promise<Exposure>` |
-| `createExposure` | Create exposure on an element | `{ exposure, elementId, attackTechniqueIds }` | `Promise<Exposure>` |
-| `updateExposure` | Update exposure properties + technique links | `{ exposureId, exposure, attackTechniqueIds }` | `Promise<Exposure>` |
+| `getExposureTechniqueLinks` | The ATT&CK and ATLAS techniques that exploit an exposure, with each `EXPLOITED_BY` edge's `justification` (what a supersede copies) | `{ exposureId }` | `Promise<{ exploitedBy, exploitedByAtlas } \| null>` (`ExposureTechniqueLinks`; null when the exposure does not exist) |
+| `createExposure` | Create exposure on an element. `attackTechniqueLinks`, when given, replaces `attackTechniqueIds` and carries each edge's justification; `atlasTechniqueLinks` connects ATLAS techniques (`exploitedByAtlas`) | `{ exposure, elementId, attackTechniqueIds, attackTechniqueLinks?, atlasTechniqueLinks? }` | `Promise<Exposure>` |
+| `updateExposure` | Update exposure properties + technique links (written as a delta, see below) | `{ exposureId, exposure, attackTechniqueIds, atlasTechniqueIds? }` | `Promise<Exposure>` |
 | `deleteExposure` | Delete exposure; fires the SUPERSEDED-staleness companion when `exposureName` is supplied | `{ exposureId, exposureName? }` | `Promise<boolean>` |
 | `disposeExposure` | Author or replace a disposition | `{ exposureId, kind, reason }` | `Promise<DispositionMutationResult>` |
 | `clearDisposition` | Clear a disposition (idempotent) | `{ exposureId }` | `Promise<DispositionMutationResult>` |
 | `reAffirmDisposition` | Thin alias for `disposeExposure` (caller-narrative clarity; identical wire call) | `{ exposureId, kind, reason }` | `Promise<DispositionMutationResult>` |
+
+> **Technique links are written as a delta.** `updateExposure` reads the exposure's current links and writes only the change: an id that left a list is disconnected and a new id is connected, so a link the user kept keeps its edge and the `justification` on it. `attackTechniqueIds` is the full ATT&CK list. `atlasTechniqueIds` is the full ATLAS list; when it is omitted, the ATLAS links are left as they are. `updateExposure` throws when the exposure does not exist.
 
 > **Disposition return contract.** `disposeExposure` / `clearDisposition` resolve a [`DispositionMutationResult`](#disposition-operations) envelope. Domain errors (validation, not-found, database) return `success: false` with `errorCode` + `errorMessage` set rather than throwing; only transport / network errors propagate as exceptions.
 
@@ -903,9 +928,10 @@ DELETE_EXPOSURE       // deleteExposures
 DISPOSE_EXPOSURE      // disposeExposure custom mutation → DispositionMutationResult
 CLEAR_DISPOSITION     // clearDisposition custom mutation → DispositionMutationResult
 FLIP_SUPERSEDED_STALE // updateExposures companion (staleness flip by name)
+GET_EXPOSURE_TECHNIQUE_LINKS // exploitedBy + exploitedByAtlas connections with edge justification
 ```
 
-The `GET_*` / `UPDATE_EXPOSURE` selections include `dispositionKind`, `dispositionReason`, `dispositionedBy`, `dispositionedAt`, and `dispositionStale` so post-save refetches render disposition state correctly without a second round trip.
+The `GET_*` / `UPDATE_EXPOSURE` selections include `dispositionKind`, `dispositionReason`, `dispositionedBy`, `dispositionedAt`, and `dispositionStale` so post-save refetches render disposition state correctly without a second round trip. The `GET_*`, `ADD_EXPOSURE` and `UPDATE_EXPOSURE` selections read both `exploitedBy` (ATT&CK, `attack_id`) and `exploitedByAtlas` (ATLAS, `atlas_id`).
 
 ---
 
@@ -919,11 +945,14 @@ Manages countermeasures attached to Controls, plus their disposition lifecycle. 
 |--------|-------------|------------|---------|
 | `getCountermeasuresFromControl` | Get countermeasures for a Control | `{ controlId }` | `Promise<Countermeasure[] \| null>` |
 | `getCountermeasure` | Get countermeasure by ID | `{ countermeasureId }` | `Promise<Countermeasure \| null>` |
-| `createCountermeasure` | Create countermeasure on a Control | `{ controlId, countermeasure }` | `Promise<Countermeasure \| null>` |
-| `updateCountermeasure` | Update countermeasure properties + framework links | `{ countermeasureId, countermeasure }` | `Promise<Countermeasure \| null>` |
+| `getCountermeasureTechniqueLinks` | Every MITRE link of a countermeasure with each edge's `justification`, by field (all of `COUNTERMEASURE_TECHNIQUE_LINK_FIELDS`) | `{ countermeasureId }` | `Promise<CountermeasureTechniqueLinks \| null>` |
+| `createCountermeasure` | Create countermeasure on a Control. A field given in `techniqueLinks` replaces the countermeasure's own `mitigations` / `defendedTechniques` / `mitigationsAtlas` list | `{ controlId, countermeasure, techniqueLinks? }` | `Promise<Countermeasure \| null>` |
+| `updateCountermeasure` | Update countermeasure properties + framework links (`mitigations`, `defendedTechniques`, `mitigationsAtlas`; written as a delta, see below) | `{ countermeasureId, countermeasure }` | `Promise<Countermeasure \| null>` |
 | `deleteCountermeasure` | Delete countermeasure; fires the SUPERSEDED-staleness companion when `countermeasureName` is supplied | `{ countermeasureId, countermeasureName? }` | `Promise<boolean>` |
 | `disposeCountermeasure` | Author or replace a disposition | `{ countermeasureId, kind, reason }` | `Promise<DispositionMutationResult>` |
 | `clearCountermeasureDisposition` | Clear a disposition (idempotent) | `{ countermeasureId }` | `Promise<DispositionMutationResult>` |
+
+> **Technique links.** `COUNTERMEASURE_TECHNIQUE_LINK_FIELDS` names the 19 relationship fields from a countermeasure to MITRE nodes: `mitigations`, `defendedTechniques`, the eight ATT&CK verbs (`mitigates` … `respondsTo`), and their ATLAS siblings, named with an `Atlas` suffix (`mitigationsAtlas`, `mitigatesAtlas` … `respondsToAtlas`). `getCountermeasureTechniqueLinks`, `createCountermeasure({ techniqueLinks })` and the countermeasure supersede iterate this list, so they carry the ATLAS links too. `updateCountermeasure` writes `mitigations`, `defendedTechniques` and `mitigationsAtlas` as a delta against the current links, as `updateExposure` does: a kept link keeps its edge and justification, and a list the caller leaves undefined is not written. It throws when the countermeasure does not exist.
 
 > **Shared result envelope.** `disposeCountermeasure` / `clearCountermeasureDisposition` resolve the same [`DispositionMutationResult`](#disposition-operations) type as the exposure side. Its `exposureId` field carries the **countermeasure** id on this path (the field is reused unchanged across both finding types). Same domain-error-vs-throw contract as `DtExposure`.
 
@@ -941,7 +970,10 @@ DELETE_COUNTERMEASURE                 // deleteCountermeasures
 DISPOSE_COUNTERMEASURE                // disposeCountermeasure custom mutation → DispositionMutationResult
 CLEAR_COUNTERMEASURE_DISPOSITION      // clearCountermeasureDisposition custom mutation → DispositionMutationResult
 FLIP_SUPERSEDED_COUNTERMEASURE_STALE  // updateCountermeasures companion (staleness flip by name)
+GET_COUNTERMEASURE_TECHNIQUE_LINKS    // every MITRE link field's connection with edge justification
 ```
+
+The `GET_*`, `CREATE_COUNTERMEASURE` and `UPDATE_COUNTERMEASURE` selections read `mitigations` (ATT&CK), `defendedTechniques` (D3FEND) and `mitigationsAtlas` (ATLAS, `atlas_id`).
 
 ---
 
@@ -949,7 +981,7 @@ FLIP_SUPERSEDED_COUNTERMEASURE_STALE  // updateCountermeasures companion (stalen
 
 **Source:** `packages/dt-core/src/dt-mitre/`
 
-Vector-tier semantic match surface over the MITRE corpus. A thin façade over the `matchMitreTechniques` server query. Direct catalog access (tactics, full technique / mitigation lists) stays on [`DtMitreAttack`](#dtmitreattack) and [`DtMitreDefend`](#dtmitredefend) — `DtMitre` only adds the semantic-match tier.
+Vector-tier semantic match surface over the MITRE corpus. A thin façade over the `matchMitreTechniques` server query. Direct catalog access (tactics, full technique / mitigation lists) stays on [`DtMitreAttack`](#dtmitreattack), [`DtMitreAtlas`](#dtmitreatlas) and [`DtMitreDefend`](#dtmitredefend) — `DtMitre` only adds the semantic-match tier.
 
 ### Methods
 
@@ -959,7 +991,7 @@ Vector-tier semantic match surface over the MITRE corpus. A thin façade over th
 
 **Cascade.** The server evaluates each query through five tiers and returns at most one tier's results per query: `EXACT_ID` → `PREFIX_ID` → `NAME_MATCH` → `DESCRIPTION_MATCH` → `VECTOR_SIMILARITY`. The vector tier reads a Memgraph HNSW index built from an embedding model and degrades gracefully — `vectorAvailable: false` plus a structured `vectorDisabledReason` (`EMBEDDING_DISABLED` | `NO_INDEX_MODULE` | `NO_VECTORS` | `MODEL_MISMATCH`) when the index is absent or mismatched.
 
-**`kind`** selects the corpus and the index the server reads: `ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, or `ATTACK_MITIGATION`. **`topN`** caps candidates per query; the server clamps to `[1, 50]` and defaults to `3` when omitted.
+**`kind`** selects the corpus and the index the server reads: `ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, `ATTACK_MITIGATION`, `ATLAS_TECHNIQUE`, or `ATLAS_MITIGATION`. A kind whose framework is not loaded reports `NO_VECTORS` while the other kinds keep the vector tier. Each candidate carries `tactic` and `tacticOrder`, the tactic's matrix position (ATT&CK and ATLAS; null for D3FEND and mitigations), for ordering tactic facets. **`topN`** caps candidates per query; the server clamps to `[1, 50]` and defaults to `3` when omitted.
 
 **Cancellation.** `matchTechniques` routes through `dtUtils.withCancellableLatest` keyed by `matchTechniques:${kind}`, so rapid keystrokes from one picker supersede each other while mixed-kind pickers proceed in parallel. Superseded calls reject with `CancelledError` (callers exit silently).
 
@@ -1028,7 +1060,7 @@ Pure helpers (no Vue / Pinia dependency) that compose the two backend mutations 
 | `executeSupersedeFlow` | Clone a SYSTEM exposure into a USER copy, then dispose the original as `SUPERSEDED` | `{ systemExposureId, systemExposure, elementId, cloneNameSuffix?, dtExposure }` | `Promise<{ userCopy, systemDispositionResult }>` |
 | `executeSupersedeCountermeasureFlow` | Clone a SYSTEM countermeasure into a USER copy (retaining the Control edge, dropping the class edge), then dispose the original as `SUPERSEDED` | `{ systemCountermeasureId, systemCountermeasure, controlId, cloneNameSuffix?, dtCountermeasure }` | `Promise<{ userCopy, systemDispositionResult }>` |
 
-**Two-step composition.** Step 1 creates the USER copy (`createExposure` / `createCountermeasure`); step 2 disposes the SYSTEM original with `kind: 'SUPERSEDED'` and reason `Superseded by user-authored {exposure|countermeasure} '<cloneName>'`. The clone defaults its name to `<sourceName> (custom)` and annotates its description with a `(custom of '<sourceName>')` backreference.
+**Two-step composition.** Step 1 creates the USER copy (`createExposure` / `createCountermeasure`); step 2 disposes the SYSTEM original with `kind: 'SUPERSEDED'` and reason `Superseded by user-authored {exposure|countermeasure} '<cloneName>'`. The clone defaults its name to `<sourceName> (custom)` and annotates its description with a `(custom of '<sourceName>')` backreference. The copy keeps every MITRE link of the original, ATT&CK and ATLAS, with each edge's `justification`: the exposure flow reads `getExposureTechniqueLinks` and passes `attackTechniqueLinks` and `atlasTechniqueLinks`; the countermeasure flow reads `getCountermeasureTechniqueLinks` and passes `techniqueLinks`.
 
 **Partial-failure handling.** If step 2 returns `success: false`, the USER copy already exists — the helper does **not** roll it back (the copy is a legitimate authoring artefact) and returns both halves so the caller can surface a Retry affordance. Step 1 transport failures throw before step 2 runs, so no orphaned disposition is possible.
 

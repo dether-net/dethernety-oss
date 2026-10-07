@@ -464,7 +464,7 @@ A thin HTTP client, not a model runtime. The service calls any OpenAI-compatible
   │    EMBEDDING_MODEL      (default:              │
   │                          embeddinggemma, 768d) │
   │    EMBEDDING_DIMENSIONS (default: 768)         │
-  │    EMBEDDING_SIMILARITY_THRESHOLD (def: 0.75)  │
+  │    EMBEDDING_SIMILARITY_THRESHOLD (def: 0.40)  │
   │                                               │
   │  Methods:                                     │
   │    isEnabled()       → boolean                │

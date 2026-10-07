@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import { computed } from 'vue'
+  import { similarityMeterLevel } from '@/utils/similarityMeter'
   import type { MitreCandidate, MitreKind } from '@dethernety/dt-core'
 
   /**
@@ -46,23 +47,9 @@
     confirm: [candidate: MitreCandidate]
   }>()
 
-  // Lowest score the backend returns — mirrors the EMBEDDING_SIMILARITY_THRESHOLD
-  // default (0.40) applied in the matchMitreTechniques resolver. The 3-dot meter
-  // is anchored to this floor so a returned match always lights at least one dot;
-  // the buckets are derived from it (not a separate magic number) so they can't
-  // drift from the threshold the way a hardcoded 0.7 did.
-  const VECTOR_SIMILARITY_FLOOR = 0.4
+  const meterLevel = similarityMeterLevel
 
-  const meterLevel = (score?: number | null): number => {
-    if (score == null) return 0
-    const span = 1 - VECTOR_SIMILARITY_FLOOR
-    if (score >= VECTOR_SIMILARITY_FLOOR + span * 0.5) return 3 // >= 0.70
-    if (score >= VECTOR_SIMILARITY_FLOOR + span * 0.25) return 2 // >= 0.55
-    if (score >= VECTOR_SIMILARITY_FLOOR) return 1 // >= 0.40
-    return 0
-  }
-
-  const showTacticColumn = computed(() => props.kind !== 'ATTACK_MITIGATION')
+  const showTacticColumn = computed(() => props.kind !== 'ATTACK_MITIGATION' && props.kind !== 'ATLAS_MITIGATION')
 </script>
 
 <template>

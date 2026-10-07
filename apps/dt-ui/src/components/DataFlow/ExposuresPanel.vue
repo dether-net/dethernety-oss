@@ -16,9 +16,11 @@
     type SnackBarState,
   } from '@/composables/useFindingDisposition'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
+  import { mitreUrl } from '@/utils/mitreUrl'
   import ExposureDialog from '@/components/Dialogs/DataFlow/ExposureDialog.vue'
   import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
   import LifecycleBadge from '@/components/Disposition/LifecycleBadge.vue'
+  import UnresolvedReferencesBadge from '@/components/Disposition/UnresolvedReferencesBadge.vue'
   import AttackTechniqueDialog from '@/components/Dialogs/Mitre/AttackTechniqueDialog.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
@@ -482,6 +484,20 @@
           >
             {{ templ.name + ' (' + templ.attack_id + ')' }}
           </v-chip>
+          <!-- ATLAS techniques: shown with a link to atlas.mitre.org; there is no in-app ATLAS detail view. -->
+          <v-chip
+            v-for="atlas in item.exploitedByAtlas || []"
+            :key="atlas.id"
+            class="ma-1"
+            :href="mitreUrl(atlas.atlas_id) ?? undefined"
+            rel="noopener noreferrer"
+            small
+            target="_blank"
+            variant="outlined"
+          >
+            {{ atlas.name + ' (' + atlas.atlas_id + ')' }}
+          </v-chip>
+          <UnresolvedReferencesBadge :references="item.unresolvedReferences" />
         </div>
       </template>
       <template #item.actions="{ item }">
@@ -714,8 +730,14 @@
             </div>
 
             <!-- Exploited by -->
-            <div v-if="selectedExposure.exploitedBy?.length" class="mb-3">
-              <div class="text-subtitle-2 mb-1">Exploited by</div>
+            <div
+              v-if="selectedExposure.exploitedBy?.length || selectedExposure.exploitedByAtlas?.length || selectedExposure.unresolvedReferences?.length"
+              class="mb-3"
+            >
+              <div class="text-subtitle-2 mb-1">
+                Exploited by
+                <UnresolvedReferencesBadge :references="selectedExposure.unresolvedReferences" />
+              </div>
               <v-list class="py-0" density="compact">
                 <v-list-item
                   v-for="t in selectedExposure.exploitedBy"
@@ -724,6 +746,17 @@
                   @click="openAttackTechniqueDialog(t.attack_id)"
                 >
                   <v-list-item-title>{{ t.name }} ({{ t.attack_id }})</v-list-item-title>
+                  <v-list-item-subtitle v-if="t.description" class="text-wrap">{{ t.description }}</v-list-item-subtitle>
+                </v-list-item>
+                <v-list-item
+                  v-for="t in selectedExposure.exploitedByAtlas || []"
+                  :key="t.id"
+                  class="px-2 rounded"
+                  :href="mitreUrl(t.atlas_id) ?? undefined"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  <v-list-item-title>{{ t.name }} ({{ t.atlas_id }}) — MITRE ATLAS</v-list-item-title>
                   <v-list-item-subtitle v-if="t.description" class="text-wrap">{{ t.description }}</v-list-item-subtitle>
                 </v-list-item>
               </v-list>

@@ -8,7 +8,7 @@ This is the backend service component of the Dethernety cybersecurity threat mod
 - **Neo4j Integration**: Persistence of graph data representing systems, threats, and mitigations
 - **Module Loading**: Dynamic loading of Dethernety modules
 - **AI Analysis Bridge**: Communication with LangGraph server for AI-powered analyses
-- **MITRE Framework Support**: APIs for querying and linking to ATT&CK and D3FEND frameworks
+- **MITRE Framework Support**: APIs for querying and linking to ATT&CK, ATLAS and D3FEND frameworks
 
 ## Architecture
 

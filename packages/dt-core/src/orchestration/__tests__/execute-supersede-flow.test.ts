@@ -12,11 +12,17 @@ import { executeSupersedeFlow } from '../execute-supersede-flow.js'
 import type { DtExposure } from '../../dt-exposure/dt-exposure.js'
 import type { Exposure } from '../../interfaces/core-types-interface.js'
 
+const LINKS = {
+  exploitedBy: [{ id: 'tech-1', justification: 'found in the image' }, { id: 'tech-2', justification: null }],
+  exploitedByAtlas: [{ id: 'atlas-1', justification: 'prompt reaches the model' }],
+}
+
 function buildMockDtExposure() {
   const createExposure = vi.fn()
   const disposeExposure = vi.fn()
-  const dtExposure = { createExposure, disposeExposure } as unknown as DtExposure
-  return { dtExposure, createExposure, disposeExposure }
+  const getExposureTechniqueLinks = vi.fn().mockResolvedValue(LINKS)
+  const dtExposure = { createExposure, disposeExposure, getExposureTechniqueLinks } as unknown as DtExposure
+  return { dtExposure, createExposure, disposeExposure, getExposureTechniqueLinks }
 }
 
 const SYSTEM_EXPOSURE: Exposure = {
@@ -35,6 +41,34 @@ const SYSTEM_EXPOSURE: Exposure = {
 
 describe('executeSupersedeFlow', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('copies every technique link of the original, ATT&CK and ATLAS, with each justification, onto the copy', async () => {
+    const { dtExposure, createExposure, disposeExposure, getExposureTechniqueLinks } = buildMockDtExposure()
+    createExposure.mockResolvedValueOnce({ ...SYSTEM_EXPOSURE, id: 'user-exp-1' })
+    disposeExposure.mockResolvedValueOnce({ success: true })
+
+    await executeSupersedeFlow({
+      systemExposureId: 'sys-exp-1',
+      systemExposure: SYSTEM_EXPOSURE,
+      elementId: 'elem-1',
+      dtExposure,
+    })
+
+    expect(getExposureTechniqueLinks).toHaveBeenCalledWith({ exposureId: 'sys-exp-1' })
+    expect(createExposure.mock.calls[0][0].attackTechniqueLinks).toEqual(LINKS.exploitedBy)
+    expect(createExposure.mock.calls[0][0].atlasTechniqueLinks).toEqual(LINKS.exploitedByAtlas)
+  })
+
+  it('creates nothing and disposes nothing when the original is gone', async () => {
+    const { dtExposure, createExposure, disposeExposure, getExposureTechniqueLinks } = buildMockDtExposure()
+    getExposureTechniqueLinks.mockResolvedValueOnce(null)
+
+    await expect(
+      executeSupersedeFlow({ systemExposureId: 'sys-exp-1', systemExposure: SYSTEM_EXPOSURE, elementId: 'elem-1', dtExposure }),
+    ).rejects.toThrow(/not found/)
+    expect(createExposure).not.toHaveBeenCalled()
+    expect(disposeExposure).not.toHaveBeenCalled()
+  })
 
   it('clones the SYSTEM exposure with " (custom)" suffix and appends source note to description', async () => {
     const { dtExposure, createExposure, disposeExposure } = buildMockDtExposure()
@@ -58,7 +92,8 @@ describe('executeSupersedeFlow', () => {
     expect(createArgs.exposure.description).toContain("(custom of 'Hardcoded credentials')")
     expect(createArgs.exposure.id).toBe('') // id stripped (placeholder satisfies type; server assigns real id)
     expect(createArgs.elementId).toBe('elem-1')
-    expect(createArgs.attackTechniqueIds).toEqual(['tech-1'])
+    // The links carry the techniques; a bare id list beside them would go unread.
+    expect(createArgs.attackTechniqueIds).toBeUndefined()
   })
 
   it('uses single-quote-wrapped clone name in disposition reason (load-bearing for companion)', async () => {

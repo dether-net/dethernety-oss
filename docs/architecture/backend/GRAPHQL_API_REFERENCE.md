@@ -173,6 +173,8 @@ MITRE corpus selector for matchMitreTechniques. Determines which HNSW index is c
 | `ATTACK_TECHNIQUE` | MITRE ATT&CK adversary technique (T-codes; e.g. T1003, T1003.001) |
 | `DEFEND_TECHNIQUE` | MITRE D3FEND defensive technique (D3-codes; e.g. D3-PMAD) |
 | `ATTACK_MITIGATION` | MITRE ATT&CK mitigation (M-codes; e.g. M1041) |
+| `ATLAS_TECHNIQUE` | MITRE ATLAS technique (AML.T-codes; e.g. AML.T0051, AML.T0051.000) |
+| `ATLAS_MITIGATION` | MITRE ATLAS mitigation (AML.M-codes; e.g. AML.M0015) |
 
 ### MitreMatchType
 
@@ -413,6 +415,14 @@ Disposition metadata on a CONDUIT edge. Carries intent only — never asserts le
 | `justification` | `String` | Optional free-text rationale, written by the modeler (e.g. 'payment service to Stripe, sanctioned'). |
 | `controlRefs` | `[ID!]` | Optional reference(s) to the mediating control(s) that make it safe. Scalar id(s) this round. |
 
+### TechniqueLinkProperties
+
+Properties of an edge from an exposure or countermeasure to a MITRE node (EXPLOITED_BY, RESPONDS_WITH, COUNTERMEASURE_*).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `justification` | `String` | Why the link holds, as written by the module policy or the author; null for a bare reference. |
+
 ### Data
 
 A data element handled by components and data flows (e.g., PII, credentials, API keys).
@@ -524,13 +534,23 @@ Implements: `Element`
 | `dispositionedBy` | `String` | User id (JWT sub claim) of the user who authored the current disposition. Stamped by the disposeExposure resolver from context.user.sub. Null when dispositionKind is null. Updated on every dispose call (including re-affirm — the backend treats them identically). Server-stamped via the structured mutation only — the @settable(onCreate/onUpdate: false) directives prevent direct-GraphQL spoofing of this forensic-provenance field, matching the posture of createdBy / authoredBy above. |
 | `dispositionedAt` | `DateTime` | ISO-8601 timestamp when the current disposition was authored or last modified / re-affirmed. Stamped by the resolver. Null when dispositionKind is null. Updated on every dispose call. Server-stamped only — @settable directives prevent backdating via direct-GraphQL. |
 | `dispositionStale` | `Boolean` | True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeExposure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked). |
+| `unresolvedReferences` | `[String!]` | Technique references the class declares for this exposure that could not be linked: the id is not in the loaded MITRE data, or the reference is not an allowed target for its field (written `Label.key=value`). Set by the instantiation writer on every save of a class-derived exposure and cleared when every reference links. Read-only. |
 | `component` | `[Component!]!` | Components affected by this exposure (← `HAS_EXPOSURE`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |
 | `data` | `[Data!]!` | Data elements affected by this exposure (← `HAS_EXPOSURE`) |
 | `element` | `[Element!]!` | All elements affected by this exposure (← `HAS_EXPOSURE`) |
 | `exploitedBy` | `[MitreAttackTechnique!]!` | ATT&CK techniques that exploit this exposure (→ `EXPLOITED_BY`) |
+| `exploitedByAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques that exploit this exposure (EXPLOITED_BY) (→ `EXPLOITED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this exposure (→ `HAS_ISSUE`) |
+
+### AtlasCrosswalkProperties
+
+Properties of an ATLAS_TECHNIQUE_REFERENCES crosswalk edge.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cited_attack_id` | `String` | The ATT&CK ID the ATLAS object cites; differs from the edge's target only where ATT&CK revoked the cited technique. |
 
 ### Countermeasure
 
@@ -556,12 +576,26 @@ Implements: `Element`
 | `dispositionedBy` | `String` | User id (JWT sub claim) of the user who authored the current disposition. Stamped by the disposeCountermeasure resolver from context.user.sub. Null when dispositionKind is null. Updated on every dispose call (including re-affirm — the backend treats them identically). Server-stamped via the structured mutation only — the @settable(onCreate/onUpdate: false) directives prevent direct-GraphQL spoofing of this forensic-provenance field, matching the posture of createdBy / authoredBy above. |
 | `dispositionedAt` | `DateTime` | ISO-8601 timestamp when the current disposition was authored or last modified / re-affirmed. Stamped by the resolver. Null when dispositionKind is null. Updated on every dispose call. Server-stamped only — @settable directives prevent backdating via direct-GraphQL. |
 | `dispositionStale` | `Boolean` | True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeCountermeasure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearCountermeasureDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked). |
+| `unresolvedReferences` | `[String!]` | References the class declares for this countermeasure (mitigations, D3FEND techniques, countered techniques) that could not be linked: the id is not in the loaded MITRE data, or the reference is not an allowed target for its field (written `Label.key=value`). Set by the instantiation writer on every save of a class-derived countermeasure and cleared when every reference links. An unresolved regulatory requirement is not recorded here. Read-only. |
 | `mitigations` | `[MitreAttackMitigation!]!` | ATT&CK mitigations implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `defendedTechniques` | `[MitreDefendTechnique!]!` | D3FEND techniques implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `mitigates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure mitigates (COUNTERMEASURE_MITIGATES). Distinct from `mitigations` — those are the ATT&CK Mitigation nodes this countermeasure implements, via RESPONDS_WITH; these are the ATT&CK Techniques it counters. (→ `COUNTERMEASURE_MITIGATES`) |
 | `protectsAgainst` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure hardens against (COUNTERMEASURE_PROTECTS_AGAINST) (→ `COUNTERMEASURE_PROTECTS_AGAINST`) |
 | `detects` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure detects (COUNTERMEASURE_DETECTS) (→ `COUNTERMEASURE_DETECTS`) |
 | `isolates` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure isolates (COUNTERMEASURE_ISOLATES) (→ `COUNTERMEASURE_ISOLATES`) |
+| `deceives` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure deceives the adversary about (COUNTERMEASURE_DECEIVES) (→ `COUNTERMEASURE_DECEIVES`) |
+| `evicts` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure evicts the adversary from (COUNTERMEASURE_EVICTS) (→ `COUNTERMEASURE_EVICTS`) |
+| `restores` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure restores from (COUNTERMEASURE_RESTORES) (→ `COUNTERMEASURE_RESTORES`) |
+| `respondsTo` | `[MitreAttackTechnique!]!` | ATT&CK techniques this countermeasure responds to (COUNTERMEASURE_RESPONDS_TO) (→ `COUNTERMEASURE_RESPONDS_TO`) |
+| `mitigationsAtlas` | `[MitreAtlasMitigation!]!` | ATLAS mitigations implemented by this countermeasure (RESPONDS_WITH) (→ `RESPONDS_WITH`) |
+| `mitigatesAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure mitigates (COUNTERMEASURE_MITIGATES) (→ `COUNTERMEASURE_MITIGATES`) |
+| `protectsAgainstAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure hardens against (COUNTERMEASURE_PROTECTS_AGAINST) (→ `COUNTERMEASURE_PROTECTS_AGAINST`) |
+| `detectsAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure detects (COUNTERMEASURE_DETECTS) (→ `COUNTERMEASURE_DETECTS`) |
+| `isolatesAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure isolates (COUNTERMEASURE_ISOLATES) (→ `COUNTERMEASURE_ISOLATES`) |
+| `deceivesAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure deceives the adversary about (COUNTERMEASURE_DECEIVES) (→ `COUNTERMEASURE_DECEIVES`) |
+| `evictsAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure evicts the adversary from (COUNTERMEASURE_EVICTS) (→ `COUNTERMEASURE_EVICTS`) |
+| `restoresAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure restores from (COUNTERMEASURE_RESTORES) (→ `COUNTERMEASURE_RESTORES`) |
+| `respondsToAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques this countermeasure responds to (COUNTERMEASURE_RESPONDS_TO) (→ `COUNTERMEASURE_RESPONDS_TO`) |
 | `control` | `[Control!]!` | Control that provides this countermeasure (← `HAS_COUNTERMEASURE`) |
 | `controlClass` | `[ControlClass!]!` | Control class this countermeasure belongs to (→ `IS_COUNTERMEASURE_OF`) |
 | `issues` | `[Issue!]!` | Issues associated with this countermeasure (→ `HAS_ISSUE`) |
@@ -682,12 +716,13 @@ Generic (parent-label, count) pair. Used by `*Class.incomingInstancesByType` to 
 
 Discriminated event from the in-memory class-identity event log.
 The `kind` field is the discriminant ('rebind' | 'rebind-conflict' |
-'collision' | 'orphan' | 'revive'); per-kind fields are nullable on
-the union shape and populated based on the discriminant value.
+'collision' | 'orphan' | 'revive' | 'rename'); per-kind fields are
+nullable on the union shape and populated based on the discriminant
+value.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `kind` | `String!` | Discriminant: 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive' |
+| `kind` | `String!` | Discriminant: 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive' | 'rename' |
 | `timestamp` | `String!` | ISO timestamp of event emission. |
 | `moduleName` | `String` | Module name (null for collision events — see firstModuleName/secondModuleName). |
 | `classKind` | `String` | Pluralized class-kind key from @dethernety/dt-module ('analysisClasses' | 'componentClasses' | ...). |
@@ -697,7 +732,8 @@ the union shape and populated based on the discriminant value.
 | `moduleDeclaredId` | `String` | Module-declared id (rebind-conflict events only). |
 | `dbId` | `String` | Current DB id at time of conflict (rebind-conflict events only). |
 | `policy` | `String` | Rebind policy applied: 'audit' | 'silent' | 'strict'. |
-| `classId` | `String` | Class id (orphan / revive events). |
+| `oldName` | `String` | Pre-rename class name (rename events only; className carries the new name). |
+| `classId` | `String` | Class id (orphan / revive / rename events). |
 | `reason` | `String` | Reason for orphaning ('absent-from-metadata' | 'legacy-id-superseded'). |
 | `firstModuleName` | `String` | First module of a collision (the one that created the colliding id). |
 | `secondModuleName` | `String` | Second module of a collision (the one whose install was rejected). |
@@ -793,7 +829,9 @@ An exposure that has MITRE mitigations but no control implements them.
 
 ### UnaddressableExposure
 
-An exposure whose MITRE mitigations have no installed ControlClass coverage.
+An exposure with no addressable path: none of its MITRE mitigations has
+installed ControlClass coverage — or MITRE lists no mitigation for its
+techniques at all (then mitreMitigations is empty).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -989,6 +1027,7 @@ the happy path stays a single round trip.
 |-------|------|-------------|
 | `success` | `Boolean!` | True when the attribute write succeeded; false when validation or DB failure prevented the write. |
 | `staleFlippedCount` | `Int` | Number of dispositioned exposures on the element whose `dispositionStale` was flipped to true. Zero on no-op saves or when the element carries no dispositions. |
+| `unresolvedReferences` | `[String!]` | References of the element's class-derived findings that could not be linked (not in the loaded MITRE data, or not an allowed target for their field). They do not fail the save; each is also recorded on its finding's `unresolvedReferences`. Null when every reference linked. |
 | `errorCode` | `String` | Stable failure category (e.g. DATABASE_ERROR, VALIDATION_ERROR). Null on success. |
 | `errorMessage` | `String` | Human-readable diagnosis of the failure, naming the offending id and the precise reason. Null on success. |
 
@@ -1210,6 +1249,7 @@ Implements: `Element`
 | `name` | `String!` | Tactic name |
 | `description` | `String` | Free-text description |
 | `attack_id` | `String` | ATT&CK tactic ID (e.g., TA0001) |
+| `matrix_order` | `Int` | 0-based position in the ATT&CK matrix (kill-chain order) |
 | `attack_version` | `String` | ATT&CK version this tactic was introduced or updated in |
 | `stix_id` | `String` | STIX identifier |
 | `stix_spec_version` | `String` | STIX specification version |
@@ -1241,6 +1281,7 @@ Implements: `Element`
 | `exposures` | `[Exposure!]!` | Exposures that this technique can exploit (← `EXPLOITED_BY`) |
 | `mitigations` | `[MitreAttackMitigation!]!` | ATT&CK mitigations that defend against this technique (← `MITIGATION_DEFENDS_AGAINST_TECHNIQUE`) |
 | `tactics` | `[MitreAttackTactic!]!` | Tactics this technique belongs to (← `TACTIC_INCLUDES_TECHNIQUE`) |
+| `atlasTechniques` | `[MitreAtlasTechnique!]!` | ATLAS techniques that cite this technique (the crosswalk) (← `ATLAS_TECHNIQUE_REFERENCES`) |
 
 ### MitreAttackMitigation
 
@@ -1266,6 +1307,86 @@ Implements: `Element`
 | `stix_type` | `String` | STIX object type |
 | `attackTechniqueMitigated` | `[MitreAttackTechnique!]!` | Techniques this mitigation defends against (→ `MITIGATION_DEFENDS_AGAINST_TECHNIQUE`) |
 | `countermeasures` | `[Countermeasure!]!` | Countermeasures that implement this mitigation (← `RESPONDS_WITH`) |
+
+### MitreAtlasTechnique
+
+A MITRE ATLAS technique or sub-technique: an attack on an AI-enabled system (e.g., AML.T0051 LLM Prompt Injection).
+
+Implements: `Element`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `ID!` | Unique identifier |
+| `name` | `String!` | Technique name |
+| `description` | `String` | Free-text description |
+| `atlas_id` | `String` | ATLAS technique ID (e.g., AML.T0051, AML.T0051.000) |
+| `atlas_subtechnique` | `Boolean` | Whether this is a sub-technique |
+| `atlas_platforms` | `[String!]` | AI system kinds the technique applies to (e.g., Agentic AI, Generative AI) |
+| `atlas_deprecated` | `Boolean` | Whether this technique has been deprecated |
+| `ref_url` | `String` | Reference URL on atlas.mitre.org |
+| `stix_id` | `String` | STIX identifier |
+| `stix_created` | `String` | STIX creation timestamp |
+| `stix_modified` | `String` | STIX last-modified timestamp |
+| `stix_revoked` | `Boolean` | Whether this STIX object has been revoked |
+| `subTechniques` | `[MitreAtlasTechnique!]!` | Sub-techniques of this technique (← `SUBTECHNIQUE_OF`) |
+| `parentTechnique` | `[MitreAtlasTechnique!]!` | Parent technique (if this is a sub-technique) (→ `SUBTECHNIQUE_OF`) |
+| `tactics` | `[MitreAtlasTactic!]!` | ATLAS tactics this technique belongs to (← `TACTIC_INCLUDES_TECHNIQUE`) |
+| `mitigations` | `[MitreAtlasMitigation!]!` | ATLAS mitigations that defend against this technique (← `MITIGATION_DEFENDS_AGAINST_TECHNIQUE`) |
+| `caseStudies` | `[MitreAtlasCaseStudy!]!` | ATLAS case studies (documented incidents) that used this technique (← `CAMPAIGN_USES_TECHNIQUE`) |
+| `attackTechniques` | `[MitreAttackTechnique!]!` | The ATT&CK techniques this ATLAS technique cites (the crosswalk, resolved through ATT&CK revocations) (→ `ATLAS_TECHNIQUE_REFERENCES`) |
+| `exposures` | `[Exposure!]!` | Exposures that this technique can exploit (← `EXPLOITED_BY`) |
+
+### MitreAtlasTactic
+
+A MITRE ATLAS tactic (e.g., AI Model Access, Exfiltration). ATLAS is its own matrix: tactic ids and names overlap ATT&CK's but are not the same tactics.
+
+Implements: `Element`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `ID!` | Unique identifier |
+| `name` | `String!` | Tactic name |
+| `description` | `String` | Free-text description |
+| `atlas_id` | `String` | ATLAS tactic ID (e.g., AML.TA0000) |
+| `atlas_shortname` | `String` | Short name used by technique kill-chain phases (e.g., ai-model-access) |
+| `matrix_order` | `Int` | 0-based position in the ATLAS matrix |
+| `ref_url` | `String` | Reference URL on atlas.mitre.org |
+| `stix_id` | `String` | STIX identifier |
+| `techniques` | `[MitreAtlasTechnique!]!` | Techniques associated with this tactic (→ `TACTIC_INCLUDES_TECHNIQUE`) |
+
+### MitreAtlasMitigation
+
+A MITRE ATLAS mitigation (e.g., AML.M0015 Adversarial Input Detection).
+
+Implements: `Element`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `ID!` | Unique identifier |
+| `name` | `String!` | Mitigation name |
+| `description` | `String` | Free-text description |
+| `atlas_id` | `String` | ATLAS mitigation ID (e.g., AML.M0015) |
+| `atlas_deprecated` | `Boolean` | Whether this mitigation has been deprecated |
+| `ref_url` | `String` | Reference URL on atlas.mitre.org |
+| `stix_id` | `String` | STIX identifier |
+| `techniquesMitigated` | `[MitreAtlasTechnique!]!` | Techniques this mitigation defends against (→ `MITIGATION_DEFENDS_AGAINST_TECHNIQUE`) |
+| `countermeasures` | `[Countermeasure!]!` | Countermeasures that implement this mitigation (← `RESPONDS_WITH`) |
+
+### MitreAtlasCaseStudy
+
+A MITRE ATLAS case study: a documented attack on an AI-enabled system (e.g., AML.CS0000).
+
+Implements: `Element`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `ID!` | Unique identifier |
+| `name` | `String!` | Case study name |
+| `description` | `String` | Free-text description |
+| `atlas_id` | `String` | ATLAS case study ID (e.g., AML.CS0000) |
+| `ref_url` | `String` | Reference URL on atlas.mitre.org |
+| `stix_id` | `String` | STIX identifier |
+| `techniques` | `[MitreAtlasTechnique!]!` | Techniques used in this case study (→ `CAMPAIGN_USES_TECHNIQUE`) |
 
 ### MitreDefendTactic
 
@@ -1311,14 +1432,15 @@ A reference to a MITRE ATT&CK or D3FEND entity.
 
 ### MitreCandidate
 
-A single MITRE candidate. Shape is uniform across the three MitreKind values; mitreId reads from attack_id (ATT&CK) or d3fendId (D3FEND).
+A single MITRE candidate. Shape is uniform across the MitreKind values; mitreId reads from attack_id (ATT&CK), d3fendId (D3FEND) or atlas_id (ATLAS).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `mitreId` | `String!` | T1003 / T1003.001 / D3-PMAD / M1041 — read from attack_id (ATT&CK) or d3fendId (D3FEND). |
+| `mitreId` | `String!` | T1003 / T1003.001 / D3-PMAD / M1041 / AML.T0051 / AML.M0015 — read from attack_id (ATT&CK), d3fendId (D3FEND) or atlas_id (ATLAS). |
 | `name` | `String!` |  |
 | `description` | `String` |  |
-| `tactic` | `String` | ATT&CK tactic name or D3FEND tactic name (same field; distinct vocabularies). |
+| `tactic` | `String` | Tactic name in the candidate's own framework (ATT&CK, ATLAS or D3FEND; distinct vocabularies). For a multi-tactic technique, the earliest in matrix order. Null for mitigations. |
+| `tacticOrder` | `Int` | 0-based position of `tactic` in its framework's matrix (ATT&CK and ATLAS); null for D3FEND tactics, for mitigations, and for a corpus ingested without matrix positions. Order tactic facets by this, never by name. |
 | `kind` | `MitreKind!` |  |
 | `matchType` | `MitreMatchType!` |  |
 | `similarityScore` | `Float` | Populated for VECTOR_SIMILARITY matches; null for the deterministic tiers (EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH). |
@@ -1720,8 +1842,8 @@ buffer (max 1000 events, drop-oldest, process-local — pre-restart
 events are not persisted). Admin-gated to avoid surfacing per-module
 operational state to non-admin authenticated users in multi-tenant
 deployments. Filter by `kind` ('rebind' | 'rebind-conflict' |
-'collision' | 'orphan' | 'revive'), `moduleName`, and/or `since`
-(events at-or-after the timestamp are returned).
+'collision' | 'orphan' | 'revive' | 'rename'), `moduleName`, and/or
+`since` (events at-or-after the timestamp are returned).
 
 **Returns:** `[ClassIdentityEvent!]!`
 

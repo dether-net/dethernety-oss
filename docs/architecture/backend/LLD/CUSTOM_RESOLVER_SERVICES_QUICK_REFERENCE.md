@@ -129,6 +129,8 @@ resetStatistics(): void
 getHealthStatus(): HealthStatus
 ```
 
+GraphQL mutation: `setInstantiationAttributes(componentId, classId, attributes): SetInstantiationAttributesResult` returns `{ success, staleFlippedCount, unresolvedReferences, errorCode, errorMessage }`. `unresolvedReferences` lists the class-derived finding references that could not be linked. They do not fail the save, and each is also recorded on its finding as `unresolvedReferences`. See [Reference resolution](./SET_INSTANTIATION_ATTRIBUTES.md#reference-resolution).
+
 ### ClassIdentityResolverService
 
 ```typescript

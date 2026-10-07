@@ -84,6 +84,7 @@ function coverageExport(view) {
     generatedAt: view.generatedAt,
     // tier-segregated, function-classified counts (NOT a single total, NOT a %)
     bucketsByTier: view.summary,
+    // ATT&CK tactics as { id, name, order }, in ATT&CK matrix order.
     tactics: view.tactics,
     techniques: view.rows.map((r) => ({
       techniqueId: r.techniqueId,
@@ -344,7 +345,7 @@ function coverageHtml(view) {
     .map(
       (r) => `<tr>
         <td>${esc(r.techniqueId)}</td>
-        <td>${esc(r.tactics.join(', '))}</td>
+        <td>${esc(r.tactics.map((t) => t.name).join(', '))}</td>
         <td>${esc(r.bestTier ?? 'UNCOVERED')}</td>
         <td>${esc(r.status)}</td>
         <td class="score">${r.elementsCovered}/${r.elementsTotal}</td>

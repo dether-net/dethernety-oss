@@ -469,6 +469,8 @@ export interface MitreRef {
 }
 ```
 
+**Allowed targets.** The platform links a reference only if its `label` / `property` pair is allowed for the field it sits under. `exploitedBy` and the verb fields accept ATT&CK or ATLAS techniques. `respondsWith` accepts ATT&CK or ATLAS mitigations, D3FEND techniques or regulatory requirements. A bare-string id is mapped by its shape (`T…`, `AML.T…`, `M…`, `AML.M…`, `D3-…`). A reference that is not allowed, or whose node is not in the loaded MITRE data, is not linked. It does not fail the save: the platform records it on the finding as `unresolvedReferences`, and the UI shows it as an "unlinked" chip. See [Reference resolution](../backend/LLD/SET_INSTANTIATION_ATTRIBUTES.md#reference-resolution).
+
 ### Exposure
 
 Represents a security vulnerability or weakness detected for a model element.

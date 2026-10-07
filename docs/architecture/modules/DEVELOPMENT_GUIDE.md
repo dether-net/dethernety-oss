@@ -291,6 +291,8 @@ countermeasures[countermeasure] {
 
 Exposures can reference MITRE ATT&CK techniques via `exploited_by`, and countermeasures can reference MITRE D3FEND techniques via `responds_with`. These are rendered in the UI when the MITRE frameworks module is installed.
 
+A reference links only if its node is in the loaded MITRE data and its kind is allowed for the field (see [Allowed targets](DT_MODULE_INTERFACE.md#mitreref)). Anything else is not linked: the platform marks it on the finding as unlinked and still saves. To catch these before release, run the [module reference check](../../../modules/mitre-frameworks/README.md#module-reference-check) over your module.
+
 Exposures can also include an `attack_vector` field (CVSS v3.1-aligned: `"NETWORK"`, `"ADJACENT"`, `"LOCAL"`, `"PHYSICAL"`). When omitted, the platform defaults to `"UNSPECIFIED"`. This field enables boundary-aware analysis and attack path constraints.
 
 ---

@@ -100,6 +100,16 @@ describe('bootstrap DDL on Memgraph (e2e)', () => {
     // …AND a constraint-covered pair (Memgraph keeps both — shipped behavior).
     expect(flat.some((s) => s.includes('ControlClass') && s.includes('"id"'))).toBe(true);
     expect(flat.some((s) => s.includes('Module') && s.includes('"name"'))).toBe(true);
+    // MITRE key indexes (ATT&CK, D3FEND, ATLAS).
+    for (const [label, property] of [
+      ['MitreAttackTechnique', 'attack_id'],
+      ['MitreAttackMitigation', 'attack_id'],
+      ['MitreDefendTechnique', 'd3fendId'],
+      ['MitreAtlasTechnique', 'atlas_id'],
+      ['MitreAtlasMitigation', 'atlas_id'],
+    ] as const) {
+      expect(flat.some((s) => s.includes(`"${label}"`) && s.includes(`"${property}"`))).toBe(true);
+    }
   });
 
   it('re-running both hooks is idempotent and stays healthy', async () => {

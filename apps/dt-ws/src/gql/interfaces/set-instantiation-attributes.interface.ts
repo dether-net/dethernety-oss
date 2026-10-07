@@ -42,6 +42,9 @@ export interface SetAttributesResult {
   error?: string;
   errorCode?: string;
   staleFlippedCount?: number;
+  // Distinct references of the element's derived findings that could not be
+  // linked. They do not fail the save; each is recorded on its finding.
+  unresolvedReferences?: string[];
   metadata?: {
     operationId: string;
     timestamp: string;
@@ -132,6 +135,17 @@ export interface UpsertCountermeasuresRequest {
 }
 
 /**
+ * Result of a tx-bound exposure or countermeasure upsert. `unresolved` lists the
+ * distinct references the writer could not link (not in the graph, or outside the
+ * closed set of label/key pairs for their field); each is also recorded on its
+ * finding as `unresolvedReferences`.
+ */
+export interface UpsertFindingsResult {
+  instantiated: string[];
+  unresolved: string[];
+}
+
+/**
  * Delete obsolete external objects request
  */
 export interface DeleteObsoleteObjectsRequest {
@@ -148,6 +162,7 @@ export interface DatabaseOperationResult {
   success: boolean;
   recordsAffected?: number;
   error?: string;
+  unresolvedReferences?: string[];
 }
 
 // ============================================================================

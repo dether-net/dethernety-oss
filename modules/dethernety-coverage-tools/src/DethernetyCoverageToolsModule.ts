@@ -78,7 +78,7 @@ class DethernetyCoverageToolsModule implements DTModule {
       name: 'dethernety-coverage-tools',
       description:
         'Graded, element-scoped, disposition-agnostic MITRE coverage facts (a reusable query primitive).',
-      version: '1.0.0',
+      version: '2.0.0',
       author: 'Dethernety',
     };
   }
@@ -204,7 +204,13 @@ class DethernetyCoverageToolsModule implements DTModule {
     const A = DethernetyCoverageToolsModule.SUPPORT_ANCHOR;
 
     // 1) Base anchor: one row per (element, exposure, exploited technique) carrying
-    //    the technique's ATT&CK tactic(s) — the matrix COLUMNS. An exposure with no
+    //    the technique's ATT&CK tactic(s) — the matrix COLUMNS — as {id, name, order},
+    //    order being the tactic's ATT&CK matrix position. Distinct tactic NODES are
+    //    collected and projected afterwards: collect(DISTINCT <map>) fails on Memgraph
+    //    when a map is null (no tactic matched). The projection is a MAP PROJECTION
+    //    (`x {…}`), not a map literal: Memgraph 3.8 evaluates a map literal's plain
+    //    property reads once per list comprehension, so `[x IN tacs | {id: x.attack_id}]`
+    //    returns the first tactic's id for every element. An exposure with no
     //    EXPLOITED_BY technique yields a single row with techniqueId = null (the
     //    soft/unmapped marker). Tactic is resolved through SUBTECHNIQUE_OF*0..1: an
     //    ATT&CK sub-technique (single-level, e.g. T1078.004 → T1078) belongs to its
@@ -218,14 +224,14 @@ class DethernetyCoverageToolsModule implements DTModule {
       MATCH (element)-[:HAS_EXPOSURE]->(exp:Exposure)
       OPTIONAL MATCH (exp)-[:EXPLOITED_BY]->(t:MitreAttackTechnique)
       OPTIONAL MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(tp:MitreAttackTechnique)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
-      WITH element, exp, t, [x IN collect(DISTINCT tac.name) WHERE x IS NOT NULL] AS tactics
+      WITH element, exp, t, collect(DISTINCT tac) AS tacs
       RETURN element.id AS elementId,
              [l IN labels(element) WHERE l IN ['Component','DataFlow','SecurityBoundary','Data']][0] AS elementKind,
              exp.id AS exposureId,
              t.attack_id AS techniqueId,
              t.name AS techniqueName,
              t.description AS techniqueDescription,
-             tactics`;
+             [x IN tacs | x {id: x.attack_id, .name, order: coalesce(x.matrix_order, 999)}] AS tactics`;
 
     // Two refinements shared by all three tier hops:
     //  - SUB-TECHNIQUE COVERAGE INHERITANCE: a covering edge lands on `ct`, the
@@ -297,8 +303,21 @@ class DethernetyCoverageToolsModule implements DTModule {
       techniqueId: r.get('techniqueId') ?? null,
       techniqueName: r.get('techniqueName') ?? null,
       techniqueDescription: r.get('techniqueDescription') ?? null,
-      tactics: (r.get('tactics') ?? []).filter((x: any) => x != null),
+      tactics: (r.get('tactics') ?? [])
+        .filter((x: any) => x?.id != null)
+        .map((x: any) => ({ id: x.id, name: x.name, order: Number(x.order) })),
     }));
+    // 999 is the Cypher's stand-in for a tactic without matrix_order (data ingested before the
+    // ingest stamped it). Those columns then sort by tactic id, not by the matrix: say so.
+    const unplaced = new Set(
+      baseRows.flatMap((row) => row.tactics.filter((t) => t.order === 999).map((t) => t.id)),
+    );
+    if (unplaced.size > 0) {
+      this.logger.warn(
+        `${unplaced.size} MITRE ATT&CK tactic(s) have no matrix_order: the MITRE data predates matrix ` +
+          'ordering, so their columns follow tactic id, not the matrix. Re-ingest the mitre-frameworks module.',
+      );
+    }
     const directRows: DirectRow[] = directRecs.map((r) => ({
       exposureId: r.get('exposureId'),
       techniqueId: r.get('techniqueId'),

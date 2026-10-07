@@ -11,7 +11,11 @@
         {
           "techniqueId": "T9005",
           "tactics": [
-            "Exfiltration"
+            {
+              "id": "TA0010",
+              "name": "Exfiltration",
+              "order": 13
+            }
           ],
           "covered": true,
           "tiers": [
@@ -38,7 +42,11 @@
         {
           "techniqueId": "T9003",
           "tactics": [
-            "Exfiltration"
+            {
+              "id": "TA0010",
+              "name": "Exfiltration",
+              "order": 13
+            }
           ],
           "covered": true,
           "tiers": [
@@ -75,7 +83,11 @@
         {
           "techniqueId": "T9004",
           "tactics": [
-            "Credential Access"
+            {
+              "id": "TA0006",
+              "name": "Credential Access",
+              "order": 8
+            }
           ],
           "covered": false,
           "tiers": []
@@ -91,8 +103,16 @@
         {
           "techniqueId": "T9002.004",
           "tactics": [
-            "Initial Access",
-            "Privilege Escalation"
+            {
+              "id": "TA0001",
+              "name": "Initial Access",
+              "order": 2
+            },
+            {
+              "id": "TA0004",
+              "name": "Privilege Escalation",
+              "order": 5
+            }
           ],
           "covered": true,
           "tiers": [
@@ -119,7 +139,21 @@
         {
           "techniqueId": "T9001",
           "tactics": [
-            "Initial Access"
+            {
+              "id": "TA0001",
+              "name": "Initial Access",
+              "order": 2
+            },
+            {
+              "id": "TA0005",
+              "name": "Stealth",
+              "order": 6
+            },
+            {
+              "id": "TA0112",
+              "name": "Defense Impairment",
+              "order": 7
+            }
           ],
           "covered": true,
           "tiers": [

@@ -3,11 +3,15 @@
 #
 # This script:
 # 1. Starts a temporary Memgraph container
-# 2. Runs the MITRE ATT&CK and D3FEND ingest
+# 2. Runs the MITRE ATT&CK, ATLAS and D3FEND ingest
 # 3. Exports the data to Cypher files with MERGE statements
 # 4. Generates vector embeddings and exports to SQL files (requires OPENAI_API_KEY)
 # 5. Packages everything into a tarball
 # 6. Cleans up the container
+#
+# FRAMEWORKS=atlas regenerates only the ATLAS files (06-09) and leaves the ATT&CK and
+# D3FEND files (01-03, 05) untouched; the ingest still loads everything, because the
+# ATLAS crosswalk links to ATT&CK nodes. The default, FRAMEWORKS=all, regenerates all.
 
 set -euo pipefail
 
@@ -28,6 +32,11 @@ MODULE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONTAINER_NAME="memgraph-mitre-build-$$"
 MEMGRAPH_PORT=17687
 MEMGRAPH_IMAGE="memgraph/memgraph-mage:latest"
+FRAMEWORKS="${FRAMEWORKS:-all}"
+case "$FRAMEWORKS" in
+    all|atlas) ;;
+    *) echo "FRAMEWORKS must be 'all' or 'atlas', got '$FRAMEWORKS'" >&2; exit 2 ;;
+esac
 
 # Cleanup function - runs on exit (success or failure)
 cleanup() {
@@ -115,7 +124,7 @@ main() {
     fi
 
     # Run ingest with custom port
-    log_info "Running MITRE ATT&CK and D3FEND ingest..."
+    log_info "Running MITRE ATT&CK, ATLAS and D3FEND ingest..."
     (
         cd "$MODULE_DIR"
         export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
@@ -133,7 +142,8 @@ main() {
         export NEO4J_PASSWORD="password"
 
         .venv/bin/python "$SCRIPT_DIR/export_to_cypher.py" \
-            --output-dir "$MODULE_DIR/data"
+            --output-dir "$MODULE_DIR/data" \
+            --frameworks "$FRAMEWORKS"
     )
 
     # Verify Cypher export
@@ -146,7 +156,9 @@ main() {
     done
 
     # Generate vector embeddings (optional - requires OPENAI_API_KEY)
-    if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    if [[ "$FRAMEWORKS" != "all" ]]; then
+        log_info "FRAMEWORKS=$FRAMEWORKS: skipping the ATT&CK/D3FEND pgvector SQL export"
+    elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
         log_info "Generating vector embeddings..."
         (
             cd "$MODULE_DIR"
@@ -171,7 +183,7 @@ main() {
         log_warn "Set OPENAI_API_KEY to generate SQL files for pgvector"
     fi
 
-    # Generate Memgraph HNSW embeddings (05-mitre-embeddings.cypher).
+    # Generate Memgraph HNSW embeddings (05-mitre-embeddings.cypher, 09-atlas-embeddings.cypher).
     # Provider selection happens inside the Python script. With no EMBEDDING_PROVIDER
     # set it DEFAULTS to Ollama + embeddinggemma (matching the dt-ws runtime default),
     # probing reachability first; if Ollama is unreachable or the model isn't pulled,
@@ -184,7 +196,7 @@ main() {
     # defaults to Ollama + embeddinggemma — two model families, two embedding spaces,
     # two consumers. Set EMBEDDING_PROVIDER=openai to align step 5 with step 4 if
     # that's the intent.
-    log_info "Generating MITRE Memgraph embeddings (05-mitre-embeddings.cypher)..."
+    log_info "Generating MITRE Memgraph embeddings (05 and/or 09, per FRAMEWORKS)..."
     (
         cd "$MODULE_DIR"
         export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
@@ -192,18 +204,21 @@ main() {
         export NEO4J_PASSWORD="password"
 
         .venv/bin/python "$SCRIPT_DIR/export_embeddings_to_cypher.py" \
-            --output-dir "$MODULE_DIR/data"
+            --output-dir "$MODULE_DIR/data" \
+            --frameworks "$FRAMEWORKS"
     ) || {
         log_error "MITRE Memgraph embedding export failed"
         exit 1
     }
 
-    if [[ -f "$MODULE_DIR/data/05-mitre-embeddings.cypher" ]]; then
-        lines=$(wc -l < "$MODULE_DIR/data/05-mitre-embeddings.cypher")
-        log_info "  05-mitre-embeddings.cypher: $lines lines"
-    else
-        log_warn "  05-mitre-embeddings.cypher absent — operator did not configure an embedding provider"
-    fi
+    for f in 05-mitre-embeddings.cypher 09-atlas-embeddings.cypher; do
+        if [[ -f "$MODULE_DIR/data/$f" ]]; then
+            lines=$(wc -l < "$MODULE_DIR/data/$f")
+            log_info "  $f: $lines lines"
+        else
+            log_warn "  $f absent — operator did not configure an embedding provider"
+        fi
+    done
 
     # Package the freshly-regenerated data into the install tarball. Delegating
     # to package.sh keeps a single packaging implementation shared with the

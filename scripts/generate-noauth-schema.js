@@ -11,6 +11,8 @@
  *
  * Usage (from oss/ root):
  *   node scripts/generate-noauth-schema.js
+ *
+ * Exports stripAuthentication for tests.
  */
 
 const fs = require('fs');
@@ -46,30 +48,39 @@ function stripAuthentication(schema) {
   return result;
 }
 
-// --- main ---
-try {
-  const source = fs.readFileSync(INPUT, 'utf8');
-  const stripped = stripAuthentication(source);
-  fs.writeFileSync(OUTPUT, HEADER + stripped, 'utf8');
+function main() {
+  try {
+    const source = fs.readFileSync(INPUT, 'utf8');
+    const stripped = stripAuthentication(source);
+    fs.writeFileSync(OUTPUT, HEADER + stripped, 'utf8');
 
-  // Quick sanity: the generated schema must NOT contain @authentication
-  if (stripped.includes('@authentication')) {
-    // Allow mentions inside comments (lines starting with #)
-    const nonCommentLines = stripped
-      .split('\n')
-      .filter(l => !l.trimStart().startsWith('#'));
-    const remaining = nonCommentLines.filter(l => l.includes('@authentication'));
-    if (remaining.length > 0) {
-      console.error(
-        'WARNING: @authentication still present in non-comment lines:',
-      );
-      remaining.forEach(l => console.error('  ', l.trim()));
-      process.exit(1);
+    // Quick sanity: the generated schema must NOT contain @authentication
+    if (stripped.includes('@authentication')) {
+      // Allow mentions inside comments (lines starting with #)
+      const nonCommentLines = stripped
+        .split('\n')
+        .filter(l => !l.trimStart().startsWith('#'));
+      const remaining = nonCommentLines.filter(l => l.includes('@authentication'));
+      if (remaining.length > 0) {
+        console.error(
+          'WARNING: @authentication still present in non-comment lines:',
+        );
+        remaining.forEach(l => console.error('  ', l.trim()));
+        process.exit(1);
+      }
     }
-  }
 
-  console.log(`Generated ${path.relative(process.cwd(), OUTPUT)}`);
-} catch (err) {
-  console.error('Failed to generate noauth schema:', err.message);
-  process.exit(1);
+    console.log(`Generated ${path.relative(process.cwd(), OUTPUT)}`);
+  } catch (err) {
+    console.error('Failed to generate noauth schema:', err.message);
+    process.exit(1);
+  }
 }
+
+// Run when invoked as a script; tests import stripAuthentication to build the same
+// no-auth variant the deployments use.
+if (require.main === module) {
+  main();
+}
+
+module.exports = { stripAuthentication };

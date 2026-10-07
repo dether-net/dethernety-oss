@@ -1,7 +1,7 @@
 {
   "name": "dethernety-coverage-tools",
   "type": "module",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "dist/dethernety/dethernety-coverage-tools/DethernetyCoverageToolsModule.js",
   "types": "dist/dethernety/dethernety-coverage-tools/DethernetyCoverageToolsModule.d.ts",
   "scripts": {

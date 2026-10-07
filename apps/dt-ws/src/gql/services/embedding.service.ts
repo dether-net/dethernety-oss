@@ -52,7 +52,9 @@ export class EmbeddingService {
     this.apiKey = this.configService.get('EMBEDDING_API_KEY') || '';
     this.model = this.configService.get('EMBEDDING_MODEL') || 'embeddinggemma';
     this.dimensions = parseInt(this.configService.get('EMBEDDING_DIMENSIONS') || '768', 10);
-    this.threshold = parseFloat(this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD') || '0.75');
+    // The cut-off depends on the model, not the caller: 0.40 is tuned for the default model
+    // (embeddinggemma), whose best matches score well below 0.75. Retune it with EMBEDDING_MODEL.
+    this.threshold = parseFloat(this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD') || '0.40');
 
     this.logger.log('EmbeddingService initialized', {
       enabled: this.enabled,

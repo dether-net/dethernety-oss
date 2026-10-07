@@ -57,6 +57,13 @@ dependency), fetched live and joined to the snapshot ledger by exposure id. When
 that module is not deployed, the coverage surface degrades gracefully — the rest of
 the report is unaffected and no coverage grid is fabricated.
 
+Version 2.x of this module needs `dethernety-coverage-tools` 2.x, which emits each
+technique's tactics as `{ id, name, order }` objects (1.x emitted bare tactic
+names). The manifest dependency is name-only and the installer does not check its
+version, so upgrade the two modules together. Against 1.x facts, the Coverage &
+Gaps matrix shows an "incompatible: upgrade both modules together" message instead
+of a grid.
+
 ## Documentation
 
 | Area | Document |

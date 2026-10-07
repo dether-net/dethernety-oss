@@ -102,8 +102,9 @@ on-disk payload already matches), or `failed`, and the channel as a whole gets o
 
 ### Job 3 — ingest the reference corpus
 
-The MITRE ATT&CK and D3FEND corpus is embedded in the console image as `.cypher` files, one directory
-per bundled data module. The one-shot walks them in sorted path order, hashes the set, and compares
+The MITRE ATT&CK, ATLAS and D3FEND corpus is embedded in the console image as `.cypher` files, one
+directory per bundled data module, with the module's `NOTICE` beside them (the image also carries it at
+`/licenses/mitre-frameworks/NOTICE`). The one-shot walks them in sorted path order, hashes the set, and compares
 that hash against a marker node in the graph (`DethernetyIngestMarker`, keyed `byodt-console`). An
 unchanged corpus is skipped.
 

@@ -47,7 +47,7 @@ pnpm docker:run           # Run Docker container
 
 ### Modules
 - `modules/dethernety-general` — Component, boundary, data flow, control, data, and issue classes + the Rego policies behind exposures and countermeasures; the only module contributing classes
-- `modules/mitre-frameworks` — MITRE ATT&CK and D3FEND data pack + ingestion scripts; no `main`, no `DTModule` class, contributes no classes
+- `modules/mitre-frameworks` — MITRE ATT&CK, ATLAS and D3FEND data pack + ingestion scripts (the API and the technique-picker components support ATLAS kinds, but no dialog offers them yet; dt-ui shows ATLAS links read-only); no `main`, no `DTModule` class, contributes no classes
 - `modules/dethernety-threat-report` — The "Threat Report" analysis type and the report UI it renders; no classes, no policies, no AI
 - `modules/dethernety-coverage-tools` — Backend-only; the graded MITRE coverage facts the Threat Report's Coverage & Gaps matrix reads
 

@@ -88,25 +88,40 @@ func TestParseStatementsEdgeCases(t *testing.T) {
 	}
 }
 
-// TestParseRealCorpus is a resilience smoke test against a real committed corpus file:
+// TestParseRealCorpus is a resilience smoke test against real committed corpus files:
 // no golden hash (the corpus is regenerated from upstream MITRE data), only structural
-// invariants that must hold for any well-formed export.
+// invariants that must hold for any well-formed export. The ATLAS files cover the shapes
+// the D3FEND file lacks: list properties, the crosswalk's SET after MERGE, and the
+// embeddings file's // header and UNWIND batches.
 func TestParseRealCorpus(t *testing.T) {
-	path := filepath.Join("..", "..", "modules", "mitre-frameworks", "data", "02-defend-nodes.cypher")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Skipf("corpus file not present (%v)", err)
-	}
-	stmts, err := ParseStatements(string(data))
-	if err != nil {
-		t.Fatalf("real corpus must parse cleanly: %v", err)
-	}
-	if len(stmts) < 1000 {
-		t.Fatalf("expected a substantial statement count, got %d", len(stmts))
-	}
-	for i, s := range stmts {
-		if s == "" || s != strings.TrimSpace(s) {
-			t.Fatalf("statement %d is empty or not trimmed: %q", i, s)
-		}
+	for _, tc := range []struct {
+		file     string
+		minStmts int
+	}{
+		{"02-defend-nodes.cypher", 1000},
+		{"06-atlas-nodes.cypher", 300},
+		{"07-atlas-relationships.cypher", 1000},
+		{"08-atlas-crosswalk.cypher", 40},
+		{"09-atlas-embeddings.cypher", 2},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join("..", "..", "modules", "mitre-frameworks", "data", tc.file)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Skipf("corpus file not present (%v)", err)
+			}
+			stmts, err := ParseStatements(string(data))
+			if err != nil {
+				t.Fatalf("real corpus must parse cleanly: %v", err)
+			}
+			if len(stmts) < tc.minStmts {
+				t.Fatalf("expected at least %d statements, got %d", tc.minStmts, len(stmts))
+			}
+			for i, s := range stmts {
+				if s == "" || s != strings.TrimSpace(s) {
+					t.Fatalf("statement %d is empty or not trimmed: %q", i, s)
+				}
+			}
+		})
 	}
 }

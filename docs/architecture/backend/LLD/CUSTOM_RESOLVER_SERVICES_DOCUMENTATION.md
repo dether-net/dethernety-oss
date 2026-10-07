@@ -1172,9 +1172,11 @@ Resolves user-typed text to candidate MITRE entities for the technique picker. B
 
 | Kind | Field | Description |
 |------|-------|-------------|
-| Query | `matchMitreTechniques(input: MatchMitreTechniquesInput!): MatchMitreTechniquesResult!` | Batch text → candidate match. `kind` selects one of three corpora (`ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, `ATTACK_MITIGATION`) |
+| Query | `matchMitreTechniques(input: MatchMitreTechniquesInput!): MatchMitreTechniquesResult!` | Batch text → candidate match. `kind` selects one of five corpora (`ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, `ATTACK_MITIGATION`, `ATLAS_TECHNIQUE`, `ATLAS_MITIGATION`) |
 
 The result envelope carries `matches[]` (parallel to `input.queries`), `unmatched[]`, `vectorAvailable`, and `vectorDisabledReason`. See [the schema reference](../GRAPHQL_API_REFERENCE.md#matchmitretechniquesresult).
+
+Each corpus is read by its own label and key: `MitreAttackTechnique` / `MitreAttackMitigation` by `attack_id`, `MitreDefendTechnique` by `d3fendId`, `MitreAtlasTechnique` / `MitreAtlasMitigation` by `atlas_id`. A technique candidate carries its earliest tactic: by `matrix_order` for ATT&CK and ATLAS, by name for D3FEND. `tacticOrder` carries that tactic's matrix position (null for D3FEND, for mitigations, and for a corpus ingested without matrix positions), so clients order tactic facets from data rather than by name.
 
 ### Five-tier cascade
 
@@ -1192,7 +1194,7 @@ Tiers 1–4 are deterministic and need no embeddings, so they serve results even
 
 ### Vector tier
 
-The vector tier uses Memgraph HNSW indexes — one per corpus — ensured lazily and idempotently, alongside auxiliary label-property indexes for the deterministic seeks. Indexes are created with:
+The vector tier uses Memgraph HNSW indexes — one per corpus that has nodes — ensured lazily and idempotently. The label-property key indexes for the deterministic seeks are not created here: they are startup DDL on both graph engines (`EnsureIndexesService`, [`src/bootstrap/ensure-indexes.service.ts`](../../../../apps/dt-ws/src/bootstrap/ensure-indexes.service.ts)). HNSW indexes are created with:
 
 ```cypher
 CREATE VECTOR INDEX <indexName> ON :<Label>(embedding)
@@ -1221,6 +1223,8 @@ A per-corpus model-coherence precheck computes `vectorAvailable` and a structure
 | `NO_INDEX_MODULE` | The graph backend lacks the `vector_search` procedure (Neo4j, or older Memgraph) |
 | `NO_VECTORS` | No embeddings shipped, or per-label coverage is incomplete |
 | `MODEL_MISMATCH` | The corpus's `embeddingModel` disagrees with the runtime model |
+
+A kind with no nodes (its framework is not loaded) is skipped by the precheck with a log line and gets no HNSW index; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes the precheck is global: one failing kind disables the tier for all of them, and the dominant reason is surfaced.
 
 The embedding model is swappable; all corpus nodes must share the runtime `embeddingModel` or the tier degrades with `MODEL_MISMATCH`. Vector availability is cached (10-minute TTL); the MITRE corpus is cached (5-minute TTL). When the vector tier is off, the response still carries deterministic-tier matches.
 

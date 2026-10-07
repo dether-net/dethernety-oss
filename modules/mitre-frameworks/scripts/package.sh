@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # package.sh — package the mitre-frameworks module from committed data.
 #
-# Bundles the version-controlled Cypher exports (data/*.cypher) + manifest.json
-# into dist/mitre-frameworks-<version>.tar.gz, the artefact module-manager
-# installs. This is the default `pnpm build` and is what the demos call.
+# Bundles the version-controlled Cypher exports (data/*.cypher), manifest.json
+# and the NOTICE for the MITRE data into dist/mitre-frameworks-<version>.tar.gz,
+# the artefact module-manager installs. This is the default `pnpm build` and is what the demos call.
 #
 # It does NOT regenerate the data. The Cypher files under data/ are the source
 # of truth and live in git; regenerate them with `pnpm build:data`
@@ -28,7 +28,8 @@ log_info "Packaging mitre-frameworks from committed data in $MODULE_DIR/data"
 
 # The committed Cypher exports are the source of truth. If any are missing,
 # the working tree is incomplete — regenerate with `pnpm build:data`.
-required=(01-attack-nodes.cypher 02-defend-nodes.cypher 03-relationships.cypher)
+required=(01-attack-nodes.cypher 02-defend-nodes.cypher 03-relationships.cypher
+          06-atlas-nodes.cypher 07-atlas-relationships.cypher 08-atlas-crosswalk.cypher)
 missing=0
 for f in "${required[@]}"; do
     if [[ ! -f "$MODULE_DIR/data/$f" ]]; then
@@ -40,8 +41,15 @@ if [[ "$missing" -ne 0 ]]; then
     log_error "Committed MITRE data is incomplete. Run 'pnpm build:data' to regenerate it."
     exit 1
 fi
-if [[ ! -f "$MODULE_DIR/data/05-mitre-embeddings.cypher" ]]; then
-    log_warn "data/05-mitre-embeddings.cypher absent — packaging without precomputed embeddings."
+for f in 05-mitre-embeddings.cypher 09-atlas-embeddings.cypher; do
+    if [[ ! -f "$MODULE_DIR/data/$f" ]]; then
+        log_warn "data/$f absent — packaging without those precomputed embeddings."
+    fi
+done
+# The MITRE terms require their notices in every copy of the data.
+if [[ ! -f "$MODULE_DIR/NOTICE" ]]; then
+    log_error "Missing NOTICE: the MITRE data may not be packaged without it."
+    exit 1
 fi
 
 # Parse version from manifest
@@ -50,7 +58,7 @@ PACKAGE_NAME="mitre-frameworks-${VERSION}.tar.gz"
 mkdir -p "$MODULE_DIR/dist"
 PACKAGE_PATH="$MODULE_DIR/dist/$PACKAGE_NAME"
 
-# Create tarball (manifest.json + committed data only)
+# Create tarball (manifest.json, NOTICE and committed data only)
 log_info "Creating package: $PACKAGE_NAME"
 tar -czf "$PACKAGE_PATH" \
     --exclude='.*' \
@@ -59,6 +67,7 @@ tar -czf "$PACKAGE_PATH" \
     --exclude='node_modules' \
     -C "$MODULE_DIR" \
     manifest.json \
+    NOTICE \
     data
 
 PACKAGE_SIZE=$(du -h "$PACKAGE_PATH" | cut -f1)

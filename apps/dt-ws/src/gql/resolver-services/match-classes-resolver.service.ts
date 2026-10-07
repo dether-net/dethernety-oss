@@ -12,6 +12,20 @@ const MAX_ELEMENTS = 100;
 const DEFAULT_TOP_N = 3;
 const MIN_SUBSTRING_LENGTH = 3;
 
+/** A name's words: lower-cased, split on anything that is not a letter or digit. */
+function nameWords(name: string): string[] {
+  return name.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+/** True when `needle` occurs in `hay` as a contiguous word sequence. */
+function containsWords(hay: string[], needle: string[]): boolean {
+  if (needle.length === 0 || needle.length > hay.length) return false;
+  for (let i = 0; i + needle.length <= hay.length; i++) {
+    if (needle.every((w, k) => hay[i + k] === w)) return true;
+  }
+  return false;
+}
+
 /**
  * Maps graph node labels to Memgraph HNSW vector index names.
  * Used for Priority 3 (vector similarity) search.
@@ -192,7 +206,11 @@ export class MatchClassesResolverService {
   }
 
   /**
-   * Priority 2: Substring containment (case-insensitive).
+   * Priority 2: Name containment by whole words (case-insensitive).
+   * A hit is the class name as a contiguous word sequence inside the element
+   * name, or the element name inside the class name; words split on anything
+   * that is not a letter or digit. A word inside a longer word is not a hit:
+   * "Go microservice" does not contain the class name "Service".
    * Skips very short element names (< 3 chars) to avoid false positives.
    * Filtered by componentType when classLabel = COMPONENT, like the other three
    * tiers. This tier used to widen the net deliberately, on the reasoning that a
@@ -212,12 +230,14 @@ export class MatchClassesResolverService {
     if (elementName.length < MIN_SUBSTRING_LENGTH) return [];
 
     const elLower = elementName.toLowerCase();
+    const elWords = nameWords(elementName);
     const matches: { record: ClassRecord; score: number }[] = [];
 
     for (const cls of classes) {
       if (componentType && cls.type !== componentType) continue;
       const clsLower = cls.className.toLowerCase();
-      if (clsLower.includes(elLower) || elLower.includes(clsLower)) {
+      const clsWords = nameWords(cls.className);
+      if (containsWords(elWords, clsWords) || containsWords(clsWords, elWords)) {
         const overlapLen = Math.min(elLower.length, clsLower.length);
         const maxLen = Math.max(elLower.length, clsLower.length);
         matches.push({ record: cls, score: overlapLen / maxLen });

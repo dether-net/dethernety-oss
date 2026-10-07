@@ -4,6 +4,9 @@
  *
  * Composes the two backend mutations behind a Supersede operation:
  *   1. createCountermeasure — clone the SYSTEM countermeasure into a USER copy,
+ *      with every MITRE link of the original (every field in
+ *      COUNTERMEASURE_TECHNIQUE_LINK_FIELDS, ATLAS siblings included) and each edge's
+ *      justification, read from the original first,
  *      wired to the originating Control via HAS_COUNTERMEASURE (the load-bearing
  *      edge that keeps the clone visible in the ControlDialog sub-table). The
  *      class edge IS_COUNTERMEASURE_OF is intentionally NOT set, so the binding
@@ -52,6 +55,15 @@ export async function executeSupersedeCountermeasureFlow(
     ? `${args.systemCountermeasure.description}\n\n${sourceNote}`
     : sourceNote
 
+  // Every MITRE link of the original with its justification. The countermeasure
+  // object the caller holds carries neither the verb links nor edge properties.
+  const techniqueLinks = await args.dtCountermeasure.getCountermeasureTechniqueLinks({
+    countermeasureId: args.systemCountermeasureId,
+  })
+  if (!techniqueLinks) {
+    throw new Error('Supersede failed: the countermeasure to supersede was not found')
+  }
+
   // Step 1 — create the USER copy attached to the originating Control.
   // createCountermeasure throws on transport / network failure; step 2 is not
   // reached in that case (no rollback needed since step 1 produced no node).
@@ -65,6 +77,7 @@ export async function executeSupersedeCountermeasureFlow(
       name: cloneName,
       description: cloneDescription,
     },
+    techniqueLinks,
   })
 
   if (!userCopy) {

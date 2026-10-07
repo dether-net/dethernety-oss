@@ -25,14 +25,16 @@
       case 'DEFEND_TECHNIQUE': return 'D3FEND ID'
       case 'ATTACK_MITIGATION': return 'ATT&CK ID'
       case 'ATTACK_TECHNIQUE': return 'ATT&CK ID'
+      case 'ATLAS_TECHNIQUE':
+      case 'ATLAS_MITIGATION': return 'ATLAS ID'
       default: return 'ID'
     }
   })
 
-  const showTactic = computed(() => props.kind !== 'ATTACK_MITIGATION')
+  const showTactic = computed(() => props.kind !== 'ATTACK_MITIGATION' && props.kind !== 'ATLAS_MITIGATION')
 
   const emptyText = computed(() => {
-    if (props.kind === 'ATTACK_MITIGATION') return 'No mitigation selected'
+    if (props.kind === 'ATTACK_MITIGATION' || props.kind === 'ATLAS_MITIGATION') return 'No mitigation selected'
     if (props.kind === 'DEFEND_TECHNIQUE') return 'No defense selected'
     return 'No technique selected'
   })

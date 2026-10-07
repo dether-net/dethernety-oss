@@ -93,6 +93,10 @@
         return "Type a technique ID like D3-PMAD, browse all, or describe what you're looking for."
       case 'ATTACK_MITIGATION':
         return 'Type a mitigation ID like M1041, browse all, or describe what you need.'
+      case 'ATLAS_TECHNIQUE':
+        return "Type a technique ID like AML.T0051, browse all, or describe what you're looking for."
+      case 'ATLAS_MITIGATION':
+        return 'Type a mitigation ID like AML.M0015, browse all, or describe what you need.'
       default:
         return ''
     }
@@ -100,7 +104,7 @@
 
   // Kind-aware no-match copy.
   const noMatchHint = computed<string>(() => {
-    return props.kind === 'ATTACK_MITIGATION'
+    return props.kind === 'ATTACK_MITIGATION' || props.kind === 'ATLAS_MITIGATION'
       ? 'No matches. Try a partial ID, fewer characters, or browse all mitigations.'
       : 'No matches. Try a partial ID, fewer characters, or browse all techniques.'
   })
