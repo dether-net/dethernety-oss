@@ -1,6 +1,6 @@
 {
   "name": "@dether.net/dethereal",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Dethereal - Claude Code plugin for AI-guided threat modeling with Dethernety",
   "type": "module",
   "main": "dist/index.js",
@@ -34,17 +34,17 @@
     "CLAUDE.md"
   ],
   "dependencies": {
-    "@apollo/client": "^4.3.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@apollo/client": "^4.3.2",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "cross-fetch": "^4.1.0",
     "graphql": "^16.14.2",
     "graphql-tag": "^2.12.7",
-    "open": "^11.0.3",
-    "zod": "^4.6.4"
+    "open": "^11.0.4",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@types/node": "^25.9.6",
+    "@types/node": "^25.9.9",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
