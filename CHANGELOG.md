@@ -7,6 +7,173 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-07
+
+MITRE ATLAS — MITRE's knowledge base of attacks on AI-enabled systems — joins ATT&CK and D3FEND as
+a third framework in the reference data, readable through the API and shown on the findings that
+link to it. MITRE reference data stops being writable through the API: every model shares it, and
+only its data module should write it. And a technique a class names but the platform cannot link
+is no longer dropped without a word: it is recorded on the finding and shown in the interface.
+Compared against the previous tag, `v0.9.2`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. The only line of `.env.example` that changed is
+`PLATFORM_VERSION`, and no saved recipe needs regenerating. **The reference-data ingest runs on
+this upgrade rather than being skipped**: the `mitre-frameworks` data module moves to 1.1.0 and
+adds MITRE ATLAS v2026.09 beside ATT&CK v19.2 and D3FEND 1.6.0, so the corpus content hash changed
+and the one-shot takes longer than on an upgrade that only moves code. Let it finish. The ingest is
+an idempotent merge and the ATT&CK and D3FEND files did not change, so what it adds is ATLAS. ATLAS
+ships under the Apache License 2.0, and both the module's `NOTICE` and the bundle's `NOTICE` list
+it. The general module's content hash was restamped for corrected technique references (see
+*Changed*), so the platform's load-time skip gate reinstalls it; an existing finding picks up the
+correction the next time its element's attributes or class binding are written. Four changes can
+need you to act, and one changes what a save reports. **MITRE types are read-only in the GraphQL
+API**: every ATT&CK, ATLAS and D3FEND type has lost its generated create, update and delete
+mutations, so a client that wrote MITRE nodes through the API must stop. Links from exposures and
+countermeasures to MITRE nodes are still written through the exposure and countermeasure
+mutations, as connect and disconnect. **The embedding similarity threshold defaults to 0.40**, not
+0.75, matching the bundled embedding model (embeddinggemma); one threshold serves both class
+matching and MITRE technique matching. The compose bundle already passed 0.40, and a deployment that
+sets `EMBEDDING_SIMILARITY_THRESHOLD` keeps its value; a backend run outside the bundle without it
+now gets 0.40 rather than 0.75. **Threat Report 2.0.0 needs Coverage Tools 2.0.0**: coverage tools
+now emits each technique's tactics as `{ id, name, order }`, so upgrade `dethernety-threat-report`
+and `dethernety-coverage-tools` together — this release ships both. The manifest dependency names
+the module but not its version, so the installer does not catch a mismatch; against 1.x coverage
+facts the report's Coverage & Gaps matrix shows a message telling you to upgrade both modules
+together instead of a grid. **The plugin needs this platform**: `@dether.net/dethereal` 0.4.10, the
+version that ships alongside this release, bundles a data layer that reads fields only 0.10.0
+serves (ATLAS links and `unresolvedReferences`), so it fails against an older platform. Update the
+platform first, then the plugin; 0.4.9 was not published. Finally, **a class reference that cannot
+be linked is recorded instead of disappearing**: when the platform instantiates a class's exposures
+and countermeasures, a MITRE reference missing from the loaded data, or any reference that is not
+an allowed target for its field, is not written, but the save still succeeds — the reference is
+logged, recorded on the finding's new `unresolvedReferences` field, and returned in the save
+result's `unresolvedReferences`. Nothing needs doing, but a script that reads save results can now
+see what did not link.
+
+### Added
+
+- **MITRE ATLAS is loaded as a third framework.** The reference data now carries ATLAS v2026.09:
+  208 techniques, 16 tactics, 40 mitigations and 73 case studies with their structure, and 44 links
+  from ATLAS techniques to the ATT&CK techniques they cite. Those citations are resolved through
+  ATT&CK's revocations, so one naming a technique ATT&CK has since replaced points at the
+  replacement. ATLAS is its own framework — its own node types, keyed on `atlas_id` — rather than
+  ATT&CK nodes with another prefix. Its tactics carry their matrix position as ATT&CK's do, and its
+  techniques and mitigations ship with embeddings made by the same model as the rest of the corpus.
+- **ATLAS is readable through the API, and findings can link to it.** New read-only types
+  `MitreAtlasTechnique`, `MitreAtlasTactic` (with `matrix_order`), `MitreAtlasMitigation` and
+  `MitreAtlasCaseStudy` carry the crosswalk in both directions (`MitreAtlasTechnique.attackTechniques`,
+  `MitreAttackTechnique.atlasTechniques`) and reverse links to exposures and countermeasures.
+  Findings link to ATLAS through sibling fields beside the ATT&CK ones, named with an `Atlas`
+  suffix: `Exposure.exploitedByAtlas`, `Countermeasure.mitigationsAtlas`, and the eight verb fields
+  from `mitigatesAtlas` to `respondsToAtlas`. A class policy can cite an ATLAS technique (`AML.T…`)
+  or mitigation (`AML.M…`) and the platform links it. `matchMitreTechniques` gains the
+  `ATLAS_TECHNIQUE` and `ATLAS_MITIGATION` kinds, searched through their own vector indexes, and
+  every candidate now carries `tacticOrder`; `MitreAttackTactic` exposes `matrix_order`. The
+  data-access library gains `DtMitreAtlas`.
+- **The interface shows ATLAS links.** Exposures show the ATLAS techniques that exploit them and
+  countermeasures the ATLAS mitigations they implement, beside the ATT&CK and D3FEND chips, each
+  linking to its page on atlas.mitre.org. They are display-only: the exposure and countermeasure
+  dialogs do not edit them, saving a dialog leaves them as they are, and the technique picker does
+  not offer ATLAS yet. Coverage facts, the Threat Report's coverage view and control gaps still
+  read ATT&CK only and skip ATLAS links; an exposure linked to both is counted through its ATT&CK
+  technique.
+- **A finding shows the references its class names but the platform could not link.** An exposure
+  or countermeasure whose class cites an id that is not in the loaded MITRE data, or a kind of node
+  its field does not allow, now carries a small **N unlinked** warning chip next to its technique
+  chips, with the references in a tooltip — in the exposures table and detail view and in the
+  control dialog's countermeasure rows. Nothing is shown when every reference linked. The marker is
+  the finding's read-only `unresolvedReferences` field, set on every save of a class-derived
+  finding and cleared by a later save in which the references resolve. An unresolved
+  regulatory-requirement reference is still only logged, since a compliance pack may load its
+  requirements after the classes that cite them.
+- **The API exposes every technique link a countermeasure can carry, with its justification.** The
+  instantiation writer creates eight verb links, each with an optional justification, but the API
+  exposed four verbs and no link property. `deceives`, `evicts`, `restores` and `respondsTo` join
+  `mitigates`, `protectsAgainst`, `detects` and `isolates`, and a `TechniqueLinkProperties` link
+  type carries `justification` on `exploitedBy`, `mitigations`, `defendedTechniques` and every verb
+  field. The justification is nullable, so a connect without link properties stays valid.
+
+### Changed
+
+- **Editing a finding's technique links writes only the difference.** The data-access library's
+  exposure and countermeasure updates used to disconnect every link and reconnect the list, which
+  dropped the justification on links the user had kept. They now read the current links and write
+  the delta, so a kept link keeps its edge and its justification. A list the caller does not pass
+  is left as it is rather than cleared. The replace shape that earlier published clients send still
+  works and touches only its own field.
+- **The embedding threshold follows the model, and the production template documents it.**
+  `EMBEDDING_SIMILARITY_THRESHOLD` defaults to 0.40 in the backend (see **Upgrading**). The old
+  0.75 was tuned for an earlier model; embeddinggemma's best MITRE matches score well below it, so
+  a backend run without the variable silently got no vector matches for classes or techniques.
+  `env.production.template` gains the `EMBEDDING_*` settings, with the note that the threshold is
+  per model and that the MITRE data is embedded with embeddinggemma.
+- **Tactic order comes from the data, and an old corpus says so.** The data-access library's tactic
+  listings and the coverage facts order tactics by the matrix position the ingest stamps on each
+  ATT&CK and ATLAS tactic, so a new ATT&CK release reorders them without a code change. Data
+  ingested before that stamp existed sorts its tactics last, by id, and logs a warning that the
+  MITRE data should be re-ingested.
+- **MITRE key indexes are created at startup, on both engines.** The technique picker used to
+  create its lookup indexes lazily and on Memgraph only. They are now part of the startup schema on
+  Neo4j and Memgraph alike, extended to every MITRE lookup key: ATT&CK technique and mitigation
+  `attack_id`, D3FEND technique `d3fendId`, and ATLAS technique and mitigation `atlas_id`. Vector
+  indexes are created only for the kinds that have nodes.
+- **The general module's technique references are corrected in nine classes.** Email server: the
+  STARTTLS-stripping exposure drops T1040, since an active downgrade is T1557, already cited.
+  Authentication exchange: the reverse-proxy MFA bypass cites T1539 instead of T1598.003, and SAML
+  signature wrapping drops T1550.001. DNS server: cache poisoning cites T1557 instead of T1565.002.
+  Identity provider: SAML assertion forgery cites T1606.002 instead of T1550.001 and T1606. Network
+  router drops T1133, Kerberos authentication T1550.003, LDAP directory access T1087, and the
+  container boundary T1554; SNMP monitoring drops T1110 and cites T1565 instead of T1685 for spoofed
+  traps. The module content hash is restamped.
+- **Shipped module references are checked against the pinned MITRE data.** For contributors; this
+  changes nothing for an operator. Because the platform now records an unlinkable reference rather
+  than failing on it, a new CI check reads every module policy and checks each MITRE reference
+  against the node keys in the data module, applying the platform's own rules for which kinds each
+  field accepts. It is what keeps such references out of a release.
+
+### Fixed
+
+- **The Coverage & Gaps matrix follows the ATT&CK matrix again.** Its columns were sorted against a
+  built-in tactic list from before ATT&CK v19, so Stealth (TA0005) and Defense Impairment (TA0112)
+  fell to the end, alphabetically. Coverage tools now emits each technique's tactics as
+  `{ id, name, order }`, and the report keys its columns by id, labels them by name and orders them
+  by matrix position, with no built-in list. The JSON export carries the same objects. Both modules
+  move to 2.0.0 for the changed shape (see **Upgrading**).
+- **The technique picker's tactic facets are in matrix order.** They sorted against the same
+  pre-v19 list, which had no place for Stealth or Defense Impairment. ATT&CK and ATLAS facets now
+  order by each technique's earliest tactic in the matrix; D3FEND keeps its own fixed order.
+- **Superseding a finding keeps every technique link and its justification.** A superseded
+  countermeasure's copy kept only its mitigations and D3FEND techniques, losing all eight verb
+  links and every justification; a superseded exposure's copy lost its justifications. Both copies
+  now carry every link, ATLAS links included, with its justification. Superseding a finding that no
+  longer exists now fails before anything is created.
+- **One unhealthy MITRE kind no longer turns off vector search for every kind.** A kind whose nodes
+  are loaded but whose embeddings are missing or made with another model — ATLAS loaded without its
+  embeddings, for example — switched the technique picker's vector search off for ATT&CK and D3FEND
+  too. Each kind now stands on its own and reports its own reason (`NO_VECTORS` or
+  `MODEL_MISMATCH`); a kind with no nodes at all is skipped with a log line. Vector search is off
+  for everyone only when no loaded kind is healthy, or on a fault that affects all of them.
+- **Class name matching matches whole words.** The name step of class matching accepted any
+  substring, so "Go microservice" matched the class "Service" before vector matching could propose
+  Application Service. A hit is now a run of whole words, in either direction, with words split on
+  anything that is not a letter or digit: "Production PostgreSQL" and "postgresql-primary" still
+  hit, but "microservice" no longer contains "Service".
+- **The class picker's similarity meter starts at the threshold.** It lit its first dot at 0.70, a
+  value left from the earlier model, so class matches between 0.40 and 0.70 showed no dots. The
+  class and technique pickers now share one meter: one dot from 0.40, two from 0.55, three from
+  0.70.
+- **A malformed remote embedding vector no longer breaks class matching at every start.** A
+  cloud-delivered module that served a class's vector wrapped in an object rather than as a bare
+  array made every lookup throw on every start. Vectors are now unwrapped and validated once; an
+  unusable one is dropped with a single warning, and that class is embedded on the fly.
+- **`@dether.net/dethereal` 0.4.10: enrichment keeps ATLAS technique ids.** The enrich skill checked
+  every technique id against the ATT&CK pattern and dropped any that failed, so an ATLAS id
+  (`AML.T…`) on the model or given by the user was discarded without a word. ATT&CK ids are still
+  confirmed through the MITRE search and dropped when unconfirmed. ATLAS ids are kept when the user
+  supplied them or the model already carries them, marked as not verified by the plugin, since its
+  search covers ATT&CK only; the skill never produces one.
+
 ### Security
 
 - **`@dether.net/dethereal` 0.4.8: discovery is instructed never to read secret values.** The
@@ -44,6 +211,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   0.4.6 was withdrawn: it was published with a server build from before this change, so its skills
   called a tool its server did not have. Packing and publishing now always build the server, and the data-access layer bundled into it, first.
+
+- **Shared MITRE reference data can no longer be written through the API.** Every model reads the
+  same MITRE nodes, and only the data module should write them, but any signed-in client could
+  create, update or delete them through the generated mutations, through nested operations under
+  every field that points at them, and through the `Element` interface fields — and a nested
+  disconnect run through a MITRE node could remove other models' links to it. The MITRE types now
+  have no generated mutations, their own relationship fields allow no nested operation, and every
+  field that points at a MITRE type or at `Element` allows only connect and disconnect. Every write
+  the platform's own clients make keeps working (see **Upgrading**).
+- **The instantiation writer takes link targets only from its own table.** The node label and key
+  interpolated into the statements that resolve and link a class's references used to come from
+  module data, checked as an identifier but otherwise open. They now come only from the writer's
+  closed table of allowed targets per field.
+- **Ten advisories cleared across seven dependencies.** Overrides move `proxy-addr` to 2.0.8 (a
+  critical IP spoofing advisory, transitive through the server's HTTP framework), `dompurify` to
+  3.4.16, `brace-expansion` to 1.1.21, 2.1.7 and 5.0.12 on its three lines, `fast-uri` to 3.1.8,
+  `source-map-js` to 1.2.2, the 12.x copy of `@graphql-tools/utils` to 12.0.3, and `katex` to
+  0.18.2. The `katex` override deliberately crosses the range its only consumer, `mermaid`,
+  declares; rendering with `mermaid`'s options was checked under it. The console's interface
+  project, whose lockfile the workspace update does not reach, was refreshed too, lifting
+  `brace-expansion` and `source-map-js` there and `@vue/server-renderer` to 3.5.43. Eight overrides
+  that no longer did any work were dropped after a clean resolve without each: `webpack`,
+  `express-rate-limit`, `file-type`, `@babel/core`, `form-data`, `@grpc/grpc-js`, the 8.x `ws` entry
+  and a `js-yaml` entry. Two of them had been forcing majors their consumers never declared.
+
+### Documentation
+
+- **ATLAS is documented where the data, the API and the interface are.** A new decision record,
+  ADR-012, sets out ATLAS as a third framework — its own node types and key, the crosswalk to
+  ATT&CK, read-only MITRE types — with a dated amendment describing how the writer records rather
+  than fails on an unlinkable reference. The MITRE data module's README covers the ATLAS data, the
+  file layout, ATLAS-only rebuilds and the module reference check. The schema, resolver,
+  instantiation, data-access and frontend references describe the ATLAS types and sibling fields,
+  the read-only MITRE types, link justifications, the picker's ATLAS kinds, the startup key
+  indexes, delta updates and the `unresolvedReferences` marker; the GraphQL API reference is
+  regenerated, which also picks up earlier schema text it had missed. ADR-008 gains a dated update
+  note.
+- **The user and operator guides follow.** The modules guide lists ATLAS among the reference data
+  and says it is not yet offered in the technique picker. The deployment configuration guide says
+  the similarity threshold also governs MITRE technique matching, and the installation guide says
+  the console ingests ATLAS beside ATT&CK and D3FEND. The Threat Report's README states
+  that 2.x needs Coverage Tools 2.x. The cloud guide's walkthrough headings drop their step numbers,
+  which clashed with the console's own numbered sections.
 
 ## [0.9.2] - 2026-09-18
 
@@ -1388,6 +1598,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.10.0]: https://github.com/dether-net/dethernety-oss/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/dether-net/dethernety-oss/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/dether-net/dethernety-oss/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/dether-net/dethernety-oss/compare/v0.8.0...v0.9.0
