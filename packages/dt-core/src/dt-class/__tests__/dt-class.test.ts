@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as Apollo from '@apollo/client'
+import { CombinedGraphQLErrors } from '@apollo/client/errors'
 
 import { DtClass } from '../dt-class.js'
 import { CancelledError } from '../../dt-utils/errors.js'
@@ -195,6 +196,26 @@ describe('DtClass.matchClasses', () => {
 
     await expect(pA).resolves.toMatchObject({ vectorAvailable: true })
     await expect(pB).resolves.toMatchObject({ vectorAvailable: true })
+  })
+
+  it('rejects with the server message when the client resolves an error without data', async () => {
+    // A client with errorPolicy 'all' resolves instead of throwing.
+    const message =
+      'Variable "$input" got invalid value "dataFlow" at "input.elements[0].type"; ' +
+      'Value "dataFlow" does not exist in "ComponentType" enum.'
+    const query = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: new CombinedGraphQLErrors({ errors: [{ message }] }),
+    })
+    const dt = new DtClass({ query } as unknown as Apollo.ApolloClient)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      dt.matchClasses({
+        elements: [{ name: 'context ingress', type: 'dataFlow' as never }],
+        classLabel: 'DATA_FLOW',
+      }),
+    ).rejects.toThrow(message)
   })
 })
 

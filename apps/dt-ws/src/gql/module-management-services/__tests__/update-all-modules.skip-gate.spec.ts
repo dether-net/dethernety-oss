@@ -138,4 +138,18 @@ describe('ModuleManagementService.updateAllModules — content-hash skip gate', 
     expect(resolveVectors).toHaveBeenCalledTimes(1);
     expect(upsertModule).toHaveBeenCalledTimes(1);
   });
+
+  it('skips a module whose metadata is unavailable and keeps it as attempted (no reconcile, no sweep)', async () => {
+    const { svc, upsertModule, deleteOldModules } = await buildService(
+      makeDriver([rec('lg', null, 'authoritative')]),
+    );
+    const unavailable = { getMetadata: async () => { throw new Error('Unable to connect to LangGraph server'); } } as any;
+
+    await svc.updateAllModules(new Map([['lg', unavailable], ['m1', fakeModule('m1')]]));
+
+    expect(upsertModule).toHaveBeenCalledTimes(1);
+    expect(upsertModule.mock.calls[0][1]).toMatchObject({ name: 'm1' });
+    expect(deleteOldModules).toHaveBeenCalledTimes(1);
+    expect(deleteOldModules.mock.calls[0][1]).toEqual(expect.arrayContaining(['lg', 'm1']));
+  });
 });

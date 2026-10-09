@@ -215,9 +215,8 @@ export class ModuleRegistryService implements OnModuleInit {
    * Returns `false` if any class entry omits `name` (no derivation key) — a
    * hard validation failure. Otherwise returns `true`.
    *
-   * Called from {@link validateModuleInterface} (gates load) and from
-   * {@link loadModuleInternal} (because `getMetadata()` is invoked again
-   * after validation, returning fresh unstamped metadata).
+   * Called from {@link loadModuleInternal} on the metadata it loads with, and
+   * from {@link validateModuleInterface}.
    */
   private stampMissingIds(metadata: DTMetadata): boolean {
     const classKinds: ClassKind[] = [
@@ -435,6 +434,7 @@ export class ModuleRegistryService implements OnModuleInit {
         result.success = true;
         result.module = moduleData.module;
         result.metadata = moduleData.metadata;
+        if (moduleData.metadataUnavailable) result.metadataUnavailable = true;
         result.loadTime = Date.now() - startTime;
 
         this.logger.debug(`Module loaded successfully on attempt ${attempt}`, {
@@ -478,7 +478,7 @@ export class ModuleRegistryService implements OnModuleInit {
     filePath: string,
     skipSecurityValidation: boolean,
     forceReload: boolean
-  ): Promise<{ module: DTModule; metadata: DTMetadata }> {
+  ): Promise<{ module: DTModule; metadata: DTMetadata; metadataUnavailable?: boolean }> {
     const moduleName = path.basename(path.dirname(filePath));
 
     // Security validation
@@ -525,18 +525,31 @@ export class ModuleRegistryService implements OnModuleInit {
     // to the garbage collector, so hand it back before the reference goes out of scope.
     try {
       // Validate interface
-      if (!(await this.validateModuleInterface(moduleInstance))) {
+      if (typeof moduleInstance.getMetadata !== 'function') {
         throw new Error('Module does not implement required DTModule interface');
       }
 
-      // Get metadata
-      const metadata = await Promise.resolve(moduleInstance.getMetadata());
+      // Get metadata. A throw here means the module's metadata source is unavailable (a LangGraph-
+      // backed module with LangGraph unreachable): load it anyway, named after its directory, so its
+      // schema and resolvers register. Class install stays skipped — the install path re-calls
+      // getMetadata() and skips a module that throws — and the next boot retries. No retry here.
+      let metadata: DTMetadata;
+      try {
+        metadata = await Promise.resolve(moduleInstance.getMetadata());
+      } catch (error) {
+        this.logger.warn('Module metadata unavailable at load — API registered, class install skipped this boot', {
+          moduleName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { module: moduleInstance, metadata: { name: moduleName, version: 'unknown' }, metadataUnavailable: true };
+      }
+      if (!metadata || !metadata.name) {
+        throw new Error('Module does not implement required DTModule interface');
+      }
 
-      // Backwards-compat for legacy modules that omit ids:
-      // validateModuleInterface stamped derived ids on its own metadata
-      // copy, but getMetadata() above returned a fresh object that does NOT
-      // carry those stamps. Re-apply here so downstream consumers see the
-      // canonical id-bearing shape. Mutates metadata in place.
+      // Backwards-compat for legacy modules that omit ids: stamp derived ids
+      // so downstream consumers see the canonical id-bearing shape (a class
+      // entry without a name is a hard failure). Mutates metadata in place.
       if (!this.stampMissingIds(metadata)) {
         throw new Error('Module metadata stamping failed (class entry missing name)');
       }
@@ -637,6 +650,7 @@ export class ModuleRegistryService implements OnModuleInit {
                 version: loadResult.metadata.version,
                 loadAttempts: 1,
                 isHealthy: true,
+                ...(loadResult.metadataUnavailable ? { metadataUnavailable: true } : {}),
               };
 
               // Collect schema extension if the module provides one
@@ -805,6 +819,7 @@ export class ModuleRegistryService implements OnModuleInit {
                 lastReloadAt: new Date(),
                 loadAttempts: (existingEntry?.loadAttempts || 0) + 1,
                 isHealthy: true,
+                ...(loadResult.metadataUnavailable ? { metadataUnavailable: true } : {}),
               };
 
               // The new instance is live and about to replace the old one. Only now — a
