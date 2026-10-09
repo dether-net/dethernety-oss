@@ -9,6 +9,8 @@ export interface ModuleEntry {
   lastReloadAt?: Date;
   loadAttempts: number;
   isHealthy: boolean;
+  /** getMetadata() threw at load: loaded under its directory name, class install skipped this boot */
+  metadataUnavailable?: boolean;
   /** GraphQL SDL content from the module's getSchemaExtension() method */
   schemaFragment?: string;
   /** Custom resolvers from the module's getResolvers() method */
@@ -36,6 +38,8 @@ export interface ModuleLoadResult {
   success: boolean;
   module?: DTModule;
   metadata?: DTMetadata;
+  /** getMetadata() threw at load: the module is loaded under its directory name, class install skipped */
+  metadataUnavailable?: boolean;
   error?: string;
   loadTime: number;
 }

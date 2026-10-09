@@ -1,8 +1,8 @@
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { CancelledError } from './errors.js'
+import { CancelledError, DtRequestError } from './errors.js'
 
-export { CancelledError } from './errors.js'
+export { CancelledError, DtRequestError } from './errors.js'
 
 export interface RetryConfig {
   maxRetries: number
@@ -161,10 +161,22 @@ export class DtUtils {
   }
 
   /**
+   * The error a client resolved alongside empty data (errorPolicy 'all' or
+   * 'ignore'), rebuilt from its message only. Partial data with errors is not
+   * an error here: callers receive the data as before.
+   */
+  private requestError(error: Error): DtRequestError {
+    if (Apollo.CombinedGraphQLErrors.is(error)) return new DtRequestError(error.message, false)
+    if (Apollo.ServerError.is(error)) return new DtRequestError(error.message, error.statusCode >= 500)
+    return new DtRequestError(error.message || 'Request failed', true)
+  }
+
+  /**
    * Check if error is a network/transport related error
    */
   private isNetworkError(error: any): boolean {
     if (!error) return false
+    if (error instanceof DtRequestError) return error.retryable
     
     const message = (error.message || '').toLowerCase()
     const networkIndicators = [
@@ -275,6 +287,7 @@ export class DtUtils {
     // effort (out of dt-core scope); it is not re-enabled here. Guarded by the
     // per-create `create-no-retry` tests.
     const response = await this.apolloClient?.mutate({ mutation, variables })
+    if (response?.error && response.data == null) throw this.requestError(response.error)
     let data: any = response?.data
     if (dataPath) {
       data = this.getValueFromPath({ obj: data, path: dataPath })
@@ -542,6 +555,7 @@ export class DtUtils {
             variables,
             fetchPolicy: fetchPolicy as any
           })
+          if (response?.error && response.data == null) throw this.requestError(response.error)
           return response?.data as T
         }, retryConfig)
       } catch (error) {

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A control can be created without a control class or a folder.** The data-access library sent an
+  empty class link and an empty folder link with such a create, and the API rejects a link input
+  with nothing to connect; it now leaves them out. The plugin bundles the library, so
+  `@dether.net/dethereal` 0.4.11 carries the fix.
+
 ## [0.10.0] - 2026-10-07
 
 MITRE ATLAS — MITRE's knowledge base of attacks on AI-enabled systems — joins ATT&CK and D3FEND as

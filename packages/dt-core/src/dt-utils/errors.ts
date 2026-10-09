@@ -14,3 +14,26 @@ export class CancelledError extends Error {
     super(`Cancelled by a newer call with key "${key}"`)
   }
 }
+
+const MAX_MESSAGE_LENGTH = 1000
+
+/**
+ * A request the client resolved with an error and no data (a client built with
+ * `errorPolicy: 'all'` resolves instead of throwing). Carries only the server's
+ * message, capped in length: not the Apollo error object, whose raw response
+ * body or extensions could echo request input back to whoever reads the error.
+ *
+ * `retryable` is true only for transport failures (a 5xx or no response at
+ * all); a GraphQL error or a 4xx fails the same way on every attempt.
+ */
+export class DtRequestError extends Error {
+  readonly name = 'DtRequestError' as const
+
+  constructor(message: string, public readonly retryable: boolean) {
+    super(
+      message.length > MAX_MESSAGE_LENGTH
+        ? `${message.slice(0, MAX_MESSAGE_LENGTH - 1)}…`
+        : message
+    )
+  }
+}

@@ -149,6 +149,10 @@ export class DtControl {
         },
         folder: { },
       }
+      // No class ids / no folder: send no controlClasses / folder at all; the API rejects a relationship
+      // input with no operation in it.
+      if (!classIds?.length) delete (mutuationInput as { controlClasses?: unknown }).controlClasses
+      if (!folderId) delete (mutuationInput as { folder?: unknown }).folder
       if (folderId) {
         mutuationInput.folder = {
           connect: {

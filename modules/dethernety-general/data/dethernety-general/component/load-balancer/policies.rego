@@ -31,7 +31,7 @@ weak_legacy_tls_termination_on_the_client_edge[_weak_legacy_tls_termination_on_t
 }
 
 weak_legacy_tls_termination_on_the_client_edge[_weak_legacy_tls_termination_on_the_client_edge_def] if {
-    input.min_tls_version in ["SSLv3", "TLSv1.0", "TLSv1.1"]
+    input.min_tls_version == "tls1_0_or_tls1_1_or_sslv3_accepted"
 }
 
 weak_legacy_tls_termination_on_the_client_edge[_weak_legacy_tls_termination_on_the_client_edge_def] if {
