@@ -7,12 +7,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-10
+
+Search by meaning — class matching and MITRE technique matching — could stop finding classes and
+techniques written after the database restarted, and fell back to name and type matches without a
+word. Deployments now repair their vector indexes themselves: class indexes are checked on every
+platform start, after a module reset and at the 10-minute vector-search check; MITRE indexes on the
+first MITRE match after start and at the same check. Search by meaning works again after the upgrade.
+The bundle now ships Memgraph 3.13.2; moving an existing deployment to it is optional. Compared
+against the previous tag, `v0.10.0`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. That procedure changes only `PLATFORM_VERSION`: an
+existing deployment keeps the `DB_IMAGE` in its `.env`, and the only other line of `.env.example` that
+changed is `DB_IMAGE`. **The repair works on Memgraph 3.8.1 as it is**, so a deployment that stays on
+3.8.1 is repaired by this release alone, and bumping `DB_IMAGE` is optional. **To move to Memgraph
+3.13.2**, back up `data/memgraph` first — there is no downgrade — then set
+`DB_IMAGE=docker.io/memgraph/memgraph:3.13.2` in `.env` **in the same change as `PLATFORM_VERSION`**,
+so the first start on 3.13.2 is also the first start on 0.10.1 and repairs any index carried over
+from 3.8.1. `./byodt up` and `./byodt update` now warn when `.env`'s `DB_IMAGE` differs from the
+image the bundle was tested with; the warning never blocks. The reference-data ingest is skipped,
+since the corpus did not change. The general module's content hash was restamped for a corrected
+load-balancer rule (see *Fixed*), so the platform's load-time skip gate reinstalls it; an existing
+finding picks up the correction the next time its element's attributes or class binding are written.
+On the first start the platform logs `Vector index … rebuilt: holds N of N embedded … classes` for
+each class index it rebuilds, and the first MITRE technique match logs `MITRE vector index … rebuilt`
+for each MITRE index; a deployment whose indexes are already correct logs nothing. No saved recipe
+needs regenerating.
+
+### Changed
+
+- **The bundle ships Memgraph 3.13.2.** `.env.example` and `NOTICE` name
+  `memgraph/memgraph:3.13.2` (still under the Business Source License 1.1). Unlike the 3.8 releases,
+  3.13.2 does not re-key a vector index when it recovers from a snapshot. Existing deployments keep
+  their `DB_IMAGE` (see **Upgrading**).
+- **`byodt` says when the database is not the tested one.** `byodt` 1.1.0's `up` and `update` print a
+  warning, with the backup-first steps to move, when `.env`'s `DB_IMAGE` differs from the image the
+  bundle was tested with. The comparison is on the image's `name:tag` only, so a reference to the same
+  image through a registry mirror does not warn. They never block.
+- **A module whose metadata cannot be read at boot still registers its API.** A module whose
+  `getMetadata()` throws — for example because its backing service is unreachable — now registers its
+  schema and resolvers under its directory name, with one warning and no retries, and is flagged
+  `metadataUnavailable`. Its classes are installed on a later boot that reads the metadata. Modules
+  without `getMetadata()` or without a name are still rejected.
+
 ### Fixed
 
+- **Search by meaning finds every class and technique again.** Memgraph 3.8.x can recover a vector
+  index from a snapshot under a different label or property than it was created on; writes then miss
+  the index, so classes installed, and MITRE nodes written, after such a restart were missing from
+  class matching and MITRE technique matching. The platform now checks the class vector indexes on
+  every start — even when no module changed — and after a single-module reset, and checks the MITRE
+  vector indexes on the first MITRE match after start. An index keyed on another label or property,
+  or holding fewer entries than there are embedded nodes, is dropped and created again. While the
+  platform runs, the first match after the 10-minute vector-search check expires repeats the check,
+  so a restart of the database alone is repaired without restarting the platform. A snapshot written
+  while an index was mis-keyed keeps the wrong key on a later Memgraph too, so the repair is needed
+  on any database version.
+- **Deleting a class or a MITRE node no longer breaks search by meaning on the newer database.** On
+  Memgraph 3.13.2 a node deleted after it was indexed is still returned by vector search until the
+  database's garbage collection runs — every five minutes with the bundle's settings — and reading it
+  failed the match. Every vector hit is now matched again by its internal id, which skips deleted
+  nodes, in class matching, MITRE technique matching and the class index check. Memgraph 3.8.1
+  already skipped such nodes.
+- **A class match restricted to modules finds those modules' classes.** With `moduleIds`, class
+  matching searched three times `topN` nearest neighbours and then applied the module filter, so it
+  returned nothing whenever other modules' classes were nearer. It now searches every embedded class
+  of the label before filtering.
 - **A control can be created without a control class or a folder.** The data-access library sent an
   empty class link and an empty folder link with such a create, and the API rejects a link input
   with nothing to connect; it now leaves them out. The plugin bundles the library, so
   `@dether.net/dethereal` 0.4.11 carries the fix.
+- **A failed request is reported as an error, not as missing data.** With `errorPolicy` `all` or
+  `ignore`, the data-access library returned no data and callers failed with "Cannot read properties
+  of undefined". `performQuery` and `performMutation` now throw a `DtRequestError` that carries the
+  server's message alone, capped at 1000 characters. GraphQL errors and 4xx responses are not
+  retried; 5xx responses and transport failures are, as before. Partial data with errors passes
+  through, and clients on `errorPolicy` `none` are unaffected.
+- **The load balancer's weak TLS termination rule fires.** One arm of the general module's
+  load-balancer "weak / legacy TLS termination" rule compared `min_tls_version` with values outside
+  its enum, so it never fired; it now reads the enum's weak value. The module content hash is
+  restamped (see **Upgrading**).
+
+### Documentation
+
+- **The backend references describe vector index health.** The class and control resolver
+  specification, the custom resolver services reference, the module management service reference and
+  the backend delegation design describe the re-keyed index, when the platform verifies and rebuilds
+  class and MITRE indexes, the module-scoped search limit, and the re-match by internal id that skips
+  deleted nodes. The MITRE vector tier reference also
+  drops HNSW parameters the platform does not set, and states that one unhealthy MITRE kind no longer
+  turns off the others.
+- **The upgrade guide no longer moves the database with every release.** The operator guide's
+  upgrade section now describes the database move as optional, one-way and backup-first, instead of
+  asking to take every `DB_IMAGE` change together with the release.
 
 ## [0.10.0] - 2026-10-07
 
@@ -1605,6 +1693,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.10.1]: https://github.com/dether-net/dethernety-oss/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/dether-net/dethernety-oss/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/dether-net/dethernety-oss/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/dether-net/dethernety-oss/compare/v0.9.0...v0.9.1
