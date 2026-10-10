@@ -26,7 +26,7 @@ licenses; consult each image for its complete bill of materials.
 
 ------------------------------------------------------------------------------
 Memgraph — graph database (compose service: db)
-  Image:     memgraph/memgraph:3.8.1  (Docker Hub, published by Memgraph)
+  Image:     memgraph/memgraph:3.13.2  (Docker Hub, published by Memgraph)
   License:   Business Source License 1.1 (BSL 1.1)
   Homepage:  https://memgraph.com
 

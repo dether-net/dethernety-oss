@@ -1252,6 +1252,7 @@ export class ModuleManagementService {
       // an operator "reset a broken module" must re-run the hook too, else the
       // reset re-installs classes but never re-does the hook's graph work.
       await this.runAfterInstall(session, moduleInstalled, moduleInstance);
+      await this.healClassVectorIndexes();
 
       const duration = Date.now() - startTime;
       this.recordOperation('resetSingleModule', duration, {
@@ -1492,6 +1493,10 @@ export class ModuleManagementService {
         await this.runAfterInstall(session, name, modules.get(name));
       }
 
+      // Every pass, including one where every module was skipped by its content hash: a class
+      // vector index that lost entries is rebuilt here, so a deployment repairs on its next boot.
+      await this.healClassVectorIndexes();
+
       const duration = Date.now() - startTime;
       this.recordOperation('updateAllModules', duration, {
         totalModules: modules.size,
@@ -1525,6 +1530,15 @@ export class ModuleManagementService {
       throw new Error(`Bulk module update failed: ${error.message}`, { cause: error });
     } finally {
       await session.close();
+    }
+  }
+
+  /** The class vector index self-heal; it logs its own findings and never fails the install that ran it. */
+  private async healClassVectorIndexes(): Promise<void> {
+    try {
+      await this.matchClassesResolver.healClassVectorIndexes();
+    } catch (error) {
+      this.logger.warn('Class vector index self-heal failed', { error: error.message });
     }
   }
 

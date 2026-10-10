@@ -389,7 +389,14 @@ CREATE (c:ComponentClass {
 })
 ```
 
-Because the HNSW index already exists on the `embedding` property, Memgraph automatically adds each new node to the USearch vector index in memory as it is created. No separate indexing step. No async pipeline. No `embeddingReady` flag needed.
+Because the HNSW index already exists on the `embedding` property, Memgraph normally adds each new node to the USearch vector index in memory as it is created. No separate indexing step. No async pipeline. No `embeddingReady` flag needed.
+
+**The exception: a re-keyed index.** Memgraph 3.8.x can recover a vector index from a snapshot under a different label or property than it was created on. Writes to the intended label and property then miss the index, so classes and MITRE nodes written after such a recovery cannot be found by vector similarity, and nothing reports an error. A snapshot written while an index was mis-keyed keeps the wrong key, even on a later Memgraph release. The platform therefore verifies its vector indexes and rebuilds any index that is mis-keyed or missing entries. Creating an index indexes every node that already carries the property.
+
+- **Class indexes** are verified at every platform start, after a module reset, and on the 10-minute vector-availability probe.
+- **MITRE indexes** are verified on the first MITRE match after start and on the same probe.
+
+See [Class and control resolver spec → Index health and self-heal](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md#index-health-and-self-heal).
 
 **Module update:** When a module is updated (classes renamed, descriptions changed), the ingestion tool re-embeds the affected classes and issues `SET c.embedding = $new_vector` on the existing nodes. The HNSW index updates in place.
 
@@ -466,10 +473,10 @@ Example: `"payment-db. Stores customer payment records and transaction history. 
 
 ### Scope filtering
 
-Vector search is scoped by two dimensions, applied as pre-filters (before the vector search, not after):
+Vector search is scoped by two dimensions. `vector_search.search()` takes no filter, so both scopes are applied as filters on the nearest-neighbour result, after the search:
 
-1. **Type filtering:** Only search classes whose `type` matches the element's type (PROCESS, STORE, EXTERNAL_ENTITY). Eliminates cross-type false positives.
-2. **Module filtering:** When `activeModules` is set, only search classes from those modules. Uses the `module_ids` parameter on `match_classes`.
+1. **Type filtering:** Only classes whose `type` matches the element's type (PROCESS, STORE, EXTERNAL_ENTITY) are kept. Eliminates cross-type false positives.
+2. **Module filtering:** When `activeModules` is set, only classes from those modules are kept. Uses the `module_ids` parameter on `match_classes`. A module-scoped match searches **every** embedded class of the label before filtering. A fixed multiple of `top_n` would return nothing for a module whenever other modules' classes were nearer to the query.
 
 ### Similarity threshold calibration
 
@@ -493,7 +500,7 @@ If embeddings are disabled (no embedding model configured):
 - `match_classes` skips Priority 3 (vector search finds no nodes with embeddings) and returns only Priority 1-2b matches
 - Unmatched elements are returned in the `unmatched` array for Pass 2 agent reasoning
 
-This makes the vector index a **progressive enhancement**: it improves match quality when available but the system is fully functional without it. There is no "partially available" state — a class either has its embedding (computed atomically at insert) or it doesn't.
+This makes the vector index a **progressive enhancement**: it improves match quality when available but the system is fully functional without it. A class either has its embedding (computed atomically at insert) or it doesn't. The one partial state is an index that lost entries in a snapshot recovery, and the platform's index verification rebuilds it (see *The exception: a re-keyed index* above).
 
 ---
 

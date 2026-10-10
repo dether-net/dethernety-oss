@@ -4,6 +4,7 @@ import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
+import { isMiskeyed, readVectorIndexKeys, rebuildVectorIndex } from '../services/vector-index-keys';
 
 /**
  * Resolver for the matchMitreTechniques query.
@@ -397,6 +398,38 @@ export class MatchMitreTechniquesResolverService {
     return this.ensurePromise;
   }
 
+  /**
+   * Rebuild a MITRE vector index that is keyed on another label or property, or that holds fewer
+   * entries than there are embedded nodes of its label (see vector-index-keys.ts). Creating the index
+   * indexes the nodes that already carry the property. A failure is logged and leaves the index as is.
+   */
+  private async healMitreVectorIndex(
+    session: any,
+    spec: { indexName: string; label: string; property: string; dimensions: number; capacity: number },
+    key: { label: string; property: string; size: number } | undefined,
+  ): Promise<void> {
+    try {
+      const counted = await session.executeRead((tx: any) =>
+        tx.run(`MATCH (n:${spec.label}) WHERE n.embedding IS NOT NULL RETURN count(n) AS n`),
+      );
+      const embedded = toNumber(counted.records[0]?.get('n'));
+      const miskeyed = isMiskeyed(key, spec);
+      if (!miskeyed && (key === undefined || key.size >= embedded)) return;
+      this.logger.warn(
+        miskeyed
+          ? `MITRE vector index ${spec.indexName} is keyed on :${key!.label}(${key!.property}) instead of :${spec.label}(embedding) — rebuilding it`
+          : `MITRE vector index ${spec.indexName} holds ${key!.size} of ${embedded} embedded :${spec.label} nodes — rebuilding it`,
+      );
+      await rebuildVectorIndex(session, spec);
+      const after = (await readVectorIndexKeys(session))?.get(spec.indexName);
+      this.logger.log(`MITRE vector index ${spec.indexName} rebuilt: holds ${after?.size ?? 'unknown'} of ${embedded} embedded nodes`);
+    } catch (error) {
+      this.logger.warn(`MITRE vector index ${spec.indexName} could not be verified or rebuilt`, {
+        error: safeErrorMessage(error),
+      });
+    }
+  }
+
   private async runEnsureMitreVectorIndexes(): Promise<void> {
     // 1. Vector_search module availability
     const supported = await this.checkVectorSearchAvailability();
@@ -497,6 +530,7 @@ export class MatchMitreTechniquesResolverService {
       }
 
       const dimensions = this.embeddingService.getDimensions();
+      const keys = await readVectorIndexKeys(session);
 
       for (const kind of this.vectorKinds) {
         const indexName = MITRE_INDEX_NAME_BY_KIND[kind];
@@ -528,6 +562,9 @@ export class MatchMitreTechniquesResolverService {
             };
             return;
           }
+        }
+        if (existingIndexes.has(indexName)) {
+          await this.healMitreVectorIndex(session, { indexName, label, property: 'embedding', dimensions, capacity }, keys?.get(indexName));
         }
       }
 
@@ -697,8 +734,12 @@ export class MatchMitreTechniquesResolverService {
     const search = `
         CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
         YIELD node, similarity
-        WITH node, similarity
-        WHERE similarity >= $threshold`;
+        WITH id(node) AS hit, similarity
+        WHERE similarity >= $threshold
+        // A node deleted since it was indexed can stay in the index until the database's garbage
+        // collection runs, and reading it fails; matching each hit by its internal id skips it.
+        MATCH (node) WHERE id(node) = hit
+        WITH node, similarity`;
     if (hop) {
       return `${search}
         OPTIONAL MATCH (node)${hop.pattern}

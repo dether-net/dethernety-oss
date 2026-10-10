@@ -115,7 +115,7 @@ func TestWriteMarkerSurfacesExecutionError(t *testing.T) {
 // TestIngestAgainstMemgraph runs the real ingest + marker + idempotency against a live
 // Bolt endpoint. It is skipped unless CONSOLE_TEST_BOLT_URI names one (e.g. a local
 //
-//	docker run --rm -p 7687:7687 memgraph/memgraph:3.8.1
+//	docker run --rm -p 7687:7687 memgraph/memgraph:3.13.2
 //
 // then CONSOLE_TEST_BOLT_URI=bolt://localhost:7687 go test -run Memgraph ./apps/byodt-console/...
 func TestIngestAgainstMemgraph(t *testing.T) {

@@ -34,7 +34,7 @@ const embeddingStub: any = {
   composeClassText: (_c: any) => '',
   embedBatch: async () => null,
 };
-const matchStub: any = { ensureVectorIndexes: async () => undefined };
+const matchStub: any = { ensureVectorIndexes: async () => undefined, healClassVectorIndexes: async () => [] };
 
 // Run against the test container's "memgraph" database explicitly.
 // Return type is `any` (loose) because callers access `.records[*].get(...)`

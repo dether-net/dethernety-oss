@@ -342,6 +342,17 @@ for (const name of modulesInstalled) {
 - **Timeout bound.** The call is wrapped in a `Promise.race` against `MODULE_LOAD_TIMEOUT` (default 30 000 ms). A hook that exceeds it is treated as a failure.
 - **Failure isolation + self-heal.** A throw *or* a timeout is caught and logged, then downgrades **only this module** — `SET m.lastInstallStatus = 'partial'` on its `:Module` node. The content-hash skip gate reinstalls a `partial` module on the next boot and re-invokes its hook, so a transient failure self-heals. `runAfterInstall` **never throws**: a failing hook never aborts the batch, and sibling modules in the same run are unaffected.
 
+### Class vector index self-heal
+
+Class matching by meaning relies on one vector index per class label (see [Class and control resolver spec → Index health](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#index-health-and-self-heal)). An index can lose entries without any write failing: Memgraph 3.8.x can recover a vector index from a snapshot under a different label or property than it was created on, and later writes to the intended label and property then miss the index.
+
+The service therefore ends both install paths with a call to the class matcher's self-heal (`MatchClassesResolverService.healClassVectorIndexes()`):
+
+- **`updateAllModules`**: after the `afterInstall` loop, on **every** pass, including one in which every module was skipped by its content hash. Every platform start runs this pass, so a deployment verifies its class indexes at each start, even when no module changed.
+- **`resetSingleModule`**: after the reset module's `afterInstall` hook.
+
+The self-heal rebuilds an index that is keyed on another label or property, or that does not hold every embedded active class of its label. The private wrapper `healClassVectorIndexes()` catches and logs any failure (`Class vector index self-heal failed`). Like `runAfterInstall`, it never fails the install that ran it.
+
 ## Health Monitoring
 ```typescript
 getStatistics(): ModuleStatistics {

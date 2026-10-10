@@ -101,6 +101,28 @@ jobs:
       - name: dt-ws (unit)
         run: pnpm --filter dt-ws test
 
+      # The suites start their databases in testcontainers inside a beforeAll hook with a bounded
+      # timeout. On a runner that does not have an image cached, a cold pull (the MAGE image is about
+      # 1.5 GB) can outlast that hook, and every suite starting in parallel fails at once. Pulling
+      # here moves that cost out of the hooks. The list is read from the harnesses' IMAGE constants,
+      # so a harness that moves to another image is pre-pulled without editing this step.
+      - name: Pre-pull test database images
+        run: |
+          set -euo pipefail
+          images=$(grep -rhoE "^(export )?const [A-Z_]*IMAGE *=[^;]*'[^']+'" apps/dt-ws/test \
+            | grep -oE "'[^']+'$" | tr -d "'" | sort -u)
+          [ -n "$images" ] || { echo "::error::no IMAGE constants found under apps/dt-ws/test"; exit 1; }
+          for img in $images; do
+            start=$(date +%s)
+            for attempt in 1 2 3; do
+              if docker pull --quiet "$img"; then break; fi
+              if [ "$attempt" -eq 3 ]; then echo "::error::could not pull $img"; exit 1; fi
+              echo "pull of $img failed (attempt $attempt), retrying"
+              sleep $((attempt * 15))
+            done
+            echo "pulled $img in $(( $(date +%s) - start ))s"
+          done
+
       # Docker is available on ubuntu runners, so these suites RUN rather than skipping — which
       # matters, because testcontainers skips silently when Docker is unreachable and a skipped
       # integration suite looks exactly like a passing one. No DOCKER_HOST: that override is a

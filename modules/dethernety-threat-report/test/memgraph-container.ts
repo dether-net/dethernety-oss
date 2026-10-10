@@ -20,7 +20,7 @@ export interface MemgraphHandle {
   stop: () => Promise<void>;
 }
 
-const IMAGE = 'memgraph/memgraph-mage:3.8.1';
+const IMAGE = 'memgraph/memgraph-mage:3.13.2';
 const BOLT_PORT = 7687;
 
 export async function startMemgraph(): Promise<MemgraphHandle> {

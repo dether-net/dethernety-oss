@@ -11,10 +11,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-readonly BYODT_VERSION="1.0.0"
+readonly BYODT_VERSION="1.1.0"
 readonly ENV_FILE=".env"
 readonly SECRETS_FILE=".env.secrets"
 readonly MODE_FILE="mode/mode.env"
+# The database image this bundle was tested with. DB_IMAGE in .env is copied once from .env.example and
+# kept across upgrades, so a deployment can run another database than the bundle was tested with.
+readonly TESTED_DB_IMAGE="docker.io/memgraph/memgraph:3.13.2"
 SELF="$(basename "$0")"
 
 # --- output -------------------------------------------------------------------
@@ -361,12 +364,27 @@ check_console_pin() {
   fi
 }
 
+# DB_IMAGE stays whatever .env says across upgrades. Say when it differs from the tested image — a warning,
+# never a block: moving the database forward is the operator's decision, and a newer database cannot be
+# downgraded, so it must not happen as a side effect of an update. Only the name:tag part is compared, so
+# the same image pulled through a mirror does not warn.
+check_db_image() {
+  local img
+  img="$(env_value DB_IMAGE '')"
+  [ -n "$img" ] || return 0
+  if [ "${img##*/}" != "${TESTED_DB_IMAGE##*/}" ]; then
+    warn "DB_IMAGE in .env is ${BOLD}${img}${RST}; this bundle was tested with ${BOLD}${TESTED_DB_IMAGE}${RST}."
+    warn "To move to it: back up data/memgraph first (there is no downgrade), set DB_IMAGE, then run ${BOLD}$SELF update${RST}."
+  fi
+}
+
 cmd_up() {
   # Always repair the layout (idempotent, silent when complete) so a bundle missing the mode layer or a
   # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
   ensure_layout
   ensure_password
   check_console_pin
+  check_db_image
   info "Starting the stack…"
   compose up -d "$@"
   info "Up. Console: ${BOLD}$(front_door_url)${RST}"
@@ -408,6 +426,7 @@ cmd_logs() { ensure_ready; compose logs -f "$@"; }
 
 cmd_update() {
   ensure_ready
+  check_db_image
   info "Pulling the pinned images…"; compose pull
   info "Applying…"; compose up -d
   info "Updated."

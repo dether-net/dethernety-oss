@@ -5,6 +5,7 @@ import { MonitoringService } from '../services/monitoring.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { classLabelToNodeLabel } from './shared/class-label-map';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
+import { isMiskeyed, readVectorIndexKeys, rebuildVectorIndex } from '../services/vector-index-keys';
 
 // --- Constants ---
 
@@ -37,6 +38,26 @@ const CLASS_LABEL_TO_INDEX_NAME: Record<string, string> = {
   SecurityBoundaryClass: 'boundary_class_embeddings',
   DataClass: 'data_class_embeddings',
 };
+
+/** Pre-allocation hint for a class vector index; Memgraph resizes past it. */
+const CLASS_INDEX_CAPACITY = 500;
+
+/** How many nearest neighbours a class's own-vector search inspects when the self-heal checks an index. */
+const HEAL_SELF_SEARCH_LIMIT = 3;
+
+/** One class vector index after the self-heal looked at it. */
+export interface ClassVectorIndexHealth {
+  indexName: string;
+  /** Embedded active classes of the index's label. */
+  embedded: number;
+  /** How many of them the index holds. */
+  held: number;
+  /** Held before a rebuild; present only when the index was rebuilt. */
+  heldBefore?: number;
+  /** Why it was rebuilt: it was keyed on another label or property, or it lacked embedded classes. */
+  reason?: 'miskeyed' | 'missing classes';
+  rebuilt: boolean;
+}
 
 // --- Internal types ---
 
@@ -103,6 +124,7 @@ export class MatchClassesResolverService {
   // sticky; per-request probing wastes a round-trip.
   private static readonly VECTOR_CHECK_TTL_MS = 10 * 60 * 1000;
   private vectorIndexesEnsured = false;
+  private classIndexCheck: Promise<void> | null = null;
 
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
@@ -267,7 +289,9 @@ export class MatchClassesResolverService {
 
   /**
    * Detect whether the database supports vector search (Memgraph 3.0+).
-   * Caches the result — probes at most once per service lifetime.
+   * Caches the result for VECTOR_CHECK_TTL_MS. Each probe also checks the class vector index keys, so
+   * an index that a database-only restart re-keyed is rebuilt within one TTL while the platform keeps
+   * running.
    */
   private async checkVectorSearchAvailability(): Promise<boolean> {
     const now = Date.now();
@@ -294,7 +318,64 @@ export class MatchClassesResolverService {
       await session.close();
     }
     this.vectorSearchAvailableCheckedAt = now;
+    if (this.vectorSearchAvailable && this.vectorIndexesEnsured && this.embeddingService.isEnabled()) {
+      await this.checkClassVectorIndexKeys();
+    }
     return this.vectorSearchAvailable;
+  }
+
+  /**
+   * The cheap check behind each availability probe: an index keyed on another label or property, or
+   * holding fewer entries than its label has embedded active classes, triggers the full self-heal.
+   * Concurrent probes share one check; a failure is logged and leaves search as it was.
+   */
+  private async checkClassVectorIndexKeys(): Promise<void> {
+    if (this.classIndexCheck) return this.classIndexCheck;
+    this.classIndexCheck = (async () => {
+      const session = this.neo4jDriver.session({
+        database: this.configService.get('database.name'),
+      });
+      let needsHeal = false;
+      try {
+        const keys = await readVectorIndexKeys(session);
+        for (const [nodeLabel, indexName] of Object.entries(CLASS_LABEL_TO_INDEX_NAME)) {
+          const key = keys?.get(indexName);
+          if (key === undefined) continue;
+          if (isMiskeyed(key, { label: nodeLabel, property: 'embedding' })) {
+            needsHeal = true;
+            break;
+          }
+          if (key.size < (await this.countEmbeddedClasses(session, nodeLabel))) {
+            needsHeal = true;
+            break;
+          }
+        }
+      } catch (error) {
+        this.logger.warn('Class vector index key check failed', { error: safeErrorMessage(error) });
+      } finally {
+        await session.close();
+      }
+      if (needsHeal) await this.healClassVectorIndexes();
+    })().finally(() => {
+      this.classIndexCheck = null;
+    });
+    return this.classIndexCheck;
+  }
+
+  /**
+   * Create one class vector index. DDL must run as an auto-committing (implicit) transaction —
+   * Memgraph rejects CREATE VECTOR INDEX inside explicit/multi-command transactions.
+   */
+  private async createClassVectorIndex(
+    session: any,
+    nodeLabel: string,
+    indexName: string,
+    dimensions: number,
+  ): Promise<void> {
+    await session.run(
+      `CREATE VECTOR INDEX ${indexName} ON :${nodeLabel}(embedding) ` +
+        `WITH CONFIG {"dimension": ${dimensions}, "capacity": ${CLASS_INDEX_CAPACITY}, "metric": "cos"}`,
+    );
   }
 
   /**
@@ -367,12 +448,7 @@ export class MatchClassesResolverService {
           this.logger.log(
             `Creating vector index: ${indexName} on :${nodeLabel}(embedding)`,
           );
-          // DDL must run as auto-committing (implicit) transaction — Memgraph
-          // rejects CREATE VECTOR INDEX inside explicit/multi-command transactions
-          await session.run(
-            `CREATE VECTOR INDEX ${indexName} ON :${nodeLabel}(embedding) ` +
-              `WITH CONFIG {"dimension": ${dimensions}, "capacity": 500, "metric": "cos"}`,
-          );
+          await this.createClassVectorIndex(session, nodeLabel, indexName, dimensions);
         } else if (existingDimensions) {
           const existing = existingDimensions.get(indexName);
           if (existing !== undefined && existing !== dimensions) {
@@ -390,6 +466,123 @@ export class MatchClassesResolverService {
     } finally {
       await session.close();
     }
+  }
+
+  /**
+   * Verify each class vector index and rebuild one that is keyed on another label or property, or that
+   * does not hold every embedded active class of its label.
+   *
+   * The key comes from the index metadata (see vector-index-keys.ts for the Memgraph recovery defect
+   * that re-keys an index). A class is held when a search with its own vector returns it among the
+   * nearest few (classes with identical text share a vector, so its own entry can tie with another).
+   * Creating an index indexes the nodes that already carry the property, so a rebuild restores it.
+   * Runs after module installs; a failure is logged and leaves vector search as it was.
+   */
+  async healClassVectorIndexes(): Promise<ClassVectorIndexHealth[]> {
+    if (!this.embeddingService.isEnabled()) return [];
+    if (!(await this.checkVectorSearchAvailability())) return [];
+    await this.ensureVectorIndexes();
+    // The dimension cross-check may have disabled embedding for the session.
+    if (!this.embeddingService.isEnabled()) return [];
+
+    const report: ClassVectorIndexHealth[] = [];
+    const session = this.neo4jDriver.session({
+      database: this.configService.get('database.name'),
+    });
+    try {
+      const keys = await readVectorIndexKeys(session);
+      for (const [nodeLabel, indexName] of Object.entries(CLASS_LABEL_TO_INDEX_NAME)) {
+        try {
+          const spec = {
+            indexName,
+            label: nodeLabel,
+            property: 'embedding',
+            dimensions: this.embeddingService.getDimensions(),
+            capacity: CLASS_INDEX_CAPACITY,
+          };
+          const key = keys?.get(indexName);
+          const before = await this.countHeldClasses(session, nodeLabel, indexName);
+          const reason = isMiskeyed(key, spec)
+            ? ('miskeyed' as const)
+            : before.held < before.embedded
+              ? ('missing classes' as const)
+              : null;
+          if (!reason) {
+            report.push({ indexName, embedded: before.embedded, held: before.held, rebuilt: false });
+            continue;
+          }
+          this.logger.warn(
+            reason === 'miskeyed'
+              ? `Vector index ${indexName} is keyed on :${key!.label}(${key!.property}) instead of :${nodeLabel}(embedding) — rebuilding it`
+              : `Vector index ${indexName} holds ${before.held} of ${before.embedded} embedded ${nodeLabel} classes — rebuilding it`,
+          );
+          await rebuildVectorIndex(session, spec);
+          const after = await this.countHeldClasses(session, nodeLabel, indexName);
+          const log = after.held === after.embedded ? 'log' : 'warn';
+          this.logger[log](
+            `Vector index ${indexName} rebuilt: holds ${after.held} of ${after.embedded} embedded ${nodeLabel} classes`,
+          );
+          report.push({ indexName, embedded: after.embedded, held: after.held, heldBefore: before.held, reason, rebuilt: true });
+        } catch (error) {
+          this.logger.warn(`Vector index ${indexName} could not be verified or rebuilt`, {
+            error: safeErrorMessage(error),
+          });
+        }
+      }
+    } finally {
+      await session.close();
+    }
+    return report;
+  }
+
+  /** How many embedded active classes of a label there are, and how many of them its vector index holds. */
+  private async countHeldClasses(
+    session: any,
+    nodeLabel: string,
+    indexName: string,
+  ): Promise<{ embedded: number; held: number }> {
+    const toNumber = (v: any) => Math.floor(typeof v === 'number' ? v : Number(v?.toNumber?.() ?? 0));
+    const embedded = toNumber(
+      (
+        await session.executeRead((tx: any) =>
+          tx.run(
+            `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(:Module)
+             WHERE c.embedding IS NOT NULL
+             RETURN count(DISTINCT c) AS n`,
+          ),
+        )
+      ).records[0]?.get('n'),
+    );
+    if (embedded === 0) return { embedded, held: 0 };
+    // A class whose search returns no rows drops out of this count, so it is counted as not held.
+    const held = toNumber(
+      (
+        await session.executeRead((tx: any) =>
+          tx.run(
+            `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(:Module)
+             WHERE c.embedding IS NOT NULL
+             WITH DISTINCT c
+             CALL vector_search.search('${indexName}', ${HEAL_SELF_SEARCH_LIMIT}, c.embedding) YIELD node
+             WITH c, collect(id(node)) AS nearest
+             RETURN count(CASE WHEN id(c) IN nearest THEN 1 END) AS n`,
+          ),
+        )
+      ).records[0]?.get('n'),
+    );
+    return { embedded, held };
+  }
+
+  /** Active classes of a label that carry an embedding: the upper bound of a module-scoped vector search. */
+  private async countEmbeddedClasses(session: any, nodeLabel: string): Promise<number> {
+    const result = await session.executeRead(async (tx: any) =>
+      tx.run(
+        `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(:Module)
+         WHERE c.embedding IS NOT NULL
+         RETURN count(c) AS c`,
+      ),
+    );
+    const value = result.records[0]?.get('c');
+    return Math.floor(typeof value === 'number' ? value : Number(value?.toNumber?.() ?? 0));
   }
 
   /**
@@ -425,24 +618,37 @@ export class MatchClassesResolverService {
     if (!vectors || vectors.length === 0) return [];
     const queryVector = vectors[0];
 
-    // Request 3x topN to allow for post-filtering.
-    // Ensure integer type — Neo4j driver may wrap numbers as Integer objects
-    // which Memgraph's vector_search.search rejects.
-    const searchLimit = Math.floor(Number(topN) * 3);
     const threshold = this.embeddingService.getThreshold();
 
     const session = this.neo4jDriver.session({
       database: this.configService.get('database.name'),
     });
     try {
+      // Unscoped: request 3x topN to allow for the threshold and type post-filters.
+      // Scoped to modules: the module filter runs after the nearest-neighbour search, so a fixed
+      // multiple of topN returns nothing once other modules' classes fill it. Search every
+      // embedded class of the label instead, then filter.
+      // Ensure integer type — Neo4j driver may wrap numbers as Integer objects
+      // which Memgraph's vector_search.search rejects.
+      const searchLimit =
+        moduleIds && moduleIds.length > 0
+          ? Math.max(
+              Math.floor(Number(topN) * 3),
+              await this.countEmbeddedClasses(session, nodeLabel),
+            )
+          : Math.floor(Number(topN) * 3);
       // indexName and searchLimit are from hardcoded constants, safe to interpolate.
       // Use WITH after YIELD — Memgraph does not allow WHERE directly after YIELD.
       const query = `
         CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
         YIELD node, similarity
-        WITH node, similarity
+        WITH id(node) AS hit, similarity
         WHERE similarity >= $threshold
-          AND ($component_type IS NULL OR node.type = $component_type)
+        // A node deleted since it was indexed can stay in the index until the database's garbage
+        // collection runs, and reading it fails; matching each hit by its internal id skips it.
+        MATCH (node) WHERE id(node) = hit
+        WITH node, similarity
+        WHERE $component_type IS NULL OR node.type = $component_type
         // Orphan-aware: :HAS_CLASS implicitly excludes orphans —
         // vector search results should be active classes only; operators
         // don't want retired classes surfacing in user-facing semantic

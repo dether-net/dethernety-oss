@@ -99,6 +99,14 @@ jobs:
             echo "::error::${ENVF}: pins ${CPIN} — drop the pin, or set its tag to ${VERSION}"
             exit 1
           fi
+          # The wrapper warns when an operator's DB_IMAGE differs from the image the bundle was
+          # tested with; that image and the one a fresh install gets must be the same.
+          DBIMG=$(grep -E '^DB_IMAGE=' "$ENVF" | head -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/')
+          TESTED=$(grep -E '^readonly TESTED_DB_IMAGE=' deploy/compose/byodt | head -1 | cut -d'"' -f2)
+          if [ -z "$TESTED" ] || [ "$DBIMG" != "$TESTED" ]; then
+            echo "::error::${ENVF}: DB_IMAGE=${DBIMG} != TESTED_DB_IMAGE=${TESTED} in deploy/compose/byodt"
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

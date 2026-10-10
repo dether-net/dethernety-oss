@@ -27,6 +27,7 @@ async function buildService(overrides: {
 
   const matchClasses: Stub<MatchClassesResolverService> = {
     ensureVectorIndexes: jest.fn(async () => {}),
+    healClassVectorIndexes: jest.fn(async () => []),
     ...overrides.matchClasses,
   };
 
