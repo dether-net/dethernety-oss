@@ -1198,7 +1198,7 @@ The vector tier uses Memgraph HNSW indexes — one per corpus that has nodes —
 
 ```cypher
 CREATE VECTOR INDEX <indexName> ON :<Label>(embedding)
-WITH CONFIG {"dimension": <d>, "capacity": <c>, "metric": "cos", "m": 16, "ef_construction": 200}
+WITH CONFIG {"dimension": <d>, "capacity": <c>, "metric": "cos"}
 ```
 
 and queried via:
@@ -1206,12 +1206,35 @@ and queried via:
 ```cypher
 CALL vector_search.search('<indexName>', <searchLimit>, $query_vector)
 YIELD node, similarity
-WITH node, similarity
+WITH id(node) AS hit, similarity
 WHERE similarity >= $threshold
+MATCH (node) WHERE id(node) = hit
+WITH node, similarity
 ...
 ```
 
+Each hit is re-matched by its internal id. On newer Memgraph releases (seen on 3.13.2), a node deleted after it was indexed is still returned by the search until the database's garbage collection runs, and reading it fails. The re-match skips it, which is what Memgraph 3.8.1 does on its own.
+
 The query **oversamples** — `searchLimit = max(topN * 10, 50)` — so candidates below the threshold do not starve the result of valid hits deeper in the HNSW result set.
+
+### Index health and self-heal
+
+An index can lose entries even though no write fails. Memgraph 3.8.x can recover a label+property vector index from a snapshot under a different label or property than it was created on. Writes to the intended label then miss the index, so MITRE nodes written after such a recovery cannot be found by vector similarity. A snapshot written while an index was mis-keyed keeps the wrong key, even on a later Memgraph release that recovers keys correctly.
+
+The ensure pass therefore verifies every existing index of each healthy kind:
+
+- The key and size come from `vector_search.show_index_info()`.
+- An index keyed on another label or property, or holding fewer entries than there are nodes of its label with an `embedding`, is dropped and created again on its intended key. Creating the index indexes the nodes that already carry the property.
+- The helpers are shared with class matching (`src/gql/services/vector-index-keys.ts`).
+- The rebuild is logged as `MITRE vector index <name> rebuilt: holds <n> of <embedded> embedded nodes`.
+- A failure is logged (`… could not be verified or rebuilt`) and leaves the index as it was.
+
+The ensure pass runs lazily, not at startup:
+
+- on the **first MITRE match after the platform starts**
+- again on the first match after the 10-minute vector-availability cache expires, so a database-only restart is repaired while the platform keeps running
+
+Class vector indexes have their own checks; see [Class and control resolver spec → Index health and self-heal](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#index-health-and-self-heal).
 
 ### Graceful degradation
 
@@ -1224,7 +1247,7 @@ A per-corpus model-coherence precheck computes `vectorAvailable` and a structure
 | `NO_VECTORS` | No embeddings shipped, or per-label coverage is incomplete |
 | `MODEL_MISMATCH` | The corpus's `embeddingModel` disagrees with the runtime model |
 
-A kind with no nodes (its framework is not loaded) is skipped by the precheck with a log line and gets no HNSW index; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes the precheck is global: one failing kind disables the tier for all of them, and the dominant reason is surfaced.
+A kind with no nodes (its framework is not loaded) is skipped by the precheck with a log line and gets no HNSW index; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes, each stands on its own: a failing kind loses the vector tier and reports its own reason, and the healthy kinds keep it. The tier is off for every kind only when no loaded kind is healthy, and then the dominant reason is surfaced.
 
 The embedding model is swappable; all corpus nodes must share the runtime `embeddingModel` or the tier degrades with `MODEL_MISMATCH`. Vector availability is cached (10-minute TTL); the MITRE corpus is cached (5-minute TTL). When the vector tier is off, the response still carries deterministic-tier matches.
 

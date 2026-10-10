@@ -65,6 +65,12 @@ the console image, so upgrading is a one-line change and the two cannot drift ap
 The three third-party images are pinned separately so they can be repointed at a
 mirror.
 
+`DB_IMAGE` is copied into `.env` on the first run and kept across upgrades;
+`./byodt up` and `./byodt update` warn when it differs from the tested image. Moving
+is optional (release 0.10.1 fixes existing Memgraph 3.8.1 deployments as they are)
+and one-way: back up `data/memgraph` first (there is no downgrade), set `DB_IMAGE`,
+then run `./byodt update`.
+
 The container engine is auto-detected on the first run (Docker first, then Podman)
 and recorded as `CONTAINER_ENGINE` in `.env`; set it there yourself to force one.
 

@@ -230,12 +230,15 @@ Only if the HNSW index exists and elements have descriptions. Memgraph-only — 
 
 ```cypher
 // vector_search.search() takes exactly 3 params: (index_name, limit, query_vector)
-// No filter parameter exists — post-filter with WHERE
-// Request 2-3x topN to allow for post-filtering
-CALL vector_search.search('component_class_embeddings', 10, $query_vector)
+// No filter parameter exists — post-filter with WHERE (Memgraph needs WITH between YIELD and WHERE)
+CALL vector_search.search('component_class_embeddings', <searchLimit>, $query_vector)
 YIELD node, similarity
+WITH id(node) AS hit, similarity
 WHERE similarity >= $threshold
-  AND ($component_type IS NULL OR node.type = $component_type)
+// Re-match each hit by its internal id: a deleted node can stay in the index until garbage collection
+MATCH (node) WHERE id(node) = hit
+WITH node, similarity
+WHERE $component_type IS NULL OR node.type = $component_type
 MATCH (node)<-[:HAS_CLASS]-(m:Module)
 WHERE $module_ids IS NULL OR m.id IN $module_ids
 RETURN node.id, node.name, node.description, node.category, m.name AS moduleName, similarity
@@ -243,7 +246,14 @@ ORDER BY similarity DESC
 LIMIT $top_n
 ```
 
-See Section 7 for the embedding pipeline. The threshold is configurable (default: 0.75).
+**Deleted nodes.** On newer Memgraph releases (seen on 3.13.2), a node deleted after it was indexed is still returned by `vector_search.search()` until the database's garbage collection runs, and reading its properties fails. Memgraph 3.8.1 skips such a node. The query therefore keeps only each hit's internal id and re-matches it with `MATCH (node) WHERE id(node) = hit`, which drops deleted nodes before any property is read. The MITRE vector query and the index self-check ([Section 7](#index-health-and-self-heal)) do the same.
+
+**Search limit.** Every filter runs after the nearest-neighbour search, so the limit decides which classes the filters ever see:
+
+- **Unscoped** (`moduleIds` not set): `searchLimit = 3 × topN`, which leaves room for the threshold and type filters.
+- **Module-scoped** (`moduleIds` set): `searchLimit = max(3 × topN, number of embedded active classes of the label)`, so the search covers **every** class of the label before the module filter runs. A fixed multiple of `topN` would return nothing for a module whenever other modules' classes were nearer to the query.
+
+See Section 7 for the embedding pipeline. The threshold is configurable with `EMBEDDING_SIMILARITY_THRESHOLD` (default: 0.40, tuned for the default embedding model).
 
 **Detecting index availability:** Before executing vector search, check if the index exists:
 ```cypher
@@ -828,6 +838,27 @@ CREATE VECTOR INDEX data_class_embeddings ON :DataClass(embedding)
 
 Vector search is built into Memgraph core since version 3.0 (not a MAGE add-on). Neo4j support is not in scope for this phase — Neo4j deployments skip Priority 3. The `capacity` parameter sets initial HNSW index size (Memgraph rounds up internally, e.g. 500 → 512). Start small and resize via `reindexClassEmbeddings` as the module ecosystem grows. The metric name is `"cos"` (not `"cosine"`).
 
+### Index health and self-heal
+
+An index can lose entries even though no write fails. Memgraph 3.8.x can recover a label+property vector index from a snapshot under a different label or property than it was created on. Writes to the intended label and property then miss the index, so classes installed after such a recovery cannot be found by vector similarity. The index created first keeps its key, and later ones can be re-keyed. Later Memgraph releases recover the key correctly, but a snapshot written while an index was mis-keyed keeps the wrong key. A database upgrade alone does not repair it.
+
+The platform therefore verifies the five class indexes and rebuilds any index that is wrong. The helpers live in `src/gql/services/vector-index-keys.ts`, and the checks live in `MatchClassesResolverService`.
+
+| Check | When | Rebuild trigger |
+|---|---|---|
+| Full self-heal: `healClassVectorIndexes()` | At the end of every module update pass, so on every platform start, even when every module was skipped. Also after a single-module reset (see [ModuleManagementService → Class vector index self-heal](./MODULE_MANAGEMENT_SERVICE.md#class-vector-index-self-heal)). | The index is keyed on another label or property. Or it holds fewer embedded active classes than its label has; this is counted by searching with each class's own vector and checking, by internal id, that the class is among the nearest three. |
+| Cheap key check | On the vector-availability probe, which is cached for 10 minutes. The first class match after the cache expires re-probes, so a database-only restart is repaired while the platform keeps running. | The index is keyed on another label or property, or the size it reports is below the number of embedded active classes of its label. Either case runs the full self-heal. |
+
+The key and size come from `vector_search.show_index_info()` (`index_name`, `label`, `property`, `size`). A rebuild is a `DROP VECTOR INDEX` followed by `CREATE VECTOR INDEX` on the intended label and property. Creating a vector index indexes every node that already carries the property, so the rebuild restores the missing entries. Each rebuild is logged:
+
+```
+Vector index <name> is keyed on :<Label>(<property>) instead of :<Label>(embedding) — rebuilding it
+Vector index <name> holds <held> of <embedded> embedded <Label> classes — rebuilding it
+Vector index <name> rebuilt: holds <n> of <n> embedded <Label> classes
+```
+
+A failure is logged (`… could not be verified or rebuilt`) and leaves vector search as it was. The MITRE corpus indexes get the same key check; see [Custom resolver services → Vector tier](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#vector-tier).
+
 ### Embedding service
 
 ```
@@ -962,7 +993,7 @@ await tx.run(
 )
 ```
 
-The Memgraph HNSW index automatically includes any node with an `embedding` property that matches the index definition — no separate indexing step is needed.
+The Memgraph HNSW index normally includes any node with an `embedding` property that matches the index definition, so no separate indexing step is needed. The exception is an index that a snapshot recovery re-keyed; the platform detects and rebuilds it (see [Index health and self-heal](#index-health-and-self-heal)).
 
 ### Failure behavior
 

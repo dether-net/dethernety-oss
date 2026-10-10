@@ -23,7 +23,7 @@ const embeddingStub: any = {
   composeClassText: () => '',
   embedBatch: async () => null,
 };
-const matchStub: any = { ensureVectorIndexes: async () => undefined };
+const matchStub: any = { ensureVectorIndexes: async () => undefined, healClassVectorIndexes: async () => [] };
 
 async function withRead(driver: any, fn: (tx: any) => Promise<any>): Promise<any> {
   const session = driver.session({ database: 'memgraph' });

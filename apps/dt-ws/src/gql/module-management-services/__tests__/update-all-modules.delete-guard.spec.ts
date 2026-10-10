@@ -38,6 +38,7 @@ async function buildService(driver: any): Promise<ModuleManagementService> {
   };
   const matchClasses: Partial<MatchClassesResolverService> = {
     ensureVectorIndexes: jest.fn(async () => {}),
+    healClassVectorIndexes: jest.fn(async () => []),
   };
   const reconciler = {
     hasIncidentInstances: async () => false,

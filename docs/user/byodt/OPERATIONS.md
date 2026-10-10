@@ -244,7 +244,7 @@ Browsers only expose the cryptography the cloud sign-in flow needs on a secure c
 
 ## Upgrading to a new release
 
-A release moves as one unit: the platform image, the console image, the module payloads, and the tested third-party images. Upgrade them together.
+A release moves as one unit: the platform image, the console image, and the module payloads all follow `PLATFORM_VERSION`. The graph database image is the exception — an update deliberately leaves it where it is (see step 4).
 
 ### 1. Back up first
 
@@ -277,7 +277,9 @@ Your `.env`, `.env.secrets`, `mode/`, `tls/`, `data/`, and `backups/` are untouc
 diff .env .env.example
 ```
 
-**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `DB_IMAGE`, `OLLAMA_IMAGE`, or `PROXY_IMAGE`, and read the new file's comments for settings that were added.
+**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `OLLAMA_IMAGE` or `PROXY_IMAGE`, and read the new file's comments for settings that were added. Keep your current `DB_IMAGE`, even if the new file names a newer database, unless you decide to move the database (below).
+
+> **Moving the database to a newer image is your choice, and it is one-way.** A newer database writes data that an older one cannot open, so there is no downgrade. `./byodt up` and `./byodt update` warn when `DB_IMAGE` differs from the image this bundle was tested with; the warning never blocks the start. To move: back up first — `./byodt backup`, or a copy of `data/memgraph` taken with the deployment down — then set `DB_IMAGE` to the tested image and run `./byodt update`.
 
 > **If you have uncommented `CONSOLE_IMAGE` to use a mirror**, move its tag to the new version too. The console refuses to serve a platform version it was not built for, so an override left on the old tag aborts the start. Leaving the key commented out — the default — makes this impossible.
 

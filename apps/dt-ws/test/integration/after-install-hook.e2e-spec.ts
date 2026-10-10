@@ -26,7 +26,7 @@ const embeddingStub: any = {
   composeClassText: () => '',
   embedBatch: async () => null,
 };
-const matchStub: any = { ensureVectorIndexes: async () => undefined };
+const matchStub: any = { ensureVectorIndexes: async () => undefined, healClassVectorIndexes: async () => [] };
 
 function num(v: any): number {
   return typeof v?.toNumber === 'function' ? v.toNumber() : Number(v);

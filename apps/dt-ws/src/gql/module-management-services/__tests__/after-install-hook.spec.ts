@@ -53,6 +53,7 @@ async function buildService(driver: any, gqlConfig?: { moduleLoadTimeout?: numbe
   };
   const matchClasses: Partial<MatchClassesResolverService> = {
     ensureVectorIndexes: jest.fn(async () => {}),
+    healClassVectorIndexes: jest.fn(async () => []),
   };
   const eventLog = new ClassIdentityEventLog();
   const reconciler = {

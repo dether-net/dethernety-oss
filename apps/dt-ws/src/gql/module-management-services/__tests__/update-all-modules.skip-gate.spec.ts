@@ -39,6 +39,7 @@ async function buildService(driver: any) {
   };
   const matchClasses: Partial<MatchClassesResolverService> = {
     ensureVectorIndexes: jest.fn(async () => {}),
+    healClassVectorIndexes: jest.fn(async () => []),
   };
   const eventLog = new ClassIdentityEventLog();
   const reconciler = {

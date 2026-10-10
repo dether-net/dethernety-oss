@@ -15,11 +15,21 @@ export interface MemgraphHandle {
   stop: () => Promise<void>;
 }
 
-const IMAGE = 'memgraph/memgraph-mage:3.8.1';
+// MEMGRAPH_TEST_IMAGE runs every suite on another image, e.g. the plain `memgraph/memgraph` tag a
+// deployment pins.
+const IMAGE = process.env.MEMGRAPH_TEST_IMAGE ?? 'memgraph/memgraph-mage:3.13.2';
+
+export interface StartMemgraphOptions {
+  /** Defaults to the MAGE image; pass the plain `memgraph/memgraph` tag a deployment pins to test against it. */
+  image?: string;
+  /** Extra Memgraph flags, e.g. the snapshot settings a restart test needs. */
+  command?: string[];
+}
 const BOLT_PORT = 7687;
 
-export async function startMemgraph(): Promise<MemgraphHandle> {
-  const container = await new GenericContainer(IMAGE)
+export async function startMemgraph(options: StartMemgraphOptions = {}): Promise<MemgraphHandle> {
+  const container = await new GenericContainer(options.image ?? IMAGE)
+    .withCommand(options.command ?? [])
     .withExposedPorts(BOLT_PORT)
     .withWaitStrategy(Wait.forListeningPorts())
     // 180s, not 60s. The container itself is ready in well under a second --
