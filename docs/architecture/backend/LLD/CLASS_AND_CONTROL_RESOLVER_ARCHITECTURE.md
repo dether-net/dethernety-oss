@@ -62,7 +62,7 @@ These principles are defined in the [Platform Architecture Overview](../README.m
 | **Extensibility** | The match_classes service is generalized across all five class types via a single `classLabel` parameter. New class types added by modules are automatically searchable. The embedding pipeline embeds all class labels without code changes. |
 | **Standards-based** | Gap analysis is grounded in MITRE ATT&CK and D3FEND. Recommendations are linked to specific techniques and mitigations, not heuristic rules. |
 | **Secure by design** | Custom resolvers bypass `@neo4j/graphql`'s auto-generated `@authentication` directive, so each resolver explicitly checks authorization via `AuthorizationService`. No exception, no shortcut. |
-| **Database portability** | Deterministic matching (priorities 1-2) and gap analysis work on both Neo4j and Memgraph. Vector search is an exact cosine search in Cypher with each engine's own cosine function, so it runs on both engines without a vector index. |
+| **Database portability** | Deterministic matching (exact name, name containment, type-filtered heuristic) and gap analysis work on both Neo4j and Memgraph. Vector search is an exact cosine search in Cypher with each engine's own cosine function, so it runs on both engines without a vector index. |
 
 ### Dethereal principles applied
 
@@ -235,10 +235,10 @@ Database access uses the Neo4j Bolt driver injected via `@Inject('NEO4J_DRIVER')
 
 | Tier | Method | Confidence | Cost | Database | Deterministic |
 |----------|--------|------------|------|----------|:---:|
-| Exact name | Exact name (case-insensitive) | high | Cypher `toLower` compare | Neo4j + Memgraph | Yes |
-| Vector (runs with exact name) | Vector similarity (cosine, threshold >= 0.75) | medium | Exact cosine in Cypher + query-time embedding | Neo4j + Memgraph | No |
-| Fallback 1 | Substring containment | high | In-memory string ops | Neo4j + Memgraph | Yes |
-| Fallback 2 | Type-filtered heuristic | low | Cypher label match | Neo4j + Memgraph | Yes |
+| Exact name | Exact name (case-insensitive) | high | In-memory compare over one class fetch per request | Neo4j + Memgraph | Yes |
+| Vector (runs with exact name) | Vector similarity (cosine at or above the threshold, which depends on the embedding profile; see [Similarity threshold](#similarity-threshold)) | medium | Exact cosine in Cypher + query-time embedding | Neo4j + Memgraph | No |
+| Fallback 1 | Whole-word name containment, either direction | high | In-memory string ops | Neo4j + Memgraph | Yes |
+| Fallback 2 | Type-filtered heuristic | low | In-memory filter over the same class fetch | Neo4j + Memgraph | Yes |
 
 **Key design decisions:**
 
@@ -368,8 +368,8 @@ Two new properties are added to class nodes when embeddings are enabled:
 
 | Property | Labels | Type | Purpose |
 |----------|--------|------|---------|
-| `embedding` | All 5 class labels | `float[]` (768 dimensions) | Vector for exact cosine similarity search |
-| `embeddingModel` | All 5 class labels | `string` | Model identifier for version drift detection |
+| `embedding` | All 5 class labels | `float[]` (the profile's dimensions; 768 for the built-in profiles) | Vector for exact cosine similarity search |
+| `embeddingModel` | All 5 class labels | `string` | Embedding profile id (the model name under the HTTP embedder with a non-built-in model), for version drift detection |
 
 These properties are **optional**. Class nodes without them are valid and fully functional -- they simply do not participate in the vector tier.
 
@@ -428,10 +428,10 @@ The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed
          ▼
   Compose embedding text per class:        ─── Embedding Service ───
   "{name}. {description}. Category:       │                         │
-   {category}. Type: {type}."             │  HTTP POST to           │
-         │                                │  OpenAI-compatible      │
-         ▼                                │  endpoint (Ollama,      │
-  Batch embed all classes ──────────────→ │  LocalAI, OpenAI, etc.) │
+   {category}. Type: {type}."             │  In-process ONNX model, │
+         │                                │  or HTTP POST to an     │
+         ▼                                │  embedding endpoint     │
+  Batch embed all classes ──────────────→ │  (Ollama, OpenAI-style) │
          │                                │                         │
          ▼                                 ─────────────────────────
   vectors[] in memory
@@ -447,41 +447,62 @@ The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed
 
 ### Embedding service architecture
 
-A thin HTTP client, not a model runtime. The service calls any OpenAI-compatible embeddings endpoint. There is no `EMBEDDING_PROVIDER` enum -- local (Ollama, LocalAI) vs cloud (OpenAI, Bedrock) is a deployment decision, not a code path.
+`EMBEDDING_MODEL` names an **embedding profile**. A profile (`packages/dt-module/src/embedding-profile.ts`, built-ins in `src/embedding-profiles/*.json`) pins everything that shapes a stored vector: where the weights come from (repository, revision, per-file size and sha256), how the model runs (pooling, normalisation, dimensions) and the prompts applied to queries and documents. It also carries the per-corpus similarity thresholds and how they were calibrated. The profile id is what a class node stores as `embeddingModel`, so it changes whenever anything that shapes a stored vector changes.
+
+The service has two runtimes, chosen by the profile:
+
+- **In-process (ONNX).** A built-in ONNX profile (`embeddinggemma-300m-retrieval-v1`, `embeddinggemma-2-text-retrieval-v1`) runs inside dt-ws. After start, the weights are fetched into `EMBEDDING_MODEL_DIR` (or found there), verified by sha256 and loaded in the background. Until the model is ready the embedder reports itself as not enabled, so callers fall back to their name tiers.
+- **HTTP.** The `embeddinggemma` profile (the default) and any `EMBEDDING_MODEL` that is not a built-in profile id POST `{ model, input }` to `EMBEDDING_URL` (an Ollama-compatible `/api/embed`; OpenAI-format responses are accepted too). No prompts are applied; the vectors are L2-normalised. A model that is not a built-in profile runs under the `embeddinggemma` profile's thresholds, with a logged warning.
 
 ```
   dt-ws/src/gql/services/embedding.service.ts
 
-  ┌───────────────────────────────────────────────┐
-  │  EmbeddingService (@Injectable)               │
-  │                                               │
-  │  Configuration:                               │
-  │    EMBEDDING_ENABLED    (bool, default: false) │
-  │    EMBEDDING_URL        (any compatible URL)   │
-  │    EMBEDDING_API_KEY    (empty for local)      │
-  │    EMBEDDING_MODEL      (default:              │
-  │                          embeddinggemma, 768d) │
-  │    EMBEDDING_DIMENSIONS (default: 768)         │
-  │    EMBEDDING_SIMILARITY_THRESHOLD (def: 0.40)  │
-  │                                               │
-  │  Methods:                                     │
-  │    isEnabled()       → boolean                │
-  │    getModel()        → string                 │
-  │    embedBatch(texts) → number[][] | null      │
-  │    composeClassText(cls)    → string          │
-  │    composeElementText(elem) → string          │
-  │                                               │
-  │  Retry: 3x with exponential backoff           │
-  │         (1s, 3s, 9s)                          │
-  │  Failure: throw after exhausting retries      │
-  └───────────────────────────────────────────────┘
+  ┌───────────────────────────────────────────────────┐
+  │  EmbeddingService (@Injectable)                   │
+  │                                                   │
+  │  Configuration:                                   │
+  │    EMBEDDING_ENABLED    (bool, default: false)    │
+  │    EMBEDDING_MODEL      (profile id; default:     │
+  │                          embeddinggemma)          │
+  │    EMBEDDING_THRESHOLD_<CORPUS> (per-corpus floor)│
+  │  In-process only:                                 │
+  │    EMBEDDING_MODEL_DIR  (default: models)         │
+  │    EMBEDDING_THREADS    (default: 4)              │
+  │  HTTP only:                                       │
+  │    EMBEDDING_URL        (default: local Ollama)   │
+  │    EMBEDDING_API_KEY    (empty for local)         │
+  │    EMBEDDING_DIMENSIONS (default: the profile's)  │
+  │    EMBEDDING_SIMILARITY_THRESHOLD (legacy floor)  │
+  │                                                   │
+  │  Methods:                                         │
+  │    isEnabled()                → boolean           │
+  │    getModel()                 → string            │
+  │    getThreshold(corpus)       → number | null     │
+  │    embedBatch(texts, kind)    → number[][] | null │
+  │    composeClassText(cls)      → string            │
+  │    composeElementText(elem)   → string            │
+  │                                                   │
+  │  HTTP retry: 3x with exponential backoff          │
+  │              (1s, 3s, 9s)                         │
+  │  Failure: throw after exhausting retries          │
+  └───────────────────────────────────────────────────┘
 ```
 
-**Default model: `embeddinggemma`** (768 dimensions). Chosen for quality-to-size ratio, local deployment via Ollama, and suitability for the domain (technical infrastructure descriptions). The embedding model is configurable per deployment.
+`kind` is `query` or `document`: an in-process profile wraps the text in its query or document prompt, so class vectors and element vectors are made the way the model was trained to compare them.
+
+### Similarity threshold
+
+The threshold is a cosine floor per **corpus**: `classes` for this resolver, `mitre` for MITRE technique search (and `components`, which has no floor by default). Each built-in profile carries its own values, calibrated per profile on a set of class and ATT&CK technique retrieval queries: the highest cosine threshold at which at least 99% of the queries that find an expected match in their top 3 results with no threshold still find one. A cosine floor only means something for the model it was calibrated on, which is why it lives in the profile rather than in a single global setting.
+
+`EmbeddingService` resolves each corpus's threshold once at startup, and `getThreshold(corpus)` returns it:
+
+1. `EMBEDDING_THRESHOLD_<CORPUS>` (`EMBEDDING_THRESHOLD_CLASSES`, `EMBEDDING_THRESHOLD_MITRE`, `EMBEDDING_THRESHOLD_COMPONENTS`), when set.
+2. Otherwise, under the HTTP embedder only, the legacy `EMBEDDING_SIMILARITY_THRESHOLD` (for `classes` and `mitre`). An in-process profile ignores it with a logged warning.
+3. Otherwise, the profile's value.
 
 ### Vector search
 
-There is no vector index. The vector tier is an **exact search** in Cypher: every active class of the label that carries a vector of the active embedding model is scored with the database's own cosine function, and the query keeps the top `k`. Because no index is involved, the scope filters (`componentType`, `moduleIds`) are ordinary `WHERE` clauses. The query builder lives in `@dethernety/dt-module/embedding` (`packages/dt-module/src/vector-search.ts`: `cosineExpr`, `buildRankQuery`); `VectorSearchService` (`apps/dt-ws/src/gql/services/vector-search.service.ts`) runs it in a read transaction.
+There is no vector index. The vector tier is an **exact search** in Cypher: every active class of the label that carries a vector of the active embedding profile is scored with the database's own cosine function, and the query keeps the top `k`. Because no index is involved, the scope filters (`componentType`, `moduleIds`) are ordinary `WHERE` clauses. The query builder lives in `@dethernety/dt-module/embedding` (`packages/dt-module/src/vector-search.ts`: `cosineExpr`, `buildRankQuery`); `VectorSearchService` (`apps/dt-ws/src/gql/services/vector-search.service.ts`) runs it in a read transaction.
 
 | Engine | Cosine expression | Scale |
 |--------|-------------------|-------|
@@ -533,14 +554,14 @@ The embedding pipeline integrates into the existing `ModuleManagementService.ups
 When `match_classes` runs the vector tier for an element with a description, the resolver embeds the query element on the fly:
 
 1. Compose embedding text via `EmbeddingService.composeElementText(element)` -- produces `"{name}. {description}. Type: {type}."`
-2. Call `EmbeddingService.embedBatch([text])` to get the query vector
-3. Rank the label's classes against the query vector with the exact cosine search (see [Vector search](#vector-search))
+2. Call `EmbeddingService.embedBatch([text], 'query')` to get the query vector
+3. Rank the label's classes against the query vector with the exact cosine search (see [Vector search](#vector-search)), keeping those at or above `getThreshold('classes')`
 
 This is a per-element call at query time, not a batch. Every element with a description triggers an embedding call, including elements that also have an exact-name hit. If the embedding service is unavailable at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
 
 ### Model version tracking and re-indexing
 
-The `embeddingModel` property on class nodes tracks which model produced the vector. The vector search only compares vectors of the active model, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A `reindexClassEmbeddings` mutation allows re-computing all vectors after an embedding model change -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
+The `embeddingModel` property on class nodes tracks which model produced the vector. The vector search only compares vectors of the active model, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A `reindexClassEmbeddings` mutation allows re-computing all vectors after an embedding profile change -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
 
 ---
 
@@ -617,7 +638,8 @@ The `ClassLabelEnum` GraphQL type provides schema-level validation, but the reso
 |---------|------------|
 | **Embedding endpoint authentication** | `EMBEDDING_API_KEY` sent as Bearer token. Empty for local deployments. |
 | **Module trust** | Module authors control class descriptions (embedding input). Adversarial descriptions could attract unrelated elements. Mitigation: modules are installed by platform administrators, not end users. Module review is the trust boundary. |
-| **Data exposure** | Embedding text is `"{name}. {description}. Category: {category}. Type: {type}."` -- class metadata only, no user data. Local models (Ollama) keep data on-premises. Cloud providers see only class descriptions. |
+| **Data exposure** | Install-time text is `"{name}. {description}. Category: {category}. Type: {type}."` -- class metadata only. Query-time text is `"{name}. {description}. Type: {type}."` of a model element -- user data. The in-process embedder keeps both inside dt-ws; an HTTP endpoint receives both, so a cloud endpoint sees element names and descriptions. |
+| **Model integrity** | A built-in in-process profile pins the weights' repository revision and each file's size and sha256; the files are verified before the model is loaded. An HTTP endpoint is trusted as configured. |
 
 ---
 
@@ -629,9 +651,10 @@ The embedding service is deployment-configured. No code changes between local an
 
 | Deployment | Embedding source | Configuration |
 |-----------|-----------------|---------------|
-| Self-hosted (no AI budget) | Disabled | `EMBEDDING_ENABLED=false`. System works without it -- priorities 1-2-4. |
-| Self-hosted (local) | Ollama / LocalAI | `EMBEDDING_URL=http://ollama:11434/api/embeddings`. Add to `docker-compose.yml`. |
-| SaaS (cloud) | OpenAI / Bedrock | `EMBEDDING_URL=https://api.openai.com/v1/embeddings`, `EMBEDDING_API_KEY=sk-...` |
+| Self-hosted (no AI budget) | Disabled | `EMBEDDING_ENABLED=false`. System works without it -- exact name, name containment and the type-filtered heuristic. |
+| Self-hosted (in-process) | Built-in ONNX profile | `EMBEDDING_MODEL=<profile id>`, optionally `EMBEDDING_MODEL_DIR`. No embedding service to run. |
+| Self-hosted (local) | Ollama / LocalAI | `EMBEDDING_URL=http://ollama:11434/api/embed`. Add to `docker-compose.yml`. |
+| Cloud endpoint | OpenAI-compatible API | `EMBEDDING_URL=https://api.openai.com/v1/embeddings`, `EMBEDDING_API_KEY=sk-...`, `EMBEDDING_MODEL=<model>`, `EMBEDDING_DIMENSIONS`. A model that is not a built-in profile gets the `embeddinggemma` thresholds unless `EMBEDDING_THRESHOLD_<CORPUS>` is set. |
 
 ### Database requirements
 
@@ -641,7 +664,7 @@ The embedding service is deployment-configured. No code changes between local an
 | Gap analysis (multi-hop Cypher) | Yes | Yes |
 | `findControls` / `assignControlToElements` | Yes | Yes |
 | Vector similarity tier | **Yes** (5.26 Community; `vector.similarity.cosine`) | **Yes** (3.6+, tested on 3.13.2; `vector_search.cosine_similarity`) |
-| Vector index | Not used | Not used for classes (exact search) |
+| Vector index | Not used | Not used by class or MITRE technique search (both exact). dt-ws still keeps HNSW indexes on the MITRE technique labels, which its own search does not read. |
 
 ---
 
@@ -670,7 +693,7 @@ The embedding service is deployment-configured. No code changes between local an
 
 | Component | Unavailable | System behavior |
 |-----------|-------------|-----------------|
-| Embedding model | Down | Vector tier skipped. Deterministic matching continues. Logged warning. |
+| Embedding model | Down, or still downloading or loading (in-process) | Vector tier skipped. Deterministic matching continues. Logged warning. |
 | Embedding model at module install | Down | Module install fails after 3 retries. Clear error message. |
 | Graph database | Down | All services fail. Existing platform behavior. |
 | Database cosine function | Missing or unexpected scale | Vector tier skipped (the vector self-test fails; retried after 60 s). System functional. |
@@ -698,7 +721,7 @@ The embedding service is deployment-configured. No code changes between local an
 | **Fail module install** vs install without embeddings | Fail after 3 retries | Install without embeddings, log warning | A module installed without embeddings is never re-processed. Frontends that rely on vector search would silently produce degraded results. Explicit failure is honest. |
 | **Application-level partitioning** for unaddressable exposures vs complex Cypher `NOT EXISTS` | Application code | Single Cypher query with `NOT EXISTS` | `NOT EXISTS` semantics differ between Neo4j and Memgraph. Two simple queries (one for unmitigated, one to check addressability) are portable and debuggable. |
 | **Helper query** for element-based control lookup vs interface query | `controlIdsByElements` Cypher helper on dt-ws | Auto-generated `ControlWhere` with interface filter | Memgraph interface queries take 5+ seconds. Direct Cypher takes < 50ms. The helper adds one extra round-trip but eliminates a known performance pathology. |
-| **No fuzzy Levenshtein** in name containment | Substring containment only | Levenshtein edit distance | Character-level edit distance on short identifiers produces false positives ("DB" matching "DeBug"). Substring matching catches the common cases ("Postgres" -> "PostgreSQL", "K8s" -> "Kubernetes"). Approximate matching is left to the vector tier, which runs before containment, and to agent reasoning (Pass 2). |
+| **No fuzzy Levenshtein** in name containment | Whole-word containment only | Levenshtein edit distance | Character-level edit distance on short identifiers produces false positives ("DB" matching "DeBug"). Whole-word containment catches a name that carries a class name ("Orders Relational Database" -> "Relational Database") without matching a word inside a longer word ("Go microservice" does not contain "Service"). Abbreviations and spelling variants ("K8s", "Postgres") are left to the vector tier, which runs before containment, and to agent reasoning (Pass 2). |
 
 ### Offline behavior
 

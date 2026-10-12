@@ -7,6 +7,184 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-12
+
+A data item can now record who can write its content and whether it is a credential. Both fields
+are optional, editable in the data-item dialog, and carried through import, update, export and the
+Dethereal plugin. Search by meaning — class matching and MITRE technique matching — is now an exact
+cosine search in the database. There is no class vector index left to keep healthy, and the search
+runs on Neo4j as well as Memgraph. Class matching now runs the exact-name and vector tiers together,
+so a name hit no longer hides closer matches by meaning. An element bound to a class but carrying no
+attribute answers now gets that class's exposures when a model is imported or updated. The embedding
+setting now names an embedding profile, and the platform image moves to a glibc base.
+Compared against the previous tag, `v0.10.1`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. The only line of `.env.example` that changed is
+`PLATFORM_VERSION`. **No other `.env` change is needed:** the bundle keeps Ollama, and its
+`EMBEDDING_MODEL=embeddinggemma` is now the built-in legacy HTTP embedding profile, so the platform
+embeds as before and `EMBEDDING_SIMILARITY_THRESHOLD` still applies. A deployment that set
+`EMBEDDING_MODEL` to another model keeps the HTTP embedder with that model and logs a warning at
+start. **Class vector indexes are no longer used.** Class matching is an exact cosine search, so the
+platform no longer creates, checks or rebuilds a class vector index. It does not drop the ones an
+earlier version created either: they stay in the database, unused. The `Vector index … rebuilt`
+lines for class indexes no longer appear at start, and the stored class vectors are used as they
+are. The MITRE technique vector indexes are kept: on Memgraph the platform still creates and repairs
+them in the background, so `MITRE vector index … rebuilt` can still appear. **The new data-item
+fields need no migration:** `origin` and `isCredential` are optional, and existing data items read
+them as null. **Dethereal needs this platform:** Dethereal 0.4.12, built from this code, reads
+`Data.origin` and `Data.isCredential`, which older platforms do not have, so it needs platform 0.11.0
+or later. It is
+published after the platform; upgrade the platform first. **Do not select an in-process ONNX
+embedding profile yet.** The two ONNX profiles exist, but module install does not wait for the
+embedder to load, so classes installed while it loads get no vectors. Keep `EMBEDDING_MODEL` on an
+HTTP model, such as the bundle's `embeddinggemma`. **The platform image runs on a glibc base:** `node:26-trixie-slim` replaces
+`node:26-alpine`. The app user keeps uid and gid 1001, so directory ownership on existing
+deployments is unchanged. The linux/amd64 image is 1.14 GB. API clients should
+read *Changed* for a removed enum value and a removed argument.
+
+### Added
+
+- **Data items record the origin of their content.** `Data.origin` takes a `DataOrigin` value that
+  says who can write the item's content. The seven members run from most to least trusted:
+  `AUTHENTICATED_FIRST_PARTY`, `CURATED_INTERNAL`, `AGENT_RELAYED`, `MODEL_GENERATED`, `THIRD_PARTY`,
+  `ARBITRARY_PUBLIC` and `NOT_ASSESSED`. The last three are untrusted. Null means unclassified. The
+  value is the model author's assertion; the API generates the filters and update inputs for it.
+- **Data items record whether they are a credential.** `Data.isCredential` is a Boolean. Null means
+  unknown, and `false` is an answer. Filters and update inputs are generated as for `origin`.
+- **The data-item dialog edits origin and the credential flag.** The **Origin** select lists the
+  members in trust order, each with a one-line meaning, and marks the three untrusted ones with an
+  **untrusted** chip. The **Credential** select offers yes, no or unknown. Both behave like
+  sensitivity: they are sent only when edited, and a cleared value is sent as an explicit null.
+- **The data-access library carries origin and the credential flag.** The local split format gains
+  `origin`, a lowercase token, and `is_credential`, next to `sensitivity` and `regulatory_flags`.
+  `ORIGIN_LEVELS` (the ordered tokens) and `UNTRUSTED_ORIGINS` are exported from the package root. An
+  unknown origin is dropped with a warning. Import sets both fields on create. The model update push
+  is a full sync, so a file that omits them clears them. Export writes `is_credential` including
+  `false`; a null on the platform writes no key.
+- **Dethereal 0.4.12 validates and hints at the new fields.** `validate_model_json` accepts `origin`
+  (one of the `ORIGIN_LEVELS` tokens) and `is_credential` (a boolean); any other value is a
+  validation error. `get_model_schema` documents both, and the `sensitivity` and `regulatory_flags`
+  fields it was missing. The quality check reports items bound to a credential-like data class whose
+  `is_credential` is unanswered as `credential_hints`. It is a hint only: it never sets the field, an
+  answered `false` is kept, and the quality score does not depend on it.
+- **Dethereal 0.4.12 asks for data origin and confirms credential flags.** The security enricher, the
+  enrich skill and the threat-model workflow ask for a data item's origin where the source of its
+  content is known, with the least-trusted source winning. They propose `is_credential: true` from the
+  credential hints in one batch that the user confirms; nothing is set silently. Review and the model
+  reviewer surface the hints, and items without an origin on flows into external entities or agent
+  components, as Info only. Sync pushes and pulls both fields.
+- **Embedding profiles.** `EMBEDDING_MODEL` now names an embedding profile, which sets the prompts,
+  the vector dimensions and the similarity threshold for each corpus. There are three built-in
+  profiles: `embeddinggemma`, the HTTP embedder without prompts that the bundle uses, and two
+  in-process ONNX profiles, `embeddinggemma-300m-retrieval-v1` and
+  `embeddinggemma-2-text-retrieval-v1`, with retrieval prompts. A value that is not a built-in profile
+  keeps the HTTP embedder with that model name and the `embeddinggemma` thresholds. The module base
+  library's `./embedding` entry exports the profile API and the vector search query builder, and
+  still exports the embedding-text helpers.
+- **An in-process ONNX embedder.** The new `@dethernety/embedder` package runs an ONNX profile inside
+  the platform. It fetches only the files the profile lists into `EMBEDDING_MODEL_DIR`, checks each
+  file's size and sha256 before use, and does not fetch a file that is already present and verified,
+  so weights can be placed offline. It follows redirects over HTTPS only, sends a token only to the
+  profile's hub, never logs URLs or headers, and refuses symbolic links or paths outside the models
+  directory. It sets `ORT_DISABLE_TELEMETRY=1` before onnxruntime loads, overriding the environment,
+  so onnxruntime sends no usage telemetry; the platform image sets it too. Selecting an ONNX profile
+  is not supported yet (see **Upgrading**).
+- **New embedding settings.** `EMBEDDING_MODEL_DIR` holds in-process weights. `EMBEDDING_THREADS` (1
+  to 64, default 4) sets the ONNX thread count. `EMBEDDING_THRESHOLD_CLASSES`,
+  `EMBEDDING_THRESHOLD_MITRE` and `EMBEDDING_THRESHOLD_COMPONENTS` set a cosine floor per corpus and
+  take precedence over `EMBEDDING_SIMILARITY_THRESHOLD` and the profile; a value outside -1 to 1 stops
+  the platform from starting. `HF_TOKEN` is a token for a gated weight source. Under an ONNX profile,
+  `EMBEDDING_SIMILARITY_THRESHOLD` is ignored with a warning that names the per-corpus settings.
+- **`/health` reports the embedder.** When embedding is enabled, the response includes an `embedder`
+  block with its state, runtime, profile and any error. An enabled embedder that is not ready makes
+  the status `degraded`, still with HTTP 200. The HTTP embedder is ready from the start.
+- **Search by meaning runs on Neo4j.** Class matching and MITRE technique matching rank with each
+  engine's own cosine function, so the vector tier now runs on Neo4j as well as Memgraph.
+
+### Changed
+
+- **Search by meaning is an exact cosine search.** Class matching and MITRE technique matching score
+  every candidate that carries a vector of the active embedding model, of the right length, with the
+  database's cosine function, and keep the top results. A self-test on first use checks that
+  orthogonal vectors score 0 and opposite vectors score -1; if it fails, the vector tier stays off and
+  the test is retried. Class matching uses no vector index, and module install no longer touches
+  indexes. The MITRE vector indexes are still kept on Memgraph, in the background, for consumers that
+  search them by name; their upkeep never affects whether the vector tier is available. A MITRE index
+  with the wrong dimension is rebuilt instead of turning vector search off for the whole process.
+- **Class matching runs the exact-name and vector tiers together.** Before, an exact-name or a name
+  containment hit ended the cascade, which could hide better matches by meaning. Now exact-name hits
+  come first, followed by the vector hits not already listed, cut to `topN`. Name containment and the
+  type heuristic run only when neither tier answers. The class picker focuses an exact-name top hit
+  even when vector hits follow it.
+- **The vector availability check is cached.** Class matching used to count, on every request,
+  whether any class in scope has a vector of the active profile, and logged a warning each time. The
+  answer is now kept for ten minutes per label, module scope and profile; concurrent requests share
+  one read, and the warning is logged once per key. A failed read is not kept.
+- **Similarity scores are cosines, and two API items are removed.** `similarityScore` is now the
+  cosine similarity, from -1 to 1. `VectorDisabledReason` loses `NO_INDEX_MODULE`; `EMBEDDING_DISABLED`
+  now also covers an embedder that is not ready and a database that cannot run vector search.
+  `reindexClassEmbeddings` loses its unused `capacity` argument, so a client that still sends it gets
+  an error. `vectorAvailable` means the embedder is ready, the database runs vector search, and at
+  least one class in scope has a vector of the active embedding model.
+- **`reindexClassEmbeddings` writes only valid vectors.** It skips a vector that is not of the right
+  length, finite and non-zero, and its count includes only the vectors it wrote.
+- **A module install keeps class vectors while the embedder is not ready.** When embedding is enabled
+  but the embedder is still downloading, loading or has failed, an install keeps the stored class
+  vectors and is marked partial, so a later install embeds. One warning per start names the embedder
+  state. With embedding disabled, an install still removes class vectors, as before.
+- **`setInstantiationAttributes` accepts an empty object.** It writes nothing and evaluates the
+  element against the answers already on its binding. Arrays, non-objects and nested values are still
+  rejected.
+- **Import and update write attributes four at a time.** The writes are queued while elements are
+  created, then run four at a time once every element exists, before data items and controls are
+  associated and before orphans are deleted. The result is the same; a large import no longer waits
+  for the platform's write debounce once per element.
+- **The platform image runs on a glibc base.** `node:26-trixie-slim` replaces `node:26-alpine`. The
+  app user keeps uid and gid 1001, and curl stays for the health check. The image bundles the
+  embedder, keeps only the onnxruntime binaries for its own platform, and drops the pnpm store from the
+  install layer, which keeps it at 1.14 GB on linux/amd64 (1.87 GB without that pruning).
+- **Integration suites can use an existing Memgraph.** `MEMGRAPH_TEST_URI`, a plain
+  `bolt://host:port` URI, points the backend's integration suites at an existing Memgraph instead of
+  starting a container. Every suite wipes the graph, so the target must hold nothing worth keeping;
+  a suite that needs its own image, flags or container operations refuses to run against it. Test
+  containers now publish their ports on 127.0.0.1 only, and the Neo4j harness runs
+  `neo4j:5.26-community`.
+
+### Fixed
+
+- **An element bound to a class with no answers gets that class's exposures.** The attribute write is
+  what evaluates an element's class, and import and update skipped it when the file carried no
+  answers. They now send an empty write for components, boundaries, data flows and data items on
+  create, and on update when re-binding the same class changes nothing.
+- **Update and push write data-item attributes.** A data item created by an update now gets its
+  attributes written, which that path used to drop. A push that updates an existing data item now
+  writes its attributes too, so edited answers are kept and a class bound with no answers is
+  evaluated.
+- **Module archives built on macOS leave out AppleDouble files.** macOS `tar` can add `._*` entries
+  next to files with extended metadata, and the module loader would try to load them as module code.
+  The archive step now sets `COPYFILE_DISABLE`. This is preventive.
+- **Writing several elements of one class at once no longer fails an exposure update.** On Memgraph,
+  writing several elements of the same class at the same time, as an import does, could fail one
+  element's exposure update with a database error. The exposure and countermeasure writes now start
+  from the element, and transient write conflicts are retried.
+
+### Documentation
+
+- **Data origin and the credential flag are documented.** The glossary, the backend schema notes,
+  the GraphQL API reference, the data-access library's domain model and operations, the module
+  interface's asset-context fields, the Dethereal workflow and sync notes, and the user guides for
+  the data-item dialog and for enrichment describe each value, the trust order, what null means, the
+  update and round-trip rules, and that enrichment proposes and never sets.
+- **The vector tier references describe exact cosine search.** The class and control resolver
+  architecture and specification, the custom resolver services reference, the module management
+  service reference, the pre-computed embeddings specification and the backend delegation design
+  drop class vector indexes, probes and the index heal, and keep the MITRE indexes for index-based
+  consumers. ADR-008 gets an update note.
+- **The class matching references describe the merged cascade.** They state that the exact-name and
+  vector tiers run together with containment as the fallback, correct the containment example to the
+  whole-word rule, and correct the match-type names in the threat-modeling workflow.
+
 ## [0.10.1] - 2026-10-10
 
 Search by meaning — class matching and MITRE technique matching — could stop finding classes and

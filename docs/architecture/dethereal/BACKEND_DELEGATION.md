@@ -129,9 +129,7 @@ Input: {
   elements: [{
     name: string,
     type: "PROCESS" | "STORE" | "EXTERNAL_ENTITY",
-    description?: string,
-    boundary_context?: string,     // parent boundary name
-    iac_source?: string            // e.g., "aws_rds_instance"
+    description?: string           // embedded for the vector tier; without it the tier is skipped
   }],
   class_type: "PROCESS" | "STORE" | "EXTERNAL_ENTITY" | "BOUNDARY" | "DATA_FLOW" | "DATA" | "CONTROL",
   module_ids?: string[],           // active modules (default: all)
@@ -148,9 +146,9 @@ Output: {
       class_description?: string,  // included when "description" in fields
       class_category?: string,     // included when "category" in fields
       module_name: string,
-      match_type: "iac_mapping" | "exact_name" | "fuzzy_name" | "vector_similarity" | "type_match",
+      match_type: "exact_name" | "fuzzy_name" | "vector_similarity" | "type_match",
       confidence: "high" | "medium" | "low",
-      similarity_score?: number    // 0-1, present when match_type is "vector_similarity"
+      similarity_score?: number    // 1.0 for exact_name, name-overlap ratio for fuzzy_name, cosine for vector_similarity; absent for type_match
     }]
   }],
   unmatched: string[]              // elements with no candidates
@@ -161,15 +159,14 @@ Output: {
 
 | Priority | Match type | Confidence | Example | Cost |
 |----------|-----------|------------|---------|------|
-| 1 | IaC mapping table | high | `aws_rds_instance` → "Database" | Deterministic lookup |
-| 2a | Exact name match | high | "PostgreSQL" → "PostgreSQL" class | Case-insensitive string compare |
-| 2b | Vector similarity | medium | "payment processor backend" → "Web Application" (see Section 6) | Requires class embeddings |
-| 3 | Fuzzy name match | high | "Postgres" → "PostgreSQL" class | Levenshtein / substring, no AI |
-| 4 | Type-filtered heuristic | low | STORE element → STORE-typed classes | Returns all type-matching classes |
+| 1a | Exact name match | high | "PostgreSQL" → "PostgreSQL" class | Case-insensitive string compare |
+| 1b | Vector similarity | medium | "payment processor backend" → "Web Application" (see Section 6) | Requires class embeddings |
+| 2 | Name containment (`fuzzy_name`) | high | "Orders Relational Database" → "Relational Database" class | Whole-word containment in either direction, no AI |
+| 3 | Type-filtered heuristic | low | STORE element → STORE-typed classes | Returns all type-matching classes |
 
-Priorities 2a and 2b run together: exact-name hits come first, then the vector hits not already listed, so a name hit does not keep the vector tier from running. Priorities 3 and 4 run only when 2a and 2b both find nothing. Priorities 1, 2a and 3 are deterministic and free. Priority 3 catches common abbreviations and naming variations ("K8s" → "Kubernetes", "Postgres" → "PostgreSQL") without needing embeddings. Priority 2b requires class embeddings (optional — see Section 6). Priority 4 is the baseline fallback.
+Priorities 1a and 1b run together: exact-name hits come first, then the vector hits not already listed, so a name hit does not keep the vector tier from running. Priorities 2 and 3 run only when 1a and 1b both find nothing. Priorities 1a and 2 are deterministic and free. Priority 2 catches an element name that contains a class name as whole words, or is contained in one ("Orders Relational Database" → "Relational Database"); a word inside a longer word is not a hit, and names shorter than 3 characters are skipped. It does not catch abbreviations or spelling variants ("K8s" → "Kubernetes", "Postgres" → "PostgreSQL"): those are left to the vector tier and to Pass 2. Priority 1b requires class embeddings (optional — see Section 6) and an element description. Priority 3 is the baseline fallback.
 
-If vector search is not available, Priority 2b is skipped. Elements that remain unmatched (or matched only at Priority 2b or 4) are returned in the `unmatched` array or flagged as low-confidence. The agent handles these via **Pass 2 LLM reasoning** — applying boundary context, connected flow analysis, and peer inference that the server-side tool cannot do. This preserves the two-pass methodology: `match_classes` handles Pass 1 (deterministic + semantic), the agent handles Pass 2 (contextual).
+If vector search is not available, Priority 1b is skipped. Elements that remain unmatched (or matched only at Priority 1b or 3) are returned in the `unmatched` array or flagged as low-confidence. The agent handles these via **Pass 2 LLM reasoning** — applying boundary context, connected flow analysis, and peer inference that the server-side tool cannot do. This preserves the two-pass methodology: `match_classes` handles Pass 1 (deterministic + semantic), the agent handles Pass 2 (contextual).
 
 **Turn savings:** 6+ `get_classes` calls + in-context matching → 1 tool call. The agent's job shifts from "match all elements" to "confirm high-confidence matches, reason about low-confidence ones."
 
@@ -343,9 +340,9 @@ The `activeModules` scoping (from the multi-module selection design) works in co
 
 ### Motivation
 
-Deterministic matching (IaC mapping, exact name, fuzzy name) handles the easy cases. But the long tail of classification requires semantic understanding: "payment processor backend" should match "Web Application," "session cache" should match "Key-Value Store," and "customer data warehouse" should match "Data Lake." These are not string matches — they require understanding what an element does, not just what it's called.
+Deterministic matching (exact name, name containment) handles the easy cases. But the long tail of classification requires semantic understanding: "payment processor backend" should match "Web Application," "session cache" should match "Key-Value Store," and "customer data warehouse" should match "Data Lake." These are not string matches — they require understanding what an element does, not just what it's called.
 
-The current approach pushes this to the LLM agent (Priority 4 — agent-side reasoning over class descriptions). This works but does not scale: with 500+ classes, the agent cannot hold all descriptions in context. Vector similarity search provides a middle tier — semantic matching without LLM context cost.
+The current approach pushes this to the LLM agent (Priority 3 — agent-side reasoning over class descriptions). This works but does not scale: with 500+ classes, the agent cannot hold all descriptions in context. Vector similarity search provides a middle tier — semantic matching without LLM context cost.
 
 ### Ingestion architecture: embed before insert
 
@@ -366,7 +363,7 @@ Parse module definition → extract class name, description, category, type
   → Batch embed all classes in one call → [vector_1, vector_2, ..., vector_n]
 ```
 
-The embedding is computed externally (local model or cloud API), not by the database. The module ingestion tool holds both the class data and the vectors in memory before writing anything.
+The embedding is computed outside the database (by the in-process embedder or an HTTP embedding endpoint, see *Embedding model options*). The module ingestion tool holds both the class data and the vectors in memory before writing anything.
 
 **Step 3 — Insert everything at once (UNWIND):**
 
@@ -392,36 +389,36 @@ This follows the same pattern as `mitre-frameworks/ingest.py` — pre-compute al
 
 ### Embedding model options
 
-The embedding model is optional and configurable per deployment:
+The embedding model is optional and configurable per deployment. `EMBEDDING_MODEL` names an **embedding profile**, which fixes the model, its prompts, its dimensions and its similarity thresholds (see [Class and control resolver architecture → Embedding service architecture](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md#embedding-service-architecture)):
 
 | Deployment | Embedding source | Model | Notes |
 |-----------|-----------------|-------|-------|
-| Self-hosted (no AI budget) | Disabled | — | No embeddings computed. Falls back to priorities 1-2b-4. System works without it. |
-| Self-hosted (local) | Local model | all-MiniLM-L6-v2 (~80MB) or similar | No network dependency, ~5ms per embedding, 384 dimensions. Sufficient for class matching. |
-| SaaS | Cloud API | OpenAI, Bedrock Titan, or Cohere embedding API | Highest quality, managed, ~$0.0001 per embedding (fractions of a cent per module install) |
+| No embeddings | Disabled | — | No embeddings computed. Falls back to priorities 1a, 2 and 3. System works without it. |
+| In-process | A built-in ONNX profile, run inside dt-ws | EmbeddingGemma variants, 768 dimensions | No embedding service to run. Weights are fetched once and verified before use; until they are loaded the vector tier is off. |
+| HTTP endpoint | Ollama `/api/embed` or an endpoint that takes the same request and answers in Ollama or OpenAI format | `embeddinggemma` (the default), or any model the endpoint serves | No prompts. A model that is not a built-in profile runs under the `embeddinggemma` profile's thresholds unless they are overridden. |
 
 **Cost profile:** Embeddings are computed once per class on module install/update — not per query. A module with 50 classes costs 50 embedding calls. Queries use the pre-computed vectors.
 
-**Model integrity:** When using a local embedding model, verify the model file against a pinned checksum at load time. A compromised model would taint every classification decision. The platform should bundle the model or download from a pinned URL with integrity verification.
+**Model integrity:** A built-in in-process profile pins the weights' repository revision and each file's size and sha256; the files are verified before the model is loaded. A compromised model would taint every classification decision. An HTTP endpoint is trusted as configured.
 
 ### Query-time flow
 
-At match time, `match_classes` embeds each element's `name + description` and performs a vector similarity search:
+At match time, `match_classes` embeds each element that has a description (its name, description and type, as a query under the profile's query prompt) and performs a vector similarity search:
 
 ```
-match_classes(elements: [...], type: PROCESS)
-  → Batch embed all element texts in one call
-  → For each element: exact cosine search across PROCESS-typed classes in active modules
+match_classes(elements: [...], classLabel: COMPONENT, componentType: PROCESS)
+  → For each element with a description: embed its text as a query (one call per element)
+  → Exact cosine search across PROCESS-typed classes in active modules, at or above the classes threshold
   → Returns ranked candidates with similarity scores
 ```
 
-**Batch embedding at query time:** When `match_classes` receives N elements, embed all N texts in a single batch call (most embedding APIs and local models support this). For 15 elements with a local model, this is ~5ms total; with a cloud API, one network round-trip.
+**Embedding at query time:** Each element with a description is embedded in its own call, including elements that also have an exact-name hit. Elements without a description skip the vector tier.
 
 ```cypher
 // Query (at match time, per element); no vector index, every candidate is scored
 MATCH (m:Module)-[:HAS_CLASS]->(n:ComponentClass)
 WHERE n.embeddingModel = $profileId AND size(n.embedding) = $dims
-  AND ($element_type IS NULL OR n.type = $element_type)
+  AND ($componentType IS NULL OR n.type = $componentType)
 WITH n, vector_search.cosine_similarity(n.embedding, $query_vector) AS similarity
 WHERE similarity >= $threshold
 RETURN n.id, n.name, n.description, similarity
@@ -429,21 +426,20 @@ ORDER BY similarity DESC, n.id ASC
 LIMIT $k;
 ```
 
-On Neo4j the score is `2 * vector.similarity.cosine(a, b) - 1` (Neo4j returns `(1 + cos) / 2`), so scores and thresholds are cosines on both engines. Only vectors of the active embedding model are compared. See [Class and control resolver spec → Vector tier](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings).
+On Neo4j the score is `2 * vector.similarity.cosine(a, b) - 1` (Neo4j returns `(1 + cos) / 2`), so scores and thresholds are cosines on both engines. Only vectors of the active embedding profile are compared. See [Class and control resolver spec → Vector tier](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings).
 
 ### Match priority integration
 
-Vector similarity is Priority 2b in the `match_classes` pipeline and runs together with exact name match:
+Vector similarity is Priority 1b in the `match_classes` pipeline and runs together with exact name match:
 
 ```
-1.  IaC mapping table       → deterministic, confidence: high
-2a. Exact name match        → deterministic, confidence: high   (listed first)
-2b. Vector similarity       → semantic, confidence: medium (threshold ≥ 0.75; runs with 2a, hits follow 2a's)
-3.  Fuzzy name match        → deterministic, confidence: high   (only when 2a and 2b find nothing)
-4.  Type-filtered heuristic → fallback, confidence: low
+1a. Exact name match        → deterministic, confidence: high   (listed first)
+1b. Vector similarity       → semantic, confidence: medium (threshold per embedding profile; runs with 1a, hits follow 1a's)
+2.  Name containment        → deterministic, confidence: high   (only when 1a and 1b find nothing)
+3.  Type-filtered heuristic → fallback, confidence: low
 ```
 
-Priorities 1, 2a and 3 are deterministic and free. Priority 2b replaces most of what the agent currently does in-context. Priority 4 remains as a rare fallback. Elements matched at Priority 2b or 4 go through Pass 2 agent reasoning for contextual validation.
+Priorities 1a and 2 are deterministic and free. Priority 1b replaces most of what the agent currently does in-context. Priority 3 remains as a rare fallback. Elements matched at Priority 1b or 3 go through Pass 2 agent reasoning for contextual validation.
 
 ### What gets embedded
 
@@ -463,12 +459,14 @@ Example: `"payment-db. Stores customer payment records and transaction history. 
 
 Vector search is scoped by two dimensions. Both are ordinary `WHERE` filters applied before ranking, since the search scores every candidate:
 
-1. **Type filtering:** Only classes whose `type` matches the element's type (PROCESS, STORE, EXTERNAL_ENTITY) are kept. Eliminates cross-type false positives.
+1. **Type filtering:** When `componentType` (PROCESS, STORE, EXTERNAL_ENTITY) is given, which is allowed only for COMPONENT, only classes of that type are kept. Eliminates cross-type false positives. The element's own type is part of the embedded text, not a filter.
 2. **Module filtering:** When `activeModules` is set, only classes from those modules are kept. Uses the `module_ids` parameter on `match_classes`.
 
-### Similarity threshold calibration
+### Similarity threshold
 
-The 0.75 cosine similarity threshold is a starting value, not an empirically calibrated constant. Different embedding models produce different similarity distributions — 0.75 on `all-MiniLM-L6-v2` is not the same as 0.75 on a cloud API. The threshold should be calibrated against a labeled dataset of element-to-class pairings (constructed from existing models where classification is confirmed). Until calibration data exists, 0.75 is a conservative default that favors precision over recall.
+The threshold is a cosine floor that depends on the **embedding profile** and on the **corpus**. Different embedding models produce different similarity distributions, so the same cosine means different things under different models. Each built-in profile therefore carries its own thresholds, one for class search and one for MITRE technique search, calibrated per profile on a set of class and ATT&CK technique retrieval queries: the highest threshold at which at least 99% of the queries that find an expected match in their top 3 results with no threshold still find one.
+
+A deployment can override the threshold per corpus (`EMBEDDING_THRESHOLD_CLASSES`, `EMBEDDING_THRESHOLD_MITRE`); the legacy `EMBEDDING_SIMILARITY_THRESHOLD` still applies to the HTTP embedder only. See [Class and control resolver architecture → Similarity threshold](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md#similarity-threshold) for the resolution order.
 
 ### Generalized matching infrastructure
 
@@ -485,7 +483,7 @@ The vector ingestion pipeline during module install embeds all five class types 
 If embeddings are disabled (no embedding model configured):
 
 - Module ingestion skips the embedding step — class nodes are created without the `embedding` property
-- `match_classes` skips Priority 2b (vector search finds no nodes with embeddings) and returns only deterministic matches
+- `match_classes` skips Priority 1b (no class in scope has a vector of the active profile) and returns only deterministic matches
 - Unmatched elements are returned in the `unmatched` array for Pass 2 agent reasoning
 
 This makes vector search a **progressive enhancement**: it improves match quality when available but the system is fully functional without it. A class either has its embedding (computed atomically at insert) or it doesn't.
